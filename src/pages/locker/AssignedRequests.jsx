@@ -18,7 +18,11 @@ function rowCashierName(row) {
     );
 }
 
-export default function AssignedRequests({ onTabChange }) {
+export default function AssignedRequests({
+    onTabChange,
+    selectedBranchId = 'all',
+    branchLockedId = null,
+} = {}) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -27,11 +31,13 @@ export default function AssignedRequests({ onTabChange }) {
         setLoading(true);
         setError('');
         try {
+            const scope = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : undefined);
             const res = await apiFetch(
                 `/locker/collection-requests${qs({
                     view: 'collector',
                     status: 'assigned',
                     limit: 50,
+                    ...(scope ? { branchId: scope } : {}),
                 })}`,
             );
             const list = res?.items || res?.rows || res?.data || [];
@@ -41,7 +47,7 @@ export default function AssignedRequests({ onTabChange }) {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedBranchId, branchLockedId]);
 
     useEffect(() => {
         load();
@@ -100,25 +106,27 @@ export default function AssignedRequests({ onTabChange }) {
                                             {p.referenceCode}
                                         </strong>
                                     </td>
-                                    <td>{p.branchName}</td>
+                                    <td>{p.branchName || p.branch?.name || '—'}</td>
                                     <td>{rowCashierName(p)}</td>
-                                    <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                        {p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}
-                                    </td>
                                     <td>
-                                        <strong>{fmtSar(p.expectedAmount)}</strong>
+                                        {p.assignedAt
+                                            ? new Date(p.assignedAt).toLocaleString()
+                                            : '—'}
                                     </td>
+                                    <td>{fmtSar(p.expectedAmount ?? p.totalSecuredAsset)}</td>
                                     <td>
-                                        <span className="ws-badge ws-badge--blue">assigned</span>
+                                        <span className="ws-badge ws-badge--yellow">
+                                            {String(p.status || 'assigned').replace(/_/g, ' ')}
+                                        </span>
                                     </td>
                                     <td>
                                         <button
                                             type="button"
-                                            className="wlk-action-btn wlk-action-btn--record"
+                                            className="btn-portal"
                                             onClick={() => goToCollect(p.id)}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
                                         >
-                                            <span>Collect cash</span>
-                                            <ArrowRight size={14} />
+                                            Collect <ArrowRight size={14} />
                                         </button>
                                     </td>
                                 </tr>

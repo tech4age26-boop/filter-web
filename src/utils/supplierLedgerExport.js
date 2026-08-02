@@ -74,6 +74,14 @@ export function exportSupplierLedgerPdf({
         `Supplier: ${header?.supplierName || ''}  ` +
             `(${header?.type === 'affiliated' ? 'Affiliated' : 'Non-Affiliated'})`,
         header?.branchName ? `Branch: ${header.branchName}` : null,
+        header?.vatNumber ? `VAT No.: ${header.vatNumber}` : null,
+        header?.phone ? `Phone: ${header.phone}` : null,
+        header?.contactPerson || header?.email
+            ? `Contact: ${header.contactPerson || header.email}`
+            : null,
+        header?.accountCode
+            ? `Account: [${header.accountCode}] ${header.accountName || ''}`.trim()
+            : null,
         `Period: ${header?.from || '—'}  to  ${header?.to || '—'}`,
         `Currency: ${header?.currencyCode || 'SAR'}`,
     ].filter(Boolean);
@@ -159,6 +167,12 @@ export function exportSupplierLedgerExcel({
         ['Supplier', header?.supplierName || ''],
         ['Type', header?.type === 'affiliated' ? 'Affiliated' : 'Non-Affiliated'],
         ['Branch', header?.branchName || ''],
+        ['VAT No.', header?.vatNumber || ''],
+        ['Phone', header?.phone || ''],
+        ['Contact', header?.contactPerson || header?.email || ''],
+        ...(header?.accountCode
+            ? [['Account', `[${header.accountCode}] ${header.accountName || ''}`.trim()]]
+            : []),
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
         ['Currency', header?.currencyCode || 'SAR'],
         [],
@@ -679,7 +693,7 @@ export function exportVatReportPdf({
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text(header?.companyName || 'Supplier', margin, cursorY + 16);
+    doc.text(header?.companyName || 'Company', margin, cursorY + 16);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
@@ -687,7 +701,7 @@ export function exportVatReportPdf({
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('VAT Report', margin, cursorY + 58);
+    doc.text('VAT Calculation', margin, cursorY + 58);
 
     cursorY += 78;
 
@@ -783,9 +797,9 @@ export function exportVatReportExcel({
         ? `[${vatPayableAccount.code}] ${vatPayableAccount.name || ''}`
         : 'VAT Payable to ZATCA';
     const aoa = [
-        [header?.companyName || 'Supplier'],
+        [header?.companyName || 'Company'],
         [accountLabel],
-        ['VAT Report'],
+        ['VAT Calculation'],
         [],
         ['Ledger account', accountLabel],
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
@@ -797,10 +811,10 @@ export function exportVatReportExcel({
             r.date,
             r.reference || '',
             r.description || '',
-            r.saleInclVat > 0 ? Number(r.saleInclVat) : '',
-            r.purchaseInclVat > 0 ? Number(r.purchaseInclVat) : '',
-            r.vatOutput > 0 ? Number(r.vatOutput) : '',
-            r.vatInput > 0 ? Number(r.vatInput) : '',
+            r.saleInclVat !== 0 ? Number(r.saleInclVat) : '',
+            r.purchaseInclVat !== 0 ? Number(r.purchaseInclVat) : '',
+            r.vatOutput !== 0 ? Number(r.vatOutput) : '',
+            r.vatInput !== 0 ? Number(r.vatInput) : '',
             Number(r.payableToZatca ?? 0),
         ]),
         totals

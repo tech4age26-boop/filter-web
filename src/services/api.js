@@ -6,7 +6,7 @@ import { notifyUserActivity } from '../utils/sessionIdle';
 export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 // development url
 
-// export const BASE_URL = 'http://localhost:3000';
+//export const BASE_URL = 'http://localhost:3000';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
@@ -206,10 +206,21 @@ export async function apiFetch(path, options = {}) {
   const url = buildUrl(path);
 
   try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+      });
+    } catch (networkErr) {
+      const hint =
+        networkErr?.message === "Failed to fetch" ||
+        networkErr?.name === "TypeError"
+          ? `Cannot reach API at ${BASE_URL}. Start the backend (filter_backend → npm run start:dev) and retry.`
+          : networkErr?.message || "Network request failed";
+      console.error("[apiFetch] Network error", { path, method, url, error: networkErr });
+      throw new Error(hint);
+    }
 
     const contentType = response.headers.get("content-type") || "";
 

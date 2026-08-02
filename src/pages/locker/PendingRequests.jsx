@@ -34,11 +34,17 @@ const EMPTY_FILTERS = {
     maxExpected: '',
 };
 
-export default function PendingRequests({ onTabChange }) {
+export default function PendingRequests({
+    onTabChange,
+    selectedBranchId = 'all',
+    branches: layoutBranches = null,
+    branchLockedId = null,
+} = {}) {
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [rows, setRows] = useState([]);
     const [summary, setSummary] = useState(null);
-    const [filters, setFilters] = useState(EMPTY_FILTERS);
-    const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
+    const [filters, setFilters] = useState({ ...EMPTY_FILTERS, branchId: scopeBranch });
+    const [appliedFilters, setAppliedFilters] = useState({ ...EMPTY_FILTERS, branchId: scopeBranch });
     const [branches, setBranches] = useState([]);
     const [cashiers, setCashiers] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -51,14 +57,22 @@ export default function PendingRequests({ onTabChange }) {
     const [forwardError, setForwardError] = useState('');
 
     useEffect(() => {
+        const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+        setFilters((f) => ({ ...f, branchId: next }));
+        setAppliedFilters((f) => ({ ...f, branchId: next }));
+    }, [selectedBranchId, branchLockedId]);
+
+    useEffect(() => {
         Promise.all([
-            apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
+            Array.isArray(layoutBranches) && layoutBranches.length
+                ? Promise.resolve(layoutBranches)
+                : apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
             apiFetch('/locker/cashiers').then((r) => r?.cashiers || []).catch(() => []),
         ]).then(([b, c]) => {
             setBranches(b);
             setCashiers(c);
         });
-    }, []);
+    }, [layoutBranches]);
 
     const load = useCallback(async (activeFilters = appliedFilters) => {
         setLoading(true);
@@ -88,8 +102,12 @@ export default function PendingRequests({ onTabChange }) {
 
     const applyFilters = () => setAppliedFilters({ ...filters });
     const resetFilters = () => {
-        setFilters(EMPTY_FILTERS);
-        setAppliedFilters(EMPTY_FILTERS);
+        const next = {
+            ...EMPTY_FILTERS,
+            branchId: branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all'),
+        };
+        setFilters(next);
+        setAppliedFilters(next);
     };
 
     const loadOfficers = useCallback(async () => {
@@ -186,6 +204,7 @@ export default function PendingRequests({ onTabChange }) {
                 cashiers={cashiers}
                 showExpectedRange
                 loading={loading}
+                branchLockedId={branchLockedId}
             />
 
             <div className="ws-kpi-grid wlk-summary-kpi" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>

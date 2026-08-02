@@ -396,6 +396,7 @@ const ENTITY_TYPES = [
     { value: 'marketing_campaign', label: 'Marketing campaign' },
     { value: 'marketing_expense', label: 'Marketing expense' },
     { value: 'marketing_promo_code', label: 'Marketing promo code' },
+    { value: 'locker_expense', label: 'Locker expense' },
     { value: 'technician_registration', label: 'Technician' },
 ];
 
@@ -649,6 +650,14 @@ function buildMetaChips(item) {
             push('Amount', m.amountLabel);
             push('Campaign', m.campaignName);
             push('Date', m.expenseDate);
+            break;
+        case 'locker_expense':
+            push('Workshop', m.workshopName);
+            push('Branch', m.branchName);
+            push('Category', m.category);
+            push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
+            push('Date', m.expenseDate);
+            push('JE', m.journalEntryNumber);
             break;
         case 'marketing_promo_code':
             push('Code', m.code);
@@ -3465,6 +3474,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'marketing_budget_request':
             case 'admin_wallet_fund_request':
             case 'admin_wallet_expense_request':
+            case 'locker_expense':
                 return <Tag size={14} />;
             default:
                 return <FileText size={14} />;

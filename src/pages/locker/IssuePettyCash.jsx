@@ -9,7 +9,11 @@ const fmtSar = (n) =>
         maximumFractionDigits: 2,
     })}`;
 
-export default function IssuePettyCash() {
+export default function IssuePettyCash({
+    selectedBranchId = 'all',
+    branchLockedId = null,
+} = {}) {
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : undefined);
     const [cashiers, setCashiers] = useState([]);
     const [overview, setOverview] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -28,21 +32,25 @@ export default function IssuePettyCash() {
         setLoading(true);
         setError('');
         try {
-            const [cashRes, overRes] = await Promise.all([
+            const branchQs = scopeBranch ? { branchId: scopeBranch } : {};
+            const [cashRes, overRes, logRes] = await Promise.all([
                 apiFetch('/locker/cashiers').catch(() => ({ cashiers: [] })),
-                apiFetch(`/locker/dashboard${qs({ view: 'supervisor' })}`).catch(() => null),
+                apiFetch(`/locker/dashboard${qs({ view: 'supervisor', ...branchQs })}`).catch(() => null),
+                apiFetch(`/locker/petty-cash-issues${qs({ limit: 15, ...branchQs })}`).catch(() => ({ issues: [] })),
             ]);
-            setCashiers(cashRes?.cashiers || []);
+            let list = cashRes?.cashiers || [];
+            if (scopeBranch) {
+                list = list.filter((c) => !c.branchId || String(c.branchId) === String(scopeBranch));
+            }
+            setCashiers(list);
             setOverview(overRes);
-            // Use empty here — bank deposits/petty cash issues are listed inside the
-            // workshop-admin Locker Management page; locker officers see only the form.
-            setHistory([]);
+            setHistory(Array.isArray(logRes?.issues) ? logRes.issues : []);
         } catch (e) {
             setError(e?.message || 'Failed to load data');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [scopeBranch]);
 
     useEffect(() => {
         load();
@@ -203,31 +211,38 @@ export default function IssuePettyCash() {
             <div className="wlk-section">
                 <div className="wlk-section-header">
                     <h3>Recent petty cash floats issued<span className="wlk-count">{history.length}</span></h3>
+                    <p className="wlk-subtitle" style={{ margin: 0 }}>
+                        Full filtered log: open <strong>Petty Cash Issue Log</strong> in the sidebar.
+                    </p>
                 </div>
                 <div className="wlk-section-body">
                     <table className="wlk-table">
                         <thead>
                             <tr>
-                                <th>Cashier</th>
-                                <th>Amount</th>
-                                <th>Description</th>
                                 <th>Date</th>
+                                <th>Cashier</th>
+                                <th>Branch</th>
+                                <th>Amount</th>
+                                <th>Reference</th>
+                                <th>JE</th>
                             </tr>
                         </thead>
                         <tbody>
                             {history.length === 0 ? (
                                 <tr>
-                                    <td colSpan={4} className="wlk-empty">
+                                    <td colSpan={6} className="wlk-empty">
                                         No floats issued yet
                                     </td>
                                 </tr>
                             ) : (
                                 history.map((p) => (
                                     <tr key={p.id}>
+                                        <td>{p.date || (p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—')}</td>
                                         <td>{p.cashierName || '—'}</td>
+                                        <td>{p.branchName || '—'}</td>
                                         <td>{fmtSar(p.amount)}</td>
-                                        <td>{p.description}</td>
-                                        <td>{new Date(p.createdAt).toLocaleString()}</td>
+                                        <td>{p.description || '—'}</td>
+                                        <td>{p.journalEntryNumber || '—'}</td>
                                     </tr>
                                 ))
                             )}

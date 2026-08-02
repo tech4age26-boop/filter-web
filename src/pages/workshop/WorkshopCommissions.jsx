@@ -11,8 +11,9 @@ import { useAuth } from '../../context/AuthContext';
 import { wcomT } from '../../utils/workshopCommissionsI18n';
 
 const COMMISSIONS_TABS = [
-    { key: 'ledger', labelKey: 'tab.ledger', permission: 'workshop.commissions.ledger.view' },
-    { key: 'rules',  labelKey: 'tab.rules',  permission: 'workshop.commissions.rules.view' },
+    { key: 'payouts', labelKey: 'tab.payouts', permission: 'workshop.commissions.ledger.view' },
+    { key: 'commissions', labelKey: 'tab.commissions', permission: 'workshop.commissions.ledger.view' },
+    { key: 'rules', labelKey: 'tab.rules', permission: 'workshop.commissions.rules.view' },
 ];
 import {
     getWorkshopCommissionsSummary,
@@ -204,7 +205,7 @@ export default function WorkshopCommissions({
     const visibleCommissionTabs = adminMode
         ? COMMISSIONS_TABS
         : COMMISSIONS_TABS.filter((tab) => hasPermission(tab.permission));
-    const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'ledger');
+    const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'payouts');
     useEffect(() => {
         if (visibleCommissionTabs.length === 0) return;
         if (!visibleCommissionTabs.some((tab) => tab.key === activeTab)) {
@@ -659,6 +660,7 @@ export default function WorkshopCommissions({
             return key;
         });
         setFilterStatus('accrued');
+        setActiveTab('commissions');
     };
 
     const closePayoutScreen = () => {
@@ -839,6 +841,7 @@ export default function WorkshopCommissions({
                 </div>
             </div>
 
+            {activeTab === 'payouts' ? (
             <div className="ws-commissions-section">
                 <header
                     className="ws-section-header"
@@ -1014,7 +1017,8 @@ export default function WorkshopCommissions({
                     </WsTableScroll>
                 </div>
             </div>
-
+            ) : (
+            <>
             <div className="ws-commissions-filters">
                 <div className="ws-filter-group">
                     <select
@@ -1238,6 +1242,9 @@ export default function WorkshopCommissions({
                         {t('btn.next')}
                     </button>
                 </div>
+            )}
+
+            </>
             )}
 
             </>

@@ -18,7 +18,11 @@ const fmtSar = (n) =>
         maximumFractionDigits: 2,
     })}`;
 
-export default function LockerDashboard({ onTabChange, portalRole = 'supervisor' }) {
+export default function LockerDashboard({
+    onTabChange,
+    portalRole = 'supervisor',
+    selectedBranchId = 'all',
+}) {
     const isCollector = portalRole === 'collector';
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -29,11 +33,18 @@ export default function LockerDashboard({ onTabChange, portalRole = 'supervisor'
         setLoading(true);
         setError('');
         try {
+            const branchQ =
+                selectedBranchId && selectedBranchId !== 'all'
+                    ? { branchId: selectedBranchId }
+                    : {};
             const [dashRes, historyRes] = await Promise.all([
-                apiFetch(`/locker/dashboard${qs({ view: isCollector ? 'collector' : 'supervisor' })}`).catch((e) => {
+                apiFetch(`/locker/dashboard${qs({
+                    view: isCollector ? 'collector' : 'supervisor',
+                    ...branchQ,
+                })}`).catch((e) => {
                     throw new Error(e?.message || 'Failed to load dashboard');
                 }),
-                apiFetch(`/locker/financial/history${qs({ page: 1, limit: 5 })}`).catch(
+                apiFetch(`/locker/financial/history${qs({ page: 1, limit: 5, ...branchQ })}`).catch(
                     () => ({ items: [] }),
                 ),
             ]);
@@ -44,7 +55,7 @@ export default function LockerDashboard({ onTabChange, portalRole = 'supervisor'
         } finally {
             setLoading(false);
         }
-    }, [isCollector]);
+    }, [isCollector, selectedBranchId]);
 
     useEffect(() => {
         load();

@@ -375,15 +375,15 @@ function WorkshopEmployees({
         (emp) => {
             const ids = Array.isArray(emp.departmentIds) ? emp.departmentIds : [];
             if (ids.length && workshopDepartments.length) {
-                const names = ids
-                    .map((id) => {
-                        const row = workshopDepartments.find(
-                            (d) => String(d.id ?? d._id) === String(id),
-                        );
-                        return row?.name ?? row?.departmentName ?? '';
-                    })
+            const names = ids
+                .map((id) => {
+                    const row = workshopDepartments.find(
+                        (d) => String(d.id ?? d._id) === String(id),
+                    );
+                    return row?.name ?? row?.departmentName ?? '';
+                })
                     .map((n) => String(n).trim())
-                    .filter(Boolean);
+                .filter(Boolean);
                 if (names.length) return names;
             }
             const direct = emp.department && String(emp.department).trim();
@@ -663,8 +663,8 @@ function WorkshopEmployees({
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
         const isPortal = isPortalStaffRole(form.role);
         const isLocker = isLockerPortalRole(form.role);
-        // Cashiers, generic staff rows, and portal staff need a branch on an approved portal.
-        // Locker users are workshop-wide and don't need a branch.
+        // Cashiers / portal staff need a branch. Locker roles: branch optional
+        // (empty = all branches; set = hard-lock to that branch in locker portal).
         const isCashierCreate = !editing && !asTechnician && (form.role === 'cashier' || form.role === 'staff');
         const isPortalCreate = !editing && !asTechnician && isPortal && !isLocker;
         const editingLocker =
@@ -829,7 +829,7 @@ function WorkshopEmployees({
     };
 
     if (roleEditTarget !== null) {
-        return (
+    return (
             <WorkshopRoleScreen
                 role={roleEditTarget.id ? roleEditTarget : null}
                 branches={branchList}
@@ -837,7 +837,7 @@ function WorkshopEmployees({
                 onBack={() => setRoleEditTarget(null)}
                 onSaved={async () => {
                     setRoleEditTarget(null);
-                    await loadWorkshopRoles();
+                            await loadWorkshopRoles();
                 }}
             />
         );
@@ -950,7 +950,6 @@ function WorkshopEmployees({
                                         })()}
                                         <select
                                             value={form.branchId}
-                                            disabled={isLockerPortalRole(form.role)}
                                             onChange={(e) => {
                                                 const v = e.target.value;
                                                 setForm((f) => ({
@@ -984,7 +983,6 @@ function WorkshopEmployees({
                                                     ...f,
                                                     role: v,
                                                     ...(v !== 'team_leader' ? { teamLeaderDepartmentId: '' } : {}),
-                                                    ...(isLockerPortalRole(v) ? { branchId: '' } : {}),
                                                 }));
                                             }}
                                         >

@@ -246,7 +246,7 @@ export function buildPurchaseInvoicePayload(p) {
         totals: {
             /** Sum of line taxable amounts (ex VAT), after line discounts only */
             lines_taxable_ex_vat: money2(p.totals?.lines_taxable_ex_vat ?? 0),
-            /** Sum of line VAT amounts (before invoice-level discount) */
+            /** Sum of line VAT before invoice-level discount (informational) */
             lines_total_vat: money2(p.totals?.lines_total_vat ?? 0),
             /** Sum of line totals incl VAT (before invoice-level discount) */
             lines_grand_total_incl_vat: money2(p.totals?.lines_grand_total_incl_vat ?? 0),
@@ -255,8 +255,13 @@ export function buildPurchaseInvoicePayload(p) {
             line_discount_amount: money2(p.totals?.line_discount_amount ?? 0),
 
             invoice_discount_applied_ex_vat: money2(p.totals?.invoice_discount_applied_ex_vat ?? 0),
+            taxable_after_invoice_discount: money2(
+                p.totals?.taxable_after_invoice_discount
+                    ?? p.totals?.subtotal_ex_vat
+                    ?? 0,
+            ),
 
-            /** Amounts your AP / purchase row should store (after invoice discount, single VAT bucket) */
+            /** Stored AP amounts: taxable after invoice discount, VAT on that base, grand */
             subtotal_ex_vat: money2(p.totals?.subtotal_ex_vat ?? 0),
             total_vat: money2(p.totals?.total_vat ?? 0),
             grand_total: money2(p.totals?.grand_total ?? 0),

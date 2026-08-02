@@ -483,6 +483,22 @@ function mapWorkshopPurchaseInvoiceForViewDetail(row) {
         totalVat,
         grandTotal: grand,
         total: grand,
+        discountAmount: Number(
+            row.discount_amount
+                ?? row.discountAmount
+                ?? raw.discountAmount
+                ?? raw.discount_amount
+                ?? payload?.totals?.invoice_discount_applied_ex_vat
+                ?? 0,
+        ),
+        invoiceDiscount: Number(
+            row.discount_amount
+                ?? row.discountAmount
+                ?? raw.discountAmount
+                ?? raw.discount_amount
+                ?? payload?.totals?.invoice_discount_applied_ex_vat
+                ?? 0,
+        ),
         amountPaid: Number(row.amount_paid ?? 0),
         paidAmount: Number(row.amount_paid ?? 0),
         balanceDue: Number(row.balance_due ?? 0),
@@ -1392,11 +1408,18 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             });
         const freightIn = invoiceTotals.freight_in ?? 0;
         const invoiceDiscountSar = invoiceTotals.invoice_discount_applied_ex_vat ?? 0;
+        const taxableAfter =
+            invoiceTotals.taxable_after_invoice_discount
+            ?? Math.max(
+                0,
+                (invoiceTotals.lines_taxable_ex_vat ?? 0) - invoiceDiscountSar,
+            );
         const invRaw = parseFloat(String(invoiceDiscountValue).replace(',', '.')) || 0;
         const invPctDisplayed = Math.min(100, Math.max(0, invRaw));
         return {
             subtotal: fmt2(invoiceTotals.lines_taxable_ex_vat),
-            totalTax: fmt2(invoiceTotals.lines_total_vat),
+            amountAfterDiscount: fmt2(taxableAfter),
+            totalTax: fmt2(invoiceTotals.total_vat),
             freight: fmt2(freightIn),
             freightInFormatted: fmt2(freightIn),
             invoiceDiscountFormatted: fmt2(invoiceDiscountSar),
@@ -2722,8 +2745,15 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                   : t('line.chooseBranchFirst')
                                                                         }
                                                                         onFocus={() => {
-                                                                            setActiveProductSearchLineId(line.id);
-                                                                            updateProductDropdownPosition(line.id);
+                                                                            // Don't reopen the catalog over an already-selected product.
+                                                                            // Typing or ArrowDown still opens the list.
+                                                                            if (!line.productId) {
+                                                                                setActiveProductSearchLineId(line.id);
+                                                                                updateProductDropdownPosition(line.id);
+                                                                            } else {
+                                                                                setActiveProductSearchLineId(null);
+                                                                                setProductDropdownPosition(null);
+                                                                            }
                                                                         }}
                                                                         onChange={(e) => handleLineProductSearchChange(line.id, e.target.value)}
                                                                         onBlur={() => {
@@ -2746,8 +2776,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                 return;
                                                                             }
                                                                             if (e.key === 'ArrowDown') {
-                                                                                if (productResults.length === 0) return;
                                                                                 e.preventDefault();
+                                                                                setActiveProductSearchLineId(line.id);
+                                                                                updateProductDropdownPosition(line.id);
+                                                                                if (productResults.length === 0) return;
                                                                                 setHighlightedProductIndex((prev) =>
                                                                                     prev < 0
                                                                                         ? 0
@@ -2759,7 +2791,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                 return;
                                                                             }
                                                                             if (e.key === 'ArrowUp') {
-                                                                                if (productResults.length === 0) return;
+                                                                                if (!showProductResults || productResults.length === 0) return;
                                                                                 e.preventDefault();
                                                                                 setHighlightedProductIndex((prev) =>
                                                                                     prev <= 0 ? -1 : prev - 1,
@@ -2768,13 +2800,17 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                             }
                                                                             if (e.key !== 'Enter') return;
                                                                             e.preventDefault();
-                                                                            if (productResults.length > 0) {
+                                                                            if (showProductResults && productResults.length > 0) {
                                                                                 const h = highlightedProductIndexRef.current;
                                                                                 const pick =
                                                                                     h >= 0 && h < productResults.length
                                                                                         ? h
                                                                                         : 0;
                                                                                 handleLineProductChange(line.id, productResults[pick].id);
+                                                                                return;
+                                                                            }
+                                                                            // Keep an already-selected product when the list is closed.
+                                                                            if (line.productId && !showProductResults) {
                                                                                 return;
                                                                             }
                                                                             const manual = String(searchText || '').trim();
@@ -3175,6 +3211,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <span style={{ color: '#B91C1C' }}>
                                                 {t('summary.minusSar', { amount: money(summary.invoiceDiscountFormatted) })}
                                             </span>
+                                        </div>
+                                    ) : null}
+                                    {summary.showInvoiceDiscountRow ? (
+                                        <div className="pi-summary-row">
+                                            <span>Amount after invoice discount:</span>
+                                            <span>SAR {summary.amountAfterDiscount}</span>
                                         </div>
                                     ) : null}
                                     <div className="pi-summary-row">

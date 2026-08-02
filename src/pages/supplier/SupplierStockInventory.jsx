@@ -368,7 +368,7 @@ export default function SupplierStockInventory() {
     useEffect(() => {
         // Debounce search to avoid spamming the API while typing.
         const t = setTimeout(() => {
-            loadStock();
+        loadStock();
         }, 250);
         return () => clearTimeout(t);
     }, [loadStock, search]);
@@ -436,6 +436,10 @@ export default function SupplierStockInventory() {
                 PI_PRESET_STOCK_LINE,
                 JSON.stringify({
                     supplierProductId: String(s.id),
+                    masterProductId:
+                        s.masterProductId != null && String(s.masterProductId).trim() !== ''
+                            ? String(s.masterProductId).trim()
+                            : String(s.id),
                     name: s.name || '',
                     sku: !s.sku || s.sku === '-' ? '' : String(s.sku),
                     unit: s.warehouseUnit || s.unit || 'Box',
@@ -616,24 +620,24 @@ export default function SupplierStockInventory() {
                 >
                     Stock Movements
                 </button>
-            </div>
+                    </div>
 
             {activeTab === 'items' && (
                 <div className="ws-section" style={{ padding: 16 }}>
                     <div
                         style={{
-                            display: 'flex',
+                                display: 'flex',
                             flexWrap: 'wrap',
-                            alignItems: 'center',
+                                alignItems: 'center',
                             justifyContent: 'space-between',
                             gap: 10,
                             marginBottom: 12,
-                        }}
-                    >
+                            }}
+                        >
                         <div>
                             <h3 style={{ margin: 0, fontSize: '1rem' }}>Inventory items</h3>
-                            <p
-                                style={{
+                        <p
+                            style={{
                                     margin: '4px 0 0',
                                     fontSize: '0.8125rem',
                                     color: 'var(--color-text-muted)',
@@ -641,14 +645,14 @@ export default function SupplierStockInventory() {
                             >
                                 Shows all catalog items (including 0 quantity). Use Critical to
                                 toggle critical-only view.
-                            </p>
-                        </div>
+                        </p>
+                    </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <button
                                 type="button"
                                 onClick={() => setCriticalOnly((v) => !v)}
                                 className="btn-portal-outline"
-                                style={{
+                        style={{
                                     borderColor: criticalOnly ? '#DC2626' : undefined,
                                     color: criticalOnly ? '#DC2626' : undefined,
                                     fontWeight: 700,
@@ -664,19 +668,19 @@ export default function SupplierStockInventory() {
                             >
                                 {itemsLoading ? 'Refreshing…' : 'Refresh'}
                             </button>
-                        </div>
+                    </div>
                     </div>
 
                     {itemsError ? (
                         <div className="mgr-si-error" style={{ marginBottom: 12 }}>
                             {itemsError}
-                        </div>
+                </div>
                     ) : null}
 
                     <div style={{ position: 'relative', width: '100%', marginBottom: 12 }}>
                         <Search
                             size={16}
-                            style={{
+                style={{
                                 position: 'absolute',
                                 left: 14,
                                 top: '50%',
@@ -691,15 +695,15 @@ export default function SupplierStockInventory() {
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Search items by name or SKU..."
-                            style={{
+                    style={{
                                 width: '100%',
                                 padding: '11px 14px 11px 42px',
                                 borderRadius: 10,
                                 border: '1px solid var(--color-border)',
-                                fontSize: '0.875rem',
+                        fontSize: '0.875rem',
                             }}
                         />
-                    </div>
+            </div>
 
                     {itemsLoading && inventoryItems.length === 0 ? (
                         <ShimmerTable rows={8} columns={6} />
@@ -1081,7 +1085,7 @@ export default function SupplierStockInventory() {
                                                     </td>
                                                     <td>
                                                         {(s.pendingWorkshopReceive || 0) > 0 ? (
-                                                            <span
+                                                        <span
                                                                 style={{
                                                                     display: 'inline-flex',
                                                                     flexDirection: 'column',
@@ -1102,7 +1106,7 @@ export default function SupplierStockInventory() {
                                                                     }}
                                                                 >
                                                                     Not received
-                                                                </span>
+                                                        </span>
                                                             </span>
                                                         ) : (
                                                             '—'
@@ -1126,10 +1130,10 @@ export default function SupplierStockInventory() {
                                                             </span>
                                                             {s.usesCatalogPrice ? (
                                                                 <span
-                                                                    style={{
+                                                            style={{
                                                                         fontSize: '0.68rem',
                                                                         color: '#64748b',
-                                                                        fontWeight: 600,
+                                                                fontWeight: 600,
                                                                     }}
                                                                 >
                                                                     From master catalog
@@ -1162,10 +1166,10 @@ export default function SupplierStockInventory() {
                                                                     .trim()
                                                                     .toLowerCase() ? (
                                                                 <span
-                                                                    style={{
+                                                            style={{
                                                                         fontSize: '0.68rem',
                                                                         color: '#64748b',
-                                                                        fontWeight: 600,
+                                                                fontWeight: 600,
                                                                     }}
                                                                 >
                                                                     SAR{' '}
@@ -1318,13 +1322,13 @@ export default function SupplierStockInventory() {
                             <div style={{ flex: '1 1 280px', maxWidth: 420, position: 'relative' }}>
                                 <label
                                     htmlFor="movement-product-search"
-                                    style={{
+                                style={{
                                         display: 'block',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 700,
-                                        color: 'var(--color-text-muted)',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.04em',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    color: 'var(--color-text-muted)',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.04em',
                                         marginBottom: 6,
                                     }}
                                 >
@@ -1365,7 +1369,7 @@ export default function SupplierStockInventory() {
                                         aria-expanded={movementPickerOpen}
                                         aria-controls="movement-product-picker-list"
                                         aria-autocomplete="list"
-                                        style={{
+                                style={{
                                             width: '100%',
                                             padding: '10px 36px 10px 40px',
                                             borderRadius: 10,
@@ -1374,12 +1378,12 @@ export default function SupplierStockInventory() {
                                         }}
                                     />
                                     {movementProductId ? (
-                                        <button
-                                            type="button"
+                            <button
+                                type="button"
                                             title="Clear product filter"
                                             onMouseDown={(e) => e.preventDefault()}
                                             onClick={clearMovementProductFilter}
-                                            style={{
+                                style={{
                                                 position: 'absolute',
                                                 right: 8,
                                                 top: '50%',
@@ -1395,15 +1399,15 @@ export default function SupplierStockInventory() {
                                             }}
                                         >
                                             ✕
-                                        </button>
+                            </button>
                                     ) : null}
-                                </div>
+                        </div>
                                 {movementPickerOpen && movementProductOptions.length > 0 ? (
                                     <ul
                                         id="movement-product-picker-list"
                                         ref={movementPickerListRef}
                                         role="listbox"
-                                        style={{
+                                                style={{
                                             position: 'absolute',
                                             zIndex: 20,
                                             top: '100%',
@@ -1441,9 +1445,9 @@ export default function SupplierStockInventory() {
                                             >
                                                 <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>
                                                     {p.name}
-                                                </div>
+                        </div>
                                                 <div
-                                                    style={{
+                                    style={{
                                                         fontSize: '0.75rem',
                                                         color: 'var(--color-text-muted)',
                                                         marginTop: 2,
@@ -1460,7 +1464,7 @@ export default function SupplierStockInventory() {
                                 movementProductSearch.trim() &&
                                 movementProductOptions.length === 0 ? (
                                     <div
-                                        style={{
+                                    style={{
                                             position: 'absolute',
                                             zIndex: 20,
                                             top: '100%',
@@ -1472,29 +1476,29 @@ export default function SupplierStockInventory() {
                                             border: '1px solid var(--color-border)',
                                             borderRadius: 10,
                                             fontSize: '0.8125rem',
-                                            color: 'var(--color-text-muted)',
-                                        }}
-                                    >
+                                        color: 'var(--color-text-muted)',
+                                    }}
+                                >
                                         No products match
-                                    </div>
-                                ) : null}
                             </div>
+                                ) : null}
+                    </div>
                             {selectedMovementProduct ? (
-                                <div
-                                    style={{
+                            <div
+                                style={{
                                         flex: '1 1 240px',
                                         padding: '12px 16px',
                                         background: '#F0FDF4',
                                         border: '1px solid #BBF7D0',
-                                        borderRadius: 12,
-                                    }}
-                                >
+                                    borderRadius: 12,
+                                }}
+                            >
                                     <div
-                                        style={{
-                                            fontSize: '0.7rem',
-                                            fontWeight: 700,
+                                    style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700,
                                             color: '#166534',
-                                            textTransform: 'uppercase',
+                                        textTransform: 'uppercase',
                                             letterSpacing: '0.04em',
                                         }}
                                     >
@@ -1505,9 +1509,9 @@ export default function SupplierStockInventory() {
                                         {displayedMovementEntries.length} movement(s)
                                     </div>
                                     <div
-                                        style={{
+                                    style={{
                                             fontSize: '1.125rem',
-                                            fontWeight: 800,
+                                        fontWeight: 800,
                                             color: '#14532D',
                                             marginTop: 6,
                                         }}
@@ -1537,10 +1541,10 @@ export default function SupplierStockInventory() {
                                 </p>
                             )}
                         </div>
-                        <div
-                            style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
                                 alignItems: 'center',
                                 gap: 10,
                                 marginBottom: 14,
@@ -1557,64 +1561,64 @@ export default function SupplierStockInventory() {
                             >
                                 Export
                             </span>
-                            <button
-                                type="button"
+                                    <button
+                                        type="button"
                                 disabled={displayedMovementEntries.length === 0}
-                                title={
+                                        title={
                                     displayedMovementEntries.length === 0
                                         ? 'No movements to export'
-                                        : 'Download spreadsheet (.xlsx)'
-                                }
-                                onClick={() => {
+                                                    : 'Download spreadsheet (.xlsx)'
+                                        }
+                                        onClick={() => {
                                     exportMovementsExcel(
                                         displayedMovementEntries,
                                         movementProductId
                                             ? `stock-movements-${String(selectedMovementProduct?.name || movementProductId).replace(/\s+/g, '-')}`
                                             : 'supplier-stock-movements',
-                                    );
-                                }}
-                                style={{
-                                    ...exportToolbarBtnStyle,
+                                            );
+                                        }}
+                                        style={{
+                                            ...exportToolbarBtnStyle,
                                     opacity: displayedMovementEntries.length === 0 ? 0.5 : 1,
-                                    cursor:
+                                            cursor:
                                         displayedMovementEntries.length === 0
-                                            ? 'not-allowed'
-                                            : 'pointer',
-                                }}
-                            >
-                                <FileSpreadsheet size={14} aria-hidden /> Excel
-                            </button>
-                            <button
-                                type="button"
+                                                    ? 'not-allowed'
+                                                    : 'pointer',
+                                        }}
+                                    >
+                                        <FileSpreadsheet size={14} aria-hidden /> Excel
+                                    </button>
+                                    <button
+                                        type="button"
                                 disabled={displayedMovementEntries.length === 0}
-                                title={
+                                        title={
                                     displayedMovementEntries.length === 0
                                         ? 'No movements'
-                                        : 'Download PDF'
-                                }
-                                onClick={() => {
+                                                    : 'Download PDF'
+                                        }
+                                        onClick={() => {
                                     exportMovementsPdf(
                                         displayedMovementEntries,
                                         movementProductId
                                             ? `stock-movements-${String(selectedMovementProduct?.name || movementProductId).replace(/\s+/g, '-')}`
                                             : 'supplier-stock-movements',
-                                    );
-                                }}
-                                style={{
-                                    ...exportToolbarBtnStyle,
+                                            );
+                                        }}
+                                        style={{
+                                            ...exportToolbarBtnStyle,
                                     opacity: displayedMovementEntries.length === 0 ? 0.5 : 1,
-                                    cursor:
+                                            cursor:
                                         displayedMovementEntries.length === 0
-                                            ? 'not-allowed'
-                                            : 'pointer',
-                                }}
-                            >
-                                <FileText size={14} aria-hidden /> PDF
-                            </button>
-                        </div>
+                                                    ? 'not-allowed'
+                                                    : 'pointer',
+                                        }}
+                                    >
+                                        <FileText size={14} aria-hidden /> PDF
+                                    </button>
+                                </div>
                         <div style={{ overflowX: 'auto' }}>
                             <table className="ws-table">
-                                <thead>
+                                        <thead>
                                     <tr>
                                         <th>When</th>
                                         {!movementProductId ? <th>Product</th> : null}
@@ -1625,42 +1629,42 @@ export default function SupplierStockInventory() {
                                         <th>Reason</th>
                                         <th>Source / Ref</th>
                                         <th>By</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
                                     {displayedMovementEntries.map((e) => (
                                         <tr key={e.id}>
                                             <td style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
-                                                {new Date(e.at).toLocaleString()}
-                                            </td>
+                                                        {new Date(e.at).toLocaleString()}
+                                                    </td>
                                             {!movementProductId ? (
                                                 <td>{e.productLabel}</td>
                                             ) : null}
                                             <td style={{ textAlign: 'right', fontWeight: 600, fontSize: '0.8125rem' }}>
                                                 {fmtQty(e.previousQty)} {e.warehouseUnit || 'Box'}
-                                            </td>
+                                                    </td>
                                             <td style={{ textAlign: 'right', fontWeight: 600, fontSize: '0.8125rem' }}>
                                                 {fmtQty(e.newQty)} {e.warehouseUnit || 'Box'}
-                                            </td>
-                                            <td
-                                                style={{
-                                                    textAlign: 'right',
-                                                    fontWeight: 700,
-                                                    color:
+                                                    </td>
+                                                    <td
+                                                        style={{
+                                                            textAlign: 'right',
+                                                            fontWeight: 700,
+                                                            color:
                                                         e.delta == null || !Number.isFinite(Number(e.delta))
-                                                            ? 'var(--color-text-muted)'
-                                                            : Number(e.delta) >= 0
-                                                              ? '#047857'
-                                                              : '#B91C1C',
-                                                }}
-                                            >
+                                                                    ? 'var(--color-text-muted)'
+                                                                    : Number(e.delta) >= 0
+                                                                      ? '#047857'
+                                                                      : '#B91C1C',
+                                                        }}
+                                                    >
                                                 {fmtDelta(e.delta)} {e.warehouseUnit || 'Box'}
-                                            </td>
-                                            <td
-                                                style={{
+                                                    </td>
+                                                        <td
+                                                            style={{
                                                     textAlign: 'right',
                                                     fontSize: '0.8125rem',
-                                                    color: 'var(--color-text-muted)',
+                                                                color: 'var(--color-text-muted)',
                                                 }}
                                             >
                                                 {e.deltaWorkshop != null
@@ -1675,18 +1679,18 @@ export default function SupplierStockInventory() {
                                                     fontSize: '0.8125rem',
                                                     color: 'var(--color-text-muted)',
                                                     maxWidth: 280,
-                                                }}
-                                            >
-                                                {formatSupplierTimelineSourceRef(e)}
-                                            </td>
+                                                            }}
+                                                        >
+                                                            {formatSupplierTimelineSourceRef(e)}
+                                                        </td>
                                             <td style={{ fontSize: '0.8125rem' }}>
-                                                {e.adjustedBy?.name || '—'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                                            {e.adjustedBy?.name || '—'}
+                                                        </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
                         {displayedMovementEntries.length === 0 && (
                             <div style={{ textAlign: 'center', padding: 48 }}>
                                 <TrendingUp
@@ -1708,8 +1712,8 @@ export default function SupplierStockInventory() {
                                         ? 'No movements for this product yet'
                                         : 'No movements yet'}
                                 </p>
-                            </div>
-                        )}
+                        </div>
+                )}
                     </div>
                 ))}
 

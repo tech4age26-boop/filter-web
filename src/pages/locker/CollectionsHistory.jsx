@@ -13,16 +13,21 @@ const EMPTY_FILTERS = {
     officerId: 'all',
 };
 
-export default function CollectionsHistory() {
+export default function CollectionsHistory({
+    selectedBranchId = 'all',
+    branches: layoutBranches = null,
+    branchLockedId = null,
+} = {}) {
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [rows, setRows] = useState([]);
     const [summary, setSummary] = useState(null);
     const [filters, setFilters] = useState(() => {
         const d = defaultHistoryDateRange();
-        return { ...EMPTY_FILTERS, from: d.from, to: d.to };
+        return { ...EMPTY_FILTERS, from: d.from, to: d.to, branchId: scopeBranch };
     });
     const [appliedFilters, setAppliedFilters] = useState(() => {
         const d = defaultHistoryDateRange();
-        return { ...EMPTY_FILTERS, from: d.from, to: d.to };
+        return { ...EMPTY_FILTERS, from: d.from, to: d.to, branchId: scopeBranch };
     });
     const [branches, setBranches] = useState([]);
     const [cashiers, setCashiers] = useState([]);
@@ -31,8 +36,16 @@ export default function CollectionsHistory() {
     const [error, setError] = useState('');
 
     useEffect(() => {
+        const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
+        setFilters((f) => ({ ...f, branchId: next }));
+        setAppliedFilters((f) => ({ ...f, branchId: next }));
+    }, [selectedBranchId, branchLockedId]);
+
+    useEffect(() => {
         Promise.all([
-            apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
+            Array.isArray(layoutBranches) && layoutBranches.length
+                ? Promise.resolve(layoutBranches)
+                : apiFetch('/locker/branches').then((r) => r?.branches || []).catch(() => []),
             apiFetch('/locker/cashiers').then((r) => r?.cashiers || []).catch(() => []),
             apiFetch('/locker/field-officers').then((r) => r?.officers || []).catch(() => []),
         ]).then(([b, c, o]) => {
@@ -40,7 +53,7 @@ export default function CollectionsHistory() {
             setCashiers(c);
             setOfficers(o);
         });
-    }, []);
+    }, [layoutBranches]);
 
     const load = useCallback(async (activeFilters = appliedFilters) => {
         setLoading(true);
@@ -73,7 +86,12 @@ export default function CollectionsHistory() {
     const applyFilters = () => setAppliedFilters({ ...filters });
     const resetFilters = () => {
         const d = defaultHistoryDateRange();
-        const next = { ...EMPTY_FILTERS, from: d.from, to: d.to };
+        const next = {
+            ...EMPTY_FILTERS,
+            from: d.from,
+            to: d.to,
+            branchId: branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all'),
+        };
         setFilters(next);
         setAppliedFilters(next);
     };
@@ -107,6 +125,7 @@ export default function CollectionsHistory() {
                 officers={officers}
                 showOfficer
                 loading={loading}
+                branchLockedId={branchLockedId}
             />
 
             <div className="ws-kpi-grid wlk-summary-kpi">

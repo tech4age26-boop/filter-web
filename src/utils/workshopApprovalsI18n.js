@@ -58,6 +58,7 @@ export const WA_I18N = {
         'type.salesReturn': 'Sales return',
         'type.platformAdminFund': 'Platform admin fund',
         'type.platformAdminExpense': 'Platform admin expense',
+        'type.lockerExpense': 'Locker expense',
         'type.topUp': 'Top up',
         'type.expense': 'Expense',
 
@@ -231,6 +232,7 @@ export const WA_I18N = {
         'type.salesReturn': 'مرتجع مبيعات',
         'type.platformAdminFund': 'تمويل مسؤول المنصة',
         'type.platformAdminExpense': 'مصروف مسؤول المنصة',
+        'type.lockerExpense': 'مصروف الخزنة',
         'type.topUp': 'تعبئة رصيد',
         'type.expense': 'مصروف',
 

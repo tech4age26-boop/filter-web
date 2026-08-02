@@ -10,12 +10,14 @@ import SuppliersWarehouseSales from './SuppliersWarehouseSales';
 import CorporateTransactions from './CorporateTransactions';
 import SalesReturnsPage from './SalesReturnsPage';
 import Receipts from './Receipts';
+import AdvancedReportsPage from '../advanced-reports/AdvancedReportsPage';
 import { useAuth } from '../../context/AuthContext';
 import { salesT, SALES_SUB_LABEL_KEYS } from '../../utils/salesI18n';
 import '../../styles/admin/SalesPage.css';
 
 const SUB_TABS = [
     { path: 'sales-reports',              labelKey: 'sub.reports',    permission: 'sales.sales-reports.view' },
+    { path: 'advanced-reports',           labelKey: 'sub.advanced',   permission: 'sales.advanced-reports.view' },
     { path: 'sales-orders',                labelKey: 'sub.orders',     permission: 'sales.sales-orders.view' },
     { path: 'workshop-sales',              labelKey: 'sub.workshop',   permission: 'sales.workshop-sales.view' },
     { path: 'suppliers-warehouse-sales',   labelKey: 'sub.suppliers',  permission: 'sales.suppliers-warehouse-sales.view' },
@@ -58,7 +60,12 @@ export default function SalesPage() {
         'en';
     const t = useCallback((key, vars) => salesT(locale, key, vars), [locale]);
 
-    const visibleSubTabs = SUB_TABS.filter((tab) => hasPermission(tab.permission));
+    const visibleSubTabs = SUB_TABS.filter((tab) => {
+        if (tab.path === 'advanced-reports') {
+            return hasPermission('sales.advanced-reports.view') || hasPermission('sales.sales-reports.view');
+        }
+        return hasPermission(tab.permission);
+    });
     const activeSub = subTab || 'sales-reports';
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [invoiceData, setInvoiceData] = useState(EMPTY_INVOICE);
@@ -344,6 +351,7 @@ export default function SalesPage() {
             {activeSub === 'receipts' && <Receipts />}
 
             {activeSub === 'sales-reports' && <SalesReports />}
+            {activeSub === 'advanced-reports' && <AdvancedReportsPage portal="admin" />}
             {activeSub === 'sales-orders' && <SalesOrders />}
 
             <AnimatePresence>

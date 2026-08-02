@@ -227,10 +227,15 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
     );
 }
 
-export default function RecordCollection({ portalRole = 'supervisor' }) {
+export default function RecordCollection({
+    portalRole = 'supervisor',
+    selectedBranchId = 'all',
+    branchLockedId = null,
+} = {}) {
     const isCollector = portalRole === 'collector';
     const [searchParams, setSearchParams] = useSearchParams();
     const requestIdFromUrl = searchParams.get('requestId') || '';
+    const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : undefined);
 
     const [requests, setRequests] = useState([]);
     const [detail, setDetail] = useState(null);
@@ -254,6 +259,7 @@ export default function RecordCollection({ portalRole = 'supervisor' }) {
                     view: isCollector ? 'collector' : 'supervisor',
                     status: isCollector ? 'assigned' : 'open',
                     limit: 100,
+                    ...(scopeBranch ? { branchId: scopeBranch } : {}),
                 })}`,
             );
             const list = res?.items || res?.rows || res?.data || [];
@@ -263,7 +269,7 @@ export default function RecordCollection({ portalRole = 'supervisor' }) {
         } finally {
             setLoading(false);
         }
-    }, [isCollector]);
+    }, [isCollector, scopeBranch]);
 
     const loadDetail = useCallback(async (requestId) => {
         if (!requestId) {

@@ -101,10 +101,13 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
           if (!cancelled) setQrDataUrl('');
           return;
         }
+        // Phase-2 TLV is dense; <160px modules fail phone/Qeemah lock.
+        // Render high-res, then display larger with crisp nearest-neighbor scaling.
         const url = await QRCode.toDataURL(payload, {
-          width: 132,
-          margin: 2,
+          width: 320,
+          margin: 3,
           errorCorrectionLevel: 'M',
+          color: { dark: '#000000', light: '#ffffff' },
         });
         if (!cancelled) setQrDataUrl(url);
       } catch {

@@ -2,6 +2,8 @@
 export const WCOM_I18N = {
     en: {
         'tab.ledger': 'Ledger',
+        'tab.payouts': 'Pay-outs',
+        'tab.commissions': 'Commissions',
         'tab.rules': 'Rules',
 
         'branch.all': 'All branches',
@@ -159,6 +161,8 @@ export const WCOM_I18N = {
     },
     ar: {
         'tab.ledger': 'دفتر الأستاذ',
+        'tab.payouts': 'المدفوعات',
+        'tab.commissions': 'العمولات',
         'tab.rules': 'القواعد',
 
         'branch.all': 'جميع الفروع',
