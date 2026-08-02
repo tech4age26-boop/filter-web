@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Trash2, Search } from 'lucide-react';
 import WorkshopSubScreen from '../workshop/WorkshopSubScreen';
 import {
@@ -8,6 +8,7 @@ import {
     getWorkshopCommissionRules,
     updateWorkshopCommissionRule,
 } from '../../services/workshopCommissionsApi';
+import { wcomT } from '../../utils/workshopCommissionsI18n';
 
 const ROLE_OPTIONS = [
     'Technician',
@@ -17,10 +18,23 @@ const ROLE_OPTIONS = [
     'Manager',
 ];
 
+const ROLE_LABEL_KEY = {
+    Technician: 'rules.role.technician',
+    'Senior Technician': 'rules.role.seniorTechnician',
+    'Master Technician': 'rules.role.masterTechnician',
+    Supervisor: 'rules.role.supervisor',
+    Manager: 'rules.role.manager',
+};
+
 const TYPE_OPTIONS = [
-    { value: 'Percentage', label: 'Percentage of total (%)' },
-    { value: 'Fixed', label: 'Fixed amount per job (SAR)' },
+    { value: 'Percentage', labelKey: 'rules.typeOpt.percentage' },
+    { value: 'Fixed', labelKey: 'rules.typeOpt.fixed' },
 ];
+
+const TYPE_LABEL_KEY = {
+    Percentage: 'rules.type.percentage',
+    Fixed: 'rules.type.fixed',
+};
 
 const baseForm = {
     serviceId: '',
@@ -33,8 +47,8 @@ const baseForm = {
     notes: '',
 };
 
-function getErrorMessage(err) {
-    return err?.message || 'Something went wrong, please try again.';
+function getErrorMessage(err, t) {
+    return err?.message || t('rules.err.generic');
 }
 
 function parseRules(res) {
@@ -51,7 +65,10 @@ function parseServices(res) {
 }
 
 /** A self-contained Commission Rules CRUD panel (workshop-scoped). */
-export default function WorkshopCommissionRules() {
+export default function WorkshopCommissionRules({ locale: localeProp } = {}) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wcomT(locale, key, vars), [locale]);
+
     const [rules, setRules] = useState([]);
     const [services, setServices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -93,7 +110,7 @@ export default function WorkshopCommissionRules() {
                 if (cancelled) return;
                 setRules(parseRules(res));
             } catch (err) {
-                if (!cancelled) setError(getErrorMessage(err));
+                if (!cancelled) setError(getErrorMessage(err, t));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -102,7 +119,7 @@ export default function WorkshopCommissionRules() {
         return () => {
             cancelled = true;
         };
-    }, [reloadTick, search]);
+    }, [reloadTick, search, t]);
 
     const openCreate = () => {
         setEditingId('');
@@ -135,11 +152,11 @@ export default function WorkshopCommissionRules() {
 
     const onSubmit = async () => {
         if (!form.serviceName.trim()) {
-            setSubmitError('Service name is required (or pick a service from the list).');
+            setSubmitError(t('rules.err.serviceRequired'));
             return;
         }
         if (form.value === '' || form.value === null || Number.isNaN(Number(form.value))) {
-            setSubmitError('Value is required.');
+            setSubmitError(t('rules.err.valueRequired'));
             return;
         }
         setSubmitting(true);
@@ -163,7 +180,7 @@ export default function WorkshopCommissionRules() {
             setModalOpen(false);
             setReloadTick((x) => x + 1);
         } catch (err) {
-            setSubmitError(getErrorMessage(err));
+            setSubmitError(getErrorMessage(err, t));
         } finally {
             setSubmitting(false);
         }
@@ -176,7 +193,7 @@ export default function WorkshopCommissionRules() {
             setPendingDeleteId('');
             setReloadTick((x) => x + 1);
         } catch (err) {
-            setError(getErrorMessage(err));
+            setError(getErrorMessage(err, t));
         } finally {
             setDeleteLoadingId('');
         }
@@ -199,12 +216,22 @@ export default function WorkshopCommissionRules() {
         });
     }, [rules]);
 
+    const tableHeaders = [
+        t('rules.th.priority'),
+        t('rules.th.service'),
+        t('rules.th.role'),
+        t('rules.th.type'),
+        t('rules.th.value'),
+        t('rules.th.status'),
+        t('rules.th.actions'),
+    ];
+
     if (modalOpen) {
         return (
             <WorkshopSubScreen
-                title={editingId ? 'Edit Commission Rule' : 'New Commission Rule'}
-                subtitle="Service, role, and commission rate for the priority engine."
-                backLabel="Back to Commission Rules"
+                title={editingId ? t('rules.editFormTitle') : t('rules.newFormTitle')}
+                subtitle={t('rules.formSubtitle')}
+                backLabel={t('rules.back')}
                 onBack={closeModal}
                 backDisabled={submitting}
                 size="form"
@@ -217,7 +244,7 @@ export default function WorkshopCommissionRules() {
                             disabled={submitting}
                             className="ws-btn-secondary"
                         >
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -225,7 +252,11 @@ export default function WorkshopCommissionRules() {
                             disabled={submitting}
                             className="ws-btn-confirm"
                         >
-                            {submitting ? 'Saving...' : editingId ? 'Update Rule' : 'Create Rule'}
+                            {submitting
+                                ? t('rules.saving')
+                                : editingId
+                                    ? t('rules.updateRule')
+                                    : t('rules.createRule')}
                         </button>
                     </div>
                 )}
@@ -233,7 +264,7 @@ export default function WorkshopCommissionRules() {
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                         <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>Priority *</label>
+                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.priority')}</label>
                             <input
                                 type="number"
                                 min={1}
@@ -243,24 +274,24 @@ export default function WorkshopCommissionRules() {
                             />
                         </div>
                         <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>Status</label>
+                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.status')}</label>
                             <select
                                 value={form.status}
                                 onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
                                 style={inputStyle}
                             >
-                                <option value="active">active</option>
-                                <option value="inactive">inactive</option>
+                                <option value="active">{t('rules.status.active')}</option>
+                                <option value="inactive">{t('rules.status.inactive')}</option>
                             </select>
                         </div>
                         <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>Service *</label>
+                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.service')}</label>
                             <select
                                 value={form.serviceId}
                                 onChange={(e) => onServicePick(e.target.value)}
                                 style={inputStyle}
                             >
-                                <option value="">Custom service name (no link)</option>
+                                <option value="">{t('rules.customService')}</option>
                                 {services.map((s) => (
                                     <option key={String(s.id)} value={String(s.id)}>
                                         {s.name || s.serviceName}
@@ -268,14 +299,14 @@ export default function WorkshopCommissionRules() {
                                 ))}
                             </select>
                             <input
-                                placeholder="Service name (e.g. Oil Change)"
+                                placeholder={t('rules.serviceNamePlaceholder')}
                                 value={form.serviceName}
                                 onChange={(e) => setForm((p) => ({ ...p, serviceName: e.target.value }))}
                                 style={{ ...inputStyle, marginTop: 8 }}
                             />
                         </div>
                         <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>Employee role</label>
+                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.employeeRole')}</label>
                             <select
                                 value={form.employeeRole}
                                 onChange={(e) => setForm((p) => ({ ...p, employeeRole: e.target.value }))}
@@ -283,28 +314,28 @@ export default function WorkshopCommissionRules() {
                             >
                                 {ROLE_OPTIONS.map((r) => (
                                     <option key={r} value={r}>
-                                        {r}
+                                        {t(ROLE_LABEL_KEY[r])}
                                     </option>
                                 ))}
                             </select>
                         </div>
                         <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>Type</label>
+                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.type')}</label>
                             <select
                                 value={form.commissionType}
                                 onChange={(e) => setForm((p) => ({ ...p, commissionType: e.target.value }))}
                                 style={inputStyle}
                             >
-                                {TYPE_OPTIONS.map((t) => (
-                                    <option key={t.value} value={t.value}>
-                                        {t.label}
+                                {TYPE_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                        {t(opt.labelKey)}
                                     </option>
                                 ))}
                             </select>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>
-                                Value {form.commissionType === 'Percentage' ? '(%)' : '(SAR)'}
+                                {form.commissionType === 'Percentage' ? t('rules.valuePercent') : t('rules.valueSar')}
                             </label>
                             <input
                                 type="number"
@@ -316,7 +347,7 @@ export default function WorkshopCommissionRules() {
                         </div>
                         <div></div>
                         <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>Notes</label>
+                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.notes')}</label>
                             <textarea
                                 rows={3}
                                 value={form.notes}
@@ -336,9 +367,9 @@ export default function WorkshopCommissionRules() {
     return (
         <div style={{ padding: 16, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700 }}>Commission Rules</h3>
+                <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700 }}>{t('rules.title')}</h3>
                 <span style={{ color: '#6b7280', fontSize: 13 }}>
-                    Priority engine: smaller priority value wins. Falls back to employee default percent if nothing matches.
+                    {t('rules.subtitle')}
                 </span>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                     <div style={{ position: 'relative' }}>
@@ -346,7 +377,7 @@ export default function WorkshopCommissionRules() {
                         <input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search rules"
+                            placeholder={t('rules.searchPlaceholder')}
                             style={{
                                 border: '1px solid #e5e7eb',
                                 borderRadius: 6,
@@ -372,7 +403,7 @@ export default function WorkshopCommissionRules() {
                             cursor: 'pointer',
                         }}
                     >
-                        <Plus size={14} /> New Rule
+                        <Plus size={14} /> {t('rules.newRule')}
                     </button>
                 </div>
             </div>
@@ -383,7 +414,7 @@ export default function WorkshopCommissionRules() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr>
-                            {['Priority', 'Service', 'Role', 'Type', 'Value', 'Status', 'Actions'].map((h) => (
+                            {tableHeaders.map((h) => (
                                 <th
                                     key={h}
                                     style={{
@@ -403,33 +434,44 @@ export default function WorkshopCommissionRules() {
                         {loading ? (
                             <tr>
                                 <td colSpan={7} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    Loading...
+                                    {t('rules.loading')}
                                 </td>
                             </tr>
                         ) : sortedRules.length === 0 ? (
                             <tr>
                                 <td colSpan={7} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    No commission rules yet — start by creating one.
+                                    {t('rules.empty')}
                                 </td>
                             </tr>
                         ) : (
                             sortedRules.map((r) => {
                                 const id = String(r.id);
+                                const amount = Number(r.value || 0);
                                 const value =
                                     r.commissionType === 'Percentage'
-                                        ? `${Number(r.value || 0)}%`
-                                        : `SAR ${Number(r.value || 0).toLocaleString()}`;
+                                        ? t('rules.valuePercentFmt', { amount })
+                                        : t('money.sar', { amount: amount.toLocaleString() });
+                                const roleKey = ROLE_LABEL_KEY[r.employeeRole];
+                                const typeKey = TYPE_LABEL_KEY[r.commissionType];
+                                const statusKey =
+                                    (r.status || 'active').toLowerCase() === 'inactive'
+                                        ? 'rules.status.inactive'
+                                        : 'rules.status.active';
                                 return (
                                     <tr key={id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                         <td style={{ padding: '10px 8px', fontWeight: 600 }}>{r.priority || 1}</td>
                                         <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ fontWeight: 600 }}>{r.serviceName || '—'}</div>
+                                            <div style={{ fontWeight: 600 }}>{r.serviceName || t('emDash')}</div>
                                             {r.notes && (
                                                 <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>{r.notes}</div>
                                             )}
                                         </td>
-                                        <td style={{ padding: '10px 8px', color: '#374151' }}>{r.employeeRole || 'Technician'}</td>
-                                        <td style={{ padding: '10px 8px', color: '#374151' }}>{r.commissionType || 'Percentage'}</td>
+                                        <td style={{ padding: '10px 8px', color: '#374151' }}>
+                                            {roleKey ? t(roleKey) : (r.employeeRole || t('rules.role.technician'))}
+                                        </td>
+                                        <td style={{ padding: '10px 8px', color: '#374151' }}>
+                                            {typeKey ? t(typeKey) : (r.commissionType || t('rules.type.percentage'))}
+                                        </td>
                                         <td style={{ padding: '10px 8px', fontWeight: 600 }}>{value}</td>
                                         <td style={{ padding: '10px 8px' }}>
                                             <span
@@ -442,13 +484,13 @@ export default function WorkshopCommissionRules() {
                                                     fontWeight: 600,
                                                 }}
                                             >
-                                                {(r.status || 'active').toLowerCase()}
+                                                {t(statusKey)}
                                             </span>
                                         </td>
                                         <td style={{ padding: '10px 8px' }}>
                                             {pendingDeleteId === id ? (
                                                 <span style={{ display: 'inline-flex', gap: 8, fontSize: 12 }}>
-                                                    <span>Delete?</span>
+                                                    <span>{t('rules.deleteConfirm')}</span>
                                                     <button
                                                         type="button"
                                                         onClick={() => onDelete(id)}
@@ -462,7 +504,7 @@ export default function WorkshopCommissionRules() {
                                                             cursor: 'pointer',
                                                         }}
                                                     >
-                                                        {deleteLoadingId === id ? 'Deleting...' : 'Yes'}
+                                                        {deleteLoadingId === id ? t('rules.deleting') : t('rules.yes')}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -475,7 +517,7 @@ export default function WorkshopCommissionRules() {
                                                             cursor: 'pointer',
                                                         }}
                                                     >
-                                                        Cancel
+                                                        {t('btn.cancel')}
                                                     </button>
                                                 </span>
                                             ) : (
@@ -483,7 +525,7 @@ export default function WorkshopCommissionRules() {
                                                     <button
                                                         type="button"
                                                         onClick={() => openEdit(r)}
-                                                        title="Edit"
+                                                        title={t('rules.editTitle')}
                                                         style={{
                                                             border: 'none',
                                                             background: 'transparent',
@@ -497,7 +539,7 @@ export default function WorkshopCommissionRules() {
                                                     <button
                                                         type="button"
                                                         onClick={() => setPendingDeleteId(id)}
-                                                        title="Delete"
+                                                        title={t('rules.deleteTitle')}
                                                         style={{
                                                             border: 'none',
                                                             background: 'transparent',

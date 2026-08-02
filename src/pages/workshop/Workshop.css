@@ -121,6 +121,26 @@
 .ws-topbar-title { font-size: 1rem; font-weight: 600; color: var(--color-text-dark); margin: 0; }
 .ws-topbar-sub { font-size: 0.75rem; color: var(--color-text-muted); margin: 0; }
 .ws-topbar-right { display: flex; align-items: center; gap: 12px; }
+.ws-lang-switcher { display: flex; align-items: center; gap: 6px; }
+.ws-lang-btn {
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #111;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.04em;
+}
+.ws-lang-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+.ws-lang-btn.active {
+    background: var(--color-primary, #f5c518);
+    border-color: var(--color-primary, #f5c518);
+    color: #111;
+}
+.ws-lang-btn-ar.active { color: #111 !important; }
 .ws-alert-badge { display: flex; align-items: center; gap: 6px; background: #FEF2F2; border: 1px solid #FECACA; color: #DC2626; font-size: 0.75rem; font-weight: 600; padding: 6px 12px; border-radius: 999px; cursor: pointer; }
 .ws-online-badge { display: flex; align-items: center; gap: 6px; background: #F0FDF4; border: 1px solid #BBF7D0; color: #16A34A; font-size: 0.75rem; font-weight: 600; padding: 6px 12px; border-radius: 999px; }
 .ws-online-dot { width: 7px; height: 7px; border-radius: 50%; background: #22C55E; }

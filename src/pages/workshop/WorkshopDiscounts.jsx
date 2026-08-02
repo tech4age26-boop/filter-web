@@ -6,14 +6,16 @@ import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { branchScopeParams, getWorkshopDiscounts } from '../../services/workshopStaffApi';
 import { getMyDepartments } from '../../services/workshopCatalogApi';
 import { useAuth } from '../../context/AuthContext';
+import { wdscT } from '../../utils/workshopDiscountsI18n';
 import './Workshop.css';
 
-function fmtDt(iso) {
-    if (!iso) return '—';
+function fmtDt(iso, locale) {
+    if (!iso) return null;
     try {
-        return new Date(iso).toLocaleString();
+        const loc = locale === 'ar' ? 'ar-SA' : undefined;
+        return new Date(iso).toLocaleString(loc);
     } catch {
-        return '—';
+        return null;
     }
 }
 
@@ -23,14 +25,16 @@ function fmtMoney(n) {
     return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const TIMELINE_LABELS = {
-    line: 'Line / item discount timeline',
-    invoice: 'Invoice discount timeline',
-    promo: 'Promo code discount timeline',
-    total: 'Total discount timeline',
+const TIMELINE_KEYS = {
+    line: 'timeline.line',
+    invoice: 'timeline.invoice',
+    promo: 'timeline.promo',
+    total: 'timeline.total',
 };
 
-export default function WorkshopDiscounts({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopDiscounts({ selectedBranchId = 'all', branches = [], locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wdscT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const canView = hasPermission('workshop.reports.view');
 
@@ -61,9 +65,9 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
     );
 
     const selectedBranchName = useMemo(() => {
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
-        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || `Branch ${selectedBranchId}`;
-    }, [branches, selectedBranchId]);
+        if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.withId', { id: selectedBranchId });
+    }, [branches, selectedBranchId, t]);
 
     useEffect(() => {
         let cancelled = false;
@@ -74,7 +78,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                 setDepartments(
                     list.map((d) => ({
                         id: String(d.id),
-                        name: d.name || d.department?.name || 'Department',
+                        name: d.name || d.department?.name || t('dept.fallback'),
                     })),
                 );
             })
@@ -84,7 +88,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [t]);
 
     const load = useCallback(async () => {
         if (!canView) {
@@ -120,27 +124,30 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
             });
         } catch (e) {
             setRows([]);
-            setError(e.message || 'Failed to load discounts.');
+            setError(e.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [canView, branchParams, departmentId, dateFrom, dateTo]);
+    }, [canView, branchParams, departmentId, dateFrom, dateTo, t]);
 
     useEffect(() => {
         load();
     }, [load]);
 
     const selectedDepartmentName = useMemo(() => {
-        if (departmentId === 'all') return 'All departments';
-        return departments.find((d) => String(d.id) === String(departmentId))?.name || 'Department';
-    }, [departmentId, departments]);
+        if (departmentId === 'all') return t('dept.all');
+        return departments.find((d) => String(d.id) === String(departmentId))?.name || t('dept.fallback');
+    }, [departmentId, departments, t]);
 
     const timelineRows = timelineOpen ? timeline[timelineOpen] || [] : [];
+
+    const money = (n) => t('money.sar', { amount: fmtMoney(n) });
+    const dash = t('emdash');
 
     if (!canView) {
         return (
             <div className="ws-section" style={{ padding: 24 }}>
-                <p>You do not have permission to view discount reports.</p>
+                <p>{t('perm.denied')}</p>
             </div>
         );
     }
@@ -149,7 +156,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
         return (
             <WorkshopDiscountTimelineScreen
                 kind={timelineOpen}
-                title={TIMELINE_LABELS[timelineOpen]}
+                title={t(TIMELINE_KEYS[timelineOpen])}
                 rows={timelineRows}
                 branchName={selectedBranchName}
                 departmentName={selectedDepartmentName}
@@ -163,7 +170,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
     if (detail) {
         return (
             <WorkshopSubScreen
-                title={`Invoice ${detail.invoiceNo || detail.invoiceId}`}
+                title={t('detail.invoiceTitle', { no: detail.invoiceNo || detail.invoiceId })}
                 onBack={() => setDetail(null)}
                 size="wide"
             >
@@ -177,64 +184,64 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                             }}
                         >
                             <div>
-                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>Date</div>
-                                <div style={{ fontWeight: 700 }}>{fmtDt(detail.issuedAt || detail.invoiceDate)}</div>
+                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>{t('detail.date')}</div>
+                                <div style={{ fontWeight: 700 }}>{fmtDt(detail.issuedAt || detail.invoiceDate, locale) || dash}</div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>Branch</div>
-                                <div style={{ fontWeight: 700 }}>{detail.branchName || '—'}</div>
+                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>{t('detail.branch')}</div>
+                                <div style={{ fontWeight: 700 }}>{detail.branchName || dash}</div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>Customer</div>
-                                <div style={{ fontWeight: 700 }}>{detail.customerName || '—'}</div>
+                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>{t('detail.customer')}</div>
+                                <div style={{ fontWeight: 700 }}>{detail.customerName || dash}</div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>Cashier</div>
-                                <div style={{ fontWeight: 700 }}>{detail.cashierName || '—'}</div>
+                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>{t('detail.cashier')}</div>
+                                <div style={{ fontWeight: 700 }}>{detail.cashierName || dash}</div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>Invoice total</div>
-                                <div style={{ fontWeight: 900 }}>SAR {fmtMoney(detail.invoiceTotal)}</div>
+                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>{t('detail.invoiceTotal')}</div>
+                                <div style={{ fontWeight: 900 }}>{money(detail.invoiceTotal)}</div>
                             </div>
                         </div>
 
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                             <div className="ws-sr-kpi">
-                                <div className="ws-sr-kpi-label">Line discount</div>
-                                <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.lineDiscount)}</div>
+                                <div className="ws-sr-kpi-label">{t('detail.lineDiscount')}</div>
+                                <div className="ws-sr-kpi-value">{money(detail.lineDiscount)}</div>
                             </div>
                             <div className="ws-sr-kpi">
-                                <div className="ws-sr-kpi-label">Invoice discount</div>
-                                <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.invoiceDiscount)}</div>
+                                <div className="ws-sr-kpi-label">{t('detail.invoiceDiscount')}</div>
+                                <div className="ws-sr-kpi-value">{money(detail.invoiceDiscount)}</div>
                             </div>
                             <div className="ws-sr-kpi">
-                                <div className="ws-sr-kpi-label">Promo code</div>
-                                <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.promoDiscount)}</div>
+                                <div className="ws-sr-kpi-label">{t('detail.promoCode')}</div>
+                                <div className="ws-sr-kpi-value">{money(detail.promoDiscount)}</div>
                             </div>
                             <div className="ws-sr-kpi">
-                                <div className="ws-sr-kpi-label">Total discount</div>
-                                <div className="ws-sr-kpi-value">SAR {fmtMoney(detail.totalDiscount)}</div>
+                                <div className="ws-sr-kpi-label">{t('detail.totalDiscount')}</div>
+                                <div className="ws-sr-kpi-value">{money(detail.totalDiscount)}</div>
                             </div>
                         </div>
 
                         {(detail.lineDetails?.length ?? 0) > 0 ? (
                             <div>
-                                <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem' }}>Line / item discounts</h3>
+                                <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem' }}>{t('detail.lineSection')}</h3>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                     <thead>
                                         <tr style={{ background: '#F9FAFB', textAlign: 'left' }}>
-                                            <th style={{ padding: '8px 12px' }}>Item</th>
-                                            <th style={{ padding: '8px 12px' }}>Department</th>
-                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Discount</th>
+                                            <th style={{ padding: '8px 12px' }}>{t('detail.th.item')}</th>
+                                            <th style={{ padding: '8px 12px' }}>{t('detail.th.department')}</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>{t('detail.th.discount')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {detail.lineDetails.map((ld, idx) => (
                                             <tr key={idx} style={{ borderTop: '1px solid #E5E7EB' }}>
                                                 <td style={{ padding: '8px 12px' }}>{ld.name}</td>
-                                                <td style={{ padding: '8px 12px' }}>{ld.departmentName || '—'}</td>
+                                                <td style={{ padding: '8px 12px' }}>{ld.departmentName || dash}</td>
                                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>
-                                                    SAR {fmtMoney(ld.amount)}
+                                                    {money(ld.amount)}
                                                 </td>
                                             </tr>
                                         ))}
@@ -245,28 +252,28 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
 
                         {(detail.jobDetails?.length ?? 0) > 0 ? (
                             <div>
-                                <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem' }}>Invoice / job discounts</h3>
+                                <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem' }}>{t('detail.jobSection')}</h3>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                     <thead>
                                         <tr style={{ background: '#F9FAFB', textAlign: 'left' }}>
-                                            <th style={{ padding: '8px 12px' }}>Department</th>
-                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Job discount</th>
-                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Promo</th>
-                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total</th>
+                                            <th style={{ padding: '8px 12px' }}>{t('detail.th.department')}</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>{t('detail.th.jobDiscount')}</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>{t('detail.th.promo')}</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>{t('detail.th.total')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {detail.jobDetails.map((jd, idx) => (
                                             <tr key={idx} style={{ borderTop: '1px solid #E5E7EB' }}>
-                                                <td style={{ padding: '8px 12px' }}>{jd.departmentName || '—'}</td>
+                                                <td style={{ padding: '8px 12px' }}>{jd.departmentName || dash}</td>
                                                 <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                                                    SAR {fmtMoney(jd.jobDiscount)}
+                                                    {money(jd.jobDiscount)}
                                                 </td>
                                                 <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                                                    SAR {fmtMoney(jd.promoDiscount)}
+                                                    {money(jd.promoDiscount)}
                                                 </td>
                                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>
-                                                    SAR {fmtMoney(jd.amount)}
+                                                    {money(jd.amount)}
                                                 </td>
                                             </tr>
                                         ))}
@@ -333,53 +340,53 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                         <Percent size={18} color="#9A3412" />
                     </div>
                     <div style={{ flex: 1 }}>
-                        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: '#111827' }}>Discounts</h1>
+                        <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: '#111827' }}>{t('page.title')}</h1>
                         <p style={{ margin: '4px 0 0', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                            {selectedBranchName} · POS sales invoice discounts by department and date.
+                            {t('page.subtitle', { branch: selectedBranchName })}
                         </p>
                     </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <div className="ws-sr-kpi" title="Invoices with discounts in this period">
-                        <div className="ws-sr-kpi-label">Discounted invoices</div>
-                        <div className="ws-sr-kpi-value">{loading ? '—' : summary.invoiceCount}</div>
+                    <div className="ws-sr-kpi" title={t('kpi.discountedInvoicesTitle')}>
+                        <div className="ws-sr-kpi-label">{t('kpi.discountedInvoices')}</div>
+                        <div className="ws-sr-kpi-value">{loading ? dash : summary.invoiceCount}</div>
                     </div>
                     <button
                         type="button"
                         className="ws-sr-kpi ws-sr-kpi-clickable"
                         onClick={() => setTimelineOpen('line')}
-                        title="View line discount timeline"
+                        title={t('kpi.lineTitle')}
                     >
-                        <div className="ws-sr-kpi-label">Line / item discount</div>
-                        <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(summary.lineDiscount)}</div>
+                        <div className="ws-sr-kpi-label">{t('kpi.line')}</div>
+                        <div className="ws-sr-kpi-value">{loading ? t('money.sarDash') : money(summary.lineDiscount)}</div>
                     </button>
                     <button
                         type="button"
                         className="ws-sr-kpi ws-sr-kpi-clickable"
                         onClick={() => setTimelineOpen('invoice')}
-                        title="View invoice discount timeline"
+                        title={t('kpi.invoiceTitle')}
                     >
-                        <div className="ws-sr-kpi-label">Invoice discount</div>
-                        <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(summary.invoiceDiscount)}</div>
+                        <div className="ws-sr-kpi-label">{t('kpi.invoice')}</div>
+                        <div className="ws-sr-kpi-value">{loading ? t('money.sarDash') : money(summary.invoiceDiscount)}</div>
                     </button>
                     <button
                         type="button"
                         className="ws-sr-kpi ws-sr-kpi-clickable"
                         onClick={() => setTimelineOpen('promo')}
-                        title="View promo code discount timeline"
+                        title={t('kpi.promoTitle')}
                     >
-                        <div className="ws-sr-kpi-label">Promo code</div>
-                        <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(summary.promoDiscount)}</div>
+                        <div className="ws-sr-kpi-label">{t('kpi.promo')}</div>
+                        <div className="ws-sr-kpi-value">{loading ? t('money.sarDash') : money(summary.promoDiscount)}</div>
                     </button>
                     <button
                         type="button"
                         className="ws-sr-kpi ws-sr-kpi-clickable"
                         onClick={() => setTimelineOpen('total')}
-                        title="View total discount timeline"
+                        title={t('kpi.totalTitle')}
                     >
-                        <div className="ws-sr-kpi-label">Total discount</div>
-                        <div className="ws-sr-kpi-value">SAR {loading ? '—' : fmtMoney(summary.totalDiscount)}</div>
+                        <div className="ws-sr-kpi-label">{t('kpi.total')}</div>
+                        <div className="ws-sr-kpi-value">{loading ? t('money.sarDash') : money(summary.totalDiscount)}</div>
                     </button>
                     <button
                         type="button"
@@ -388,7 +395,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                         disabled={loading}
                         style={{ height: 40, alignSelf: 'stretch' }}
                     >
-                        <RefreshCw size={16} style={{ opacity: loading ? 0.5 : 1 }} /> Refresh
+                        <RefreshCw size={16} style={{ opacity: loading ? 0.5 : 1 }} /> {t('btn.refresh')}
                     </button>
                 </div>
             </div>
@@ -398,7 +405,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 12, alignItems: 'end' }}>
                         <div style={{ gridColumn: 'span 3', minWidth: 200 }}>
                             <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
-                                From
+                                {t('filter.from')}
                             </label>
                             <input
                                 type="datetime-local"
@@ -410,7 +417,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                         </div>
                         <div style={{ gridColumn: 'span 3', minWidth: 200 }}>
                             <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
-                                To
+                                {t('filter.to')}
                             </label>
                             <input
                                 type="datetime-local"
@@ -422,7 +429,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                         </div>
                         <div style={{ gridColumn: 'span 4', minWidth: 200 }}>
                             <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
-                                Department
+                                {t('filter.department')}
                             </label>
                             <select
                                 className="mc-filter-select"
@@ -430,7 +437,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                 onChange={(e) => setDepartmentId(e.target.value)}
                                 style={{ width: '100%' }}
                             >
-                                <option value="all">All departments</option>
+                                <option value="all">{t('dept.all')}</option>
                                 {departments.map((d) => (
                                     <option key={d.id} value={d.id}>
                                         {d.name}
@@ -446,12 +453,12 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                 disabled={loading}
                                 style={{ width: '100%', height: 40 }}
                             >
-                                {loading ? 'Loading…' : 'Apply'}
+                                {loading ? t('btn.loading') : t('btn.apply')}
                             </button>
                         </div>
                     </div>
                     <p style={{ margin: '10px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                        Branch filter uses the branch selector in the workshop header ({selectedBranchName}).
+                        {t('filter.branchHint', { branch: selectedBranchName })}
                     </p>
                 </div>
             </div>
@@ -462,17 +469,17 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                     <thead>
                         <tr style={{ background: '#F9FAFB', textAlign: 'left' }}>
-                            <th style={{ padding: '12px 16px' }}>Date / time</th>
-                            <th style={{ padding: '12px 16px' }}>Invoice #</th>
-                            <th style={{ padding: '12px 16px' }}>Customer</th>
-                            <th style={{ padding: '12px 16px' }}>Vehicle</th>
-                            <th style={{ padding: '12px 16px' }}>Cashier</th>
-                            <th style={{ padding: '12px 16px' }}>Branch</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>Line discount</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>Invoice discount</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>Promo code</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>Total discount</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>Invoice total</th>
+                            <th style={{ padding: '12px 16px' }}>{t('th.dateTime')}</th>
+                            <th style={{ padding: '12px 16px' }}>{t('th.invoiceNo')}</th>
+                            <th style={{ padding: '12px 16px' }}>{t('th.customer')}</th>
+                            <th style={{ padding: '12px 16px' }}>{t('th.vehicle')}</th>
+                            <th style={{ padding: '12px 16px' }}>{t('th.cashier')}</th>
+                            <th style={{ padding: '12px 16px' }}>{t('th.branch')}</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>{t('th.lineDiscount')}</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>{t('th.invoiceDiscount')}</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>{t('th.promoCode')}</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>{t('th.totalDiscount')}</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'right' }}>{t('th.invoiceTotal')}</th>
                             <th style={{ padding: '12px 16px' }} />
                         </tr>
                     </thead>
@@ -497,28 +504,28 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                         >
                                             <FileText size={22} color="#64748b" />
                                         </div>
-                                        <div style={{ fontWeight: 800, color: '#111827' }}>No discounted invoices found</div>
-                                        <div style={{ fontSize: '0.85rem' }}>Try widening the date range or clearing the department filter.</div>
+                                        <div style={{ fontWeight: 800, color: '#111827' }}>{t('empty.title')}</div>
+                                        <div style={{ fontSize: '0.85rem' }}>{t('empty.hint')}</div>
                                     </div>
                                 </td>
                             </tr>
                         ) : (
                             rows.map((r) => (
                                 <tr key={r.invoiceId} className="ws-sr-row" style={{ borderTop: '1px solid var(--color-border-light)' }}>
-                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>{fmtDt(r.issuedAt || r.invoiceDate)}</td>
+                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>{fmtDt(r.issuedAt || r.invoiceDate, locale) || dash}</td>
                                     <td style={{ padding: '12px 16px', fontWeight: 700 }}>{r.invoiceNo}</td>
                                     <td style={{ padding: '12px 16px' }}>
-                                        <div>{r.customerName || '—'}</div>
+                                        <div>{r.customerName || dash}</div>
                                         <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{r.customerPhone || ''}</div>
                                     </td>
-                                    <td style={{ padding: '12px 16px' }}>{r.vehicleNumber || '—'}</td>
-                                    <td style={{ padding: '12px 16px' }}>{r.cashierName || '—'}</td>
-                                    <td style={{ padding: '12px 16px' }}>{r.branchName || '—'}</td>
-                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.lineDiscount)}</td>
-                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.invoiceDiscount)}</td>
-                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.promoDiscount)}</td>
-                                    <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900 }}>SAR {fmtMoney(r.totalDiscount)}</td>
-                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>SAR {fmtMoney(r.invoiceTotal)}</td>
+                                    <td style={{ padding: '12px 16px' }}>{r.vehicleNumber || dash}</td>
+                                    <td style={{ padding: '12px 16px' }}>{r.cashierName || dash}</td>
+                                    <td style={{ padding: '12px 16px' }}>{r.branchName || dash}</td>
+                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>{money(r.lineDiscount)}</td>
+                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>{money(r.invoiceDiscount)}</td>
+                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>{money(r.promoDiscount)}</td>
+                                    <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900 }}>{money(r.totalDiscount)}</td>
+                                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>{money(r.invoiceTotal)}</td>
                                     <td style={{ padding: '12px 16px' }}>
                                         <button
                                             type="button"
@@ -526,7 +533,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                             style={{ padding: '6px 10px' }}
                                             onClick={() => setDetail(r)}
                                         >
-                                            <Eye size={14} /> View
+                                            <Eye size={14} /> {t('btn.view')}
                                         </button>
                                     </td>
                                 </tr>
@@ -538,7 +545,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
 
             {!loading && total > rows.length ? (
                 <p style={{ marginTop: 12, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                    Showing {rows.length} of {total} discounted invoices
+                    {t('footer.showing', { shown: rows.length, total })}
                 </p>
             ) : null}
         </div>

@@ -4,10 +4,11 @@ import { Plus, BarChart3, AlertTriangle, Calendar, Zap, Trash2 } from 'lucide-re
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { useAuth } from '../../context/AuthContext';
+import { wpT } from '../../utils/workshopPurchasesI18n';
 
 const PURCHASES_TABS = [
-    { id: 'invoices',      label: 'Purchase Invoices',     permission: 'workshop.purchases.invoices.view' },
-    { id: 'price_report',  label: 'Purchase Price Report', permission: 'workshop.purchases.price-report.view' },
+    { id: 'invoices',      labelKey: 'tab.invoices',     permission: 'workshop.purchases.invoices.view' },
+    { id: 'price_report',  labelKey: 'tab.priceReport', permission: 'workshop.purchases.price-report.view' },
 ];
 import {
     getWorkshopStaffBranchProducts,
@@ -685,14 +686,31 @@ function formatViewInvoiceDiscount(raw) {
     return '—';
 }
 
-export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [] }) {
+export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [], locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wpT(locale, key, vars), [locale]);
+    const money = useCallback((amount) => t('money.sar', { amount }), [t]);
+    const statusLabel = useCallback((status) => {
+        const key = String(status || '').toLowerCase();
+        if (!key) return t('emdash');
+        const k = `status.${key}`;
+        const translated = t(k);
+        return translated === k ? String(status) : translated;
+    }, [t]);
+    const paymentLabel = useCallback((status) => {
+        const key = String(status || '').toLowerCase();
+        if (!key) return t('emdash');
+        const k = `payment.${key}`;
+        const translated = t(k);
+        return translated === k ? String(status) : translated;
+    }, [t]);
     const branchesForUi = useMemo(() => filterPortalVisibleBranches(branches), [branches]);
     const { hasPermission } = useAuth();
-    const visiblePurchasesTabs = PURCHASES_TABS.filter((t) => hasPermission(t.permission));
+    const visiblePurchasesTabs = PURCHASES_TABS.filter((tab) => hasPermission(tab.permission));
     const [activeTab, setActiveTab] = useState(() => visiblePurchasesTabs[0]?.id ?? 'invoices');
     useEffect(() => {
         if (visiblePurchasesTabs.length === 0) return;
-        if (!visiblePurchasesTabs.some((t) => t.id === activeTab)) {
+        if (!visiblePurchasesTabs.some((tab) => tab.id === activeTab)) {
             setActiveTab(visiblePurchasesTabs[0].id);
         }
     }, [visiblePurchasesTabs, activeTab]);
@@ -828,12 +846,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             opts.sort((a, b) => a.name.localeCompare(b.name));
             setBranchProductOptions(opts);
         } catch (e) {
-            setBranchProductsError(e.message || 'Could not load branch products.');
+            setBranchProductsError(e.message || t('err.branchProducts'));
             setBranchProductOptions([]);
         } finally {
             setBranchProductsLoading(false);
         }
-    }, [invoiceBranchId]);
+    }, [invoiceBranchId, t]);
 
     const loadLinkedSuppliers = useCallback(async () => {
         setLinkedSuppliersLoading(true);
@@ -913,8 +931,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     setLinkedSuppliersUsingRegisteredFallback(true);
                     setLinkedSuppliersError(
                         missingWorkshopIdColumn
-                            ? 'Loaded via fallback: workshop suppliers list is unavailable (backend schema). Showing linked affiliated suppliers and non-affiliated suppliers where available.'
-                            : 'Loaded via fallback: workshop suppliers endpoint is not authorized. Showing linked affiliated suppliers and non-affiliated suppliers where available.',
+                            ? t('err.fallbackSchema')
+                            : t('err.fallbackAuth'),
                     );
                     return;
                 } catch {
@@ -932,11 +950,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 console.warn('[purchases] failed to load local suppliers (after primary error)', le);
             }
             setLinkedSuppliers(localRowsAfterError);
-            setLinkedSuppliersError(e.message || 'Could not load workshop suppliers.');
+            setLinkedSuppliersError(e.message || t('err.suppliers'));
         } finally {
             setLinkedSuppliersLoading(false);
         }
-    }, [effectiveBranchId, modalOpen, invoiceBranchId]);
+    }, [effectiveBranchId, modalOpen, invoiceBranchId, t]);
 
     const loadPurchaseInvoices = useCallback(async () => {
         /** Workshop-wide list when sidebar is "All branches"; single branch otherwise (fallback: first visible branch). */
@@ -976,11 +994,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoices(merged);
         } catch (e) {
             setInvoices([]);
-            setInvoicesError(e.message || 'Could not load purchase invoices.');
+            setInvoicesError(e.message || t('err.invoices'));
         } finally {
             setInvoicesLoading(false);
         }
-    }, [selectedBranchId, branchesForUi]);
+    }, [selectedBranchId, branchesForUi, t]);
 
     const closeViewInvoiceModal = useCallback(() => {
         setViewModalOpen(false);
@@ -1018,14 +1036,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             if (normalized) {
                 setViewInvoiceRow(normalized);
             } else {
-                setViewInvoiceError('Invoice response was empty.');
+                setViewInvoiceError(t('err.invoiceEmpty'));
             }
         } catch (e) {
-            setViewInvoiceError(e.message || 'Could not load invoice details.');
+            setViewInvoiceError(e.message || t('err.invoiceDetail'));
         } finally {
             setViewInvoiceLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const viewLineRows = useMemo(() => {
         if (!viewInvoiceRow?.items?.length) return [];
@@ -1387,8 +1405,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             showInvoiceDiscountRow: Number(invoiceDiscountSar) > 0,
             invoiceDiscountSummaryLabel:
                 invoiceDiscountMode === 'percent'
-                    ? `Invoice discount (${invPctDisplayed}%):`
-                    : 'Invoice discount (fixed SAR):',
+                    ? t('summary.discPercent', { pct: invPctDisplayed })
+                    : t('summary.discFixed'),
         };
     };
 
@@ -1509,7 +1527,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 const key = String(pid);
                 if (seen.has(key)) continue;
                 seen.add(key);
-                opts.push({ value: key, label: pname || `Product ${key}` });
+                opts.push({ value: key, label: pname || t('productFallback', { id: key }) });
             } else if (pname) {
                 const key = `name:${pname}`;
                 if (seen.has(key)) continue;
@@ -2030,7 +2048,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             hydrateDraftInvoiceForm(detail);
             setModalOpen(true);
         } catch (e) {
-            setInvoicesError(e.message || 'Could not load draft purchase invoice.');
+            setInvoicesError(e.message || t('err.draft'));
         } finally {
             setEditingDraftLoadingId(null);
         }
@@ -2048,9 +2066,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                   isInvoiceLineSubmitReady(line, productSearchByLineId[line.id]),
               );
         if (!isDraftSave && selectedLineItems.length === 0) {
-            setSubmitInvoiceError(
-                'Add at least one line with an account (or product), quantity, and unit price.',
-            );
+            setSubmitInvoiceError(t('err.needLines'));
             return;
         }
         if (!isDraftSave) {
@@ -2060,7 +2076,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             });
             if (invalidQtyIndex !== -1) {
                 const originalIndex = lineItems.findIndex((line) => line.id === selectedLineItems[invalidQtyIndex].id);
-                setSubmitInvoiceError(`Line ${originalIndex + 1}: qty must be greater than 0.`);
+                setSubmitInvoiceError(t('err.lineQty', { n: originalIndex + 1 }));
                 return;
             }
         }
@@ -2072,7 +2088,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 if (!opt) {
                     const originalIndex = lineItems.findIndex((l) => l.id === line.id);
                     setSubmitInvoiceError(
-                        `Line ${originalIndex + 1}${line.item ? ` (${line.item})` : ''}: product is not active on this branch. Pick it again from the branch product list or remove the line.`,
+                        t('err.lineInactive', {
+                            n: originalIndex + 1,
+                            item: line.item ? t('err.lineItemParen', { item: line.item }) : '',
+                        }),
                     );
                     return;
                 }
@@ -2209,7 +2228,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         if (!productId && !itemName) return null;
                         return {
                             ...(productId ? { productId } : {}),
-                            itemName: itemName || 'Off-catalog line',
+                            itemName: itemName || t('offCatalog'),
                             description: ln.description ?? null,
                             uom: ln.uom ?? null,
                             qty: Number(ln.quantity ?? ln.qty ?? 0),
@@ -2256,9 +2275,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     updateLastPurchasePriceOnSave: updateLastPurchasePrice,
                 };
                 if (!isDraftSave && localLines.length === 0) {
-                    throw new Error(
-                        'Add at least one line with an account (or product), quantity, and unit price.',
-                    );
+                    throw new Error(t('err.needLines'));
                 }
                 if (editingLocalPiId) {
                     createRes = await patchWorkshopLocalPurchaseInvoice(editingLocalPiId, localPiPayload);
@@ -2320,7 +2337,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             clearDraftEditSession();
             setUpdateLastPurchasePrice(true);
         } catch (e) {
-            setSubmitInvoiceError(e.message || 'Could not create purchase invoice.');
+            setSubmitInvoiceError(e.message || t('err.create'));
         } finally {
             setSubmittingInvoice(false);
         }
@@ -2329,9 +2346,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     if (modalOpen) {
         return (
             <WorkshopSubScreen
-                title={editingDraftId || editingLocalPiId ? 'Edit Purchase Invoice Draft' : 'New Purchase Invoice'}
-                subtitle="Record supplier purchases, line items, and stock for a branch."
-                backLabel="Back to Purchase Invoices"
+                title={editingDraftId || editingLocalPiId ? t('form.titleEdit') : t('form.titleNew')}
+                subtitle={t('form.subtitle')}
+                backLabel={t('form.back')}
                 onBack={closePurchaseInvoiceForm}
                 backDisabled={submittingInvoice}
                 size="full"
@@ -2346,7 +2363,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 onClick={closePurchaseInvoiceForm}
                                 disabled={submittingInvoice}
                             >
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                         </div>
                         <div className="pi-footer-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
@@ -2363,10 +2380,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     disabled={!canSavePurchaseInvoiceDraft || submittingInvoice}
                                 >
                                     {submittingInvoice
-                                        ? 'Saving…'
+                                        ? t('btn.saving')
                                         : editingDraftId || editingLocalPiId
-                                          ? 'Update Draft'
-                                          : 'Save as Draft'}
+                                          ? t('btn.updateDraft')
+                                          : t('btn.saveDraft')}
                                 </button>
                                 <button
                                     type="button"
@@ -2375,19 +2392,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     disabled={!canSubmitPurchaseInvoice || submittingInvoice}
                                     title={
                                         !canSubmitPurchaseInvoice
-                                            ? 'Need invoice branch, linked supplier with ID, at least one line with a branch product, and loaded suppliers.'
+                                            ? t('form.needSubmit')
                                             : undefined
                                     }
                                 >
                                     {submittingInvoice
-                                        ? 'Creating…'
+                                        ? t('btn.creating')
                                         : editingDraftId || editingLocalPiId
                                           ? isModalLocalSupplier
-                                              ? 'Complete invoice'
-                                              : 'Send to Supplier'
+                                              ? t('btn.completeInvoice')
+                                              : t('btn.sendToSupplier')
                                           : isModalLocalSupplier
-                                            ? 'Create purchase invoice'
-                                            : 'Create Purchase Invoice'}
+                                            ? t('btn.createPiShort')
+                                            : t('btn.createPi')}
                                 </button>
                             </div>
                         </div>
@@ -2407,12 +2424,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     fontSize: '0.875rem',
                                 }}
                             >
-                                Add a workshop branch before creating purchase invoices.
+                                {t('form.needBranch')}
                             </p>
                         )}
                         {branchesForUi.length > 0 && (
                             <div className="pi-field pi-full-width" style={{ marginBottom: 16 }}>
-                                <label>Branch for this invoice *</label>
+                                <label>{t('form.branchLabel')}</label>
                                 <select
                                     value={invoiceBranchId}
                                     onChange={(e) => handleInvoiceBranchChange(e.target.value)}
@@ -2432,8 +2449,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     ))}
                                 </select>
                                 <p className="pi-sub-label" style={{ marginTop: 6 }}>
-                                    Products and quantities apply to this branch only. When the supplier approves and
-                                    stock is updated, inventory changes on this branch.
+                                    {t('form.branchHint')}
                                 </p>
                             </div>
                         )}
@@ -2448,7 +2464,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     fontSize: '0.875rem',
                                 }}
                             >
-                                Choose a branch above to load branch products for line items.
+                                {t('form.chooseBranch')}
                             </p>
                         )}
                         {branchProductsError && (
@@ -2469,30 +2485,29 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         borderRadius: 8,
                                     }}
                                 >
-                                    No branch products were returned. Check that this branch has products in catalog
-                                    / inventory, or that the workshop-staff / workshop-catalog APIs are reachable.
+                                    {t('form.noProducts')}
                                 </p>
                             )}
                         <div className="pi-header-grid">
                             <div className="pi-field">
-                                <label>Issue date</label>
+                                <label>{t('form.issueDate')}</label>
                                 <div className="pi-input-with-icon">
                                     <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
                                     <Calendar size={16} />
                                 </div>
                             </div>
                             <div className="pi-field">
-                                <label>Due date</label>
+                                <label>{t('form.dueDate')}</label>
                                 <div className={`pi-due-grid ${dueDateType === 'EOM' ? 'pi-due-eom' : ''}`}>
                                     <select value={dueDateType} onChange={(e) => setDueDateType(e.target.value)}>
-                                        <option value="Net">Net</option>
-                                        <option value="Custom">Custom</option>
-                                        <option value="EOM">EOM</option>
+                                        <option value="Net">{t('form.dueNet')}</option>
+                                        <option value="Custom">{t('form.dueCustom')}</option>
+                                        <option value="EOM">{t('form.dueEom')}</option>
                                     </select>
                                     {dueDateType === 'Net' && (
                                         <div className="pi-days-input">
                                             <input type="number" value={netDays} onChange={(e) => setNetDays(e.target.value)} />
-                                            <span>days</span>
+                                            <span>{t('form.days')}</span>
                                         </div>
                                     )}
                                     {dueDateType === 'Custom' && (
@@ -2501,10 +2516,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         </div>
                                     )}
                                 </div>
-                                <span className="pi-sub-label">Due: {calculateDueDate()}</span>
+                                <span className="pi-sub-label">{t('form.duePrefix', { date: calculateDueDate() })}</span>
                             </div>
                             <InvoiceRefField
-                                placeholder="Vendor inv #"
+                                label={t('ref.label')}
+                                placeholder={t('ref.placeholder')}
+                                autoGenerateLabel={t('ref.auto')}
+                                generatingLabel={t('ref.generating')}
                                 value={vendorInvoiceRef}
                                 onChange={setVendorInvoiceRef}
                                 autoGenerate={refAutoGenerate}
@@ -2517,7 +2535,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             />
                         </div>
                         <div className="pi-field pi-full-width">
-                            <label>Supplier / Vendor *</label>
+                            <label>{t('form.supplier')}</label>
                             <select
                                 value={selectedVendor}
                                 onChange={(e) => setSelectedVendor(e.target.value)}
@@ -2532,10 +2550,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 }}
                             >
                                 {linkedSuppliersLoading && (
-                                    <option value="">Loading suppliers…</option>
+                                    <option value="">{t('form.loadingSuppliers')}</option>
                                 )}
                                 {!linkedSuppliersLoading && invoiceSupplierOptions.length === 0 && (
-                                    <option value="">No suppliers linked to this workshop</option>
+                                    <option value="">{t('form.noSuppliers')}</option>
                                 )}
                                 {!linkedSuppliersLoading &&
                                     invoiceSupplierOptions.map((v) => (
@@ -2546,8 +2564,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </select>
                             {linkedSuppliersUsingRegisteredFallback && (
                                 <p className="pi-sub-label" style={{ color: '#B45309', marginTop: 6 }}>
-                                    Supplier list is using the registered-suppliers fallback (same as Suppliers tab
-                                    when the main endpoint fails).
+                                    {t('form.supplierFallback')}
                                 </p>
                             )}
                             {linkedSuppliersError && (
@@ -2557,10 +2574,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             )}
                         </div>
                         <div className="pi-field pi-full-width">
-                            <label>Description</label>
+                            <label>{t('form.description')}</label>
                             <input
                                 type="text"
-                                placeholder="Invoice description (optional)"
+                                placeholder={t('form.descPlaceholder')}
                                 value={invoiceDescription}
                                 onChange={(e) => setInvoiceDescription(e.target.value)}
                             />
@@ -2590,39 +2607,39 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <th scope="col" className="ws-pi-th-hash">
                                                 #
                                             </th>
-                                            <th scope="col" className="ws-pi-th-actions" aria-label="Remove line" />
-                                            <th scope="col">Item</th>
-                                            <th scope="col">Account</th>
-                                            {showDesc ? <th scope="col">Description</th> : null}
-                                            <th scope="col">UOM</th>
+                                            <th scope="col" className="ws-pi-th-actions" aria-label={t('line.remove')} />
+                                            <th scope="col">{t('th.item')}</th>
+                                            <th scope="col">{t('th.account')}</th>
+                                            {showDesc ? <th scope="col">{t('th.description')}</th> : null}
+                                            <th scope="col">{t('th.uom')}</th>
                                             <th scope="col" className="ws-pi-th-num">
-                                                Qty
+                                                {t('th.qty')}
                                             </th>
                                             <th scope="col" className="ws-pi-th-num">
-                                                Unit price {amountsTaxInclusive ? '(incl. VAT)' : '(ex VAT)'}
+                                                {amountsTaxInclusive ? t('th.unitPriceIncl') : t('th.unitPriceEx')}
                                             </th>
                                             {showDiscount ? (
                                                 <th scope="col" className="ws-pi-th-num">
-                                                    Discount
+                                                    {t('th.discount')}
                                                 </th>
                                             ) : null}
                                             <th scope="col" className="ws-pi-th-num">
-                                                Total
+                                                {t('th.total')}
                                             </th>
-                                            <th scope="col" title="Fixed VAT 15% for workshop supplier purchase invoices">
-                                                Tax code
-                                            </th>
-                                            <th scope="col" className="ws-pi-th-num">
-                                                Tax Amt
+                                            <th scope="col" title={t('tip.taxFixed')}>
+                                                {t('th.taxCode')}
                                             </th>
                                             <th scope="col" className="ws-pi-th-num">
-                                                Total
+                                                {t('th.taxAmt')}
+                                            </th>
+                                            <th scope="col" className="ws-pi-th-num">
+                                                {t('th.total')}
                                             </th>
                                             <th
                                                 scope="col"
-                                                title="Supplier-scoped: last price you paid this supplier for this product (per unit, incl. VAT when applicable)"
+                                                title={t('tip.lastPriceCol')}
                                             >
-                                                Last from supplier (incl.)
+                                                {t('th.lastFromSupplier')}
                                             </th>
                                         </tr>
                                     </thead>
@@ -2670,8 +2687,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             type="button"
                                                             className="ws-pi-remove-line-btn"
                                                             tabIndex={-1}
-                                                            aria-label="Remove line"
-                                                            title="Remove line"
+                                                            aria-label={t('line.remove')}
+                                                            title={t('line.remove')}
                                                             onClick={() => removeLine(line.id)}
                                                         >
                                                             <Trash2 size={16} aria-hidden />
@@ -2699,10 +2716,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                         autoComplete="off"
                                                                         placeholder={
                                                                             branchProductsLoading
-                                                                                ? 'Loading products...'
+                                                                                ? t('line.loadingProducts')
                                                                                 : invoiceBranchId
-                                                                                  ? 'Product (optional) — or pick account'
-                                                                                  : 'Choose branch first'
+                                                                                  ? t('line.productPlaceholder')
+                                                                                  : t('line.chooseBranchFirst')
                                                                         }
                                                                         onFocus={() => {
                                                                             setActiveProductSearchLineId(line.id);
@@ -2783,7 +2800,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                 ref={productResultsPanelRef}
                                                                                 className="ws-pi-product-results"
                                                                                 role="listbox"
-                                                                                aria-label="Product search results"
+                                                                                aria-label={t('line.productResults')}
                                                                                 style={{
                                                                                     top: productDropdownPosition.top,
                                                                                     left: productDropdownPosition.left,
@@ -2810,19 +2827,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                                 <small>
                                                                                                     {p.warehouseUnit &&
                                                                                                     Number(p.conversionFactor) > 1
-                                                                                                        ? `order in ${p.warehouseUnit} · stock in ${p.workshopUnit || p.unit}`
+                                                                                                        ? t('line.orderStock', { warehouse: p.warehouseUnit, workshop: p.workshopUnit || p.unit })
                                                                                                         : p.unit || 'piece'}
                                                                                                 </small>
                                                                                             </button>
                                                                                         ))
                                                                                     ) : (
                                                                                         <div className="ws-pi-product-empty">
-                                                                                            No products match this search.
+                                                                                            {t('line.noMatch')}
                                                                                         </div>
                                                                                     )
                                                                                 ) : (
                                                                                     <div className="ws-pi-product-empty">
-                                                                                        Type product name to search.
+                                                                                        {t('line.typeToSearch')}
                                                                                     </div>
                                                                                 )}
                                                                             </div>,
@@ -2840,7 +2857,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         >
                                                             {PI_ACCOUNT_OPTIONS.map((opt) => (
                                                                 <option key={opt.code} value={`${opt.code} - ${opt.name}`}>
-                                                                    {opt.code} - {opt.name}
+                                                                    {opt.code} - {t(`account.${opt.code}`)}
                                                                 </option>
                                                             ))}
                                                         </select>
@@ -2898,8 +2915,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         className="ws-pi-td-num ws-pi-price-cell"
                                                         title={
                                                             amountsTaxInclusive
-                                                                ? 'Prefilled from supplier last price incl. VAT (or master catalog incl.). Editable.'
-                                                                : 'Prefilled from supplier last price ex VAT (or master catalog ex VAT). Editable.'
+                                                                ? t('tip.priceIncl')
+                                                                : t('tip.priceEx')
                                                         }
                                                     >
                                                         <input
@@ -2937,12 +2954,12 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                     onChange={(e) => updateLineItem(line.id, 'discountMode', e.target.value)}
                                                                 >
                                                                     <option value="percent">%</option>
-                                                                    <option value="fixed_sar">SAR</option>
+                                                                    <option value="fixed_sar">{t('line.sarCurrency')}</option>
                                                                 </select>
                                                             </div>
                                                         </td>
                                                     ) : null}
-                                                    <td className="ws-pi-td-num">SAR {amounts.lineExStr}</td>
+                                                    <td className="ws-pi-td-num">{money(amounts.lineExStr)}</td>
                                                     <td className="ws-pi-td-tax">
                                                         <select
                                                             className="pi-row-input ws-pi-select"
@@ -2950,22 +2967,22 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             onChange={(e) => updateLineItem(line.id, 'taxCode', e.target.value)}
                                                             onKeyDown={(e) => handleTaxSelectTabFromLastRow(e, idx)}
                                                         >
-                                                            {TAXES.map((t) => (
-                                                                <option key={t.code} value={t.code}>
-                                                                    {t.code}
-                                                                </option>
-                                                            ))}
+                                                            {TAXES.map((tax) => (
+                                                            <option key={tax.code} value={tax.code}>
+                                                                {tax.code}
+                                                            </option>
+                                                        ))}
                                                         </select>
                                                     </td>
-                                                    <td className="ws-pi-td-num">SAR {amounts.taxAmtStr}</td>
-                                                    <td className="ws-pi-td-num ws-pi-td-strong">SAR {amounts.grandInclStr}</td>
+                                                    <td className="ws-pi-td-num">{money(amounts.taxAmtStr)}</td>
+                                                    <td className="ws-pi-td-num ws-pi-td-strong">{money(amounts.grandInclStr)}</td>
                                                     <td className="ws-pi-td-num">
                                                         {(() => {
                                                             if (!line.productId) {
-                                                                return <span style={{ color: '#94a3b8', fontSize: 11 }}>—</span>;
+                                                                return <span style={{ color: '#94a3b8', fontSize: 11 }}>{t('emdash')}</span>;
                                                             }
                                                             if (lastPricesLoading) {
-                                                                return <span style={{ color: '#94a3b8', fontSize: 11 }}>Loading…</span>;
+                                                                return <span style={{ color: '#94a3b8', fontSize: 11 }}>{t('btn.loading')}</span>;
                                                             }
                                                             const last = lastPricesByProductId[String(line.productId)];
                                                             if (!last) {
@@ -2977,9 +2994,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                             fontStyle: 'italic',
                                                                             whiteSpace: 'nowrap',
                                                                         }}
-                                                                        title="No prior purchase from this supplier for this product — supplier-scoped last price unavailable."
+                                                                        title={t('tip.notPurchased')}
                                                                     >
-                                                                        Not purchased yet
+                                                                        {t('line.notPurchasedYet')}
                                                                     </span>
                                                                 );
                                                             }
@@ -2989,34 +3006,41 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             const lastQty = Number(last.qty ?? 0);
                                                             const meta = [];
                                                             if (Number.isFinite(lastQty) && lastQty > 1) {
-                                                                meta.push(`qty ${lastQty.toLocaleString(undefined, { maximumFractionDigits: 3 })}`);
+                                                                meta.push(t('line.qtyMeta', { qty: lastQty.toLocaleString(undefined, { maximumFractionDigits: 3 }) }));
                                                             }
-                                                            if (last.hadLineDiscount) meta.push('after disc.');
-                                                            const tooltip =
-                                                                `Per unit after line discount\n` +
-                                                                `Incl. VAT: SAR ${Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00'}\n` +
-                                                                (!amountsTaxInclusive &&
+                                                            if (last.hadLineDiscount) meta.push(t('line.afterDisc'));
+                                                            const inclFmt = money(Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00');
+                                                            const exLine =
+                                                                !amountsTaxInclusive &&
                                                                 Number.isFinite(lastEx) &&
                                                                 lastEx > 0
-                                                                    ? `Ex VAT: SAR ${lastEx.toFixed(2)}\n`
-                                                                    : '') +
-                                                                `Invoice ${last.lastInvoiceNumber || '—'}` +
-                                                                (last.lastIssueDate ? `\nDate: ${last.lastIssueDate}` : '') +
-                                                                (meta.length ? `\n(${meta.join(', ')})` : '');
+                                                                    ? t('line.exVatLine', { ex: money(lastEx.toFixed(2)) })
+                                                                    : '';
+                                                            const tooltip = t('line.lastTooltip', {
+                                                                incl: inclFmt,
+                                                                exLine,
+                                                                invoice: last.lastInvoiceNumber || t('emdash'),
+                                                                dateLine: last.lastIssueDate
+                                                                    ? t('line.dateLine', { date: last.lastIssueDate })
+                                                                    : '',
+                                                                metaLine: meta.length
+                                                                    ? t('line.metaLine', { meta: meta.join(', ') })
+                                                                    : '',
+                                                            });
                                                             return (
                                                                 <div
                                                                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}
                                                                     title={tooltip}
                                                                 >
                                                                     <span style={{ fontWeight: 600, color: '#0f766e' }}>
-                                                                        SAR {Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00'}
+                                                                        {money(Number.isFinite(lastIncl) ? lastIncl.toFixed(2) : '0.00')}
                                                                     </span>
                                                                     {!amountsTaxInclusive &&
                                                                     Number.isFinite(lastEx) &&
                                                                     lastEx > 0 &&
                                                                     Math.abs(lastEx - lastIncl) > 0.005 ? (
                                                                         <span style={{ fontSize: 10, color: '#64748b' }}>
-                                                                            ex VAT SAR {lastEx.toFixed(2)}
+                                                                            {t('line.exVatSar', { amount: money(lastEx.toFixed(2)) })}
                                                                         </span>
                                                                     ) : null}
                                                                     {last.lastIssueDate ? (
@@ -3059,15 +3083,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             <div className="pi-line-row">
                                 <div style={{ flex: 1 }} />
                                 <button type="button" className="btn-add-line" onClick={addEmptyLine}>
-                                    <Plus size={16} /> Add line
+                                    <Plus size={16} /> {t('btn.addLine')}
                                 </button>
                             </div>
                             <div className="pi-hint">
-                                <Zap size={14} /> Tip: By default the unit column is <strong>ex VAT</strong> (15% VAT is
-                                added on each line). Check <strong>Amounts are tax inclusive</strong> to enter
-                                VAT-inclusive unit prices. When a product has a conversion rule (e.g. 1 Box = 12 Liter),
-                                invoice qty is in the purchase unit and branch stock is updated in the workshop unit.
-                                Qty, unit price, and discount support math (e.g. 12*5).
+                                <Zap size={14} /> {t('form.tip')}
                             </div>
                         </div>
 
@@ -3078,7 +3098,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     checked={showDesc}
                                     onChange={(e) => setShowDesc(e.target.checked)}
                                 />
-                                <span>Column — Description</span>
+                                <span>{t('form.colDesc')}</span>
                             </label>
                             <label className="pi-checkbox">
                                 <input
@@ -3086,7 +3106,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     checked={showDiscount}
                                     onChange={(e) => setShowDiscount(e.target.checked)}
                                 />
-                                <span>Column — Discount</span>
+                                <span>{t('form.colDiscount')}</span>
                             </label>
                             <label className="pi-checkbox">
                                 <input
@@ -3094,14 +3114,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     checked={amountsTaxInclusive}
                                     onChange={(e) => setAmountsTaxInclusive(e.target.checked)}
                                 />
-                                <span>Amounts are tax inclusive</span>
+                                <span>{t('form.taxInclusive')}</span>
                             </label>
                         </div>
 
                         <div className="pi-footer-grid">
                             <div className="pi-footer-column">
                                 <div className="pi-field-inline">
-                                    <label>Invoice Discount</label>
+                                    <label>{t('form.invoiceDiscount')}</label>
                                     <div className="pi-discount-group">
                                         <input
                                             type="text"
@@ -3112,13 +3132,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             value={invoiceDiscountMode}
                                             onChange={(e) => setInvoiceDiscountMode(e.target.value)}
                                         >
-                                            <option value="fixed_sar">Fixed (SAR)</option>
-                                            <option value="percent">Percent (%)</option>
+                                            <option value="fixed_sar">{t('form.discountFixed')}</option>
+                                            <option value="percent">{t('form.discountPercent')}</option>
                                         </select>
                                     </div>
                                 </div>
                                 <div className="pi-field-inline">
-                                    <label>Freight (SAR)</label>
+                                    <label>{t('form.freight')}</label>
                                     <input
                                         type="text"
                                         value={freightSar}
@@ -3128,9 +3148,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     />
                                 </div>
                                 <div className="pi-field pi-full-width">
-                                    <label>Notes</label>
+                                    <label>{t('form.notes')}</label>
                                     <textarea
-                                        placeholder="Internal notes"
+                                        placeholder={t('form.notesPlaceholder')}
                                         rows={4}
                                         value={invoiceNotes}
                                         onChange={(e) => setInvoiceNotes(e.target.value)}
@@ -3140,46 +3160,37 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             <div className="pi-footer-column pi-summary-column">
                                 <div className="pi-summary-card">
                                     <div className="pi-summary-row">
-                                        <span>Subtotal:</span>
-                                        <span>SAR {summary.subtotal}</span>
+                                        <span>{t('summary.subtotal')}</span>
+                                        <span>{money(summary.subtotal)}</span>
                                     </div>
                                     {summary.showFreightRow ? (
                                         <div className="pi-summary-row">
-                                            <span>Freight / Other charges:</span>
-                                            <span>SAR {summary.freightInFormatted}</span>
+                                            <span>{t('summary.freight')}</span>
+                                            <span>{money(summary.freightInFormatted)}</span>
                                         </div>
                                     ) : null}
                                     {summary.showInvoiceDiscountRow ? (
                                         <div className="pi-summary-row">
                                             <span>{summary.invoiceDiscountSummaryLabel}</span>
                                             <span style={{ color: '#B91C1C' }}>
-                                                − SAR {summary.invoiceDiscountFormatted}
+                                                {t('summary.minusSar', { amount: money(summary.invoiceDiscountFormatted) })}
                                             </span>
                                         </div>
                                     ) : null}
                                     <div className="pi-summary-row">
-                                        <span>Total Tax (VAT):</span>
-                                        <span>SAR {summary.totalTax}</span>
+                                        <span>{t('summary.totalTax')}</span>
+                                        <span>{money(summary.totalTax)}</span>
                                     </div>
                                     <div className="pi-summary-row pi-grand-total">
-                                        <span>Grand Total:</span>
-                                        <span>SAR {summary.grandTotal}</span>
+                                        <span>{t('summary.grandTotal')}</span>
+                                        <span>{money(summary.grandTotal)}</span>
                                     </div>
                                 </div>
                                 <div className="pi-ap-alert">
                                     <span>
-                                        {isSelectedSupplierWorkshopLocal ? (
-                                            <>
-                                                Creates <strong>Accounts Payable</strong>. This supplier is{' '}
-                                                <strong>workshop-only (not onboarded)</strong> — branch inventory will be{' '}
-                                                <strong>updated automatically</strong> on save (no supplier approval).
-                                            </>
-                                        ) : (
-                                            <>
-                                                Creates <strong>Accounts Payable</strong>. After goods received, click &quot;Update Stock&quot; in the
-                                                list.
-                                            </>
-                                        )}
+                                        {isSelectedSupplierWorkshopLocal
+                                            ? t('form.apLocal')
+                                            : t('form.apAffiliated')}
                                     </span>
                                 </div>
                                 <label className="pi-checkbox pi-price-update">
@@ -3188,7 +3199,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         checked={updateLastPurchasePrice}
                                         onChange={(e) => setUpdateLastPurchasePrice(e.target.checked)}
                                     />
-                                    <span>Update last purchase price for all products on save (master catalog)</span>
+                                    <span>{t('form.updateLastPrice')}</span>
                                 </label>
                             </div>
                         </div>
@@ -3201,9 +3212,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     if (viewModalOpen && viewInvoiceRow) {
         return (
             <WorkshopSubScreen
-                title={`Purchase Invoice ${viewInvoiceRow.invoice_number || viewInvoiceRow.id}`}
-                subtitle={viewInvoiceRow.vendor_name || viewInvoiceRow.supplier || 'Supplier purchase invoice'}
-                backLabel="Back to Purchase Invoices"
+                title={t('view.title', { no: viewInvoiceRow.invoice_number || viewInvoiceRow.id })}
+                subtitle={viewInvoiceRow.vendor_name || viewInvoiceRow.supplier || t('view.subtitleFallback')}
+                backLabel={t('view.back')}
                 onBack={closeViewInvoiceModal}
                 size="xl"
                 maxWidth="1100px"
@@ -3212,7 +3223,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     <div className="pi-modal-footer">
                         <div className="pi-footer-left">
                             <button type="button" className="btn-pi-cancel" onClick={closeViewInvoiceModal}>
-                                Close
+                                {t('btn.close')}
                             </button>
                         </div>
                     </div>
@@ -3253,7 +3264,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 }
                                 disabled={viewInvoiceLoading}
                             >
-                                Purchase Return
+                                {t('btn.purchaseReturn')}
                             </button>
                             <button
                                 type="button"
@@ -3261,7 +3272,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 onClick={() => printableRef.current?.downloadPdf?.()}
                                 disabled={viewInvoiceLoading}
                             >
-                                Download PDF
+                                {t('btn.downloadPdf')}
                             </button>
                         </div>
                         {viewInvoiceLoading ? (
@@ -3366,7 +3377,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 </div>
                             </div>
                             <div className="pi-field">
-                                <label>Issue date</label>
+                                <label>{t('form.issueDate')}</label>
                                 <div
                                     style={{
                                         padding: '10px 14px',
@@ -3379,7 +3390,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 </div>
                             </div>
                             <div className="pi-field">
-                                <label>Due date</label>
+                                <label>{t('form.dueDate')}</label>
                                 <div
                                     style={{
                                         padding: '10px 14px',
@@ -3419,7 +3430,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </div>
                         </div>
                         <div className="pi-field pi-full-width">
-                            <label>Description</label>
+                            <label>{t('form.description')}</label>
                             <div
                                 style={{
                                     padding: '10px 14px',
@@ -3454,30 +3465,30 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <th scope="col" className="ws-pi-th-hash">
                                                 #
                                             </th>
-                                            <th scope="col">Item</th>
-                                            <th scope="col">Account</th>
-                                            {viewUi.showDesc ? <th scope="col">Description</th> : null}
-                                            <th scope="col">UOM</th>
+                                            <th scope="col">{t('th.item')}</th>
+                                            <th scope="col">{t('th.account')}</th>
+                                            {viewUi.showDesc ? <th scope="col">{t('th.description')}</th> : null}
+                                            <th scope="col">{t('th.uom')}</th>
                                             <th scope="col" className="ws-pi-th-num">
                                                 Qty
                                             </th>
                                             <th scope="col" className="ws-pi-th-num">
-                                                Unit price (ex VAT)
+                                                {t('th.unitPriceEx')}
                                             </th>
                                             {viewUi.showDiscount ? (
                                                 <th scope="col" className="ws-pi-th-num">
-                                                    Discount{viewUi.discountIsPercent ? ' %' : ' (SAR)'}
+                                                    {t('th.discount')}{viewUi.discountIsPercent ? ' %' : ` (${t('line.sarCurrency')})`}
                                                 </th>
                                             ) : null}
                                             <th scope="col" className="ws-pi-th-num">
-                                                Taxable (ex VAT)
+                                                {t('th.taxableEx')}
                                             </th>
                                             <th scope="col">Tax</th>
                                             <th scope="col" className="ws-pi-th-num">
                                                 Tax Amt
                                             </th>
                                             <th scope="col" className="ws-pi-th-num">
-                                                Line total (incl VAT)
+                                                {t('th.lineTotalIncl')}
                                             </th>
                                         </tr>
                                     </thead>
@@ -3492,7 +3503,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     }
                                                     style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-muted)' }}
                                                 >
-                                                    No line items on this invoice
+                                                    {t('empty.lines')}
                                                 </td>
                                             </tr>
                                         ) : (
@@ -3546,7 +3557,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     </div>
                                 </div>
                                 <div className="pi-field pi-full-width">
-                                    <label>Notes</label>
+                                    <label>{t('form.notes')}</label>
                                     <div
                                         style={{
                                             padding: '10px 14px',
@@ -3637,21 +3648,21 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         <div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
                 <div style={{ padding: 16, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 16 }}>
-                    <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase' }}>Accounts Payable</p>
-                    <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991B1B', margin: '4px 0 0' }}>SAR {totalPayables.toLocaleString()}</p>
-                    <p style={{ fontSize: '0.75rem', color: '#DC2626', margin: '4px 0 0' }}>Owed to vendors</p>
+                    <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase' }}>{t('kpi.ap')}</p>
+                    <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991B1B', margin: '4px 0 0' }}>{money(totalPayables.toLocaleString())}</p>
+                    <p style={{ fontSize: '0.75rem', color: '#DC2626', margin: '4px 0 0' }}>{t('kpi.owed')}</p>
                 </div>
                 {overduePayables > 0 && (
                     <div style={{ padding: 16, background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
                         <AlertTriangle size={20} style={{ color: '#EA580C' }} />
                         <div>
-                            <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#EA580C' }}>Overdue</p>
-                            <p style={{ fontSize: '1.25rem', fontWeight: 800 }}>SAR {overduePayables.toLocaleString()}</p>
+                            <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#EA580C' }}>{t('kpi.overdue')}</p>
+                            <p style={{ fontSize: '1.25rem', fontWeight: 800 }}>{money(overduePayables.toLocaleString())}</p>
                         </div>
                     </div>
                 )}
                 <div style={{ padding: 16, background: 'var(--color-bg-muted)', border: '1px solid var(--color-border)', borderRadius: 16 }}>
-                    <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>Total Purchase Invoices</p>
+                    <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>{t('kpi.totalInvoices')}</p>
                     <p style={{ fontSize: '1.5rem', fontWeight: 800, margin: '4px 0 0' }}>{invoices.length}</p>
                 </div>
             </div>
@@ -3671,7 +3682,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 border: activeTab === 'invoices' ? 'none' : '1px solid var(--color-border)',
                             }}
                         >
-                            Purchase Invoices
+                            {t('tab.invoices')}
                         </button>
                     )}
                     {hasPermission('workshop.purchases.price-report.view') && (
@@ -3692,7 +3703,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             }}
                         >
                             <BarChart3 size={14} />
-                            Purchase Price Report
+                            {t('tab.priceReport')}
                         </button>
                     )}
                 </div>
@@ -3707,7 +3718,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         setModalOpen(true);
                     }}
                 >
-                    <Plus size={16} /> New Purchase Invoice
+                    <Plus size={16} /> {t('btn.newInvoice')}
                 </button>
             </div>
             {activeTab === 'invoices' && (
@@ -3731,19 +3742,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>Invoice #</th>
-                                    <th>Vendor</th>
-                                    <th>Ref</th>
-                                    <th>Issue Date</th>
-                                    <th>Due Date</th>
-                                    <th>Status</th>
-                                    <th>Tax</th>
-                                    <th>Total</th>
-                                    <th>Paid</th>
-                                    <th>Balance</th>
-                                    <th>Payment</th>
-                                    <th>Stock</th>
-                                    <th>Actions</th>
+                                    <th>{t('th.invoiceNo')}</th>
+                                    <th>{t('th.vendor')}</th>
+                                    <th>{t('th.ref')}</th>
+                                    <th>{t('th.issueDate')}</th>
+                                    <th>{t('th.dueDate')}</th>
+                                    <th>{t('th.status')}</th>
+                                    <th>{t('th.tax')}</th>
+                                    <th>{t('th.total')}</th>
+                                    <th>{t('th.paid')}</th>
+                                    <th>{t('th.balance')}</th>
+                                    <th>{t('th.payment')}</th>
+                                    <th>{t('th.stock')}</th>
+                                    <th>{t('th.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -3763,25 +3774,25 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         <td style={{ fontSize: '0.75rem' }}>{inv.due_date || '–'}</td>
                                         <td>
                                             <span className={`ws-badge ws-badge--${inv.status === 'approved' ? 'green' : inv.status === 'rejected' ? 'red' : inv.status === 'draft' ? 'gray' : 'yellow'}`}>
-                                                {inv.status || '—'}
+                                                {statusLabel(inv.status)}
                                             </span>
                                         </td>
-                                        <td style={{ fontSize: '0.75rem' }}>SAR {(inv.vat_amount || 0).toLocaleString()}</td>
+                                        <td style={{ fontSize: '0.75rem' }}>{money((inv.vat_amount || 0).toLocaleString())}</td>
                                         <td>
-                                            <strong>SAR {(inv.grand_total || 0).toLocaleString()}</strong>
+                                            <strong>{money((inv.grand_total || 0).toLocaleString())}</strong>
                                         </td>
-                                        <td style={{ color: '#059669' }}>SAR {(inv.amount_paid || 0).toLocaleString()}</td>
-                                        <td style={{ color: '#DC2626', fontWeight: 700 }}>SAR {(inv.balance_due || 0).toLocaleString()}</td>
+                                        <td style={{ color: '#059669' }}>{money((inv.amount_paid || 0).toLocaleString())}</td>
+                                        <td style={{ color: '#DC2626', fontWeight: 700 }}>{money((inv.balance_due || 0).toLocaleString())}</td>
                                         <td>
                                             <span
                                                 className={`ws-badge ${inv.payment_status === 'paid' ? 'ws-badge--green' : 'ws-badge--yellow'}`}
                                             >
-                                                {inv.payment_status}
+                                                {paymentLabel(inv.payment_status)}
                                             </span>
                                         </td>
                                         <td>
                                             <span className={`ws-badge ${inv.stock_updated ? 'ws-badge--green' : 'ws-badge--yellow'}`}>
-                                                {inv.stock_updated ? 'Updated' : 'Pending'}
+                                                {inv.stock_updated ? t('stock.updated') : t('stock.pending')}
                                             </span>
                                         </td>
                                         <td>
@@ -3798,7 +3809,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             void handleEditDraftInvoice(inv);
                                                         }}
                                                     >
-                                                        {editingDraftLoadingId === inv.id ? 'Loading…' : 'Edit'}
+                                                        {editingDraftLoadingId === inv.id ? t('btn.loading') : t('btn.edit')}
                                                     </button>
                                                 ) : (
                                                     <button
@@ -3811,7 +3822,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             void openViewInvoiceModal(inv);
                                                         }}
                                                     >
-                                                        View
+                                                        {t('btn.view')}
                                                     </button>
                                                 )}
                                             </div>
@@ -3821,7 +3832,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 {!invoicesLoading && invoices.length === 0 && (
                                     <tr>
                                         <td colSpan={13} style={{ textAlign: 'center', padding: 40 }}>
-                                            No purchase invoices yet
+                                            {t('empty.invoices')}
                                         </td>
                                     </tr>
                                 )}
@@ -3835,14 +3846,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     <div style={{ padding: 16, display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
                         <div>
                             <label style={{ fontSize: '0.6875rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
-                                Filter by Vendor
+                                {t('filter.byVendor')}
                             </label>
                             <select
                                 value={filterSupplier}
                                 onChange={(e) => setFilterSupplier(e.target.value)}
                                 style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', minWidth: 160 }}
                             >
-                                <option value="all">All Vendors</option>
+                                <option value="all">{t('filter.allVendors')}</option>
                                 {priceReportVendorOptions.map((v) => (
                                     <option key={v} value={v}>
                                         {v}
@@ -3852,14 +3863,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         </div>
                         <div>
                             <label style={{ fontSize: '0.6875rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
-                                Filter by Product
+                                {t('filter.byProduct')}
                             </label>
                             <select
                                 value={filterProduct}
                                 onChange={(e) => setFilterProduct(e.target.value)}
                                 style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', minWidth: 160 }}
                             >
-                                <option value="all">All Products</option>
+                                <option value="all">{t('filter.allProducts')}</option>
                                 {invoicedProductOptions.map((p) => (
                                     <option key={p.value} value={p.value}>
                                         {p.label}
@@ -3872,16 +3883,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     <table className="ws-table">
                         <thead>
                             <tr>
-                                <th>Product</th>
-                                <th>Vendor</th>
-                                <th>Invoice #</th>
-                                <th>Date</th>
-                                <th>Qty</th>
-                                <th>Unit</th>
-                                <th>Unit Price (SAR)</th>
-                                <th>Line Total</th>
-                                <th>Tax</th>
-                                <th>Grand Total</th>
+                                <th>{t('th.product')}</th>
+                                <th>{t('th.vendor')}</th>
+                                <th>{t('th.invoiceNo')}</th>
+                                <th>{t('th.date')}</th>
+                                <th>{t('th.qty')}</th>
+                                <th>{t('th.unit')}</th>
+                                <th>{t('th.unitPriceSar')}</th>
+                                <th>{t('th.lineTotal')}</th>
+                                <th>{t('th.tax')}</th>
+                                <th>{t('th.grandTotal')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -3896,19 +3907,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     <td>{r.quantity}</td>
                                     <td style={{ fontSize: '0.75rem' }}>{r.unit}</td>
                                     <td>
-                                        <strong style={{ color: '#2563EB' }}>SAR {parseFloat(r.unit_price || 0).toFixed(2)}</strong>
+                                        <strong style={{ color: '#2563EB' }}>{money(parseFloat(r.unit_price || 0).toFixed(2))}</strong>
                                     </td>
-                                    <td>SAR {parseFloat(r.total || 0).toFixed(2)}</td>
-                                    <td style={{ fontSize: '0.75rem' }}>VAT 15%</td>
+                                    <td>{money(parseFloat(r.total || 0).toFixed(2))}</td>
+                                    <td style={{ fontSize: '0.75rem' }}>{t('vat15')}</td>
                                     <td>
-                                        <strong>SAR {(parseFloat(r.total || 0) * 1.15).toFixed(2)}</strong>
+                                        <strong>{money((parseFloat(r.total || 0) * 1.15).toFixed(2))}</strong>
                                     </td>
                                 </tr>
                             ))}
                             {filteredHistory.length === 0 && (
                                 <tr>
                                     <td colSpan={10} style={{ textAlign: 'center', padding: 40 }}>
-                                        No price history found
+                                        {t('empty.priceHistory')}
                                     </td>
                                 </tr>
                             )}

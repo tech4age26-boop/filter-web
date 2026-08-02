@@ -56,6 +56,7 @@ import {
     workshopStaffListScopeQuery,
 } from '../../services/workshopStaffApi';
 import { formatPlateLettersFirst } from '../../utils/formatPlate';
+import { wrColT, wrT } from '../../utils/workshopReportsI18n';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -63,14 +64,14 @@ const toNumber = (value) => {
 };
 
 /** `sales_orders.source` → short label (POS / workshop reports). */
-function formatOrderSourceLabel(source) {
+function formatOrderSourceLabel(source, t) {
     const s = String(source ?? '')
         .trim()
         .toLowerCase();
-    if (s === 'walk_in') return 'Walk-in';
-    if (s === 'walk_in_corporate') return 'Corporate walk-in';
-    if (s === 'takeaway') return 'Takeaway';
-    if (!s) return '—';
+    if (s === 'walk_in') return t('source.walkIn');
+    if (s === 'walk_in_corporate') return t('source.walkInCorporate');
+    if (s === 'takeaway') return t('source.takeaway');
+    if (!s) return t('emdash');
     return s
         .split('_')
         .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
@@ -78,25 +79,28 @@ function formatOrderSourceLabel(source) {
 }
 
 /** `sales_orders.status` → readable title (spaces / underscores). */
-function formatOrderStatusLabel(status) {
-    if (status == null || String(status).trim() === '') return '—';
-    return String(status)
-        .trim()
+function formatOrderStatusLabel(status, t) {
+    if (status == null || String(status).trim() === '') return t('emdash');
+    const raw = String(status).trim();
+    const key = `status.${raw.toLowerCase().replace(/-/g, '_')}`;
+    const translated = t(key);
+    if (translated !== key) return translated;
+    return raw
         .replace(/_/g, ' ')
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatDiscountCell(discountType, discountValue) {
-    const t = String(discountType ?? '').toLowerCase();
+function formatDiscountCell(discountType, discountValue, t) {
+    const dtype = String(discountType ?? '').toLowerCase();
     const v = toNumber(discountValue);
-    if (!v) return '—';
-    if (t === 'percent' || t === 'percentage') return `${v}%`;
-    return `SAR ${v.toLocaleString()}`;
+    if (!v) return t('emdash');
+    if (dtype === 'percent' || dtype === 'percentage') return `${v}%`;
+    return t('money.sar', { amount: v.toLocaleString() });
 }
 
-const formatCurrency = (value) => `SAR ${toNumber(value).toLocaleString()}`;
+const formatCurrency = (value, t) => t('money.sar', { amount: toNumber(value).toLocaleString() });
 
-const mapRecentPdfToInvoice = (raw) => {
+const mapRecentPdfToInvoice = (raw, t) => {
     if (!raw || typeof raw !== 'object') return null;
     const src = raw?.invoice && typeof raw.invoice === 'object' ? raw.invoice : raw;
     const salesOrder = src.salesOrder && typeof src.salesOrder === 'object' ? src.salesOrder : {};
@@ -112,7 +116,7 @@ const mapRecentPdfToInvoice = (raw) => {
         src.paymentMethod ||
         payments.map((p) => p?.method).filter(Boolean).join(', ') ||
         splitPayments.map((p) => p?.method).filter(Boolean).join(', ') ||
-        'Unpaid';
+        (t ? t('pay.unpaid') : 'Unpaid');
     return {
         ...src,
         invoiceId: src.invoiceId ?? src.id,
@@ -179,14 +183,14 @@ function defaultLocalRangeLatest() {
 }
 
 /** Full ISO strings for `/workshop-staff/reports-*` (server accepts YYYY-MM-DD or ISO instants). */
-function rangeToApiIso(rangeFromLocal, rangeToLocal) {
+function rangeToApiIso(rangeFromLocal, rangeToLocal, t) {
     const s = new Date(rangeFromLocal);
     const e = new Date(rangeToLocal);
     if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
-        throw new Error('Invalid date/time range.');
+        throw new Error(t ? t('err.invalidRange') : 'Invalid date/time range.');
     }
     if (s.getTime() > e.getTime()) {
-        throw new Error('Start must be on or before end.');
+        throw new Error(t ? t('err.startAfterEnd') : 'Start must be on or before end.');
     }
     return { startDate: s.toISOString(), endDate: e.toISOString() };
 }
@@ -259,7 +263,7 @@ function sumDetailMoneyColumns(rows, columns) {
 }
 
 /** Second line under line-item name in report detail modals (unit, discount, VAT, line). */
-function formatWorkshopLineItemCardSubtext(item) {
+function formatWorkshopLineItemCardSubtext(item, t) {
     const qty = item.qty ?? item.quantity;
     const unit = toNumber(item.unitPrice ?? item.unit_price);
     const dType = String(item.discountType ?? item.discount_type ?? '').toLowerCase();
@@ -267,26 +271,36 @@ function formatWorkshopLineItemCardSubtext(item) {
     const vatPct = toNumber(item.vatPercent ?? item.vat_percent);
     const vatMode = String(item.vatMode ?? item.vat_mode ?? '').trim();
     const line = toNumber(item.lineTotal ?? item.line_total);
+    const em = t('emdash');
     const disc =
         dVal > 0
             ? dType === 'percent' || dType === 'percentage'
-                ? `Discount ${dVal}%`
-                : `Discount SAR ${dVal.toLocaleString()}`
-            : 'Discount —';
-    const line1 = `${item.itemType ?? item.item_type ?? 'item'} · Qty ${qty ?? '—'} · Unit SAR ${unit.toLocaleString()}`;
-    const line2 = `${disc} · VAT ${Number.isFinite(vatPct) && vatPct > 0 ? `${vatPct}%` : '—'}${vatMode ? ` (${vatMode})` : ''} · Line SAR ${line.toLocaleString()}`;
+                ? t('line.discountPct', { pct: dVal })
+                : t('line.discountSar', { amount: dVal.toLocaleString() })
+            : t('line.discountNone');
+    const line1 = t('line.line1', {
+        type: item.itemType ?? item.item_type ?? t('line.itemFallback'),
+        qty: qty ?? em,
+        unit: unit.toLocaleString(),
+    });
+    const line2 = t('line.line2', {
+        disc,
+        vat: Number.isFinite(vatPct) && vatPct > 0 ? `${vatPct}%` : em,
+        vatMode: vatMode ? ` (${vatMode})` : '',
+        line: line.toLocaleString(),
+    });
     return { line1, line2 };
 }
 
 /** Recent orders row or details payload: prefer wall-clock issue time, then calendar invoice date. */
-function formatInvoiceDateTimeForDisplay(rowOrDetails) {
+function formatInvoiceDateTimeForDisplay(rowOrDetails, t) {
     const raw =
         rowOrDetails?.issuedAt ??
         rowOrDetails?.issued_at ??
         rowOrDetails?.dateTime ??
         rowOrDetails?.invoiceDate ??
         rowOrDetails?.invoice_date;
-    if (raw == null || raw === '') return '—';
+    if (raw == null || raw === '') return t ? t('emdash') : '—';
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return String(raw);
     return d.toLocaleString(undefined, {
@@ -299,10 +313,10 @@ function formatInvoiceDateTimeForDisplay(rowOrDetails) {
 }
 
 /** Single ISO instant → local date/time (order modal jobs, placements). */
-function formatReportInstant(iso) {
-    if (iso == null || iso === '') return '—';
+function formatReportInstant(iso, t) {
+    if (iso == null || iso === '') return t ? t('emdash') : '—';
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '—';
+    if (Number.isNaN(d.getTime())) return t ? t('emdash') : '—';
     return d.toLocaleString(undefined, {
         day: '2-digit',
         month: 'short',
@@ -312,12 +326,12 @@ function formatReportInstant(iso) {
     });
 }
 
-function formatJobCompletedDisplay(job) {
-    if (!job) return '—';
-    if (job.completedAt) return formatReportInstant(job.completedAt);
+function formatJobCompletedDisplay(job, t) {
+    if (!job) return t('emdash');
+    if (job.completedAt) return formatReportInstant(job.completedAt, t);
     const st = String(job.status ?? '').toLowerCase();
-    if (st === 'edited') return '— (reopened for edit)';
-    return '—';
+    if (st === 'edited') return t('status.reopenedEdit');
+    return t('emdash');
 }
 
 /** API row: `inv:…` for invoiced, `so:…` for completed-but-not-invoiced. */
@@ -479,7 +493,9 @@ function KpiProofTable({ headers, rows, emptyMessage }) {
     );
 }
 
-export default function WorkshopReports({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopReports({ selectedBranchId = 'all', branches = [], locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wrT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const location = useLocation();
     const orderDeepLinkHandledRef = useRef('');
@@ -575,15 +591,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const recentOrderDetailsTargetRef = useRef(null);
 
     const branchLabel = useMemo(() => {
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
-        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
-    }, [branches, selectedBranchId]);
+        if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.fallback');
+    }, [branches, selectedBranchId, t]);
 
     const fetchRecentOrdersList = useCallback(async () => {
         setOrdersListLoading(true);
         setOrdersListError('');
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
                 startDate,
                 endDate,
@@ -613,18 +629,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         } catch (e) {
             setRecentOrders([]);
             setOrdersTotal(0);
-            setOrdersListError(e?.message || 'Could not load orders for this range.');
+            setOrdersListError(e?.message || t('err.loadOrders'));
         } finally {
             setOrdersListLoading(false);
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced, ordersPaymentMethod]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced, ordersPaymentMethod, t]);
 
     const fetchRecentOrdersListRef = useRef(fetchRecentOrdersList);
     fetchRecentOrdersListRef.current = fetchRecentOrdersList;
 
     const fetchSummaryTabPage = useCallback(
         async (tabId, page = 1) => {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const technicianId =
                 tabId === 'by_product'
                     ? byProductTechnicianId
@@ -675,10 +691,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 return { rows, total: total || rows.length };
             } catch (err) {
                 if (tabId === 'by_product') {
-                    setByProductTechnicianError(err?.message || 'Failed to load product sales for this technician.');
+                    setByProductTechnicianError(err?.message || t('err.loadProductTech'));
                 }
                 if (tabId === 'by_service') {
-                    setByServiceTechnicianError(err?.message || 'Failed to load service sales for this technician.');
+                    setByServiceTechnicianError(err?.message || t('err.loadServiceTech'));
                 }
                 throw err;
             } finally {
@@ -687,7 +703,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setSummaryLoading((prev) => ({ ...prev, [tabId]: false }));
             }
         },
-        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId],
+        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId, t],
     );
 
     const loadReports = useCallback(async () => {
@@ -697,7 +713,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         setOrdersPage(1);
         setSummaryPages(createEmptySummaryPages());
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
                 startDate,
                 endDate,
@@ -736,7 +752,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 getWorkshopReportsByCashier({ ...params, limit: REPORTS_SUMMARY_PAGE_SIZE, offset: 0 }),
             ]);
             if (!response?.success) {
-                throw new Error('Invalid reports response.');
+                throw new Error(t('err.invalidReports'));
             }
             setReportData(response);
             setSummaryData({
@@ -762,15 +778,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             const rawTech = unwrapWorkshopStaffList(techniciansRes, 'technician');
             const opts = rawTech
                 .map((r) => flattenWorkshopStaffRow(r, 'technician'))
-                .map((t) => ({
-                    id: String(t?.id ?? t?.employeeId ?? ''),
-                    name: String(t?.name ?? '').trim() || 'Technician',
+                .map((techRow) => ({
+                    id: String(techRow?.id ?? techRow?.employeeId ?? ''),
+                    name: String(techRow?.name ?? '').trim() || t('fallback.technician'),
                 }))
-                .filter((t) => t.id);
+                .filter((techRow) => techRow.id);
             opts.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
             setTechnicianOptions(opts);
         } catch (error) {
-            setLoadError(error.message || 'Failed to load reports analytics.');
+            setLoadError(error.message || t('err.loadAnalytics'));
             setReportData(null);
             setSummaryData({
                 by_technician: [],
@@ -804,7 +820,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 });
             }
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId, t]);
 
     const rangeDirty =
         draftRangeFrom !== rangeFromLocal || draftRangeTo !== rangeToLocal;
@@ -816,10 +832,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     }, [rangeDirty, draftRangeFrom, draftRangeTo]);
 
     useEffect(() => {
-        const t = setTimeout(() => {
+        const timer = setTimeout(() => {
             setOrdersSearchDebounced(ordersSearchInput.trim());
         }, 380);
-        return () => clearTimeout(t);
+        return () => clearTimeout(timer);
     }, [ordersSearchInput]);
 
     useLayoutEffect(() => {
@@ -841,12 +857,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
     const technicianComboboxOptions = useMemo(
         () =>
-            technicianOptions.map((t) => ({
-                id: String(t.id),
-                label: t.name || 'Technician',
-                subtitle: t.phone ? String(t.phone) : '',
+            technicianOptions.map((techOpt) => ({
+                id: String(techOpt.id),
+                label: techOpt.name || t('fallback.technician'),
+                subtitle: techOpt.phone ? String(techOpt.phone) : '',
             })),
-        [technicianOptions],
+        [technicianOptions, t],
     );
 
     const resetByProductTechnicianFilter = useCallback(() => {
@@ -900,18 +916,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     }, [loadReports]);
 
     const fetchRecentOrderDetails = useCallback(async (target) => {
-        const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+        const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
         const params = workshopReportsAnalyticsParams(selectedBranchId, {
             startDate,
             endDate,
         });
-        const t = String(target ?? '');
-        if (t.startsWith('so:')) {
-            return await getWorkshopRecentOpenOrderDetails(t.slice(3), params);
+        const targetKey = String(target ?? '');
+        if (targetKey.startsWith('so:')) {
+            return await getWorkshopRecentOpenOrderDetails(targetKey.slice(3), params);
         }
-        const invId = t.startsWith('inv:') ? t.slice(4) : t;
+        const invId = targetKey.startsWith('inv:') ? targetKey.slice(4) : targetKey;
         return await getWorkshopRecentOrderDetails(invId, params);
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, t]);
 
     const openRecentOrderDetails = useCallback(async (target) => {
         if (!target) return;
@@ -926,12 +942,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     : res;
             setRecentOrderDetails(payload && typeof payload === 'object' ? payload : null);
         } catch (error) {
-            setRecentOrderDetailsError(error?.message || 'Failed to load order details.');
+            setRecentOrderDetailsError(error?.message || t('err.loadOrderDetails'));
             setRecentOrderDetails(null);
         } finally {
             setRecentOrderDetailsLoading(false);
         }
-    }, [fetchRecentOrderDetails]);
+    }, [fetchRecentOrderDetails, t]);
 
     useEffect(() => {
         const params = new URLSearchParams(location.search);
@@ -964,19 +980,19 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 if (actionType === 'view') {
                     void openRecentOrderDetails(target);
                 } else {
-                    window.alert('This order does not have an invoice yet.');
+                    window.alert(t('orders.noInvoiceYet'));
                 }
                 return;
             }
             const invoiceId = target.startsWith('inv:') ? target.slice(4) : target;
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
                 startDate,
                 endDate,
             });
             const res = await getWorkshopRecentOrderPdf(invoiceId, params);
-            const invoiceObj = mapRecentPdfToInvoice(res);
-            if (!invoiceObj) throw new Error('Invalid invoice response.');
+            const invoiceObj = mapRecentPdfToInvoice(res, t);
+            if (!invoiceObj) throw new Error(t('err.invalidInvoice'));
             if (actionType === 'view') {
                 setInvoicePreviewData(invoiceObj);
             } else if (actionType === 'download') {
@@ -990,8 +1006,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     const to = waRes?.to || waRes?.data?.to;
                     window.alert(
                         to
-                            ? `Invoice sent to WhatsApp (${to}).`
-                            : 'Invoice sent to WhatsApp.',
+                            ? t('orders.whatsappSentTo', { to })
+                            : t('orders.whatsappSent'),
                     );
                 } catch (waErr) {
                     const msg = String(waErr?.message || '');
@@ -1003,22 +1019,18 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     );
                     const waMeUrl = linkRes?.waMeUrl || linkRes?.data?.waMeUrl;
                     if (!waMeUrl) {
-                        throw new Error(
-                            `${msg}\n\nConfigure BEVATEL_ACCESS_TOKEN, BEVATEL_INBOX_ID, and PUBLIC_INVOICE_BASE_URL on the server for automatic PDF delivery.`,
-                        );
+                        throw new Error(t('orders.whatsappConfig', { msg }));
                     }
                     window.open(waMeUrl, '_blank', 'noopener,noreferrer');
-                    window.alert(
-                        'Automatic WhatsApp PDF is not configured on the server. Opened WhatsApp with the invoice link — tap Send to deliver it manually.',
-                    );
+                    window.alert(t('orders.whatsappManual'));
                 }
             }
         } catch (error) {
-            window.alert(error?.message || 'Failed to execute action.');
+            window.alert(error?.message || t('err.actionFailed'));
         } finally {
             setRecentOrderActionBusyId('');
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal, openRecentOrderDetails]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, openRecentOrderDetails, t]);
 
     useEffect(() => {
         detailAnchorRef.current = null;
@@ -1062,7 +1074,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
     const loadDetails = useCallback(
         async (tabId, row) => {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal);
+            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
                 startDate,
                 endDate,
@@ -1079,39 +1091,39 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             if (tabId === 'by_technician') {
                 fetcher = getWorkshopReportsByTechnicianDetails;
                 key = String(row.technician_id ?? row.technicianId ?? row.id ?? '');
-                title = `Technician details: ${row.name || 'Technician'}`;
+                title = t('details.title.technician', { name: row.name || t('details.techFallback') });
             } else if (tabId === 'by_customer') {
                 fetcher = getWorkshopReportsByCustomerDetails;
                 key = String(row.customer_id ?? row.customerId ?? '');
-                title = `Customer details: ${row.customer_name ?? row.customerName ?? 'Customer'}`;
+                title = t('details.title.customer', { name: row.customer_name ?? row.customerName ?? t('details.customerFallback') });
             } else if (tabId === 'by_product') {
                 fetcher = getWorkshopReportsByProductDetails;
                 key = String(row.product_id ?? row.productId ?? '');
-                title = `Product details: ${row.product_name ?? row.productName ?? row.item_name ?? 'Item'}`;
+                title = t('details.title.product', { name: row.product_name ?? row.productName ?? row.item_name ?? t('details.productFallback') });
             } else if (tabId === 'by_service') {
                 fetcher = getWorkshopReportsByServiceDetails;
                 key = String(row.service_id ?? row.serviceId ?? '');
-                title = `Service details: ${row.service_name ?? row.serviceName ?? row.item_name ?? 'Service'}`;
+                title = t('details.title.service', { name: row.service_name ?? row.serviceName ?? row.item_name ?? t('details.serviceFallback') });
             } else if (tabId === 'by_department') {
                 fetcher = getWorkshopReportsByDepartmentDetails;
                 key = String(row.department_id ?? row.departmentId ?? '');
-                title = `Department details: ${row.department_name ?? row.departmentName ?? 'Department'}`;
+                title = t('details.title.department', { name: row.department_name ?? row.departmentName ?? t('details.departmentFallback') });
             } else if (tabId === 'by_category') {
                 fetcher = getWorkshopReportsByCategoryDetails;
                 key = String(row.category_id ?? row.categoryId ?? 'uncategorized');
-                title = `Category details: ${row.category_name ?? row.categoryName ?? 'Category'}`;
+                title = t('details.title.category', { name: row.category_name ?? row.categoryName ?? t('details.categoryFallback') });
             } else if (tabId === 'by_branch') {
                 fetcher = getWorkshopReportsByBranchDetails;
                 key = String(row.branch_id ?? row.branchId ?? '');
-                title = `Branch details: ${row.branch_name ?? row.branchName ?? 'Branch'}`;
+                title = t('details.title.branch', { name: row.branch_name ?? row.branchName ?? t('details.branchFallback') });
             } else if (tabId === 'by_cashier') {
                 fetcher = getWorkshopReportsByCashierDetails;
                 key = String(row.cashier_id ?? row.cashierId ?? row.user_id ?? row.userId ?? '');
-                title = `Cashier details: ${row.name ?? 'Cashier'}`;
+                title = t('details.title.cashier', { name: row.name ?? t('details.cashierFallback') });
             } else if (tabId === 'daily_sales') {
                 fetcher = getWorkshopReportsDailySalesDetails;
                 key = String(row.date ?? '').trim();
-                title = `Daily sales · ${row.day ? `${row.day} · ` : ''}${key}`;
+                title = t('details.title.dailySales', { label: `${row.day ? t('details.title.dailySalesDay', { day: row.day }) : ''}${key}` });
             }
             if (!fetcher || !key) {
                 detailAnchorRef.current = null;
@@ -1277,14 +1289,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     setDetailRows(rows);
                 }
             } catch (error) {
-                setDetailsError(error?.message || 'Failed to load details.');
+                setDetailsError(error?.message || t('err.loadDetails'));
                 setDetailRows([]);
                 detailAnchorRef.current = null;
             } finally {
                 setDetailsLoading(false);
             }
         },
-        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId],
+        [selectedBranchId, rangeFromLocal, rangeToLocal, byProductTechnicianId, byServiceTechnicianId, t],
     );
 
     loadDetailsRef.current = loadDetails;
@@ -1321,7 +1333,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
               : r.operationalPerformance;
         const byTechnician = parseArr(techRaw).map((e) => ({
             id: String(e.technician_id ?? e.employeeId ?? e.id ?? ''),
-            name: e.name || 'Unknown',
+            name: e.name || t('fallback.unknown'),
             completedJobs: toNumber(e.completed_jobs ?? e.totalJobs ?? e.orders),
             commission: toNumber(e.commission_sar ?? e.commission),
             revenue: toNumber(e.revenue_sar ?? e.revenue),
@@ -1352,71 +1364,71 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             definitions: r.definitions && typeof r.definitions === 'object' ? r.definitions : {},
             kpiProof,
         };
-    }, [reportData, summaryData, byProductTechnicianId, byServiceTechnicianId]);
+    }, [reportData, summaryData, byProductTechnicianId, byServiceTechnicianId, t]);
 
     const kpis = useMemo(() => {
         if (!norm) {
             return [
-                { id: 'revenue', label: 'Total Revenue', value: formatCurrency(0), color: 'text-green' },
-                { id: 'revenue_change', label: 'Revenue Change', value: '0.0%', sub: 'vs previous period', color: 'text-blue' },
+                { id: 'revenue', label: t('kpi.totalRevenue'), value: formatCurrency(0, t), color: 'text-green' },
+                { id: 'revenue_change', label: t('kpi.revenueChange'), value: '0.0%', sub: t('kpi.vsPrevious'), color: 'text-blue' },
                 {
                     id: 'stock_value',
-                    label: 'Stock Value (Cost)',
-                    value: formatCurrency(0),
-                    sub: 'All on-hand stock · not period sales',
+                    label: t('kpi.stockValue'),
+                    value: formatCurrency(0, t),
+                    sub: t('kpi.stockValueSubZero'),
                     color: 'text-orange',
                 },
                 {
                     id: 'potential_profit',
-                    label: 'Potential Profit',
-                    value: formatCurrency(0),
-                    sub: '0 SKUs on hand',
+                    label: t('kpi.potentialProfit'),
+                    value: formatCurrency(0, t),
+                    sub: t('kpi.potentialProfitSubZero'),
                     color: 'text-purple',
                 },
             ];
         }
         const sign = norm.revenueChangePercent > 0 ? '+' : '';
         return [
-            { id: 'revenue', label: 'Total Revenue', value: formatCurrency(norm.totalRevenue), color: 'text-green' },
+            { id: 'revenue', label: t('kpi.totalRevenue'), value: formatCurrency(norm.totalRevenue, t), color: 'text-green' },
             {
                 id: 'revenue_change',
-                label: 'Revenue Change',
+                label: t('kpi.revenueChange'),
                 value: `${sign}${norm.revenueChangePercent.toFixed(1)}%`,
-                sub: 'vs previous period',
+                sub: t('kpi.vsPrevious'),
                 color: 'text-blue',
             },
             {
                 id: 'stock_value',
-                label: 'Stock Value (Cost)',
-                value: formatCurrency(norm.stockValueCost),
-                sub: `All on-hand · ${norm.activeSkus} SKUs (${norm.skusNotSoldInPeriod} unsold in period)`,
+                label: t('kpi.stockValue'),
+                value: formatCurrency(norm.stockValueCost, t),
+                sub: t('kpi.stockValueSub', { skus: norm.activeSkus, unsold: norm.skusNotSoldInPeriod }),
                 color: 'text-orange',
             },
             {
                 id: 'potential_profit',
-                label: 'Potential Profit',
-                value: formatCurrency(norm.potentialProfit),
-                sub: `${norm.activeSkus} SKUs on hand · ${norm.skusSoldInPeriod} sold in period`,
+                label: t('kpi.potentialProfit'),
+                value: formatCurrency(norm.potentialProfit, t),
+                sub: t('kpi.potentialProfitSub', { skus: norm.activeSkus, sold: norm.skusSoldInPeriod }),
                 color: 'text-purple',
             },
         ];
-    }, [norm]);
+    }, [norm, t]);
 
     const kpiProofModalTitle = useMemo(() => {
         const k = kpis.find((x) => x.id === kpiProofModalId);
-        return k ? `${k.label} — calculation` : 'KPI calculation';
-    }, [kpis, kpiProofModalId]);
+        return k ? t('kpi.calcTitle', { label: k.label }) : t('kpi.calcFallback');
+    }, [kpis, kpiProofModalId, t]);
 
     const renderKpiProofBody = () => {
         const proof = norm?.kpiProof;
         if (!proof || !kpiProofModalId) {
             return (
                 <p className="ws-kpi-proof-methodology">
-                    Refresh reports to load calculation breakdown (requires an updated backend).
+                    {t('kpi.refreshHint')}
                 </p>
             );
         }
-        const scopeLine = `Scope: ${branchLabel}${periodLine ? ` · ${periodLine}` : ''}`;
+        const scopeLine = t('kpi.scope', { scope: `${branchLabel}${periodLine ? ` · ${periodLine}` : ''}` });
 
         if (kpiProofModalId === 'revenue') {
             const rev = proof.revenue ?? {};
@@ -1427,26 +1439,26 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     <p className="ws-kpi-proof-methodology">{scopeLine}</p>
                     <KpiProofSummaryGrid
                         items={[
-                            { label: 'Invoices in period', value: String(rev.invoice_count ?? 0) },
-                            { label: 'Reported total', value: formatCurrency(rev.total) },
-                            { label: 'Sum of lines below', value: formatCurrency(rev.line_sum_check) },
+                            { label: t('kpi.invoicesInPeriod'), value: String(rev.invoice_count ?? 0) },
+                            { label: t('kpi.reportedTotal'), value: formatCurrency(rev.total, t) },
+                            { label: t('kpi.sumOfLines'), value: formatCurrency(rev.line_sum_check, t) },
                         ]}
                     />
                     {rev.invoices_truncated ? (
                         <p className="ws-kpi-proof-note">
-                            Showing first {invoices.length} of {rev.invoices_total_count} invoices.
+                            {t('kpi.showingInvoices', { shown: invoices.length, total: rev.invoices_total_count })}
                         </p>
                     ) : null}
                     <KpiProofTable
-                        headers={['Invoice', 'Date', 'Amount (SAR)']}
+                        headers={[t('kpi.th.invoice'), t('kpi.th.date'), t('kpi.th.amountSar')]}
                         rows={invoices.map((inv) => [
                             inv.invoice_no ?? inv.invoiceNo ?? '—',
                             inv.issued_at
-                                ? formatReportInstant(inv.issued_at)
+                                ? formatReportInstant(inv.issued_at, t)
                                 : inv.invoice_date ?? inv.invoiceDate ?? '—',
-                            formatCurrency(inv.amount),
+                            formatCurrency(inv.amount, t),
                         ])}
-                        emptyMessage="No invoices in this period."
+                        emptyMessage={t('kpi.emptyInvoices')}
                     />
                 </>
             );
@@ -1461,20 +1473,20 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     <p className="ws-kpi-proof-methodology">{ch.formula}</p>
                     <p className="ws-kpi-proof-methodology">{scopeLine}</p>
                     <KpiProofTable
-                        headers={['', 'Period', 'Total revenue (SAR)']}
+                        headers={[t('kpi.th.blank'), t('kpi.th.period'), t('kpi.th.totalRevenueSar')]}
                         rows={[
                             [
-                                'Current',
+                                t('kpi.row.current'),
                                 `${cur.start_date ?? '—'} → ${cur.end_date ?? '—'}`,
-                                formatCurrency(ch.current_period_total),
+                                formatCurrency(ch.current_period_total, t),
                             ],
                             [
-                                'Previous',
+                                t('kpi.row.previous'),
                                 `${prev.start_date ?? '—'} → ${prev.end_date ?? '—'}`,
-                                formatCurrency(ch.previous_period_total),
+                                formatCurrency(ch.previous_period_total, t),
                             ],
                             [
-                                'Change',
+                                t('kpi.row.change'),
                                 '—',
                                 `${ch.change_percent > 0 ? '+' : ''}${Number(ch.change_percent ?? 0).toFixed(1)}%`,
                             ],
@@ -1494,9 +1506,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             return (
                 <>
                     <p className="ws-kpi-proof-note" style={{ marginBottom: 8 }}>
-                        <strong>Not period sales.</strong> This is estimated inventory on hand at
-                        period end for all active branch products with qty &gt; 0—including SKUs
-                        with no invoice lines in the selected range.
+                        <strong>{t('kpi.notPeriodSales')}</strong> {t('kpi.notPeriodSalesBody')}
                     </p>
                     <p className="ws-kpi-proof-methodology">{inv.methodology}</p>
                     <p className="ws-kpi-proof-methodology">
@@ -1506,73 +1516,73 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     </p>
                     <p className="ws-kpi-proof-methodology">{scopeLine}</p>
                     <p className="ws-kpi-proof-methodology">
-                        Period end (est.): <strong>{inv.period_end_date ?? '—'}</strong>
+                        {t('kpi.periodEndEst')} <strong>{inv.period_end_date ?? t('emdash')}</strong>
                     </p>
                     <KpiProofSummaryGrid
                         items={[
-                            { label: 'SKUs on hand', value: String(skusOnHand) },
-                            { label: 'Sold in period', value: String(skusSold) },
-                            { label: 'On hand, not sold in period', value: String(skusUnsold) },
+                            { label: t('kpi.skusOnHand'), value: String(skusOnHand) },
+                            { label: t('kpi.soldInPeriod'), value: String(skusSold) },
+                            { label: t('kpi.onHandNotSold'), value: String(skusUnsold) },
                             {
-                                label: 'Stock value total',
-                                value: formatCurrency(inv.stock_value_total),
+                                label: t('kpi.stockValueTotal'),
+                                value: formatCurrency(inv.stock_value_total, t),
                             },
                             {
-                                label: 'Potential profit total',
-                                value: formatCurrency(inv.potential_profit_total),
+                                label: t('kpi.potentialProfitTotal'),
+                                value: formatCurrency(inv.potential_profit_total, t),
                             },
                         ]}
                     />
                     <KpiProofTable
                         headers={[
-                            'SKU',
-                            'Product',
-                            'Branch',
-                            'Sold in period',
-                            'On hand now',
-                            'Unwind after period',
-                            'Qty @ period end',
-                            'Cost',
-                            'Sale',
-                            'Stock value',
-                            'Line profit',
+                            t('kpi.th.sku'),
+                            t('kpi.th.product'),
+                            t('kpi.th.branch'),
+                            t('kpi.th.soldInPeriod'),
+                            t('kpi.th.onHandNow'),
+                            t('kpi.th.unwindAfter'),
+                            t('kpi.th.qtyAtEnd'),
+                            t('kpi.th.cost'),
+                            t('kpi.th.sale'),
+                            t('kpi.th.stockValue'),
+                            t('kpi.th.lineProfit'),
                         ]}
                         rows={lines.map((row) => [
                             row.sku ?? '—',
                             row.product_name ?? '—',
                             row.branch_name ?? '—',
-                            row.sold_in_period ? 'Yes' : 'No',
+                            row.sold_in_period ? t('yes') : t('no'),
                             row.qty_on_hand_now,
                             row.unwind_after_period_end,
                             row.qty_at_period_end,
-                            formatCurrency(row.purchase_price),
-                            formatCurrency(row.sale_price),
-                            formatCurrency(row.stock_value),
-                            formatCurrency(row.line_potential_profit),
+                            formatCurrency(row.purchase_price, t),
+                            formatCurrency(row.sale_price, t),
+                            formatCurrency(row.stock_value, t),
+                            formatCurrency(row.line_potential_profit, t),
                         ])}
-                        emptyMessage="No catalog products with on-hand qty at period end."
+                        emptyMessage={t('kpi.emptyCatalog')}
                     />
                 </>
             );
         }
 
-        return <p className="ws-kpi-proof-methodology">No breakdown available for this KPI.</p>;
+        return <p className="ws-kpi-proof-methodology">{t('kpi.noBreakdown')}</p>;
     };
 
     const completedOrdersDisplay = norm?.completedOrdersCount ?? 0;
 
     const tabs = [
-        { id: 'recent_orders', label: 'Orders' },
-        { id: 'daily_sales', label: 'Daily Sales' },
-        { id: 'by_technician', label: 'By Technician' },
-        { id: 'by_customer', label: 'By Customer' },
-        { id: 'by_product', label: 'By Product' },
-        { id: 'by_service', label: 'By Service' },
-        { id: 'by_department', label: 'By Department' },
-        { id: 'by_category', label: 'By Category' },
-        { id: 'by_branch', label: 'By Branch' },
-        { id: 'by_cashier', label: 'By Cashier' },
-    ].filter((t) => visibleReportTabIds.includes(t.id));
+        { id: 'recent_orders', label: t('tab.recent_orders') },
+        { id: 'daily_sales', label: t('tab.daily_sales') },
+        { id: 'by_technician', label: t('tab.by_technician') },
+        { id: 'by_customer', label: t('tab.by_customer') },
+        { id: 'by_product', label: t('tab.by_product') },
+        { id: 'by_service', label: t('tab.by_service') },
+        { id: 'by_department', label: t('tab.by_department') },
+        { id: 'by_category', label: t('tab.by_category') },
+        { id: 'by_branch', label: t('tab.by_branch') },
+        { id: 'by_cashier', label: t('tab.by_cashier') },
+    ].filter((tab) => visibleReportTabIds.includes(tab.id));
 
     const periodLine = useMemo(() => {
         if (!norm?.period?.start_date && !norm?.period?.startDate) return null;
@@ -1585,10 +1595,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         if (!curStart || !curEnd) return null;
         const prev =
             prevStart && prevEnd
-                ? ` · Previous: ${prevStart} → ${prevEnd}`
+                ? t('page.periodPrev', { start: prevStart, end: prevEnd })
                 : '';
-        return `Period: ${curStart} → ${curEnd}${prev}`;
-    }, [norm]);
+        return `${t('page.period', { start: curStart, end: curEnd })}${prev}`;
+    }, [norm, t]);
 
     const filteredDailyRevenue = useMemo(() => {
         const rows = norm?.dailyRevenue ?? [];
@@ -1599,8 +1609,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const filteredByTechnician = useMemo(() => {
         const rows = norm?.byTechnician ?? [];
         const q = tabSearch.by_technician;
-        return rows.filter((t) =>
-            rowMatchesTabQuery([t.name, t.id, t.completedJobs, t.revenue, t.commission], q),
+        return rows.filter((tech) =>
+            rowMatchesTabQuery([tech.name, tech.id, tech.completedJobs, tech.revenue, tech.commission], q),
         );
     }, [norm, tabSearch.by_technician]);
 
@@ -1777,10 +1787,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         return (
             <div className="ws-report-pagination">
                 <p className="ws-report-pagination__info">
-                    Showing <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> of <strong>{total}</strong>
-                    {summaryLoading[tabId] ? <span> · Loading…</span> : null}
+                    {t('pagination.showing')} <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> {t('pagination.of')} <strong>{total}</strong>
+                    {summaryLoading[tabId] ? <span>{t('pagination.loadingSuffix')}</span> : null}
                 </p>
-                <nav className="ws-report-pagination__nav" aria-label={`${humanizeKey(tabId)} pages`}>
+                <nav className="ws-report-pagination__nav" aria-label={t('label.summaryPages', { name: wrT(locale, `tab.${tabId}`) === `tab.${tabId}` ? humanizeKey(tabId) : wrT(locale, `tab.${tabId}`) })}>
                     <button
                         type="button"
                         className="ws-report-pagination__edge"
@@ -1789,9 +1799,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             setSummaryPages((prev) => ({ ...prev, [tabId]: Math.max(1, page - 1) }))
                         }
                     >
-                        Previous
+                        {t('btn.previous')}
                     </button>
-                    <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                    <div className="ws-report-pagination__pages" role="group" aria-label={t('label.pageNumbers')}>
                         {(() => {
                             const maxBtn = 7;
                             let start = Math.max(1, page - Math.floor(maxBtn / 2));
@@ -1821,7 +1831,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             setSummaryPages((prev) => ({ ...prev, [tabId]: Math.min(totalPages, page + 1) }))
                         }
                     >
-                        Next
+                        {t('btn.next')}
                     </button>
                 </nav>
             </div>
@@ -1832,9 +1842,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         <div className="ws-reports-page">
             <div className="ws-reports-header">
                 <div>
-                    <h2 className="ws-page-title">Reports & Analytics</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Scope · <strong>{branchLabel}</strong>
+                        {t('page.scope')} <strong>{branchLabel}</strong>
                     </p>
                     {periodLine && (
                         <p className="ws-text-dim" style={{ margin: '4px 0 0', fontSize: '0.8125rem' }}>
@@ -1843,7 +1853,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     )}
                 </div>
                 <div className="ws-online-badge">
-                    <div className="ws-online-dot" /> Online
+                    <div className="ws-online-dot" /> {t('page.online')}
                 </div>
             </div>
 
@@ -1855,15 +1865,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             value={draftRangeFrom}
                             onChange={(e) => setDraftRangeFrom(e.target.value)}
                             step={60}
-                            aria-label="From date and time"
+                            aria-label={t('label.fromDatetime')}
                         />
-                        <span className="ws-text-dim">to</span>
+                        <span className="ws-text-dim">{t('label.to')}</span>
                         <input
                             type="datetime-local"
                             value={draftRangeTo}
                             onChange={(e) => setDraftRangeTo(e.target.value)}
                             step={60}
-                            aria-label="To date and time"
+                            aria-label={t('label.toDatetime')}
                         />
                     </div>
                     {rangeDirty ? (
@@ -1873,12 +1883,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             onClick={applyDateRange}
                             disabled={isLoading}
                         >
-                            {isLoading ? 'Loading...' : 'Apply'}
+                            {isLoading ? t('btn.loading') : t('btn.apply')}
                         </button>
                     ) : null}
                 </div>
                 <div className="ws-order-count">
-                    <span>{completedOrdersDisplay} completed orders</span>
+                    <span>{t('page.completedOrders', { count: completedOrdersDisplay })}</span>
                 </div>
             </div>
             {loadError && (
@@ -1894,12 +1904,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         type="button"
                         className="ws-kpi-card ws-kpi-card--clickable"
                         onClick={() => setKpiProofModalId(k.id)}
-                        aria-label={`${k.label}: view calculation breakdown`}
+                        aria-label={t('label.kpiBreakdown', { label: k.label })}
                     >
                         <p className="ws-kpi-label">{k.label}</p>
                         <h3 className={`ws-kpi-value ${k.color}`}>{k.value}</h3>
                         {k.sub && <p className="ws-kpi-sub">{k.sub}</p>}
-                        <p className="ws-kpi-proof-hint">Click for breakdown</p>
+                        <p className="ws-kpi-proof-hint">{t('kpi.clickBreakdown')}</p>
                     </button>
                 ))}
             </div>
@@ -1924,14 +1934,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search day, date, amount…"
+                                placeholder={t('ph.searchDaily')}
                                 value={tabSearch.daily_sales}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, daily_sales: e.target.value }))}
-                                aria-label="Search daily sales"
+                                aria-label={t('label.searchDailySales')}
                             />
                         </div>
                         <div className="ws-chart-container">
-                            <h4 className="ws-chart-title">Daily Revenue</h4>
+                            <h4 className="ws-chart-title">{t('chart.dailyRevenue')}</h4>
                             <div className="ws-chart-canvas">
                                 <ResponsiveContainer>
                                     <BarChart
@@ -1966,8 +1976,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 return `${day}${date ?? ''}`;
                                             }}
                                             formatter={(value) => [
-                                                `SAR ${toNumber(value).toLocaleString()}`,
-                                                'Revenue',
+                                                t('money.sar', { amount: toNumber(value).toLocaleString() }),
+                                                t('chart.revenue'),
                                             ]}
                                         />
                                         <Bar dataKey="amount" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={40} style={{ cursor: 'pointer' }} />
@@ -1980,22 +1990,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <table className="ws-table">
                                 <thead>
                                     <tr>
-                                        <th>DAY</th>
-                                        <th>DATE</th>
-                                        <th>REVENUE (SAR)</th>
+                                        <th>{t('th.day')}</th>
+                                        <th>{t('th.date')}</th>
+                                        <th>{t('th.revenueSar')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(norm?.dailyRevenue ?? []).length === 0 ? (
                                         <tr>
                                             <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                No daily revenue data
+                                                {t('empty.dailyRevenue')}
                                             </td>
                                         </tr>
                                     ) : filteredDailyRevenue.length === 0 ? (
                                         <tr>
                                             <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                No rows match your search.
+                                                {t('empty.noSearchRows')}
                                             </td>
                                         </tr>
                                     ) : (
@@ -2013,7 +2023,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             >
                                                 <td>{d.day}</td>
                                                 <td>{d.date}</td>
-                                                <td className="ws-font-bold">SAR {d.amount.toLocaleString()}</td>
+                                                <td className="ws-font-bold">{t('money.sar', { amount: d.amount.toLocaleString() })}</td>
                                             </tr>
                                         ))
                                     )}
@@ -2030,14 +2040,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search technician, jobs, revenue…"
+                                placeholder={t('ph.searchTechnician')}
                                 value={tabSearch.by_technician}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_technician: e.target.value }))}
-                                aria-label="Search by technician"
+                                aria-label={t('label.searchByTechnician')}
                             />
                         </div>
                         <div className="ws-chart-container">
-                            <h4 className="ws-chart-title">Revenue by Technician</h4>
+                            <h4 className="ws-chart-title">{t('chart.revenueByTechnician')}</h4>
                             <div className="ws-chart-canvas">
                                 <ResponsiveContainer>
                                     <BarChart
@@ -2062,8 +2072,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 border: 'none',
                                                 boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                                             }}
+                                            formatter={(value) => [
+                                                t('money.sar', { amount: toNumber(value).toLocaleString() }),
+                                                t('chart.revenue'),
+                                            ]}
                                         />
-                                        <Bar dataKey="revenue" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={24} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -2073,38 +2086,38 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <table className="ws-table">
                                 <thead>
                                     <tr>
-                                        <th>TECHNICIAN</th>
-                                        <th>COMPLETED JOBS</th>
-                                        <th>REVENUE (SAR)</th>
-                                        <th>COMMISSION (SAR)</th>
+                                        <th>{t('th.technician')}</th>
+                                        <th>{t('th.completedJobs')}</th>
+                                        <th>{t('th.revenueSar')}</th>
+                                        <th>{t('th.commissionSar')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {(norm?.byTechnician ?? []).length === 0 ? (
                                         <tr>
                                             <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                No technician performance data
+                                                {t('empty.technicianPerf')}
                                             </td>
                                         </tr>
                                     ) : filteredByTechnician.length === 0 ? (
                                         <tr>
                                             <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                                No rows match your search.
+                                                {t('empty.noSearchRows')}
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredByTechnician.map((t) => (
+                                        filteredByTechnician.map((tech) => (
                                             <tr
-                                                key={t.id || t.name}
-                                                onClick={() => loadDetails('by_technician', t)}
-                                                style={{ cursor: 'pointer', background: selectedDetailKey === `by_technician:${t.id}` ? '#F8FAFC' : undefined }}
+                                                key={tech.id || tech.name}
+                                                onClick={() => loadDetails('by_technician', tech)}
+                                                style={{ cursor: 'pointer', background: selectedDetailKey === `by_technician:${tech.id}` ? '#F8FAFC' : undefined }}
                                             >
                                                 <td>
-                                                    <strong>{t.name}</strong>
+                                                    <strong>{tech.name}</strong>
                                                 </td>
-                                                <td>{t.completedJobs}</td>
-                                                <td className="ws-font-bold">SAR {t.revenue.toLocaleString()}</td>
-                                                <td className="ws-font-bold">SAR {t.commission.toLocaleString()}</td>
+                                                <td>{tech.completedJobs}</td>
+                                                <td className="ws-font-bold">{t('money.sar', { amount: tech.revenue.toLocaleString() })}</td>
+                                                <td className="ws-font-bold">{t('money.sar', { amount: tech.commission.toLocaleString() })}</td>
                                             </tr>
                                         ))
                                     )}
@@ -2121,10 +2134,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search phone, plate, orders, revenue…"
+                                placeholder={t('ph.searchCustomer')}
                                 value={tabSearch.by_customer}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_customer: e.target.value }))}
-                                aria-label="Search by customer"
+                                aria-label={t('label.searchByCustomer')}
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
@@ -2132,23 +2145,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>PHONE NUMBER</th>
-                                    <th>PLATE NUMBER</th>
-                                    <th>ORDERS</th>
-                                    <th>REVENUE (SAR)</th>
+                                    <th>{t('th.phoneNumber')}</th>
+                                    <th>{t('th.plateNumber')}</th>
+                                    <th>{t('th.orders')}</th>
+                                    <th>{t('th.revenueSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byCustomer ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No customer breakdown for this scope.
+                                            {t('empty.customer')}
                                         </td>
                                     </tr>
                                 ) : filteredByCustomer.length === 0 ? (
                                     <tr>
                                         <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2171,11 +2184,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 {Array.isArray(row.plate_numbers ?? row.plateNumbers) &&
                                                 (row.plate_numbers ?? row.plateNumbers).length > 0
                                                     ? (row.plate_numbers ?? row.plateNumbers).join(', ')
-                                                    : formatPlateLettersFirst(row.plate_no ?? row.plateNo ?? '') || '—'}
+                                                    : formatPlateLettersFirst(row.plate_no ?? row.plateNo ?? '') || t('emdash')}
                                             </td>
                                             <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                             </td>
                                         </tr>
                                     ))
@@ -2194,7 +2207,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <div className="ws-report-tab-toolbar-left">
                                 <div className="ws-report-tab-field ws-report-tab-field--technician">
                                     <label className="ws-report-tab-field-label" htmlFor="ws-by-product-technician">
-                                        Technician
+                                        {t('label.technician')}
                                     </label>
                                     <SearchableEntityCombobox
                                         id="ws-by-product-technician"
@@ -2202,9 +2215,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         options={technicianComboboxOptions}
                                         value={byProductTechnicianId}
                                         displayText={byProductTechnicianFilterText}
-                                        entityLabel="technician"
-                                        placeholder="All technicians — search…"
-                                        emptyHint="No technicians match — clear to show all"
+                                        entityLabel={t('entity.technician')}
+                                        placeholder={t('ph.allTechnicians')}
+                                        emptyHint={t('ph.techEmpty')}
                                         disabled={isLoading || byProductTechnicianLoading}
                                         onDisplayTextChange={(text) => {
                                             setByProductTechnicianFilterText(text);
@@ -2226,16 +2239,16 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     />
                                 </div>
                                 {byProductTechnicianLoading && (
-                                    <span className="ws-text-dim ws-report-tab-inline-hint">Updating…</span>
+                                    <span className="ws-text-dim ws-report-tab-inline-hint">{t('btn.updating')}</span>
                                 )}
                             </div>
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search product, qty, revenue…"
+                                placeholder={t('ph.searchProduct')}
                                 value={tabSearch.by_product}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_product: e.target.value }))}
-                                aria-label="Search by product"
+                                aria-label={t('label.searchByProduct')}
                             />
                         </div>
                         {byProductTechnicianError && (
@@ -2248,22 +2261,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>PRODUCT</th>
-                                    <th>QTY</th>
-                                    <th>TOTAL AMOUNT (SAR)</th>
+                                    <th>{t('th.product')}</th>
+                                    <th>{t('th.qty')}</th>
+                                    <th>{t('th.totalAmountSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byProduct ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No product breakdown for this scope.
+                                            {t('empty.product')}
                                         </td>
                                     </tr>
                                 ) : filteredByProduct.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2287,7 +2300,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                             <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                             </td>
                                         </tr>
                                     ))
@@ -2306,7 +2319,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <div className="ws-report-tab-toolbar-left">
                                 <div className="ws-report-tab-field ws-report-tab-field--technician">
                                     <label className="ws-report-tab-field-label" htmlFor="ws-by-service-technician">
-                                        Technician
+                                        {t('label.technician')}
                                     </label>
                                     <SearchableEntityCombobox
                                         id="ws-by-service-technician"
@@ -2314,9 +2327,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         options={technicianComboboxOptions}
                                         value={byServiceTechnicianId}
                                         displayText={byServiceTechnicianFilterText}
-                                        entityLabel="technician"
-                                        placeholder="All technicians — search…"
-                                        emptyHint="No technicians match — clear to show all"
+                                        entityLabel={t('entity.technician')}
+                                        placeholder={t('ph.allTechnicians')}
+                                        emptyHint={t('ph.techEmpty')}
                                         disabled={isLoading || byServiceTechnicianLoading}
                                         onDisplayTextChange={(text) => {
                                             setByServiceTechnicianFilterText(text);
@@ -2338,16 +2351,16 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     />
                                 </div>
                                 {byServiceTechnicianLoading && (
-                                    <span className="ws-text-dim ws-report-tab-inline-hint">Updating…</span>
+                                    <span className="ws-text-dim ws-report-tab-inline-hint">{t('btn.updating')}</span>
                                 )}
                             </div>
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search service, qty, revenue…"
+                                placeholder={t('ph.searchService')}
                                 value={tabSearch.by_service}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_service: e.target.value }))}
-                                aria-label="Search by service"
+                                aria-label={t('label.searchByService')}
                             />
                         </div>
                         {byServiceTechnicianError && (
@@ -2360,24 +2373,24 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>SERVICE</th>
-                                    <th>QTY</th>
-                                    <th>TOTAL AMOUNT (SAR)</th>
+                                    <th>{t('th.service')}</th>
+                                    <th>{t('th.qty')}</th>
+                                    <th>{t('th.totalAmountSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byService ?? []).length === 0 && !byServiceTechnicianId ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No service breakdown for this scope.
+                                            {t('empty.service')}
                                         </td>
                                     </tr>
                                 ) : filteredByService.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             {byServiceTechnicianId
-                                                ? 'No service sales for this technician in the selected range.'
-                                                : 'No rows match your search.'}
+                                                ? t('empty.serviceTech')
+                                                : t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2401,7 +2414,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                             <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                             </td>
                                         </tr>
                                     ))
@@ -2420,10 +2433,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search department, orders, revenue…"
+                                placeholder={t('ph.searchDepartment')}
                                 value={tabSearch.by_department}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_department: e.target.value }))}
-                                aria-label="Search by department"
+                                aria-label={t('label.searchByDepartment')}
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
@@ -2431,22 +2444,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>DEPARTMENT</th>
-                                    <th>ORDERS</th>
-                                    <th>TOTAL AMOUNT (SAR)</th>
+                                    <th>{t('th.department')}</th>
+                                    <th>{t('th.orders')}</th>
+                                    <th>{t('th.totalAmountSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byDepartment ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No department breakdown for this scope.
+                                            {t('empty.department')}
                                         </td>
                                     </tr>
                                 ) : filteredByDepartment.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2461,7 +2474,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                             <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                             </td>
                                         </tr>
                                     ))
@@ -2480,10 +2493,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search category, qty, orders, revenue…"
+                                placeholder={t('ph.searchCategory')}
                                 value={tabSearch.by_category}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_category: e.target.value }))}
-                                aria-label="Search by category"
+                                aria-label={t('label.searchByCategory')}
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
@@ -2491,23 +2504,23 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>CATEGORY</th>
-                                    <th>QTY SOLD</th>
-                                    <th>ORDERS</th>
-                                    <th>TOTAL AMOUNT (SAR)</th>
+                                    <th>{t('th.category')}</th>
+                                    <th>{t('th.qtySold')}</th>
+                                    <th>{t('th.orders')}</th>
+                                    <th>{t('th.totalAmountSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byCategory ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No category breakdown for this scope.
+                                            {t('empty.category')}
                                         </td>
                                     </tr>
                                 ) : filteredByCategory.length === 0 ? (
                                     <tr>
                                         <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2531,7 +2544,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 <td>{toNumber(row.qty_sold ?? row.qtySold)}</td>
                                                 <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                                 <td className="ws-font-bold">
-                                                    SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                    {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                                 </td>
                                             </tr>
                                         );
@@ -2551,10 +2564,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search branch, orders, revenue…"
+                                placeholder={t('ph.searchBranch')}
                                 value={tabSearch.by_branch}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_branch: e.target.value }))}
-                                aria-label="Search by branch"
+                                aria-label={t('label.searchByBranch')}
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
@@ -2562,22 +2575,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>BRANCH</th>
-                                    <th>COMPLETED ORDERS</th>
-                                    <th>REVENUE (SAR)</th>
+                                    <th>{t('th.branch')}</th>
+                                    <th>{t('th.completedOrders')}</th>
+                                    <th>{t('th.revenueSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byBranch ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No branch breakdown (try “All branches”).
+                                            {t('empty.branch')}
                                         </td>
                                     </tr>
                                 ) : filteredByBranch.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2592,7 +2605,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                             <td>{toNumber(row.completed_orders ?? row.completedOrders)}</td>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                             </td>
                                         </tr>
                                     ))
@@ -2611,10 +2624,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search cashier, orders, revenue…"
+                                placeholder={t('ph.searchCashier')}
                                 value={tabSearch.by_cashier}
                                 onChange={(e) => setTabSearch((p) => ({ ...p, by_cashier: e.target.value }))}
-                                aria-label="Search by cashier"
+                                aria-label={t('label.searchByCashier')}
                             />
                         </div>
                         <div className="ws-report-table-wrapper">
@@ -2622,22 +2635,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>CASHIER</th>
-                                    <th>TOTAL ORDERS</th>
-                                    <th>TOTAL REVENUE (SAR)</th>
+                                    <th>{t('th.cashier')}</th>
+                                    <th>{t('th.totalOrders')}</th>
+                                    <th>{t('th.totalRevenueSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byCashier ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No cashier sales in this scope.
+                                            {t('empty.cashier')}
                                         </td>
                                     </tr>
                                 ) : filteredByCashier.length === 0 ? (
                                     <tr>
                                         <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            No rows match your search.
+                                            {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2660,7 +2673,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 </td>
                                                 <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                                 <td className="ws-font-bold">
-                                                    SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                    {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
                                                 </td>
                                             </tr>
                                         );
@@ -2681,25 +2694,25 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 value={ordersPaymentMethod}
                                 onChange={(e) => setOrdersPaymentMethod(e.target.value)}
                                 className="ws-report-tab-select"
-                                aria-label="Filter by payment method"
+                                aria-label={t('label.filterPayment')}
                             >
-                                <option value="">All payment methods</option>
-                                <option value="cash">Cash</option>
-                                <option value="card">Card</option>
-                                <option value="bank">Bank Transfer</option>
-                                <option value="wallet">Wallet</option>
-                                <option value="corporate_credit">Corporate Credit</option>
-                                <option value="monthly_billing">Monthly Billing</option>
-                                <option value="pay_monthly">Pay Monthly</option>
-                                <option value="unpaid">Unpaid</option>
+                                <option value="">{t('pay.all')}</option>
+                                <option value="cash">{t('pay.cash')}</option>
+                                <option value="card">{t('pay.card')}</option>
+                                <option value="bank">{t('pay.bankTransfer')}</option>
+                                <option value="wallet">{t('pay.wallet')}</option>
+                                <option value="corporate_credit">{t('pay.corporateCredit')}</option>
+                                <option value="monthly_billing">{t('pay.monthlyBilling')}</option>
+                                <option value="pay_monthly">{t('pay.payMonthly')}</option>
+                                <option value="unpaid">{t('pay.unpaid')}</option>
                             </select>
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
-                                placeholder="Search invoice no., order id, customer, plate, phone…"
+                                placeholder={t('ph.searchOrders')}
                                 value={ordersSearchInput}
                                 onChange={(e) => setOrdersSearchInput(e.target.value)}
-                                aria-label="Search orders"
+                                aria-label={t('label.searchOrders')}
                             />
                         </div>
                         {ordersListError ? (
@@ -2722,27 +2735,27 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>INVOICE / ORDER</th>
-                                    <th>TYPE</th>
-                                    <th>STATUS</th>
-                                    <th>DATE / TIME</th>
-                                    <th>CUSTOMER NAME</th>
-                                    <th>PLATE NO</th>
+                                    <th>{t('th.invoiceOrder')}</th>
+                                    <th>{t('th.type')}</th>
+                                    <th>{t('th.status')}</th>
+                                    <th>{t('th.dateTime')}</th>
+                                    <th>{t('th.customerName')}</th>
+                                    <th>{t('th.plateNo')}</th>
                                     <th>
                                         {ordersPaymentMethod
-                                            ? `AMOUNT (${
-                                                  {
-                                                      cash: 'Cash',
-                                                      card: 'Card',
-                                                      bank: 'Bank',
-                                                      wallet: 'Wallet',
-                                                      corporate_credit: 'Corporate',
-                                                      monthly_billing: 'Monthly',
-                                                      pay_monthly: 'Pay Monthly',
-                                                      unpaid: 'Unpaid',
-                                                  }[ordersPaymentMethod] || ordersPaymentMethod
-                                              }, SAR)`
-                                            : 'TOTAL (SAR)'}
+                                            ? t('th.amountFiltered', {
+                                                  method: ({
+                                                      cash: t('pay.cash'),
+                                                      card: t('pay.card'),
+                                                      bank: t('pay.bank'),
+                                                      wallet: t('pay.wallet'),
+                                                      corporate_credit: t('pay.corporate'),
+                                                      monthly_billing: t('pay.monthly'),
+                                                      pay_monthly: t('pay.payMonthly'),
+                                                      unpaid: t('pay.unpaid'),
+                                                  })[ordersPaymentMethod] || ordersPaymentMethod,
+                                              })
+                                            : t('th.totalSar')}
                                     </th>
                                     <th style={{ width: 56 }} />
                                 </tr>
@@ -2751,15 +2764,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 {ordersListLoading && recentOrders.length === 0 ? (
                                     <tr>
                                         <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                            Loading orders…
+                                            {t('empty.ordersLoading')}
                                         </td>
                                     </tr>
                                 ) : ordersTotal === 0 && !ordersListLoading ? (
                                     <tr>
                                         <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             {ordersSearchDebounced
-                                                ? 'No orders match your search in this date range.'
-                                                : 'No orders in this scope.'}
+                                                ? t('empty.ordersSearch')
+                                                : t('empty.ordersNone')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -2774,17 +2787,17 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         >
                                             <td>
                                                 <strong>
-                                                    {isOpen ? 'Pending invoice' : (row.invoiceNo ?? '—')}
+                                                    {isOpen ? t('orders.pendingInvoice') : (row.invoiceNo ?? t('emdash'))}
                                                 </strong>
                                                 {isOpen && row.salesOrderId != null ? (
                                                     <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: 'var(--color-text-muted)' }}>
-                                                        Order #{row.salesOrderId}
+                                                        {t('orders.orderHash', { id: row.salesOrderId })}
                                                     </span>
                                                 ) : null}
                                             </td>
-                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderSourceLabel(row.orderSource)}</td>
-                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderStatusLabel(row.orderStatus)}</td>
-                                            <td>{formatInvoiceDateTimeForDisplay(row)}</td>
+                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderSourceLabel(row.orderSource, t)}</td>
+                                            <td style={{ fontSize: '0.8125rem' }}>{formatOrderStatusLabel(row.orderStatus, t)}</td>
+                                            <td>{formatInvoiceDateTimeForDisplay(row, t)}</td>
                                             <td>
                                                 <div>{row.customerName ?? '—'}</div>
                                                 {row.customerMobile || row.phone ? (
@@ -2794,24 +2807,24 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 ) : null}
                                             </td>
                                             <td>{row.plateNo ? formatPlateLettersFirst(row.plateNo) : '—'}</td>
-                                            <td className="ws-font-bold">SAR {toNumber(row.invoiceTotal).toLocaleString()}</td>
+                                            <td className="ws-font-bold">{t('money.sar', { amount: toNumber(row.invoiceTotal).toLocaleString() })}</td>
                                             <td onClick={(e) => e.stopPropagation()}>
                                                 <RowActionsMenu
                                                     disabled={recentOrderActionBusyId === rk}
-                                                    ariaLabel={isOpen ? 'Order actions' : 'Invoice actions'}
+                                                    ariaLabel={isOpen ? t('orders.actions') : t('orders.invoiceActions')}
                                                     items={[
                                                         {
-                                                            label: isOpen ? 'View order' : 'View Invoice',
+                                                            label: isOpen ? t('orders.viewOrder') : t('orders.viewInvoice'),
                                                             onClick: () => handleRecentOrderAction(row, 'view'),
                                                         },
                                                         ...(!isOpen
                                                             ? [
                                                                   {
-                                                                      label: 'Download PDF',
+                                                                      label: t('orders.downloadPdf'),
                                                                       onClick: () => handleRecentOrderAction(row, 'download'),
                                                                   },
                                                                   {
-                                                                      label: 'Send Invoice to WhatsApp (PDF)',
+                                                                      label: t('orders.sendWhatsapp'),
                                                                       onClick: () => handleRecentOrderAction(row, 'whatsapp'),
                                                                   },
                                                               ]
@@ -2830,20 +2843,20 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         {ordersTotal > 0 && (
                             <div className="ws-report-pagination">
                                 <p className="ws-report-pagination__info">
-                                    Showing <strong>{ordersRangeFrom}</strong>–<strong>{ordersRangeTo}</strong> of{' '}
+                                    {t('pagination.showing')} <strong>{ordersRangeFrom}</strong>–<strong>{ordersRangeTo}</strong> {t('pagination.of')}{' '}
                                     <strong>{ordersTotal}</strong>
-                                    {ordersListLoading ? <span> · Loading…</span> : null}
+                                    {ordersListLoading ? <span>{t('pagination.loadingSuffix')}</span> : null}
                                 </p>
-                                <nav className="ws-report-pagination__nav" aria-label="Orders list pages">
+                                <nav className="ws-report-pagination__nav" aria-label={t('label.ordersListPages')}>
                                     <button
                                         type="button"
                                         className="ws-report-pagination__edge"
                                         disabled={ordersPage <= 1 || ordersListLoading}
                                         onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
                                     >
-                                        Previous
+                                        {t('btn.previous')}
                                     </button>
-                                    <div className="ws-report-pagination__pages" role="group" aria-label="Page numbers">
+                                    <div className="ws-report-pagination__pages" role="group" aria-label={t('label.pageNumbers')}>
                                         {(() => {
                                             const totalP = ordersTotalPages;
                                             const cur = ordersPage;
@@ -2873,7 +2886,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         disabled={ordersPage >= ordersTotalPages || ordersListLoading}
                                         onClick={() => setOrdersPage((p) => Math.min(ordersTotalPages, p + 1))}
                                     >
-                                        Next
+                                        {t('btn.next')}
                                     </button>
                                 </nav>
                             </div>
@@ -2895,13 +2908,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
             {(recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
                 <Modal
-                    title={`Order ${
+                    title={
                         recentOrderDetails?.listingKind === 'open' || !recentOrderDetails?.invoiceNo
                             ? recentOrderDetails?.salesOrderId
-                                ? `(pending invoice · #${recentOrderDetails.salesOrderId})`
-                                : 'Details'
-                            : `- ${recentOrderDetails.invoiceNo}`
-                    }`}
+                                ? t('orders.modalTitlePending', { id: recentOrderDetails.salesOrderId })
+                                : t('orders.modalTitleDetails')
+                            : t('orders.modalTitleInvoice', { no: recentOrderDetails.invoiceNo })
+                    }
                     contentClassName="ws-modal-order-details"
                     onClose={() => {
                         recentOrderDetailsTargetRef.current = null;
@@ -2922,70 +2935,70 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 <table className="ws-table">
                                     <tbody>
                                         <tr>
-                                            <th>ORDER TYPE</th>
-                                            <td>{formatOrderSourceLabel(recentOrderDetails.orderSource)}</td>
+                                            <th>{t('th.orderType')}</th>
+                                            <td>{formatOrderSourceLabel(recentOrderDetails.orderSource, t)}</td>
                                         </tr>
                                         <tr>
-                                            <th>ORDER STATUS</th>
-                                            <td>{formatOrderStatusLabel(recentOrderDetails.orderStatus)}</td>
+                                            <th>{t('th.orderStatus')}</th>
+                                            <td>{formatOrderStatusLabel(recentOrderDetails.orderStatus, t)}</td>
                                         </tr>
                                         {recentOrderDetails.invoiceNo ? (
                                             <tr>
-                                                <th>INVOICE NO</th>
+                                                <th>{t('th.invoiceNo')}</th>
                                                 <td>{recentOrderDetails.invoiceNo}</td>
                                             </tr>
                                         ) : null}
                                         {recentOrderDetails.orderPlacedAt ? (
                                             <tr>
-                                                <th>ORDER PLACED</th>
-                                                <td>{formatReportInstant(recentOrderDetails.orderPlacedAt)}</td>
+                                                <th>{t('th.orderPlaced')}</th>
+                                                <td>{formatReportInstant(recentOrderDetails.orderPlacedAt, t)}</td>
                                             </tr>
                                         ) : null}
                                         {(recentOrderDetails.listingKind === 'invoice' || recentOrderDetails.invoiceNo) ? (
                                             <tr>
-                                                <th>INVOICE DATE &amp; TIME</th>
-                                                <td>{formatInvoiceDateTimeForDisplay(recentOrderDetails)}</td>
+                                                <th>{t('th.invoiceDateTime')}</th>
+                                                <td>{formatInvoiceDateTimeForDisplay(recentOrderDetails, t)}</td>
                                             </tr>
                                         ) : null}
-                                        <tr><th>CUSTOMER NAME</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
-                                        <tr><th>PHONE</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
-                                        <tr><th>VEHICLE NO</th><td>{recentOrderDetails.vehicleNo ? formatPlateLettersFirst(recentOrderDetails.vehicleNo) : '—'}</td></tr>
-                                        <tr><th>DEPARTMENTS</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || '—'}</td></tr>
-                                        <tr><th>TECHNICIANS</th><td>{(recentOrderDetails.technicians ?? []).map((t) => t?.name).filter(Boolean).join(', ') || '—'}</td></tr>
+                                        <tr><th>{t('th.customerName')}</th><td>{recentOrderDetails.customerName ?? '—'}</td></tr>
+                                        <tr><th>{t('th.phone')}</th><td>{recentOrderDetails.phone ?? '—'}</td></tr>
+                                        <tr><th>{t('th.vehicleNo')}</th><td>{recentOrderDetails.vehicleNo ? formatPlateLettersFirst(recentOrderDetails.vehicleNo) : '—'}</td></tr>
+                                        <tr><th>{t('th.departments')}</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || t('emdash')}</td></tr>
+                                        <tr><th>{t('th.technicians')}</th><td>{(recentOrderDetails.technicians ?? []).map((tech) => tech?.name).filter(Boolean).join(', ') || t('emdash')}</td></tr>
                                         <tr className="ws-order-details-total-row">
-                                            <th>TOTAL AMOUNT</th>
+                                            <th>{t('th.totalAmount')}</th>
                                             <td className="ws-font-bold">
-                                                SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString(undefined, {
+                                                {t('money.sar', { amount: toNumber(recentOrderDetails.totalAmount).toLocaleString(undefined, {
                                                     minimumFractionDigits: 2,
                                                     maximumFractionDigits: 2,
-                                                })}
+                                                }) })}
                                             </td>
                                         </tr>
-                                        <tr><th>PAYMENT METHOD</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
-                                        <tr><th>CUSTOMER TYPE</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
+                                        <tr><th>{t('th.paymentMethod')}</th><td>{recentOrderDetails.paymentMethod ?? '—'}</td></tr>
+                                        <tr><th>{t('th.customerType')}</th><td>{recentOrderDetails.customerType ?? '—'}</td></tr>
                                     </tbody>
                                 </table>
                                 </WsTableScroll>
                             </div>
                             {Array.isArray(recentOrderDetails.jobsDetail) && recentOrderDetails.jobsDetail.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Jobs</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('orders.jobs')}</p>
                                     <WsTableScroll bodyClassName="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Department</th>
-                                                    <th>Job status</th>
-                                                    <th>Opened</th>
-                                                    <th>Completed</th>
-                                                    <th>Job discount</th>
-                                                    <th>Promo</th>
-                                                    <th>Before disc.</th>
-                                                    <th>After disc.</th>
-                                                    <th>VAT</th>
-                                                    <th>Job total</th>
-                                                    <th>Technicians</th>
+                                                    <th>{t('th.jobNo')}</th>
+                                                    <th>{t('th.departmentShort')}</th>
+                                                    <th>{t('th.jobStatus')}</th>
+                                                    <th>{t('th.opened')}</th>
+                                                    <th>{t('th.completed')}</th>
+                                                    <th>{t('th.jobDiscount')}</th>
+                                                    <th>{t('th.promo')}</th>
+                                                    <th>{t('th.beforeDisc')}</th>
+                                                    <th>{t('th.afterDisc')}</th>
+                                                    <th>{t('th.vat')}</th>
+                                                    <th>{t('th.jobTotal')}</th>
+                                                    <th>{t('th.techniciansTitle')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -2993,17 +3006,17 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                     <tr key={job.jobId}>
                                                         <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.jobId ?? '—'}</td>
                                                         <td>{job.departmentName ?? '—'}</td>
-                                                        <td>{formatOrderStatusLabel(job.status)}</td>
+                                                        <td>{formatOrderStatusLabel(job.status, t)}</td>
                                                         <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                                                            {formatReportInstant(job.createdAt)}
+                                                            {formatReportInstant(job.createdAt, t)}
                                                         </td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>{formatJobCompletedDisplay(job)}</td>
-                                                        <td>{formatDiscountCell(job.totalDiscountType, job.totalDiscountValue)}</td>
-                                                        <td>SAR {toNumber(job.promoDiscountAmount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.amountAfterDiscount).toLocaleString()}</td>
-                                                        <td>SAR {toNumber(job.vatAmount).toLocaleString()}</td>
-                                                        <td className="ws-font-bold">SAR {toNumber(job.totalAmount).toLocaleString()}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>{formatJobCompletedDisplay(job, t)}</td>
+                                                        <td>{formatDiscountCell(job.totalDiscountType, job.totalDiscountValue, t)}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.promoDiscountAmount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountBeforeDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountAfterDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.vatAmount).toLocaleString() })}</td>
+                                                        <td className="ws-font-bold">{t('money.sar', { amount: toNumber(job.totalAmount).toLocaleString() })}</td>
                                                         <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
                                                             {(job.assignments ?? []).length === 0 ? (
                                                                 '—'
@@ -3017,14 +3030,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                                         }}
                                                                     >
                                                                         <div>
-                                                                            {[a.technicianName || '—', a.assignmentType, formatOrderStatusLabel(a.assignmentStatus)]
+                                                                            {[a.technicianName || t('emdash'), a.assignmentType, formatOrderStatusLabel(a.assignmentStatus, t)]
                                                                                 .filter(Boolean)
                                                                                 .join(' · ')}
                                                                         </div>
                                                                         <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
                                                                             {a.respondedAt
-                                                                                ? `Responded ${formatReportInstant(a.respondedAt)}`
-                                                                                : `Assigned ${formatReportInstant(a.assignedAt)}`}
+                                                                                ? t('orders.responded', { when: formatReportInstant(a.respondedAt, t) })
+                                                                                : t('orders.assigned', { when: formatReportInstant(a.assignedAt, t) })}
                                                                         </div>
                                                                     </div>
                                                                 ))
@@ -3039,20 +3052,20 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             ) : null}
                             {Array.isArray(recentOrderDetails.lineItems) && recentOrderDetails.lineItems.length > 0 ? (
                                 <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>Line items</p>
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('orders.lineItems')}</p>
                                     <WsTableScroll bodyClassName="ws-order-details-table-scroll">
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Job #</th>
-                                                    <th>Dept</th>
-                                                    <th>Item</th>
-                                                    <th>Type</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit (SAR)</th>
-                                                    <th>Discount</th>
-                                                    <th>VAT</th>
-                                                    <th>Line (SAR)</th>
+                                                    <th>{t('th.jobNo')}</th>
+                                                    <th>{t('th.dept')}</th>
+                                                    <th>{t('th.item')}</th>
+                                                    <th>{t('th.typeTitle')}</th>
+                                                    <th>{t('th.qtyTitle')}</th>
+                                                    <th>{t('th.unitSar')}</th>
+                                                    <th>{t('th.discount')}</th>
+                                                    <th>{t('th.vat')}</th>
+                                                    <th>{t('th.lineSar')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -3064,7 +3077,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                         <td>{row.itemType ?? '—'}</td>
                                                         <td>{row.qty}</td>
                                                         <td>{toNumber(row.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
+                                                        <td>{formatDiscountCell(row.discountType, row.discountValue, t)}</td>
                                                         <td style={{ fontSize: '0.8125rem' }}>
                                                             {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
                                                         </td>
@@ -3091,7 +3104,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             />
             {(detailsLoading || detailsError || detailRows.length > 0) && (
                 <Modal
-                    title={detailsTitle || 'Details'}
+                    title={detailsTitle || t('details.fallback')}
                     onClose={() => {
                         detailAnchorRef.current = null;
                         setDetailRows([]);
@@ -3145,10 +3158,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 {columns.map((k) => (
                                                     <th key={k} style={{ padding: '8px 10px' }}>
                                                         {isInvoiceDateDetailColumnKey(k)
-                                                            ? 'DATE / TIME'
+                                                            ? t('th.dateTimeTitle')
                                                             : isMoneyDetailColumnKey(k)
-                                                              ? `${humanizeKey(k)} (SAR)`
-                                                              : humanizeKey(k)}
+                                                              ? t('th.moneySar', { label: wrColT(locale, k) })
+                                                              : wrColT(locale, k)}
                                                     </th>
                                                 ))}
                                             </tr>
@@ -3176,10 +3189,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                                                 }}
                                                                             >
                                                                                 <div style={{ fontWeight: 700, fontSize: 12 }}>
-                                                                                    {item.itemName ?? item.name ?? `Item ${idx + 1}`}
+                                                                                    {item.itemName ?? item.name ?? t('details.itemN', { n: idx + 1 })}
                                                                                 </div>
                                                                                 {(() => {
-                                                                                    const sub = formatWorkshopLineItemCardSubtext(item);
+                                                                                    const sub = formatWorkshopLineItemCardSubtext(item, t);
                                                                                     return (
                                                                                         <>
                                                                                             <div style={{ fontSize: 11, color: '#6B7280' }}>
@@ -3198,9 +3211,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                                     val.join(', ')
                                                                 )
                                                             ) : isMoneyDetailColumnKey(k) ? (
-                                                                formatCurrency(val)
+                                                                formatCurrency(val, t)
                                                             ) : isInvoiceDateDetailColumnKey(k) ? (
-                                                                formatInvoiceDateTimeForDisplay(row)
+                                                                formatInvoiceDateTimeForDisplay(row, t)
                                                             ) : val == null || val === '' ? (
                                                                 '—'
                                                             ) : (
@@ -3224,9 +3237,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                     {columns.map((k, colIdx) => (
                                                         <td key={k} style={{ padding: '10px' }}>
                                                             {colIdx === 0
-                                                                ? 'Total'
+                                                                ? t('details.total')
                                                                 : isMoneyDetailColumnKey(k)
-                                                                  ? formatCurrency(moneyTotals[k])
+                                                                  ? formatCurrency(moneyTotals[k], t)
                                                                   : ''}
                                                         </td>
                                                     ))}
@@ -3245,7 +3258,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             {norm?.definitions && typeof norm.definitions === 'object' && Object.keys(norm.definitions).length > 0 ? (
                 <details className="ws-section" style={{ marginTop: 20 }}>
                     <summary className="ws-text-dim" style={{ cursor: 'pointer', fontWeight: 600 }}>
-                        Metric definitions (from API)
+                        {t('defs.title')}
                     </summary>
                     <div
                         className="ws-kpi-proof-methodology"

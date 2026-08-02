@@ -1,8 +1,37 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
+import { wiT, wiReasonLabel } from '../../utils/workshopInventoryI18n';
 
 const OPENING_QTY = 'Opening qty';
 const INFINITE_QTY = 'Infinite qty';
+
+function resolveExportT(labels) {
+    if (labels?.t) return labels.t;
+    const locale = labels?.locale || 'en';
+    return (key, vars) => wiT(locale, key, vars);
+}
+
+function humanizeSource(source, t) {
+    const s = String(source || 'manual').toLowerCase();
+    if (s === 'manual_opening_qty') return t('source.manualOpening');
+    if (s === 'manual_infinite_qty') return t('source.manualInfinite');
+    if (s === 'supplier_purchase_invoice') return t('source.supplierPurchase');
+    if (s === 'local_supplier_purchase_invoice') return t('source.localSupplierPurchase');
+    if (s === 'supplier_purchase_return') return t('source.supplierReturn');
+    if (s === 'local_supplier_purchase_return') return t('source.localReturn');
+    if (s === 'super_admin_starting_stock') return t('source.superAdmin');
+    if (s === 'pos') return t('source.pos');
+    if (s === 'purchase_receipt') return t('source.purchaseReceipt');
+    return s.replace(/_/g, ' ');
+}
+
+function humanizeReferenceType(type, t) {
+    const ty = String(type || '').toLowerCase();
+    if (ty === 'workshop_supplier_purchase_invoice') return t('ref.wpi');
+    if (ty === 'workshop_local_supplier_purchase_invoice') return t('ref.localWpi');
+    if (ty === 'workshop_local_supplier_purchase_return') return t('ref.localDebit');
+    return ty.replace(/_/g, ' ');
+}
 
 function safeFileSlug(s) {
     const t = String(s || 'export')
@@ -28,34 +57,13 @@ function isInfiniteEntry(e) {
     );
 }
 
-function humanizeSource(source) {
-    const s = String(source || 'manual').toLowerCase();
-    if (s === 'manual_opening_qty') return 'Manual (opening qty)';
-    if (s === 'manual_infinite_qty') return 'Manual (infinite qty)';
-    if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
-    if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
-    if (s === 'supplier_purchase_return') return 'Supplier purchase return';
-    if (s === 'local_supplier_purchase_return') return 'Non-affiliated purchase return';
-    if (s === 'super_admin_starting_stock') return 'Super admin (opening stock)';
-    if (s === 'pos') return 'POS';
-    if (s === 'purchase_receipt') return 'Purchase receipt';
-    return s.replace(/_/g, ' ');
-}
-
-function humanizeReferenceType(type) {
-    const t = String(type || '').toLowerCase();
-    if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
-    if (t === 'workshop_local_supplier_purchase_invoice') return 'Workshop local purchase invoice';
-    if (t === 'workshop_local_supplier_purchase_return') return 'Workshop local debit note';
-    return t.replace(/_/g, ' ');
-}
-
-export function formatWorkshopTimelineSourceRef(e) {
-    if (!e) return '—';
-    const base = humanizeSource(e.source);
+export function formatWorkshopTimelineSourceRef(e, t) {
+    const translate = t || ((k) => wiT('en', k));
+    if (!e) return translate('emdash');
+    const base = humanizeSource(e.source, translate);
     if (e.reference?.id || (e.reference?.type && e.reference.type !== 'manual')) {
         const parts = [base];
-        if (e.reference?.type) parts.push(humanizeReferenceType(e.reference.type));
+        if (e.reference?.type) parts.push(humanizeReferenceType(e.reference.type, translate));
         if (e.reference?.invoiceNumber) parts.push(`#${e.reference.invoiceNumber}`);
         else if (e.reference?.id) parts.push(`#${e.reference.id}`);
         return parts.filter(Boolean).join(' · ');
@@ -85,19 +93,19 @@ function fmtEntryDelta(entry) {
     return fmtQtyPlain(n);
 }
 
-function timelineRowsForExport(entries) {
+function timelineRowsForExport(entries, t, locale) {
     return (entries || []).map((e) => [
         new Date(e.at).toLocaleString(),
         fmtEntryQty(e, 'previous'),
         fmtEntryQty(e, 'new'),
         fmtEntryDelta(e),
-        String(e.reason || ''),
-        formatWorkshopTimelineSourceRef(e),
+        wiReasonLabel(locale || 'en', e.reason),
+        formatWorkshopTimelineSourceRef(e, t),
         e.adjustedBy?.name || e.adjustedBy?.id || '',
     ]);
 }
 
-function downloadTablePdf({ title, subtitle, headers, colWidthsPt, rows, filenameBase }) {
+function downloadTablePdf({ title, subtitle, headers, colWidthsPt, rows, filenameBase, continuedLabel }) {
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
     const margin = 36;
     const pageW = pdf.internal.pageSize.getWidth();
@@ -152,7 +160,7 @@ function downloadTablePdf({ title, subtitle, headers, colWidthsPt, rows, filenam
             y = margin;
             pdf.setFontSize(10);
             pdf.setFont('helvetica', 'bold');
-            pdf.text(`${title} (continued)`, margin, y);
+            pdf.text(continuedLabel || `${title} (continued)`, margin, y);
             y += lineH + 6;
             pdf.setFont('helvetica', 'normal');
             drawColumnHeaders();
@@ -176,19 +184,29 @@ function downloadTablePdf({ title, subtitle, headers, colWidthsPt, rows, filenam
  * @param {{ branchName?: string; filenameBase?: string }} [opts]
  */
 export function exportWorkshopTimelineExcel(product, entries, opts = {}) {
-    const headers = ['When', 'From', 'To', 'Delta', 'Reason', 'Source / Ref', 'By'];
-    const rows = timelineRowsForExport(entries);
+    const t = resolveExportT(opts.labels);
+    const locale = opts.labels?.locale || 'en';
+    const headers = [
+        t('export.timelineWhen'),
+        t('export.timelineFrom'),
+        t('export.timelineTo'),
+        t('export.timelineDelta'),
+        t('export.timelineReason'),
+        t('export.timelineSource'),
+        t('export.timelineBy'),
+    ];
+    const rows = timelineRowsForExport(entries, t, locale);
     const sku = product?.sku && product.sku !== '-' ? String(product.sku) : '';
     const meta = [
-        ['Product', product?.name || ''],
-        ['SKU', sku],
-        ['Branch', opts.branchName || ''],
+        [t('export.metaProduct'), product?.name || ''],
+        [t('export.metaSku'), sku],
+        [t('export.metaBranch'), opts.branchName || ''],
         [],
         headers,
     ];
     const ws = XLSX.utils.aoa_to_sheet([...meta, ...rows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Timeline');
+    XLSX.utils.book_append_sheet(wb, ws, t('export.sheetTimeline'));
     const base = opts.filenameBase || `workshop-timeline-${product?.name || 'product'}`;
     XLSX.writeFile(wb, `${safeFileSlug(base)}-${stamp()}.xlsx`);
 }
@@ -199,19 +217,35 @@ export function exportWorkshopTimelineExcel(product, entries, opts = {}) {
  * @param {{ branchName?: string; filenameBase?: string }} [opts]
  */
 export function exportWorkshopTimelinePdf(product, entries, opts = {}) {
-    const headers = ['When', 'From', 'To', 'Delta', 'Reason', 'Source / Ref', 'By'];
+    const t = resolveExportT(opts.labels);
+    const locale = opts.labels?.locale || 'en';
+    const headers = [
+        t('export.timelineWhen'),
+        t('export.timelineFrom'),
+        t('export.timelineTo'),
+        t('export.timelineDelta'),
+        t('export.timelineReason'),
+        t('export.timelineSource'),
+        t('export.timelineBy'),
+    ];
     const colW = [110, 44, 44, 44, 110, 220, 80];
-    const rows = timelineRowsForExport(entries);
+    const rows = timelineRowsForExport(entries, t, locale);
     const sku = product?.sku && product.sku !== '-' ? String(product.sku) : '—';
-    const branch = opts.branchName ? ` · Branch: ${opts.branchName}` : '';
-    const sub = `Product: ${product?.name || '—'} · SKU: ${sku}${branch} · ${rows.length} row(s)`;
+    const branch = opts.branchName ? t('export.branchPart', { branch: opts.branchName }) : '';
+    const sub = t('export.subtitleTimeline', {
+        name: product?.name || '—',
+        sku,
+        branch,
+        count: rows.length,
+    });
     const base = opts.filenameBase || `workshop-timeline-${product?.name || 'product'}`;
     downloadTablePdf({
-        title: 'Inventory stock timeline',
+        title: t('export.titleTimeline'),
         subtitle: sub,
         headers,
         colWidthsPt: colW,
         rows,
         filenameBase: base,
+        continuedLabel: t('export.continued', { title: t('export.titleTimeline') }),
     });
 }

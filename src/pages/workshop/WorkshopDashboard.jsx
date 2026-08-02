@@ -14,6 +14,7 @@ import {
 } from '../../services/workshopStaffApi';
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 import { ShimmerKpiGrid, ShimmerListRows } from '../../components/supplier/Shimmer';
+import { wsDashT } from '../../utils/workshopDashboardI18n';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
 function extractProducts(res) {
@@ -87,7 +88,7 @@ function normalizeCatalogRowForStock(row) {
     );
     return {
         id: master?.id ?? row?.id,
-        name: pickItemName(master) || pickItemName(row) || 'Unnamed',
+        name: pickItemName(master) || pickItemName(row) || '',
         stock_qty,
         critical_level,
     };
@@ -106,7 +107,11 @@ export default function WorkshopDashboard({
     selectedBranchId = 'all',
     branches = [],
     onLowStockAlertsChange,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wsDashT(locale, key, vars), [locale]);
+
     const [dashboardData, setDashboardData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
@@ -129,13 +134,13 @@ export default function WorkshopDashboard({
                 setDashboardData(response);
                 return;
             }
-            throw new Error('Workshop dashboard response was invalid.');
+            throw new Error(t('error.invalid'));
         } catch (error) {
-            setLoadError(error.message || 'Failed to load workshop dashboard.');
+            setLoadError(error.message || t('error.load'));
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     const loadTechnicians = useCallback(async () => {
         setTechLoadError('');
@@ -147,7 +152,7 @@ export default function WorkshopDashboard({
             const techRes = await getWorkshopTechnicians(params).catch(() => null);
             if (techRes == null) {
                 setTechnicians([]);
-                setTechLoadError('Could not load technicians (check GET /workshop-staff/technicians).');
+                setTechLoadError(t('error.techLoad'));
                 return;
             }
             const techList = unwrapWorkshopStaffList(techRes, 'technician').map((u) =>
@@ -156,9 +161,9 @@ export default function WorkshopDashboard({
             setTechnicians(techList);
         } catch (error) {
             setTechnicians([]);
-            setTechLoadError(error.message || 'Could not load technicians.');
+            setTechLoadError(error.message || t('error.techFail'));
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     useEffect(() => {
         loadDashboard();
@@ -291,32 +296,39 @@ export default function WorkshopDashboard({
     // consumers, mobile, etc.); the FE keeps the number derived from the list
     // so the card and the widget never disagree even if one request lags.
     const lowStockAlertsCount = lowStockProducts.length;
-    const dataScopeLabel = dashboardData?.dataScopeLabel || 'All Branches';
+    const rawScope = dashboardData?.dataScopeLabel || '';
+    const dataScopeLabel =
+        !rawScope || /^all\s*branches$/i.test(String(rawScope).trim())
+            ? t('layout.allBranches')
+            : rawScope;
     const branchPerformance = dashboardData?.branchPerformance || [];
 
     const techniciansFiltered = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return technicians;
         const bn = branches.find((b) => String(b.id) === String(selectedBranchId))?.name;
         return technicians.filter(
-            (t) =>
-                String(t.branchId) === String(selectedBranchId) ||
-                (bn && t.branch === bn),
+            (tRow) =>
+                String(tRow.branchId) === String(selectedBranchId) ||
+                (bn && tRow.branch === bn),
         );
     }, [technicians, selectedBranchId, branches]);
 
     const techniciansByBranch = useMemo(() => {
         const m = new Map();
-        for (const t of techniciansFiltered) {
-            const key = t.branch && t.branch !== '—' ? t.branch : 'Unassigned';
+        for (const tech of techniciansFiltered) {
+            const key =
+                tech.branch && tech.branch !== '—'
+                    ? tech.branch
+                    : t('tech.unassigned');
             if (!m.has(key)) m.set(key, []);
-            m.get(key).push(t);
+            m.get(key).push(tech);
         }
         return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    }, [techniciansFiltered]);
+    }, [techniciansFiltered, t]);
     const technicianRows = useMemo(() => {
         const rows = [];
         for (const [branchLabel, list] of techniciansByBranch) {
-            for (const t of list) rows.push({ ...t, branchLabel });
+            for (const tech of list) rows.push({ ...tech, branchLabel });
         }
         return rows;
     }, [techniciansByBranch]);
@@ -329,25 +341,63 @@ export default function WorkshopDashboard({
     useEffect(() => {
         setShowAllTechnicians(false);
     }, [selectedBranchId, technicians.length]);
+
+    const dutyLabel = (tech) => {
+        if (tech.workshop_duty && tech.oncall_available) return t('tech.workshopOnCall');
+        if (tech.workshop_duty) return t('tech.workshop');
+        if (tech.oncall_available) return t('tech.onCall');
+        return '—';
+    };
+
     const kpis = [
-        { label: 'Total Sales Today', value: `SAR ${todaySales.toLocaleString()}`, iconClass: 'ws-kpi-icon--green', Icon: DollarSign },
-        { label: 'Gross Margin Profit', value: `SAR ${grossMarginProfit.toLocaleString()}`, sub: 'Sales - Purchase Cost', iconClass: 'ws-kpi-icon--blue', Icon: TrendingUp },
-        { label: 'Pending Invoices', value: pendingInvoices, iconClass: 'ws-kpi-icon--orange', Icon: ShoppingCart },
-        { label: 'Low Stock Alerts', value: lowStockAlertsCount, sub: dataScopeLabel, iconClass: 'ws-kpi-icon--red', Icon: AlertTriangle },
-        { label: 'Pending Approvals', value: pendingApprovalsCount, iconClass: 'ws-kpi-icon--purple', Icon: ClipboardCheck },
+        {
+            label: t('kpi.salesToday'),
+            value: t('money.sar', { amount: todaySales.toLocaleString() }),
+            iconClass: 'ws-kpi-icon--green',
+            Icon: DollarSign,
+        },
+        {
+            label: t('kpi.grossMargin'),
+            value: t('money.sar', { amount: grossMarginProfit.toLocaleString() }),
+            sub: t('kpi.grossMarginSub'),
+            iconClass: 'ws-kpi-icon--blue',
+            Icon: TrendingUp,
+        },
+        {
+            label: t('kpi.pendingInvoices'),
+            value: pendingInvoices,
+            iconClass: 'ws-kpi-icon--orange',
+            Icon: ShoppingCart,
+        },
+        {
+            label: t('kpi.lowStock'),
+            value: lowStockAlertsCount,
+            sub: dataScopeLabel,
+            iconClass: 'ws-kpi-icon--red',
+            Icon: AlertTriangle,
+        },
+        {
+            label: t('kpi.pendingApprovals'),
+            value: pendingApprovalsCount,
+            iconClass: 'ws-kpi-icon--purple',
+            Icon: ClipboardCheck,
+        },
     ];
     const quickActions = [
-        { label: 'Employee Management', tab: 'employees', Icon: Users },
-        { label: 'Dept & Products', tab: 'departments', Icon: Package },
-        { label: 'Approvals Queue', tab: 'approvals', badge: pendingApprovalsCount, Icon: ClipboardCheck },
-        { label: 'Suppliers & Purchases', tab: 'suppliers', Icon: Wrench },
-        { label: 'Reports & Analytics', tab: 'reports', Icon: TrendingUp },
-        { label: 'Manage Branches', tab: 'branches', Icon: Building2 },
+        { label: t('quick.employees'), tab: 'employees', Icon: Users },
+        { label: t('quick.departments'), tab: 'departments', Icon: Package },
+        { label: t('quick.approvals'), tab: 'approvals', badge: pendingApprovalsCount, Icon: ClipboardCheck },
+        { label: t('quick.suppliers'), tab: 'suppliers', Icon: Wrench },
+        { label: t('quick.reports'), tab: 'reports', Icon: TrendingUp },
+        { label: t('quick.branches'), tab: 'branches', Icon: Building2 },
     ];
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Workshop Dashboard</h2><p className="ws-page-sub">Live operational overview — Filter Car Services</p></div>
+                <div>
+                    <h2 className="ws-page-title">{t('title')}</h2>
+                    <p className="ws-page-sub">{t('subtitle')}</p>
+                </div>
                 <button
                     className="btn-portal"
                     onClick={() => {
@@ -358,7 +408,7 @@ export default function WorkshopDashboard({
                     }}
                     disabled={isLoading}
                 >
-                    <RefreshCw size={15}/> {isLoading ? 'Refreshing...' : 'Refresh'}
+                    <RefreshCw size={15}/> {isLoading ? t('refreshing') : t('refresh')}
                 </button>
             </div>
             {loadError && (
@@ -382,10 +432,12 @@ export default function WorkshopDashboard({
             )}
             <div className="ws-section" style={{ marginBottom: 16 }}>
                 <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-                    <p style={{ fontWeight: 700, margin: 0 }}>Technicians by branch</p>
+                    <p style={{ fontWeight: 700, margin: 0 }}>{t('tech.title')}</p>
                     <span className="ws-badge ws-badge--blue">
-                        {techniciansFiltered.length} technician{techniciansFiltered.length === 1 ? '' : 's'}
-                        {selectedBranchId !== 'all' ? ' (filtered)' : ''}
+                        {techniciansFiltered.length === 1
+                            ? t('tech.count', { count: techniciansFiltered.length })
+                            : t('tech.countPlural', { count: techniciansFiltered.length })}
+                        {selectedBranchId !== 'all' ? t('tech.filtered') : ''}
                     </span>
                 </div>
                 {techLoadError && (
@@ -396,12 +448,12 @@ export default function WorkshopDashboard({
                         <ShimmerListRows rows={4} />
                     </div>
                 ) : techniciansFiltered.length === 0 && !techLoadError ? (
-                    <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No technicians for this selection.</p>
+                    <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>{t('tech.empty')}</p>
                 ) : (
                     <div style={{ padding: '0 16px 16px' }}>
-                        {techniciansVisible.map((t) => (
+                        {techniciansVisible.map((tech) => (
                             <div
-                                key={`${t.branchLabel}-${t.id}`}
+                                key={`${tech.branchLabel}-${tech.id}`}
                                 style={{
                                     display: 'flex',
                                     justifyContent: 'space-between',
@@ -424,17 +476,17 @@ export default function WorkshopDashboard({
                                             fontWeight: 700,
                                         }}
                                     >
-                                        {t.name?.[0] || 'T'}
+                                        {tech.name?.[0] || 'T'}
                                     </div>
                                     <div>
-                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{t.name}</p>
+                                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{tech.name}</p>
                                         <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                            {t.branchLabel} · {((t.workshop_duty ? 'Workshop' : '') + (t.oncall_available ? ' + On-Call' : '') || '—')}
+                                            {tech.branchLabel} · {dutyLabel(tech)}
                                         </p>
                                     </div>
                                 </div>
-                                <span className={`ws-badge ${t.status === 'active' ? 'ws-badge--green' : 'ws-badge--gray'}`}>
-                                    {t.status === 'active' ? 'Active' : 'Inactive'}
+                                <span className={`ws-badge ${tech.status === 'active' ? 'ws-badge--green' : 'ws-badge--gray'}`}>
+                                    {tech.status === 'active' ? t('tech.active') : t('tech.inactive')}
                                 </span>
                             </div>
                         ))}
@@ -445,7 +497,9 @@ export default function WorkshopDashboard({
                                 style={{ marginTop: 10, padding: '6px 12px', fontSize: '0.75rem' }}
                                 onClick={() => setShowAllTechnicians((v) => !v)}
                             >
-                                {showAllTechnicians ? 'View less' : `View more (${technicianRows.length - 2})`}
+                                {showAllTechnicians
+                                    ? t('tech.viewLess')
+                                    : t('tech.viewMore', { count: technicianRows.length - 2 })}
                             </button>
                         )}
                     </div>
@@ -453,32 +507,42 @@ export default function WorkshopDashboard({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 24 }}>
                 <div className="ws-section">
-                    <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}><p style={{ fontWeight: 700, margin: 0 }}>Low Stock Products</p><span className="ws-badge ws-badge--red">{lowStockProducts.length} alerts</span></div>
-                    {lowStockProducts.length === 0 ? <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>All stock levels are healthy</p> : (
-                        <div style={{ padding: '0 16px 16px' }}>{lowStockProducts.slice(0, 4).map(p => (
-                            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border-light)' }}>
-                                <p style={{ margin: 0, fontSize: '0.875rem' }}>{p.name}</p>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{p.stock_qty} / {p.critical_level}</span><span className="ws-badge ws-badge--red">Low</span></div>
-                            </div>
-                        ))}</div>
+                    <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <p style={{ fontWeight: 700, margin: 0 }}>{t('lowStock.title')}</p>
+                        <span className="ws-badge ws-badge--red">{t('lowStock.alerts', { count: lowStockProducts.length })}</span>
+                    </div>
+                    {lowStockProducts.length === 0 ? (
+                        <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>{t('lowStock.healthy')}</p>
+                    ) : (
+                        <div style={{ padding: '0 16px 16px' }}>
+                            {lowStockProducts.slice(0, 4).map((p) => (
+                                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border-light)' }}>
+                                    <p style={{ margin: 0, fontSize: '0.875rem' }}>{p.name || t('lowStock.unnamed')}</p>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{p.stock_qty} / {p.critical_level}</span>
+                                        <span className="ws-badge ws-badge--red">{t('lowStock.badge')}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
                 <div className="ws-section">
                     <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                        <p style={{ fontWeight: 700, margin: 0 }}>All Branches</p>
-                        <span className="ws-badge ws-badge--blue">{branchPerformance.length} branches</span>
+                        <p style={{ fontWeight: 700, margin: 0 }}>{t('branches.title')}</p>
+                        <span className="ws-badge ws-badge--blue">{t('branches.count', { count: branchPerformance.length })}</span>
                     </div>
                     {branchPerformance.length === 0 ? (
-                        <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>No branch performance available</p>
+                        <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>{t('branches.empty')}</p>
                     ) : (
                         <div style={{ padding: '0 16px 16px' }}>
                             {branchPerformance.slice(0, 5).map((branch) => (
                                 <div key={branch.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border-light)' }}>
                                     <div>
                                         <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{branch.name}</p>
-                                        <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{branch.address || 'No address available'}</p>
+                                        <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{branch.address || t('branches.noAddress')}</p>
                                     </div>
-                                    <span className="ws-badge ws-badge--green">SAR {toNumber(branch.monthlySales).toLocaleString()}</span>
+                                    <span className="ws-badge ws-badge--green">{t('money.sar', { amount: toNumber(branch.monthlySales).toLocaleString() })}</span>
                                 </div>
                             ))}
                         </div>
@@ -486,7 +550,7 @@ export default function WorkshopDashboard({
                 </div>
             </div>
             <div className="ws-section">
-                <p style={{ padding: '16px 16px 12px', fontWeight: 700, margin: 0 }}>Quick Actions</p>
+                <p style={{ padding: '16px 16px 12px', fontWeight: 700, margin: 0 }}>{t('quick.title')}</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, padding: 16 }}>
                     {quickActions.map(a => (
                         <div key={a.tab} className="ws-quick-card" onClick={() => onTabChange(a.tab)} style={{ position: 'relative' }}>

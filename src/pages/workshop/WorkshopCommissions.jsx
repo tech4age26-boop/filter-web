@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide-react';
 import Modal from '../../components/Modal';
@@ -8,10 +8,11 @@ import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import { useAuth } from '../../context/AuthContext';
+import { wcomT } from '../../utils/workshopCommissionsI18n';
 
 const COMMISSIONS_TABS = [
-    { key: 'ledger', label: 'Ledger', permission: 'workshop.commissions.ledger.view' },
-    { key: 'rules',  label: 'Rules',  permission: 'workshop.commissions.rules.view' },
+    { key: 'ledger', labelKey: 'tab.ledger', permission: 'workshop.commissions.ledger.view' },
+    { key: 'rules',  labelKey: 'tab.rules',  permission: 'workshop.commissions.rules.view' },
 ];
 import {
     getWorkshopCommissionsSummary,
@@ -72,8 +73,8 @@ async function fetchAllAccruedInScope(selectedBranchId, dateScope, filterEmploye
             },
             options,
         );
-        const { items, total: t } = parseCommissionList(res);
-        total = t;
+        const { items, total: listTotal } = parseCommissionList(res);
+        total = listTotal;
         for (const raw of items) {
             const row = mapCommissionRow(raw);
             if (row.id && row.status === 'accrued') {
@@ -141,7 +142,7 @@ function mapCommissionRow(raw) {
         initials: raw?.initials || initialsFromName(raw?.employee_name ?? raw?.employeeName),
         service: raw?.service_name ?? raw?.serviceName ?? '',
         date: raw?.date ?? raw?.commission_date ?? '',
-        rate: rateNum != null && !Number.isNaN(Number(rateNum)) ? `${Number(rateNum)}%` : '—',
+        rate: rateNum != null && !Number.isNaN(Number(rateNum)) ? `${Number(rateNum)}%` : null,
         amount: Number(raw?.amount) || 0,
         status: String(raw?.status || '').toLowerCase(),
         jobCardRef: raw?.job_card_ref ?? raw?.jobCardRef ?? '',
@@ -151,7 +152,7 @@ function mapCommissionRow(raw) {
 }
 
 /** settled order: summary, pending-by-employee, employees, list */
-function applyCommissionDashboardSettled(settled, setters) {
+function applyCommissionDashboardSettled(settled, setters, t) {
     const errMsgs = [];
     const [sumRes, pendRes, empRes, listRes] = settled;
     const {
@@ -165,26 +166,26 @@ function applyCommissionDashboardSettled(settled, setters) {
     if (sumRes.status === 'fulfilled') {
         setSummary(normalizeSummary(sumRes.value));
     } else if (sumRes.reason?.name !== 'AbortError') {
-        errMsgs.push(sumRes.reason?.message || 'Summary failed');
+        errMsgs.push(sumRes.reason?.message || t('err.summaryFailed'));
     }
     if (pendRes.status === 'fulfilled') {
         const pendEmps = pendRes.value?.employees ?? pendRes.value?.data?.employees ?? [];
         setPendingByEmployee(Array.isArray(pendEmps) ? pendEmps : []);
     } else if (pendRes.reason?.name !== 'AbortError') {
-        errMsgs.push(pendRes.reason?.message || 'Pending-by-employee failed');
+        errMsgs.push(pendRes.reason?.message || t('err.pendingFailed'));
     }
     if (empRes.status === 'fulfilled') {
         const emps = empRes.value?.employees ?? empRes.value?.data?.employees ?? [];
         setFilterEmployees(Array.isArray(emps) ? emps : []);
     } else if (empRes.reason?.name !== 'AbortError') {
-        errMsgs.push(empRes.reason?.message || 'Employees filter failed');
+        errMsgs.push(empRes.reason?.message || t('err.employeesFailed'));
     }
     if (listRes.status === 'fulfilled') {
         const { items, total } = parseCommissionList(listRes.value);
         setCommissionRows(items.map(mapCommissionRow));
         setListTotal(total);
     } else if (listRes.reason?.name !== 'AbortError') {
-        errMsgs.push(listRes.reason?.message || 'Commission list failed');
+        errMsgs.push(listRes.reason?.message || t('err.listFailed'));
     }
 
     return [...new Set(errMsgs)];
@@ -195,15 +196,18 @@ export default function WorkshopCommissions({
     branches = [],
     adminMode = false,
     workshopId = '',
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wcomT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const visibleCommissionTabs = adminMode
         ? COMMISSIONS_TABS
-        : COMMISSIONS_TABS.filter((t) => hasPermission(t.permission));
+        : COMMISSIONS_TABS.filter((tab) => hasPermission(tab.permission));
     const [activeTab, setActiveTab] = useState(() => visibleCommissionTabs[0]?.key ?? 'ledger');
     useEffect(() => {
         if (visibleCommissionTabs.length === 0) return;
-        if (!visibleCommissionTabs.some((t) => t.key === activeTab)) {
+        if (!visibleCommissionTabs.some((tab) => tab.key === activeTab)) {
             setActiveTab(visibleCommissionTabs[0].key);
         }
     }, [visibleCommissionTabs, activeTab]);
@@ -237,9 +241,9 @@ export default function WorkshopCommissions({
     const filterScopeKeyRef = useRef('');
 
     const branchLabel = useMemo(() => {
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
-        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
-    }, [branches, selectedBranchId]);
+        if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.fallback');
+    }, [branches, selectedBranchId, t]);
 
     const dateScope = useMemo(() => {
         const o = {};
@@ -258,11 +262,11 @@ export default function WorkshopCommissions({
                 const lc = e.line_count ?? e.lineCount;
                 return {
                     id: String(id),
-                    label: nm || 'Employee',
-                    subtitle: lc != null ? `${lc} commission entries` : '',
+                    label: nm || t('employee.fallback'),
+                    subtitle: lc != null ? t('employee.entries', { count: lc }) : '',
                 };
             }),
-        [filterEmployees],
+        [filterEmployees, t],
     );
 
     const displayedPendingEmployees = useMemo(() => {
@@ -353,7 +357,7 @@ export default function WorkshopCommissions({
                     setFilterEmployees,
                     setCommissionRows,
                     setListTotal,
-                });
+                }, t);
                 if (!cancelled) {
                     const listRes = settled[3];
                     if (listRes.status === 'fulfilled') {
@@ -371,12 +375,15 @@ export default function WorkshopCommissions({
                     setLoadError(
                         deduped.length === 1
                             ? deduped[0]
-                            : `${deduped.length} requests failed:\n${deduped.join('\n')}`,
+                            : t('err.requestsFailed', {
+                                count: deduped.length,
+                                details: deduped.join('\n'),
+                            }),
                     );
                 }
             } catch (e) {
                 if (e?.name === 'AbortError') return;
-                if (!cancelled) setLoadError(e?.message || 'Failed to load commissions');
+                if (!cancelled) setLoadError(e?.message || t('err.loadCommissions'));
             } finally {
                 if (!cancelled) setIsLoading(false);
             }
@@ -386,7 +393,7 @@ export default function WorkshopCommissions({
             cancelled = true;
             ac.abort();
         };
-    }, [selectedBranchId, scopeExtra, filterStatus, filterEmployeeId, page, filterScopeKey, adminMode, workshopId]);
+    }, [selectedBranchId, scopeExtra, filterStatus, filterEmployeeId, page, filterScopeKey, adminMode, workshopId, t]);
 
     useEffect(() => {
         if (!payoutModalOpen) return undefined;
@@ -403,7 +410,7 @@ export default function WorkshopCommissions({
                 setPayoutAccounts(Array.isArray(acc) ? acc : []);
             } catch (e) {
                 if (e?.name === 'AbortError') return;
-                if (!cancelled) setPayoutError(e?.message || 'Could not load payout accounts');
+                if (!cancelled) setPayoutError(e?.message || t('err.loadAccounts'));
             } finally {
                 if (!cancelled) setAccountsLoading(false);
             }
@@ -412,7 +419,7 @@ export default function WorkshopCommissions({
             cancelled = true;
             ac.abort();
         };
-    }, [payoutModalOpen, selectedBranchId, scopeExtra]);
+    }, [payoutModalOpen, selectedBranchId, scopeExtra, t]);
 
     const selectedCount = selectedLines.size;
 
@@ -452,7 +459,7 @@ export default function WorkshopCommissions({
             );
             setSelectedLines(lines);
         } catch (e) {
-            setLoadError(e?.message || 'Could not select all accrued commissions');
+            setLoadError(e?.message || t('err.selectAll'));
         } finally {
             setSelectAllLoading(false);
         }
@@ -498,16 +505,19 @@ export default function WorkshopCommissions({
                 setFilterEmployees,
                 setCommissionRows,
                 setListTotal,
-            });
+            }, t);
             if (refreshErrs.length) {
                 setLoadError(
                     refreshErrs.length === 1
                         ? refreshErrs[0]
-                        : `${refreshErrs.length} requests failed after payout:\n${refreshErrs.join('\n')}`,
+                        : t('err.requestsFailedAfterPayout', {
+                            count: refreshErrs.length,
+                            details: refreshErrs.join('\n'),
+                        }),
                 );
             }
         } catch (e) {
-            setPayoutError(e?.message || 'Payout failed');
+            setPayoutError(e?.message || t('err.payoutFailed'));
         } finally {
             setPayoutSubmitting(false);
             setIsLoading(false);
@@ -515,10 +525,10 @@ export default function WorkshopCommissions({
     };
 
     const renderJobLink = (row) => {
-        const label = row.jobCardRef || 'View';
+        const label = row.jobCardRef || t('job.view');
         const url = row.jobCardUrl;
         if (!url) {
-            return <span className="ws-text-dim">{row.jobCardRef || '—'}</span>;
+            return <span className="ws-text-dim">{row.jobCardRef || t('emDash')}</span>;
         }
         if (url.startsWith('http://') || url.startsWith('https://')) {
             return (
@@ -528,7 +538,7 @@ export default function WorkshopCommissions({
             );
         }
         return (
-            <Link to={url} className="ws-link" title="View order in Reports">
+            <Link to={url} className="ws-link" title={t('job.viewTitle')}>
                 {label}
             </Link>
         );
@@ -552,13 +562,13 @@ export default function WorkshopCommissions({
                 workshopId,
             );
             if (lines.size === 0) {
-                setLoadError('No accrued commissions to pay for this employee.');
+                setLoadError(t('err.noAccruedEmployee'));
                 return;
             }
             setSelectedLines(lines);
             setPayoutModalOpen(true);
         } catch (e) {
-            setLoadError(e?.message || 'Could not load commissions for payout');
+            setLoadError(e?.message || t('err.loadForPayout'));
         } finally {
             setEmployeePayoutLoadingId('');
         }
@@ -615,13 +625,13 @@ export default function WorkshopCommissions({
                 }
             }
             if (merged.size === 0) {
-                setLoadError('No accrued commissions to pay for the selected employees.');
+                setLoadError(t('err.noAccruedSelected'));
                 return;
             }
             setSelectedLines(merged);
             setPayoutModalOpen(true);
         } catch (e) {
-            setLoadError(e?.message || 'Could not load commissions for bulk payout');
+            setLoadError(e?.message || t('err.loadBulkPayout'));
         } finally {
             setEmployeePayoutLoadingId('');
         }
@@ -657,12 +667,23 @@ export default function WorkshopCommissions({
         setPayoutError('');
     };
 
+    const money = (amount) => t('money.sar', { amount: Number(amount).toLocaleString() });
+    const statusLabel = (status) => {
+        if (status === 'accrued') return t('status.accrued');
+        if (status === 'paid') return t('status.paid');
+        return status;
+    };
+
     if (payoutModalOpen) {
+        const payoutSubtitle =
+            selectedCount === 1
+                ? t('payout.subtitleOne', { count: selectedCount, amount: money(selectedTotal) })
+                : t('payout.subtitleMany', { count: selectedCount, amount: money(selectedTotal) });
         return (
             <WorkshopSubScreen
-                title="Process Commission Payout"
-                subtitle={`${selectedCount} commission${selectedCount !== 1 ? 's' : ''} selected · SAR ${selectedTotal.toLocaleString()}`}
-                backLabel="Back to Commissions"
+                title={t('payout.title')}
+                subtitle={payoutSubtitle}
+                backLabel={t('payout.back')}
                 onBack={closePayoutScreen}
                 backDisabled={payoutSubmitting}
                 size="form"
@@ -675,7 +696,7 @@ export default function WorkshopCommissions({
                             disabled={payoutSubmitting}
                             onClick={closePayoutScreen}
                         >
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -683,7 +704,7 @@ export default function WorkshopCommissions({
                             onClick={confirmPayout}
                             disabled={!selectedAccountId || payoutSubmitting || accountsLoading}
                         >
-                            Confirm Payout · SAR {selectedTotal.toLocaleString()}
+                            {t('payout.confirm', { amount: money(selectedTotal) })}
                         </button>
                     </div>
                 )}
@@ -697,24 +718,24 @@ export default function WorkshopCommissions({
                     )}
                     <div className="ws-summary-box">
                         <div className="ws-summary-line">
-                            <span className="ws-text-dim">Commissions selected</span>
+                            <span className="ws-text-dim">{t('payout.commissionsSelected')}</span>
                             <span className="ws-font-bold">{selectedCount}</span>
                         </div>
                         <div className="ws-summary-line">
-                            <span className="ws-text-dim">Total payout amount</span>
-                            <h4 className="text-green">SAR {selectedTotal.toLocaleString()}</h4>
+                            <span className="ws-text-dim">{t('payout.totalAmount')}</span>
+                            <h4 className="text-green">{money(selectedTotal)}</h4>
                         </div>
                     </div>
 
                     <div className="ws-form-group">
-                        <label className="ws-form-label">Select Cash / Bank Account</label>
+                        <label className="ws-form-label">{t('payout.selectAccount')}</label>
                         <select
                             className="ws-form-select"
                             value={selectedAccountId}
                             onChange={(e) => setSelectedAccountId(e.target.value)}
                             disabled={accountsLoading}
                         >
-                            <option value="">{accountsLoading ? 'Loading…' : 'Choose account…'}</option>
+                            <option value="">{accountsLoading ? t('payout.loading') : t('payout.chooseAccount')}</option>
                             {payoutAccounts.map((a) => {
                                 const id = a.id != null ? String(a.id) : '';
                                 const label = a.label ?? a.name ?? id;
@@ -728,13 +749,13 @@ export default function WorkshopCommissions({
                     </div>
 
                     <div className="ws-form-group">
-                        <label className="ws-form-label">Notes (optional)</label>
+                        <label className="ws-form-label">{t('payout.notes')}</label>
                         <textarea
                             className="ws-form-select"
                             style={{ minHeight: 72, resize: 'vertical' }}
                             value={payoutNotes}
                             onChange={(e) => setPayoutNotes(e.target.value)}
-                            placeholder="Payout notes"
+                            placeholder={t('payout.notesPlaceholder')}
                             rows={3}
                         />
                     </div>
@@ -742,7 +763,7 @@ export default function WorkshopCommissions({
                     <div className="ws-alert-banner">
                         <AlertCircle size={18} className="text-orange" />
                         <p style={{ margin: 0 }}>
-                            Journal entry will be posted: Dr Commission Payable / Cr Cash/Bank
+                            {t('payout.journalHint')}
                         </p>
                     </div>
                 </div>
@@ -778,18 +799,18 @@ export default function WorkshopCommissions({
                                 borderBottom: active ? '3px solid #D4A017' : '3px solid transparent',
                             }}
                         >
-                            {tab.label}
+                            {t(tab.labelKey)}
                         </button>
                     );
                 })}
             </div>
 
             {activeTab === 'rules' ? (
-                <WorkshopCommissionRules />
+                <WorkshopCommissionRules locale={locale} />
             ) : (
             <>
             <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                Scope · <strong>{branchLabel}</strong>
+                {t('scope.prefix')} <strong>{branchLabel}</strong>
             </p>
 
             {loadError && (
@@ -801,20 +822,20 @@ export default function WorkshopCommissions({
 
             <div className="ws-commissions-stats">
                 <div className="ws-stat-card border-orange">
-                    <p className="ws-stat-label">Total Accrued</p>
-                    <h3 className="ws-stat-value text-orange">SAR {summary.totalAccrued.toLocaleString()}</h3>
+                    <p className="ws-stat-label">{t('stat.totalAccrued')}</p>
+                    <h3 className="ws-stat-value text-orange">{money(summary.totalAccrued)}</h3>
                 </div>
                 <div className="ws-stat-card border-green">
-                    <p className="ws-stat-label">Total Paid</p>
-                    <h3 className="ws-stat-value text-green">SAR {summary.totalPaid.toLocaleString()}</h3>
+                    <p className="ws-stat-label">{t('stat.totalPaid')}</p>
+                    <h3 className="ws-stat-value text-green">{money(summary.totalPaid)}</h3>
                 </div>
                 <div className="ws-stat-card border-blue">
-                    <p className="ws-stat-label">Pending Employees</p>
+                    <p className="ws-stat-label">{t('stat.pendingEmployees')}</p>
                     <h3 className="ws-stat-value text-blue">{summary.pendingEmployeeCount}</h3>
                 </div>
                 <div className="ws-stat-card border-purple">
-                    <p className="ws-stat-label">Selected for Payout</p>
-                    <h3 className="ws-stat-value text-purple">SAR {selectedTotal.toLocaleString()}</h3>
+                    <p className="ws-stat-label">{t('stat.selectedForPayout')}</p>
+                    <h3 className="ws-stat-value text-purple">{money(selectedTotal)}</h3>
                 </div>
             </div>
 
@@ -829,7 +850,7 @@ export default function WorkshopCommissions({
                 >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Users size={18} className="text-blue" />
-                        <h4>Pending Payout by Employee</h4>
+                        <h4>{t('section.pendingByEmployee')}</h4>
                     </div>
                     {selectedEmployeePayoutIds.size > 0 ? (
                         <button
@@ -841,8 +862,11 @@ export default function WorkshopCommissions({
                         >
                             <Wallet size={16} />
                             {employeePayoutLoadingId === 'bulk'
-                                ? 'Loading…'
-                                : `Payout selected (${selectedEmployeePayoutIds.size}) · SAR ${selectedEmployeePayoutTotal.toLocaleString()}`}
+                                ? t('btn.loading')
+                                : t('btn.payoutSelected', {
+                                    count: selectedEmployeePayoutIds.size,
+                                    amount: money(selectedEmployeePayoutTotal),
+                                })}
                         </button>
                     ) : null}
                 </header>
@@ -864,13 +888,13 @@ export default function WorkshopCommissions({
                                             }}
                                             onChange={toggleSelectAllDisplayedEmployees}
                                             disabled={displayedPendingEmployees.length === 0}
-                                            aria-label="Select all employees for bulk payout"
+                                            aria-label={t('aria.selectAllEmployees')}
                                         />
                                     </th>
-                                    <th>EMPLOYEE</th>
-                                    <th style={{ textAlign: 'right' }}>ENTRIES</th>
-                                    <th style={{ textAlign: 'right' }}>TOTAL AMOUNT</th>
-                                    <th style={{ width: 120, textAlign: 'right' }}>ACTION</th>
+                                    <th>{t('th.employee')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('th.entries')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('th.totalAmount')}</th>
+                                    <th style={{ width: 120, textAlign: 'right' }}>{t('th.action')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -880,8 +904,8 @@ export default function WorkshopCommissions({
                                     <tr>
                                         <td colSpan={5} className="ws-text-dim" style={{ padding: 20, textAlign: 'center' }}>
                                             {filterEmployeeId
-                                                ? 'No pending accrued commissions for this employee in this scope.'
-                                                : 'No pending accrued commissions in this scope.'}
+                                                ? t('empty.pendingFiltered')
+                                                : t('empty.pending')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -908,7 +932,7 @@ export default function WorkshopCommissions({
                                                         checked={bulkSelected}
                                                         onChange={() => toggleEmployeePayoutSelect(key)}
                                                         disabled={amount <= 0}
-                                                        aria-label={`Select ${name} for bulk payout`}
+                                                        aria-label={t('aria.selectEmployee', { name })}
                                                     />
                                                 </td>
                                                 <td>
@@ -916,7 +940,7 @@ export default function WorkshopCommissions({
                                                         type="button"
                                                         className="ws-employee-summary-name"
                                                         onClick={() => filterByEmployee(emp)}
-                                                        title="Filter commission lines to this employee"
+                                                        title={t('title.filterEmployee')}
                                                     >
                                                         <div
                                                             className="ws-table-avatar"
@@ -947,7 +971,7 @@ export default function WorkshopCommissions({
                                                     <span className="ws-text-dim">{entryCount}</span>
                                                 </td>
                                                 <td style={{ textAlign: 'right' }} className="ws-font-bold">
-                                                    SAR {amount.toLocaleString()}
+                                                    {money(amount)}
                                                 </td>
                                                 <td style={{ textAlign: 'right' }}>
                                                     <button
@@ -978,7 +1002,7 @@ export default function WorkshopCommissions({
                                                         }}
                                                     >
                                                         <Wallet size={12} />
-                                                        {payoutLoading ? 'Loading…' : 'Payout'}
+                                                        {payoutLoading ? t('btn.loading') : t('btn.payout')}
                                                     </button>
                                                 </td>
                                             </tr>
@@ -998,18 +1022,18 @@ export default function WorkshopCommissions({
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value)}
                     >
-                        <option value="all">All Status</option>
-                        <option value="accrued">Accrued</option>
-                        <option value="paid">Paid</option>
+                        <option value="all">{t('filter.allStatus')}</option>
+                        <option value="accrued">{t('filter.accrued')}</option>
+                        <option value="paid">{t('filter.paid')}</option>
                     </select>
                     <SearchableEntityCombobox
                         className="ws-filter-combobox"
                         options={employeeComboboxOptions}
                         value={filterEmployeeId}
                         displayText={employeeFilterText}
-                        entityLabel="employee"
-                        placeholder="Type employee name… (↑↓ keys)"
-                        emptyHint="No employees match — clear to show all"
+                        entityLabel={t('filter.employeeLabel')}
+                        placeholder={t('filter.employeePlaceholder')}
+                        emptyHint={t('filter.employeeEmpty')}
                         onDisplayTextChange={(text) => {
                             setEmployeeFilterText(text);
                             if (!text.trim()) {
@@ -1021,24 +1045,24 @@ export default function WorkshopCommissions({
                             setEmployeeFilterText(opt.label || '');
                         }}
                     />
-                    <div className="ws-datetime-range" aria-label="Date & time range filter">
-                        <span className="ws-datetime-range-label">Date &amp; time</span>
+                    <div className="ws-datetime-range" aria-label={t('filter.dateTimeRange')}>
+                        <span className="ws-datetime-range-label">{t('filter.dateTime')}</span>
                         <div className="ws-date-picker ws-datetime-picker">
                             <input
                                 type="datetime-local"
                                 value={startDateTime}
                                 onChange={(e) => setStartDateTime(e.target.value)}
-                                aria-label="From date and time"
+                                aria-label={t('filter.from')}
                             />
                             <Calendar size={14} />
                         </div>
-                        <span className="ws-datetime-range-sep">to</span>
+                        <span className="ws-datetime-range-sep">{t('filter.toSep')}</span>
                         <div className="ws-date-picker ws-datetime-picker">
                             <input
                                 type="datetime-local"
                                 value={endDateTime}
                                 onChange={(e) => setEndDateTime(e.target.value)}
-                                aria-label="To date and time"
+                                aria-label={t('filter.to')}
                             />
                             <Calendar size={14} />
                         </div>
@@ -1047,7 +1071,7 @@ export default function WorkshopCommissions({
                 <div className="ws-filter-actions">
                     {selectedCount > 0 && (
                         <button type="button" className="ws-btn-clear" onClick={() => setSelectedLines(new Map())}>
-                            Clear ({selectedCount})
+                            {t('btn.clear', { count: selectedCount })}
                         </button>
                     )}
                     <button
@@ -1059,13 +1083,15 @@ export default function WorkshopCommissions({
                         }
                     >
                         {selectAllLoading ? (
-                            'Selecting…'
+                            t('btn.selecting')
                         ) : selectedCount > 0 ? (
                             <>
-                                <Wallet size={16} /> Process Payout · SAR {selectedTotal.toLocaleString()}
+                                <Wallet size={16} /> {t('btn.processPayout', { amount: money(selectedTotal) })}
                             </>
+                        ) : accruedTotalInScope > 0 ? (
+                            t('btn.selectAllAccruedCount', { count: accruedTotalInScope })
                         ) : (
-                            `Select All Accrued${accruedTotalInScope > 0 ? ` (${accruedTotalInScope})` : ''}`
+                            t('btn.selectAllAccrued')
                         )}
                     </button>
                 </div>
@@ -1090,14 +1116,14 @@ export default function WorkshopCommissions({
                                     disabled={accruedOnPage.length === 0 || selectAllLoading}
                                 />
                             </th>
-                            <th>EMPLOYEE</th>
-                            <th>SERVICE</th>
-                            <th>JOB CARD</th>
-                            <th>DATE</th>
-                            <th>RATE</th>
-                            <th>AMOUNT</th>
-                            <th>STATUS</th>
-                            <th>ACTION</th>
+                            <th>{t('th.employee')}</th>
+                            <th>{t('th.service')}</th>
+                            <th>{t('th.jobCard')}</th>
+                            <th>{t('th.date')}</th>
+                            <th>{t('th.rate')}</th>
+                            <th>{t('th.amount')}</th>
+                            <th>{t('th.status')}</th>
+                            <th>{t('th.action')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1106,7 +1132,7 @@ export default function WorkshopCommissions({
                         ) : commissionRows.length === 0 ? (
                             <tr>
                                 <td colSpan={9} className="ws-text-dim" style={{ padding: 24, textAlign: 'center' }}>
-                                    No commission lines match these filters.
+                                    {t('empty.lines')}
                                 </td>
                             </tr>
                         ) : (
@@ -1134,9 +1160,9 @@ export default function WorkshopCommissions({
                                         <span className="ws-text-dim">{c.date}</span>
                                     </td>
                                     <td>
-                                        <span className="ws-text-dim">{c.rate}</span>
+                                        <span className="ws-text-dim">{c.rate ?? t('emDash')}</span>
                                     </td>
-                                    <td className="ws-font-bold">SAR {c.amount.toLocaleString()}</td>
+                                    <td className="ws-font-bold">{money(c.amount)}</td>
                                     <td>
                                         <span
                                             className={`ws-badge ${
@@ -1146,7 +1172,7 @@ export default function WorkshopCommissions({
                                             }`}
                                         >
                                             {c.status === 'accrued' ? <Clock size={12} /> : <CheckCircle size={12} />}
-                                            {c.status}
+                                            {statusLabel(c.status)}
                                         </span>
                                     </td>
                                     <td>
@@ -1168,10 +1194,10 @@ export default function WorkshopCommissions({
                                                     gap: 4,
                                                 }}
                                             >
-                                                <Wallet size={12} /> Pay
+                                                <Wallet size={12} /> {t('btn.pay')}
                                             </button>
                                         ) : (
-                                            <span className="ws-text-dim" style={{ fontSize: 12 }}>—</span>
+                                            <span className="ws-text-dim" style={{ fontSize: 12 }}>{t('emDash')}</span>
                                         )}
                                     </td>
                                 </tr>
@@ -1193,7 +1219,7 @@ export default function WorkshopCommissions({
                     }}
                 >
                     <span className="ws-text-dim" style={{ fontSize: '0.8125rem' }}>
-                        Page {page} of {totalPages} ({listTotal} lines)
+                        {t('page.info', { page, totalPages, total: listTotal })}
                     </span>
                     <button
                         type="button"
@@ -1201,7 +1227,7 @@ export default function WorkshopCommissions({
                         disabled={page <= 1 || isLoading}
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
                     >
-                        Previous
+                        {t('btn.previous')}
                     </button>
                     <button
                         type="button"
@@ -1209,7 +1235,7 @@ export default function WorkshopCommissions({
                         disabled={page >= totalPages || isLoading}
                         onClick={() => setPage((p) => p + 1)}
                     >
-                        Next
+                        {t('btn.next')}
                     </button>
                 </div>
             )}

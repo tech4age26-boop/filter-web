@@ -20,6 +20,8 @@ import {
     getBranchProductInventoryAdjustments,
 } from '../../services/workshopInventoryApi';
 import { useAuth } from '../../context/AuthContext';
+import { wiT, wiReasonLabel } from '../../utils/workshopInventoryI18n';
+import { catalogDisplayName } from '../../utils/catalogDisplayName';
 import { formatStockOnHandDisplay, formatUomRule, productEffectiveUom } from './workshopUomUtils';
 import {
     exportWorkshopTimelineExcel,
@@ -133,13 +135,14 @@ function pickNumber(...vals) {
     return 0;
 }
 
-function formatSar(amount, { decimals = 0 } = {}) {
+function formatSar(amount, t, { decimals = 0 } = {}) {
     const n = Number(amount);
-    if (!Number.isFinite(n)) return 'SAR —';
-    return `SAR ${n.toLocaleString(undefined, {
+    if (!Number.isFinite(n)) return t('money.sarDash');
+    const amountStr = n.toLocaleString(undefined, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
-    })}`;
+    });
+    return t('money.sar', { amount: amountStr });
 }
 
 /**
@@ -181,13 +184,13 @@ export const INVENTORY_ADJUSTMENT_REASON_OPENING_QTY = 'Opening qty';
 export const INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY = 'Infinite qty';
 
 const INVENTORY_ADJUST_REASON_OPTIONS = [
-    { value: INVENTORY_ADJUSTMENT_REASON_OPENING_QTY, label: 'Opening qty' },
-    { value: INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY, label: 'Infinite qty' },
-    { value: 'Damaged Stock', label: 'Damaged Stock' },
-    { value: 'Inventory Count Correction', label: 'Inventory Count Correction' },
-    { value: 'Expired Item', label: 'Expired Item' },
-    { value: 'Returns/Exchanges', label: 'Returns/Exchanges' },
-    { value: 'Other', label: 'Other (Manual Entry)' },
+    { value: INVENTORY_ADJUSTMENT_REASON_OPENING_QTY, labelKey: 'reason.openingQty' },
+    { value: INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY, labelKey: 'reason.infiniteQty' },
+    { value: 'Damaged Stock', labelKey: 'reason.damaged' },
+    { value: 'Inventory Count Correction', labelKey: 'reason.countCorrection' },
+    { value: 'Expired Item', labelKey: 'reason.expired' },
+    { value: 'Returns/Exchanges', labelKey: 'reason.returns' },
+    { value: 'Other', labelKey: 'reason.other' },
 ];
 
 function formatInventoryQty(value, isInfiniteQty = false) {
@@ -277,26 +280,26 @@ function isOpeningQtyAdjustmentEntry(entry) {
     );
 }
 
-function humanizeInventoryLogSource(source) {
+function humanizeInventoryLogSource(source, t) {
     const s = String(source || 'manual').toLowerCase();
-    if (s === 'manual_opening_qty') return 'Manual (opening qty)';
-    if (s === 'manual_infinite_qty') return 'Manual (infinite qty)';
-    if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
-    if (s === 'local_supplier_purchase_invoice') return 'Non-affiliated supplier purchase';
-    if (s === 'supplier_purchase_return') return 'Supplier purchase return';
-    if (s === 'local_supplier_purchase_return') return 'Non-affiliated purchase return';
-    if (s === 'super_admin_starting_stock') return 'Super admin (opening stock)';
-    if (s === 'pos') return 'POS';
-    if (s === 'purchase_receipt') return 'Purchase receipt';
+    if (s === 'manual_opening_qty') return t('source.manualOpening');
+    if (s === 'manual_infinite_qty') return t('source.manualInfinite');
+    if (s === 'supplier_purchase_invoice') return t('source.supplierPurchase');
+    if (s === 'local_supplier_purchase_invoice') return t('source.localSupplierPurchase');
+    if (s === 'supplier_purchase_return') return t('source.supplierReturn');
+    if (s === 'local_supplier_purchase_return') return t('source.localReturn');
+    if (s === 'super_admin_starting_stock') return t('source.superAdmin');
+    if (s === 'pos') return t('source.pos');
+    if (s === 'purchase_receipt') return t('source.purchaseReceipt');
     return s.replace(/_/g, ' ');
 }
 
-function humanizeInventoryLogReferenceType(type) {
-    const t = String(type || '').toLowerCase();
-    if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
-    if (t === 'workshop_local_supplier_purchase_invoice') return 'Workshop local purchase invoice';
-    if (t === 'workshop_local_supplier_purchase_return') return 'Workshop local debit note';
-    return t.replace(/_/g, ' ');
+function humanizeInventoryLogReferenceType(type, t) {
+    const ty = String(type || '').toLowerCase();
+    if (ty === 'workshop_supplier_purchase_invoice') return t('ref.wpi');
+    if (ty === 'workshop_local_supplier_purchase_invoice') return t('ref.localWpi');
+    if (ty === 'workshop_local_supplier_purchase_return') return t('ref.localDebit');
+    return ty.replace(/_/g, ' ');
 }
 
 function normalizeAdjustmentEntry(raw) {
@@ -493,12 +496,33 @@ function pickDisplayName(master, row) {
     return 'Unnamed';
 }
 
+function pickArabicName(master, row) {
+    const candidates = [
+        master?.arabicName,
+        master?.arabic_name,
+        master?.productNameArabic,
+        master?.product_name_arabic,
+        row?.arabicName,
+        row?.arabic_name,
+        row?.productNameArabic,
+        row?.product_name_arabic,
+    ];
+    for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+    }
+    return null;
+}
+
 function buildInventorySearchText(row) {
     const fields = [
         row?._searchText,
         row?.name,
         row?.productName,
         row?.product_name,
+        row?.arabicName,
+        row?.arabic_name,
+        row?.productNameArabic,
+        row?.product_name_arabic,
         row?.itemName,
         row?.item_name,
         row?.sku,
@@ -540,6 +564,10 @@ function buildRawInventorySearchText(...sources) {
             source.name,
             source.productName,
             source.product_name,
+            source.arabicName,
+            source.arabic_name,
+            source.productNameArabic,
+            source.product_name_arabic,
             source.itemName,
             source.item_name,
             source.title,
@@ -739,6 +767,7 @@ function mapApiRowToInventory(row) {
     return {
         id: String(id),
         name: pickDisplayName(master, row),
+        arabicName: pickArabicName(master, row),
         brand: master?.brand || '',
         sku: master?.sku || row?.sku || '',
         departmentName:
@@ -816,11 +845,11 @@ function mapApiRowToInventory(row) {
     };
 }
 
-function inventoryUomDisplay(item) {
+function inventoryUomDisplay(item, t) {
     if (item?.uomProfileName) {
         return {
             primary: item.uomProfileName,
-            secondary: item.conversionRule || 'Linked profile',
+            secondary: item.conversionRule || t('uom.linkedProfile'),
         };
     }
     const cf = Number(item?.conversionFactor) || 1;
@@ -830,11 +859,11 @@ function inventoryUomDisplay(item) {
     const hasConversion =
         cf > 1 && wu && ws && wu.toLowerCase() !== ws.toLowerCase();
     if (hasConversion && rule && rule !== '—') {
-        return { primary: rule, secondary: 'Click to edit' };
+        return { primary: rule, secondary: t('uom.clickToEdit') };
     }
     return {
         primary: ws || 'pcs',
-        secondary: hasConversion ? 'Set conversion' : null,
+        secondary: hasConversion ? t('uom.setConversion') : null,
     };
 }
 
@@ -848,12 +877,12 @@ function applyStatusesFromParent(rows, selectedProducts) {
     });
 }
 
-function stockStatus(item) {
-    if (item.status === 'Requested') return { label: 'Requested', tone: 'blue' };
-    if (item.isInfiniteQty) return { label: 'Unlimited', tone: 'green' };
-    if ((Number(item.qty) || 0) <= 0) return { label: 'Out of Stock', tone: 'red' };
-    if (isLowStockRow(item)) return { label: 'Low Stock', tone: 'amber' };
-    return { label: 'In Stock', tone: 'green' };
+function stockStatus(item, t) {
+    if (item.status === 'Requested') return { label: t('status.requested'), tone: 'blue' };
+    if (item.isInfiniteQty) return { label: t('status.unlimited'), tone: 'green' };
+    if ((Number(item.qty) || 0) <= 0) return { label: t('status.outOfStock'), tone: 'red' };
+    if (isLowStockRow(item)) return { label: t('status.lowStock'), tone: 'amber' };
+    return { label: t('status.inStock'), tone: 'green' };
 }
 
 const ADJUST_LOG_STORAGE_PREFIX = 'pos-filter:workshop-inv-adjustments:v1:';
@@ -895,7 +924,14 @@ export default function WorkshopInventory({
     selectedProducts = [],
     onTabChange,
     updateProductStatus,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wiT(locale, key, vars), [locale]);
+    const displayName = useCallback(
+        (item, fallback = '—') => catalogDisplayName(item, locale) || item?.name || fallback,
+        [locale],
+    );
     const { workshop, hasPermission } = useAuth();
     const workshopIdQuery = useMemo(() => workshopIdFromSession(workshop), [workshop]);
     const canRequestFromSupplier = hasPermission('workshop.inventory.request-from-supplier');
@@ -921,9 +957,9 @@ export default function WorkshopInventory({
 
     const isAllBranches = !selectedBranchId || selectedBranchId === 'all';
     const selectedBranchName = useMemo(() => {
-        if (isAllBranches) return 'All branches';
-        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
-    }, [branches, isAllBranches, selectedBranchId]);
+        if (isAllBranches) return t('branch.all');
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.fallback');
+    }, [branches, isAllBranches, selectedBranchId, t]);
 
     const logStorageKey = useMemo(() => adjustmentLogStorageKey(selectedBranchId), [selectedBranchId]);
     const [adjustmentLogs, setAdjustmentLogs] = useState({});
@@ -1008,7 +1044,7 @@ export default function WorkshopInventory({
                 { workshopId: workshopIdQuery },
             );
             if (!res?.success) {
-                throw new Error(res?.message || 'Could not update opening adoption.');
+                throw new Error(res?.message || t('err.updateOpening'));
             }
             const d = res.data || {};
             const nextOpening =
@@ -1052,7 +1088,7 @@ export default function WorkshopInventory({
             }
             setTimelineMeta({ storedOpeningQty: nextOpening, currentQtyOnHand: nextStock });
         } catch (err) {
-            setAlignOpeningError(err.message || 'Could not align opening adoption.');
+            setAlignOpeningError(err.message || t('err.alignOpening'));
         } finally {
             setAlignOpeningSaving(false);
         }
@@ -1092,7 +1128,7 @@ export default function WorkshopInventory({
                 if (!ctrl.signal.aborted) {
                     setFetchedLogEntries([]);
                     setTimelineMeta(null);
-                    setLogFetchError(e.message || 'Could not load adjustment history.');
+                    setLogFetchError(e.message || t('err.loadHistory'));
                 }
             } finally {
                 if (!ctrl.signal.aborted) setLogLoading(false);
@@ -1154,7 +1190,7 @@ export default function WorkshopInventory({
             const mapped = products.map(mapApiRowToInventory).filter(Boolean);
             setProductRows(applyStatusesFromParent(mapped, selectedProductsRef.current));
         } catch (error) {
-            setLoadError(error.message || 'Failed to load inventory.');
+            setLoadError(error.message || t('err.loadInventory'));
             setProductRows([]);
         } finally {
             setIsLoading(false);
@@ -1247,7 +1283,7 @@ export default function WorkshopInventory({
                 const qty = Number(p.qty) || 0;
                 const critical = Number(p.critical_level) || 0;
                 const gap = Math.max(0, critical - qty);
-                const status = qty <= 0 ? 'Out of stock' : 'Low stock';
+                const status = qty <= 0 ? t('status.outOfStockShort') : t('status.lowStockShort');
                 return {
                     id: String(p.id),
                     name: p.name || '—',
@@ -1277,41 +1313,41 @@ export default function WorkshopInventory({
             skuCount: productRows.length,
             withoutCritical: productRows.length - withCriticalSet,
         };
-    }, [productRows]);
+    }, [productRows, t]);
 
     const stats = useMemo(() => {
         const totalProducts = productRows.length;
         const inventoryValue = inventoryValueBreakdown.total;
         return [
             {
-                label: 'Total products',
+                label: t('stat.totalProducts'),
                 value: totalProducts,
-                sub: `SKUs in scope · ${selectedBranchName}`,
+                sub: t('stat.totalProductsSub', { branch: selectedBranchName }),
                 icon: Package,
                 color: '#3B82F6',
                 clickable: false,
                 proofKey: null,
             },
             {
-                label: 'Low stock (SKUs)',
+                label: t('stat.lowStock'),
                 value: lowStockBreakdown.count,
-                sub: `At or below critical level · ${selectedBranchName}`,
+                sub: t('stat.lowStockSub', { branch: selectedBranchName }),
                 icon: AlertCircle,
                 color: '#EF4444',
                 clickable: true,
                 proofKey: 'lowStock',
             },
             {
-                label: 'Total inventory value',
-                value: formatSar(Math.round(inventoryValue)),
-                sub: `Current stock × purchase price · ${selectedBranchName}`,
+                label: t('stat.invValue'),
+                value: formatSar(Math.round(inventoryValue), t),
+                sub: t('stat.invValueSub', { branch: selectedBranchName }),
                 icon: Wallet,
                 color: '#10B981',
                 clickable: true,
                 proofKey: 'inventoryValue',
             },
         ];
-    }, [productRows, selectedBranchName, inventoryValueBreakdown.total, lowStockBreakdown.count]);
+    }, [productRows, selectedBranchName, inventoryValueBreakdown.total, lowStockBreakdown.count, t]);
 
     const handleOpenRequest = (item) => {
         if (!hasPermission('workshop.inventory.request-from-supplier')) return;
@@ -1403,7 +1439,7 @@ export default function WorkshopInventory({
         if (!criticalItem || isAllBranches) return;
         const parsed = Number.parseFloat(String(criticalInput).trim().replace(/,/g, ''));
         if (!Number.isFinite(parsed) || parsed < 0) {
-            setCriticalSubmitError('Enter a number ≥ 0.');
+            setCriticalSubmitError(t('err.criticalNumber'));
             return;
         }
         const nextCrit = Math.round(parsed * 1000) / 1000;
@@ -1419,7 +1455,7 @@ export default function WorkshopInventory({
         try {
             const res = await patchBranchProduct(bid, pid, { criticalStockPoint: nextCrit }, { workshopId: workshopIdQuery });
             if (res && typeof res === 'object' && res.success === false) {
-                throw new Error(res.message || 'Update failed.');
+                throw new Error(res.message || t('err.updateFailed'));
             }
             const payload = res?.data && typeof res.data === 'object' ? res.data : res || {};
             const serverCrit = pickNumber(
@@ -1432,7 +1468,7 @@ export default function WorkshopInventory({
             );
             closeCriticalModal();
         } catch (err) {
-            setCriticalSubmitError(err.message || 'Could not update critical level.');
+            setCriticalSubmitError(err.message || t('err.updateCritical'));
         } finally {
             setCriticalSaving(false);
         }
@@ -1482,7 +1518,7 @@ export default function WorkshopInventory({
                     { workshopId: workshopIdQuery },
                 );
                 if (!res?.success) {
-                    throw new Error(res?.message || 'Adjustment failed.');
+                    throw new Error(res?.message || t('err.adjustFailed'));
                 }
                 const d = res.data || {};
                 const serverEntry = {
@@ -1573,7 +1609,7 @@ export default function WorkshopInventory({
                     void loadInventory();
                 }
             } catch (err) {
-                setAdjustSubmitError(err.message || 'Adjustment failed. If stock changed elsewhere, refresh and try again.');
+                setAdjustSubmitError(err.message || t('err.adjustConflict'));
             } finally {
                 setAdjustSaving(false);
             }
@@ -1637,7 +1673,7 @@ export default function WorkshopInventory({
             const id = String(p.categoryId ?? '').trim();
             const name = String(p.categoryName ?? '').trim();
             if (!id || !name || name === '—') {
-                map.set('__none__', { id: '__none__', name: 'Uncategorized' });
+                map.set('__none__', { id: '__none__', name: t('uncategorized') });
                 continue;
             }
             if (!map.has(id)) map.set(id, { id, name });
@@ -1647,7 +1683,7 @@ export default function WorkshopInventory({
             if (b.id === '__none__') return -1;
             return a.name.localeCompare(b.name);
         });
-    }, [productRows, departmentFilter]);
+    }, [productRows, departmentFilter, t]);
 
     useEffect(() => {
         if (categoryFilter === 'all') return;
@@ -1685,9 +1721,13 @@ export default function WorkshopInventory({
     const exportMeta = useMemo(
         () => ({
             branchName: selectedBranchName,
-            subtitle: `Branch: ${selectedBranchName} · ${selectedProductsForBulk.length} selected product(s)`,
+            subtitle: t('export.metaSubtitle', {
+                branch: selectedBranchName,
+                count: selectedProductsForBulk.length,
+            }),
+            labels: { locale, t },
         }),
-        [selectedBranchName, selectedProductsForBulk.length],
+        [selectedBranchName, selectedProductsForBulk.length, t, locale],
     );
 
     const exportFilenameBase = useMemo(() => {
@@ -1792,21 +1832,21 @@ export default function WorkshopInventory({
         if (!infiniteBulk) {
             const parsedAmt = Number.parseFloat(String(bulkAdjustAmount).trim().replace(/,/g, ''));
             if (!Number.isFinite(parsedAmt) || parsedAmt < 0) {
-                setBulkAdjustError('Enter a valid amount ≥ 0.');
+                setBulkAdjustError(t('err.enterAmount'));
                 return;
             }
         }
         if (bulkAdjustWillChangeCount === 0) {
             setBulkAdjustError(
                 infiniteBulk
-                    ? 'All selected products already have unlimited stock.'
-                    : 'No selected products would change with this amount.',
+                    ? t('err.allUnlimited')
+                    : t('err.noChange'),
             );
             return;
         }
         if (isBulkOpeningQty && Number.parseFloat(String(bulkAdjustAmount).trim().replace(/,/g, '')) === 0) {
             setBulkAdjustError(
-                'Bulk opening adoption cannot be set to 0 when products would change. That overwrites stored adoption with zero.',
+                t('err.bulkOpeningZero'),
             );
             return;
         }
@@ -1833,7 +1873,7 @@ export default function WorkshopInventory({
                     { workshopId: workshopIdQuery },
                 );
                 if (!res?.success) {
-                    throw new Error(res?.message || 'Bulk adjustment failed.');
+                    throw new Error(res?.message || t('err.bulkFailed'));
                 }
 
                 const updatedCount = Number(res.updated) || 0;
@@ -1885,17 +1925,22 @@ export default function WorkshopInventory({
                             const item = selectedProductsForBulk.find(
                                 (p) => String(p.id) === String(f.productId),
                             );
-                            return item?.name || f.productId;
+                            return displayName(item, f.productId);
                         })
                         .join(', ');
                     setBulkAdjustError(
-                        `Updated ${updatedCount} of ${total}. Failed ${apiFailures.length}${failLabels ? `: ${failLabels}${apiFailures.length > 8 ? '…' : ''}` : ''}.`,
+                        t('err.bulkPartial', {
+                            updated: updatedCount,
+                            total,
+                            failed: apiFailures.length,
+                            detail: failLabels ? `: ${failLabels}${apiFailures.length > 8 ? '…' : ''}` : '',
+                        }),
                     );
                 } else {
-                    setBulkAdjustError(apiFailures[0]?.message || 'Bulk adjustment failed.');
+                    setBulkAdjustError(apiFailures[0]?.message || t('err.bulkFailed'));
                 }
             } catch (err) {
-                setBulkAdjustError(err.message || 'Bulk adjustment failed.');
+                setBulkAdjustError(err.message || t('err.bulkFailed'));
             } finally {
                 setBulkAdjustSaving(false);
             }
@@ -2015,49 +2060,49 @@ export default function WorkshopInventory({
     useEffect(() => () => clearInvSearchBlurTimer(), [clearInvSearchBlurTimer]);
 
     const tableEmptyMessage = () => {
-        if (isLoading) return 'Loading inventory…';
+        if (isLoading) return t('empty.loading');
         if (loadError) return loadError;
-        if (productRows.length === 0) return 'No products in this scope yet — adopt items under Dept & Products or Catalog.';
+        if (productRows.length === 0) return t('empty.noProducts');
         if (hasActiveListFilters && rowsMatchingFilters.length === 0) {
-            return 'No products match the selected department or category.';
+            return t('empty.noDeptCat');
         }
-        if (searchQuery && filteredProducts.length === 0) return 'No products match your search.';
-        return 'No products match your filters.';
+        if (searchQuery && filteredProducts.length === 0) return t('empty.noSearch');
+        return t('empty.noFilters');
     };
 
     if (isCriticalModalOpen && criticalItem) {
         return (
             <WorkshopSubScreen
-                title="Critical stock level"
-                subtitle={criticalItem?.name || 'Set low-stock alert threshold for this branch.'}
-                backLabel="Back to Inventory"
+                title={t('critical.title')}
+                subtitle={displayName(criticalItem, t('critical.subtitleDefault'))}
+                backLabel={t('critical.back')}
                 onBack={closeCriticalModal}
                 backDisabled={criticalSaving}
                 size="narrow"
             >
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div style={{ marginBottom: 20, padding: 16, background: '#F9FAFB', borderRadius: 12, border: '1px solid var(--color-border-light)' }}>
-                        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>Product</p>
-                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{criticalItem?.name}</h4>
+                        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>{t('critical.product')}</p>
+                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{displayName(criticalItem)}</h4>
                         <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            Current stock: <strong>{criticalItem?.qty ?? 0}</strong>
+                            <span dangerouslySetInnerHTML={{ __html: t('critical.currentStock', { qty: criticalItem?.qty ?? 0 }) }} />
                             {criticalItem?.openingQty != null ? (
-                                <> · Opening (adoption): <strong>{criticalItem.openingQty}</strong></>
+                                <span dangerouslySetInnerHTML={{ __html: t('critical.opening', { qty: criticalItem.openingQty }) }} />
                             ) : null}
                         </p>
                     </div>
                     {isAllBranches ? (
                         <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#92400E', background: '#FFFBEB', padding: 12, borderRadius: 8 }}>
-                            Select a <strong>single branch</strong> in the workshop header to update critical levels on the server.
+                            <span dangerouslySetInnerHTML={{ __html: t('critical.pickBranch') }} />
                         </p>
                     ) : (
                         <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-                            When <strong>current stock</strong> is at or below this number (and the value is greater than 0), the product is flagged as <strong>low stock</strong>. Use <strong>0</strong> to turn off the threshold for this branch.
+                            <span dangerouslySetInnerHTML={{ __html: t('critical.help') }} />
                         </p>
                     )}
                     <div className="mc-form-group" style={{ marginBottom: 24 }}>
                         <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 8, display: 'block' }}>
-                            CRITICAL STOCK POINT (THIS BRANCH)
+                            {t('critical.label')}
                         </label>
                         <input
                             type="number"
@@ -2078,7 +2123,7 @@ export default function WorkshopInventory({
                     )}
                     <div style={{ display: 'flex', gap: 12 }}>
                         <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: 12 }} onClick={closeCriticalModal} disabled={criticalSaving}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -2096,7 +2141,7 @@ export default function WorkshopInventory({
                                 })()
                             }
                         >
-                            {criticalSaving ? 'Saving…' : 'Save'}
+                            {criticalSaving ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 </div>
@@ -2107,22 +2152,22 @@ export default function WorkshopInventory({
     if (logProduct) {
         return (
             <WorkshopSubScreen
-                title="Inventory stock timeline"
-                subtitle={logProduct.name}
-                backLabel="Back to Inventory"
+                title={t('timeline.title')}
+                subtitle={displayName(logProduct)}
+                backLabel={t('timeline.back')}
                 onBack={() => setLogProduct(null)}
                 size="xl"
                 footer={(
-                    <button type="button" className="mc-btn-ghost mc-btn-large" onClick={() => setLogProduct(null)}>Close</button>
+                    <button type="button" className="mc-btn-ghost mc-btn-large" onClick={() => setLogProduct(null)}>{t('btn.close')}</button>
                 )}
             >
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div style={{ padding: '0 24px 24px' }}>
                                                 <div style={{ marginBottom: 20, padding: '14px 16px', background: '#F9FAFB', borderRadius: 12, border: '1px solid var(--color-border-light)' }}>
-                                                    <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', margin: '0 0 6px' }}>Product</p>
-                                                    <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>{logProduct.name}</h4>
+                                                    <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', margin: '0 0 6px' }}>{t('timeline.product')}</p>
+                                                    <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>{displayName(logProduct)}</h4>
                                                     <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                                        SKU: {logProduct.sku || '—'} · Opening (adoption):{' '}
+                                                        {t('timeline.meta', { sku: logProduct.sku || t('emdash') })}{' '}
                                                         <strong
                                                             style={{
                                                                 padding: '2px 8px',
@@ -2137,18 +2182,16 @@ export default function WorkshopInventory({
                                                                 : '—'}
                                                         </strong>
                                                         {logOpeningContext?.storedDrift ? (
-                                                            <span style={{ display: 'block', marginTop: 8, fontSize: '0.75rem', color: '#B45309' }}>
-                                                                Stored adoption on this branch is <strong>0</strong>, but your timeline&apos;s last
-                                                                opening-qty entry is <strong>{logOpeningContext.timelineOpening}</strong>. That
-                                                                usually means a later bulk/manual change wrote 0 to adoption, or only current stock was
-                                                                updated (not opening). The inventory table uses the stored value (0), not the history
-                                                                alone.
-                                                            </span>
+                                                            <span
+                                                                style={{ display: 'block', marginTop: 8, fontSize: '0.75rem', color: '#B45309' }}
+                                                                dangerouslySetInnerHTML={{
+                                                                    __html: t('timeline.storedDrift', { qty: logOpeningContext.timelineOpening }),
+                                                                }}
+                                                            />
                                                         ) : null}
-                                                        {' '}
-                                                        · Current stock:{' '}
+                                                        {t('timeline.currentStock')}{' '}
                                                         <strong>{formatInventoryQty(productRows.find((p) => String(p.id) === String(logProduct.id))?.qty, productRows.find((p) => String(p.id) === String(logProduct.id))?.isInfiniteQty ?? logProduct.isInfiniteQty)}</strong>
-                                                        {isAllBranches ? ' · All branches: offline log only' : ` · ${selectedBranchName}`}
+                                                        {isAllBranches ? t('timeline.offlineOnly') : t('timeline.branchSuffix', { branch: selectedBranchName })}
                                                     </p>
                                                     {logOpeningContext?.storedDrift && !isAllBranches ? (
                                                         <div style={{ marginTop: 12 }}>
@@ -2160,8 +2203,8 @@ export default function WorkshopInventory({
                                                                 onClick={alignOpeningAdoptionFromTimeline}
                                                             >
                                                                 {alignOpeningSaving
-                                                                    ? 'Saving…'
-                                                                    : `Set opening adoption to ${logOpeningContext.timelineOpening}`}
+                                                                    ? t('btn.saving')
+                                                                    : t('btn.setOpeningAdoption', { qty: logOpeningContext.timelineOpening })}
                                                             </button>
                                                             {alignOpeningError ? (
                                                                 <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#B91C1C' }}>{alignOpeningError}</p>
@@ -2182,10 +2225,10 @@ export default function WorkshopInventory({
                                                         disabled={timelineExportDisabled}
                                                         title={
                                                             logLoading
-                                                                ? 'Loading…'
+                                                                ? t('timeline.exportLoading')
                                                                 : !logMergedEntries.length
-                                                                  ? 'No timeline rows to export'
-                                                                  : 'Download spreadsheet (.xlsx)'
+                                                                  ? t('timeline.exportEmpty')
+                                                                  : t('timeline.exportExcel')
                                                         }
                                                         style={{
                                                             ...timelineExportBtnStyle,
@@ -2196,20 +2239,21 @@ export default function WorkshopInventory({
                                                             exportWorkshopTimelineExcel(logProduct, logMergedEntries, {
                                                                 branchName: selectedBranchName,
                                                                 filenameBase: timelineExportFilename,
+                                                                labels: { locale, t },
                                                             });
                                                         }}
                                                     >
-                                                        <FileSpreadsheet size={14} aria-hidden /> Excel
+                                                        <FileSpreadsheet size={14} aria-hidden /> {t('btn.excel')}
                                                     </button>
                                                     <button
                                                         type="button"
                                                         disabled={timelineExportDisabled}
                                                         title={
                                                             logLoading
-                                                                ? 'Loading…'
+                                                                ? t('timeline.exportLoading')
                                                                 : !logMergedEntries.length
-                                                                  ? 'No timeline rows to export'
-                                                                  : 'Download PDF'
+                                                                  ? t('timeline.exportEmpty')
+                                                                  : t('timeline.exportPdf')
                                                         }
                                                         style={{
                                                             ...timelineExportBtnStyle,
@@ -2220,15 +2264,16 @@ export default function WorkshopInventory({
                                                             exportWorkshopTimelinePdf(logProduct, logMergedEntries, {
                                                                 branchName: selectedBranchName,
                                                                 filenameBase: timelineExportFilename,
+                                                                labels: { locale, t },
                                                             });
                                                         }}
                                                     >
-                                                        <FileText size={14} aria-hidden /> PDF
+                                                        <FileText size={14} aria-hidden /> {t('btn.pdf')}
                                                     </button>
                                                 </div>
                                                 {logFetchError && (
                                                     <p style={{ margin: '0 0 12px', padding: '10px 12px', background: '#FEF3C7', borderRadius: 8, color: '#92400E', fontSize: '0.8125rem' }}>
-                                                        {logFetchError} Showing any entries cached in this browser.
+                                                        {logFetchError}{t('timeline.cachedNote')}
                                                     </p>
                                                 )}
                                                 {(() => {
@@ -2242,7 +2287,7 @@ export default function WorkshopInventory({
                                                     if (logLoading && !isAllBranches) {
                                                         return (
                                                             <p style={{ margin: 0, padding: '40px 0', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                                                                Loading history…
+                                                                {t('timeline.loading')}
                                                             </p>
                                                         );
                                                     }
@@ -2250,7 +2295,7 @@ export default function WorkshopInventory({
                                                     if (!merged.length) {
                                                         return (
                                                             <p style={{ margin: 0, padding: '24px 0', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                                                                No timeline entries yet for this branch/product.
+                                                                {t('timeline.empty')}
                                                             </p>
                                                         );
                                                     }
@@ -2270,16 +2315,16 @@ export default function WorkshopInventory({
                                                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                                                 <thead>
                                                                     <tr style={{ background: '#F9FAFB', position: 'sticky', top: 0 }}>
-                                                                        <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>When</th>
-                                                                        <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>From</th>
-                                                                        <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>To</th>
-                                                                        <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>Δ</th>
-                                                                        <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>Reason</th>
+                                                                        <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.when')}</th>
+                                                                        <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.from')}</th>
+                                                                        <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.to')}</th>
+                                                                        <th style={{ textAlign: 'right', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.delta')}</th>
+                                                                        <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.reason')}</th>
                                                                         {showRefCol ? (
-                                                                            <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>Source / Ref</th>
+                                                                            <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.sourceRef')}</th>
                                                                         ) : null}
                                                                         {showByCol ? (
-                                                                            <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>By</th>
+                                                                            <th style={{ textAlign: 'left', padding: '12px 14px', fontWeight: 800, color: 'var(--color-text-muted)', textTransform: 'uppercase', fontSize: '0.7rem' }}>{t('th.by')}</th>
                                                                         ) : null}
                                                                     </tr>
                                                                 </thead>
@@ -2307,7 +2352,7 @@ export default function WorkshopInventory({
                                                                                             marginTop: 4,
                                                                                         }}
                                                                                     >
-                                                                                        Opening (adoption)
+                                                                                        {t('timeline.badgeOpening')}
                                                                                     </span>
                                                                                 ) : null}
                                                                                 {infiniteRow ? (
@@ -2320,7 +2365,7 @@ export default function WorkshopInventory({
                                                                                             marginTop: 4,
                                                                                         }}
                                                                                     >
-                                                                                        Unlimited stock
+                                                                                        {t('timeline.badgeUnlimited')}
                                                                                     </span>
                                                                                 ) : null}
                                                                             </td>
@@ -2329,14 +2374,14 @@ export default function WorkshopInventory({
                                                                             <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: infiniteRow ? '#6D28D9' : e.delta >= 0 ? '#047857' : '#B91C1C' }}>
                                                                                 {formatTimelineDelta(e, timelineUom)}
                                                                             </td>
-                                                                            <td style={{ padding: '12px 14px' }}>{e.reason}</td>
+                                                                            <td style={{ padding: '12px 14px' }}>{wiReasonLabel(locale, e.reason)}</td>
                                                                             {showRefCol ? (
                                                                                 <td style={{ padding: '12px 14px', color: 'var(--color-text-muted)' }}>
-                                                                                    <span>{humanizeInventoryLogSource(e.source)}</span>
+                                                                                    <span>{humanizeInventoryLogSource(e.source, t)}</span>
                                                                                     {e.reference?.id ? (
                                                                                         <span>
                                                                                             {' '}
-                                                                                            · {humanizeInventoryLogReferenceType(e.reference.type)}{' '}
+                                                                                            · {humanizeInventoryLogReferenceType(e.reference.type, t)}{' '}
                                                                                             {e.reference.invoiceNumber ? (
                                                                                                 <strong>{e.reference.invoiceNumber}</strong>
                                                                                             ) : (
@@ -2368,22 +2413,21 @@ export default function WorkshopInventory({
     if (isAdjustModalOpen && adjustItem) {
         return (
             <WorkshopSubScreen
-                title="Manual Inventory Adjustment"
-                subtitle={adjustItem?.name || 'Update stock for this product.'}
-                backLabel="Back to Inventory"
+                title={t('adjust.title')}
+                subtitle={displayName(adjustItem, t('adjust.subtitleDefault'))}
+                backLabel={t('adjust.back')}
                 onBack={closeAdjustModal}
                 backDisabled={adjustSaving}
             >
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div style={{ marginBottom: '20px', padding: '16px', background: '#F9FAFB', borderRadius: '12px', border: '1px solid var(--color-border-light)' }}>
-                                                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>Product Details</p>
-                                                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{adjustItem?.name}</h4>
+                                                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>{t('adjust.productDetails')}</p>
+                                                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{displayName(adjustItem)}</h4>
                                                     <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                                        Current stock: <strong>{formatInventoryQty(adjustItem?.qty, adjustItem?.isInfiniteQty)}</strong>
+                                                        <span dangerouslySetInnerHTML={{ __html: t('adjust.currentStock', { qty: formatInventoryQty(adjustItem?.qty, adjustItem?.isInfiniteQty) }) }} />
                                                         {adjustItem?.openingQty != null ? (
                                                             <>
-                                                                {' '}
-                                                                · Opening (adoption):{' '}
+                                                                {t('adjust.opening')}{' '}
                                                                 <strong
                                                                     style={{
                                                                         padding: '2px 8px',
@@ -2401,47 +2445,40 @@ export default function WorkshopInventory({
 
                                                 <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
                                                     {isAdjustInfiniteQty ? (
-                                                        <>
-                                                            Marks this product as <strong>unlimited stock</strong> at this branch. POS sales will not
-                                                            deplete quantity. The last known stock level is kept for reference and shown in the timeline.
-                                                        </>
+                                                        <span dangerouslySetInnerHTML={{ __html: t('adjust.helpInfinite') }} />
                                                     ) : isAdjustOpeningQty ? (
-                                                        <>
-                                                            Sets <strong>Opening (adoption)</strong> and <strong>Current stock</strong> to the same
-                                                            value (initial / reset). Enter the new total (≥ 0).
-                                                        </>
+                                                        <span dangerouslySetInnerHTML={{ __html: t('adjust.helpOpening') }} />
                                                     ) : adjustItem?.isInfiniteQty ? (
                                                         <>
-                                                            This product has <strong>unlimited stock</strong>. Entering a new quantity turns unlimited
-                                                            mode off and sets on-hand stock to that value
+                                                            <span dangerouslySetInnerHTML={{ __html: t('adjust.helpLeaveInfinite') }} />
                                                             {adjustItem.lastPhysicalQty != null ? (
-                                                                <> (last physical count: <strong>{adjustItem.lastPhysicalQty}</strong>)</>
+                                                                <span dangerouslySetInnerHTML={{ __html: t('adjust.helpLeaveInfiniteLast', { qty: adjustItem.lastPhysicalQty }) }} />
                                                             ) : null}
                                                             .
                                                         </>
                                                     ) : (
                                                         <>
-                                                            Sets <strong>current stock</strong> (effective on-hand per branch; not adoption opening). Enter a new total — higher to increase, lower to decrease.
+                                                            <span dangerouslySetInnerHTML={{ __html: t('adjust.helpStock') }} />
                                                             {adjustItem?.allowMinusQty
-                                                                ? ' Negative values are allowed for this product.'
-                                                                : ' Must be ≥ 0.'}
+                                                                ? t('adjust.helpAllowMinus')
+                                                                : t('adjust.helpMustGe0')}
                                                         </>
                                                     )}
                                                     {isAllBranches
-                                                        ? ' Select a single branch to save on the server.'
+                                                        ? t('adjust.pickBranch')
                                                         : isAdjustInfiniteQty
                                                           ? adjustItem?.isInfiniteQty
-                                                            ? ' This product already has unlimited stock.'
-                                                            : ' Recorded in the product timeline as Infinite qty.'
+                                                            ? t('adjust.alreadyUnlimited')
+                                                            : t('adjust.asInfinite')
                                                           : isAdjustOpeningQty
-                                                          ? ' Uses the stored opening adoption on the server (the list can show 0 while the real value is higher).'
+                                                          ? t('adjust.openingNote')
                                                           : adjustItem?.isInfiniteQty
-                                                            ? ' No previous-qty check while leaving unlimited mode.'
-                                                            : ' The server checks previousQty matches current stock — refresh if it changed elsewhere.'}
+                                                            ? t('adjust.noPrevCheck')
+                                                            : t('adjust.prevQtyCheck')}
                                                 </p>
 
                                                 <div className="mc-form-group" style={{ marginBottom: '16px' }}>
-                                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>REASON FOR ADJUSTMENT</label>
+                                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>{t('adjust.reasonLabel')}</label>
                                                     <select
                                                         className="mc-filter-select"
                                                         style={{ width: '100%', height: '45px' }}
@@ -2449,10 +2486,10 @@ export default function WorkshopInventory({
                                                         onChange={(e) => handleAdjustReasonChange(e.target.value)}
                                                         disabled={adjustSaving}
                                                     >
-                                                        <option value="">Select a reason...</option>
+                                                        <option value="">{t('adjust.selectReason')}</option>
                                                         {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => (
                                                             <option key={opt.value} value={opt.value}>
-                                                                {opt.label}
+                                                                {t(opt.labelKey)}
                                                             </option>
                                                         ))}
                                                     </select>
@@ -2461,13 +2498,13 @@ export default function WorkshopInventory({
                                                 {!isAdjustInfiniteQty ? (
                                                 <div className="mc-form-group" style={{ marginBottom: '16px' }}>
                                                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
-                                                        {isAdjustOpeningQty ? 'NEW OPENING QTY (ADOPTION)' : 'NEW QUANTITY (CURRENT STOCK)'}
+                                                        {isAdjustOpeningQty ? t('adjust.newOpeningLabel') : t('adjust.newQtyLabel')}
                                                     </label>
                                                     <input
                                                         type="number"
                                                         className="mc-filter-select"
                                                         style={{ width: '100%', height: '45px' }}
-                                                        placeholder={isAdjustOpeningQty ? 'Enter new opening qty…' : 'Enter new stock level…'}
+                                                        placeholder={isAdjustOpeningQty ? t('adjust.placeholderOpening') : t('adjust.placeholderStock')}
                                                         min={0}
                                                         step={1}
                                                         value={newQty}
@@ -2485,7 +2522,7 @@ export default function WorkshopInventory({
 
                                                 <div style={{ display: 'flex', gap: '12px' }}>
                                                     <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px' }} onClick={closeAdjustModal} disabled={adjustSaving}>
-                                                        Cancel
+                                                        {t('btn.cancel')}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -2506,7 +2543,7 @@ export default function WorkshopInventory({
                                                             return Math.round(parsed) === baseline;
                                                         })()}
                                                     >
-                                                        {adjustSaving ? 'Saving…' : 'Apply Adjustment'}
+                                                        {adjustSaving ? t('btn.saving') : t('btn.applyAdjustment')}
                                                     </button>
                                                 </div>
                 </div>
@@ -2517,9 +2554,11 @@ export default function WorkshopInventory({
     if (isBulkAdjustModalOpen) {
         return (
             <WorkshopSubScreen
-                title={`Bulk adjust — ${selectedProductsForBulk.length} product${selectedProductsForBulk.length !== 1 ? 's' : ''}`}
-                subtitle="Apply the same reason and quantity to all selected products."
-                backLabel="Back to Inventory"
+                title={selectedProductsForBulk.length === 1
+                    ? t('bulk.titleOne', { count: selectedProductsForBulk.length })
+                    : t('bulk.titleMany', { count: selectedProductsForBulk.length })}
+                subtitle={t('bulk.subtitle')}
+                backLabel={t('bulk.back')}
                 onBack={closeBulkAdjustModal}
                 backDisabled={bulkAdjustSaving}
                 size="xl"
@@ -2527,29 +2566,20 @@ export default function WorkshopInventory({
                 <div className="ws-section" style={{ padding: 20 }}>
                     <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
                                                     {isBulkInfiniteQty ? (
-                                                        <>
-                                                            <strong>Infinite qty</strong> marks selected products as <strong>unlimited stock</strong>.
-                                                            No quantity entry is needed. Each change is recorded in the product timeline.
-                                                        </>
+                                                        <span dangerouslySetInnerHTML={{ __html: t('bulk.helpInfinite') }} />
                                                     ) : isBulkOpeningQty ? (
-                                                        <>
-                                                            <strong>Opening qty</strong> sets <strong>Opening (adoption)</strong> and{' '}
-                                                            <strong>current stock</strong> to the value you enter.
-                                                        </>
+                                                        <span dangerouslySetInnerHTML={{ __html: t('bulk.helpOpening') }} />
                                                     ) : (
-                                                        <>
-                                                            Any other reason sets <strong>current stock only</strong> to the exact quantity you
-                                                            enter (not added on top). Opening (adoption) is unchanged.
-                                                        </>
+                                                        <span dangerouslySetInnerHTML={{ __html: t('bulk.helpStock') }} />
                                                     )}
                                                     {isAllBranches
-                                                        ? ' All branches: changes are saved in this browser only until you pick a branch.'
-                                                        : ` Saved on the server for ${selectedBranchName}.`}
+                                                        ? t('bulk.allBranchesNote')
+                                                        : t('bulk.savedFor', { branch: selectedBranchName })}
                                                 </p>
 
                                                 <div className="mc-form-group" style={{ marginBottom: '16px' }}>
                                                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
-                                                        REASON FOR ADJUSTMENT
+                                                        {t('adjust.reasonLabel')}
                                                     </label>
                                                     <select
                                                         className="mc-filter-select"
@@ -2558,10 +2588,10 @@ export default function WorkshopInventory({
                                                         onChange={(e) => setBulkAdjustReason(e.target.value)}
                                                         disabled={bulkAdjustSaving}
                                                     >
-                                                        <option value="">Select a reason...</option>
+                                                        <option value="">{t('adjust.selectReason')}</option>
                                                         {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => (
                                                             <option key={opt.value} value={opt.value}>
-                                                                {opt.label}
+                                                                {t(opt.labelKey)}
                                                             </option>
                                                         ))}
                                                     </select>
@@ -2571,8 +2601,8 @@ export default function WorkshopInventory({
                                                 <div className="mc-form-group" style={{ marginBottom: '16px' }}>
                                                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
                                                         {isBulkOpeningQty
-                                                            ? 'NEW OPENING QTY (ADOPTION + CURRENT STOCK)'
-                                                            : 'NEW QUANTITY (CURRENT STOCK ONLY)'}
+                                                            ? t('bulk.newOpeningLabel')
+                                                            : t('bulk.newQtyLabel')}
                                                     </label>
                                                     <input
                                                         type="number"
@@ -2580,7 +2610,7 @@ export default function WorkshopInventory({
                                                         style={{ width: '100%', height: '45px' }}
                                                         min={0}
                                                         step={1}
-                                                        placeholder="e.g. 90"
+                                                        placeholder={t('bulk.placeholderEg')}
                                                         value={bulkAdjustAmount}
                                                         onChange={(e) => setBulkAdjustAmount(e.target.value)}
                                                         disabled={bulkAdjustSaving || !bulkAdjustReason.trim()}
@@ -2602,18 +2632,18 @@ export default function WorkshopInventory({
                                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                                             <thead>
                                                                 <tr style={{ borderBottom: '1px solid var(--color-border-light)' }}>
-                                                                    <th style={{ padding: '10px 12px', textAlign: 'left' }}>Product</th>
+                                                                    <th style={{ padding: '10px 12px', textAlign: 'left' }}>{t('th.product')}</th>
                                                                     {isBulkOpeningQty ? (
                                                                         <>
-                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>Opening</th>
-                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>New opening</th>
-                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>Current</th>
-                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>New stock</th>
+                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>{t('th.openingShort')}</th>
+                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>{t('th.newOpening')}</th>
+                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>{t('th.current')}</th>
+                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>{t('th.newStock')}</th>
                                                                         </>
                                                                     ) : (
                                                                         <>
-                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>Current</th>
-                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>New</th>
+                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>{t('th.current')}</th>
+                                                                            <th style={{ padding: '10px 12px', textAlign: 'center' }}>{t('th.new')}</th>
                                                                         </>
                                                                     )}
                                                                 </tr>
@@ -2622,7 +2652,7 @@ export default function WorkshopInventory({
                                                                 {bulkAdjustPreview.slice(0, 12).map((row) => (
                                                                     <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                                                                         <td style={{ padding: '8px 12px' }}>
-                                                                            <strong>{row.name}</strong>
+                                                                            <strong>{displayName(row)}</strong>
                                                                             {row.sku !== '—' ? (
                                                                                 <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{row.sku}</span>
                                                                             ) : null}
@@ -2640,7 +2670,7 @@ export default function WorkshopInventory({
                                                                                         color: row.unchanged ? 'var(--color-text-muted)' : '#6D28D9',
                                                                                     }}
                                                                                 >
-                                                                                    {row.unchanged ? '∞ (skip)' : '∞'}
+                                                                                    {row.unchanged ? t('bulk.skipInfinite') : '∞'}
                                                                                 </td>
                                                                             </>
                                                                         ) : isBulkOpeningQty ? (
@@ -2679,7 +2709,7 @@ export default function WorkshopInventory({
                                                                                     }}
                                                                                 >
                                                                                     {row.newCurrent}
-                                                                                    {row.unchanged ? ' (skip)' : ''}
+                                                                                    {row.unchanged ? t('bulk.skip') : ''}
                                                                                 </td>
                                                                             </>
                                                                         ) : (
@@ -2694,7 +2724,7 @@ export default function WorkshopInventory({
                                                                                     }}
                                                                                 >
                                                                                     {row.newQty}
-                                                                                    {row.unchanged ? ' (skip)' : ''}
+                                                                                    {row.unchanged ? t('bulk.skip') : ''}
                                                                                 </td>
                                                                             </>
                                                                         )}
@@ -2704,18 +2734,18 @@ export default function WorkshopInventory({
                                                         </table>
                                                         {bulkAdjustPreview.length > 12 ? (
                                                             <p style={{ margin: 0, padding: '8px 12px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                                                + {bulkAdjustPreview.length - 12} more…
+                                                                {t('bulk.more', { count: bulkAdjustPreview.length - 12 })}
                                                             </p>
                                                         ) : null}
                                                     </div>
                                                 )}
 
                                                 <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                                    <strong>{bulkAdjustWillChangeCount}</strong> of {bulkAdjustPreview.length} will be updated.
+                                                    <span dangerouslySetInnerHTML={{ __html: t('bulk.willUpdate', { change: bulkAdjustWillChangeCount, total: bulkAdjustPreview.length }) }} />
                                                     {bulkAdjustSaving && bulkAdjustProgress.total > 0
                                                         ? bulkAdjustProgress.done >= bulkAdjustProgress.total
-                                                            ? ' Done.'
-                                                            : ` Applying to ${bulkAdjustProgress.total} products on the server (one request)…`
+                                                            ? t('bulk.done')
+                                                            : t('bulk.applyingServer', { total: bulkAdjustProgress.total })
                                                         : ''}
                                                 </p>
 
@@ -2727,7 +2757,7 @@ export default function WorkshopInventory({
 
                                                 <div style={{ display: 'flex', gap: '12px' }}>
                                                     <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px' }} onClick={closeBulkAdjustModal} disabled={bulkAdjustSaving}>
-                                                        Cancel
+                                                        {t('btn.cancel')}
                                                     </button>
                                                     <button
                                                         type="button"
@@ -2744,7 +2774,11 @@ export default function WorkshopInventory({
                                                                 ))
                                                         }
                                                     >
-                                                        {bulkAdjustSaving ? 'Applying…' : `Apply to ${bulkAdjustWillChangeCount} product${bulkAdjustWillChangeCount !== 1 ? 's' : ''}`}
+                                                        {bulkAdjustSaving
+                                                            ? t('btn.applying')
+                                                            : bulkAdjustWillChangeCount === 1
+                                                              ? t('btn.applyToN', { count: bulkAdjustWillChangeCount })
+                                                              : t('btn.applyToNPlural', { count: bulkAdjustWillChangeCount })}
                                                     </button>
                                                 </div>
                 </div>
@@ -2756,11 +2790,12 @@ export default function WorkshopInventory({
         <div className="mc-catalog-container">
             <div className="mc-selection-header">
                 <div className="mc-header-left">
-                    <h3>Inventory Management</h3>
-                    <p>
-                        Track and manage <strong>product</strong> stock for <strong>{selectedBranchName}</strong>
-                        {isAllBranches ? ' (workshop-wide product list)' : ''}.
-                    </p>
+                    <h3>{t('page.title')}</h3>
+                    <p dangerouslySetInnerHTML={{
+                        __html: isAllBranches
+                            ? t('page.subtitleAll', { branch: selectedBranchName })
+                            : t('page.subtitle', { branch: selectedBranchName }),
+                    }} />
                     <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
                         <button
                             type="button"
@@ -2770,7 +2805,7 @@ export default function WorkshopInventory({
                             disabled={isLoading}
                         >
                             <RefreshCw size={16} style={{ opacity: isLoading ? 0.5 : 1, animation: isLoading ? 'ws-spin 0.8s linear infinite' : undefined }} />
-                            Refresh
+                            {t('btn.refresh')}
                         </button>
                     </div>
                 </div>
@@ -2839,7 +2874,7 @@ export default function WorkshopInventory({
                             ) : null}
                             {stat.clickable ? (
                                 <p className="ws-kpi-proof-hint" style={{ marginTop: 8 }}>
-                                    Click for line-by-line breakdown
+                                    {t('stat.clickHint')}
                                 </p>
                             ) : null}
                         </div>
@@ -2860,7 +2895,7 @@ export default function WorkshopInventory({
                                     if (stat.proofKey === 'lowStock') setIsLowStockProofOpen(true);
                                     else if (stat.proofKey === 'inventoryValue') setIsInvValueProofOpen(true);
                                 }}
-                                aria-label={`${stat.label}: view calculation breakdown`}
+                                aria-label={t('aria.statBreakdown', { label: stat.label })}
                             >
                                 {inner}
                             </button>
@@ -2907,7 +2942,7 @@ export default function WorkshopInventory({
                                         className="form-label"
                                         style={{ display: 'block', marginBottom: 6, fontSize: '0.75rem' }}
                                     >
-                                        Department
+                                        {t('filter.department')}
                                     </label>
                                     <select
                                         className="mc-filter-select"
@@ -2916,7 +2951,7 @@ export default function WorkshopInventory({
                                         onChange={(e) => setDepartmentFilter(e.target.value)}
                                         disabled={isLoading || departmentOptions.length === 0}
                                     >
-                                        <option value="all">All departments</option>
+                                        <option value="all">{t('filter.allDepartments')}</option>
                                         {departmentOptions.map((d) => (
                                             <option key={d.id} value={d.id}>
                                                 {d.name}
@@ -2929,7 +2964,7 @@ export default function WorkshopInventory({
                                         className="form-label"
                                         style={{ display: 'block', marginBottom: 6, fontSize: '0.75rem' }}
                                     >
-                                        Category
+                                        {t('filter.category')}
                                     </label>
                                     <select
                                         className="mc-filter-select"
@@ -2938,7 +2973,7 @@ export default function WorkshopInventory({
                                         onChange={(e) => setCategoryFilter(e.target.value)}
                                         disabled={isLoading || categoryOptions.length === 0}
                                     >
-                                        <option value="all">All categories</option>
+                                        <option value="all">{t('filter.allCategories')}</option>
                                         {categoryOptions.map((c) => (
                                             <option key={c.id} value={c.id}>
                                                 {c.name}
@@ -2963,7 +2998,7 @@ export default function WorkshopInventory({
                                                 setCategoryFilter('all');
                                             }}
                                         >
-                                            Clear filters
+                                            {t('btn.clearFilters')}
                                         </button>
                                     </div>
                                 ) : null}
@@ -2976,7 +3011,7 @@ export default function WorkshopInventory({
                                     <Search className="mc-filter-icon" size={16} />
                                     <input
                                         type="text"
-                                        placeholder="Search by product name or SKU..."
+                                        placeholder={t('search.placeholder')}
                                         className="mc-filter-select"
                                         style={{
                                             paddingLeft: '40px',
@@ -3032,8 +3067,8 @@ export default function WorkshopInventory({
                                                 setInvSuggestOpen(false);
                                                 setInvSuggestIndex(-1);
                                             }}
-                                            aria-label="Clear search"
-                                            title="Clear search"
+                                            aria-label={t('search.clear')}
+                                            title={t('search.clear')}
                                             style={{
                                                 position: 'absolute',
                                                 right: 8,
@@ -3060,11 +3095,11 @@ export default function WorkshopInventory({
                                             id="workshop-inv-search-suggest-list"
                                             className="mc-inv-search-dropdown"
                                             role="listbox"
-                                            aria-label="Matching products"
+                                            aria-label={t('search.matching')}
                                             onMouseDown={(ev) => ev.preventDefault()}
                                         >
                                             {invSearchSuggestions.length === 0 ? (
-                                                <div className="mc-inv-search-dropdown-empty">No matching products</div>
+                                                <div className="mc-inv-search-dropdown-empty">{t('search.noMatch')}</div>
                                             ) : (
                                                 invSearchSuggestions.map((row, idx) => (
                                                     <button
@@ -3077,7 +3112,7 @@ export default function WorkshopInventory({
                                                         onMouseEnter={() => setInvSuggestIndex(idx)}
                                                         onClick={() => applyInventorySearchSuggestion(row)}
                                                     >
-                                                        <span className="mc-inv-search-suggest-name">{row.name}</span>
+                                                        <span className="mc-inv-search-suggest-name">{displayName(row)}</span>
                                                         {row.sku ? (
                                                             <span className="mc-inv-search-suggest-sku">{row.sku}</span>
                                                         ) : null}
@@ -3089,10 +3124,10 @@ export default function WorkshopInventory({
                                 </div>
                             </div>
                             <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                                Showing <strong>{filteredProducts.length}</strong> of{' '}
-                                <strong>{productRows.length}</strong> products
-                                {hasActiveListFilters ? ' (department/category filtered)' : ''}
-                                {searchQuery ? ` · search "${searchQuery}"` : ''}.
+                                <span dangerouslySetInnerHTML={{ __html: t('showing.count', { shown: filteredProducts.length, total: productRows.length }) }} />
+                                {hasActiveListFilters ? t('showing.filtered') : ''}
+                                {searchQuery ? t('showing.search', { query: searchQuery }) : ''}
+                                {t('showing.period')}
                             </p>
                             <div className="ws-inv-bulk-toolbar">
                                 <button
@@ -3103,8 +3138,8 @@ export default function WorkshopInventory({
                                     disabled={isLoading || filteredProducts.length === 0}
                                 >
                                     {allVisibleSelected && visibleProductIds.length > 0
-                                        ? 'Deselect all on page'
-                                        : 'Select all on page'}
+                                        ? t('btn.deselectAllPage')
+                                        : t('btn.selectAllPage')}
                                 </button>
                                 <button
                                     type="button"
@@ -3114,17 +3149,17 @@ export default function WorkshopInventory({
                                     disabled={isLoading || productsWithStockCount === 0}
                                     title={
                                         productsWithStockCount === 0
-                                            ? 'No products with stock greater than zero'
-                                            : `Select all ${productsWithStockCount} product(s) with stock > 0`
+                                            ? t('tip.selectWithStockNone')
+                                            : t('tip.selectWithStockN', { count: productsWithStockCount })
                                     }
                                 >
-                                    Select Products with Stock
+                                    {t('btn.selectWithStock')}
                                     {productsWithStockCount > 0 ? ` (${productsWithStockCount})` : ''}
                                 </button>
                                 {selectedProductIds.length > 0 ? (
                                     <>
                                         <span className="ws-inv-bulk-count">
-                                            {selectedProductIds.length} selected
+                                            {t('bulk.selected', { count: selectedProductIds.length })}
                                         </span>
                                         <button
                                             type="button"
@@ -3132,7 +3167,7 @@ export default function WorkshopInventory({
                                             style={{ padding: '8px 14px', fontSize: '0.8125rem' }}
                                             onClick={openBulkAdjustModal}
                                         >
-                                            Bulk adjust
+                                            {t('btn.bulkAdjust')}
                                         </button>
                                         <button
                                             type="button"
@@ -3140,7 +3175,7 @@ export default function WorkshopInventory({
                                             style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
                                             onClick={clearProductSelection}
                                         >
-                                            Clear
+                                            {t('btn.clear')}
                                         </button>
                                     </>
                                 ) : null}
@@ -3154,15 +3189,15 @@ export default function WorkshopInventory({
                                         marginLeft: selectedProductIds.length > 0 ? 4 : 0,
                                     }}
                                 >
-                                    Export selected
+                                    {t('bulk.exportSelected')}
                                 </span>
                                 <button
                                     type="button"
                                     disabled={selectedProductsForBulk.length === 0}
                                     title={
                                         selectedProductsForBulk.length === 0
-                                            ? 'Select one or more products to export'
-                                            : `Download ${selectedProductsForBulk.length} selected product(s) as Excel`
+                                            ? t('tip.exportNone')
+                                            : t('tip.exportExcel', { count: selectedProductsForBulk.length })
                                     }
                                     onClick={handleExportSelectedExcel}
                                     style={{
@@ -3171,15 +3206,15 @@ export default function WorkshopInventory({
                                         cursor: selectedProductsForBulk.length === 0 ? 'not-allowed' : 'pointer',
                                     }}
                                 >
-                                    <FileSpreadsheet size={14} aria-hidden /> Excel
+                                    <FileSpreadsheet size={14} aria-hidden /> {t('btn.excel')}
                                 </button>
                                 <button
                                     type="button"
                                     disabled={selectedProductsForBulk.length === 0}
                                     title={
                                         selectedProductsForBulk.length === 0
-                                            ? 'Select one or more products to export'
-                                            : `Download ${selectedProductsForBulk.length} selected product(s) as PDF`
+                                            ? t('tip.exportNone')
+                                            : t('tip.exportPdf', { count: selectedProductsForBulk.length })
                                     }
                                     onClick={handleExportSelectedPdf}
                                     style={{
@@ -3188,22 +3223,17 @@ export default function WorkshopInventory({
                                         cursor: selectedProductsForBulk.length === 0 ? 'not-allowed' : 'pointer',
                                     }}
                                 >
-                                    <FileText size={14} aria-hidden /> PDF
+                                    <FileText size={14} aria-hidden /> {t('btn.pdf')}
                                 </button>
                                 {isAllBranches && selectedProductIds.length > 0 ? (
                                     <span style={{ fontSize: '0.75rem', color: '#B45309' }}>
-                                        Select a single branch to save bulk changes on the server.
+                                        {t('bulk.selectBranchHint')}
                                     </span>
                                 ) : null}
                             </div>
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Use checkboxes to select products for <strong>bulk adjust</strong> or{' '}
-                                <strong>export</strong>, or use <strong>Select Products with Stock</strong> to select all
-                                in-stock SKUs (qty &gt; 0). Click a <strong>row</strong> for adjustment history. Use{' '}
-                                <strong>↑</strong> <strong>↓</strong> and <strong>Enter</strong> to pick a search suggestion.
-                                {isAllBranches
-                                    ? ' With all branches selected, history is only what this browser saved (no server log).'
-                                    : ' History is loaded from the server for this branch.'}
+                                <span dangerouslySetInnerHTML={{ __html: t('bulk.help') }} />
+                                {isAllBranches ? t('bulk.helpAll') : t('bulk.helpBranch')}
                             </p>
                         </div>
 
@@ -3225,7 +3255,7 @@ export default function WorkshopInventory({
                                                 checked={allVisibleSelected && visibleProductIds.length > 0}
                                                 onChange={toggleSelectAllVisible}
                                                 disabled={isLoading || filteredProducts.length === 0}
-                                                aria-label="Select all products on this page"
+                                                aria-label={t('aria.selectAll')}
                                                 onClick={(e) => e.stopPropagation()}
                                             />
                                         </th>
@@ -3239,7 +3269,7 @@ export default function WorkshopInventory({
                                                 textTransform: 'uppercase',
                                             }}
                                         >
-                                            Name
+                                            {t('th.name')}
                                         </th>
                                         <th
                                             style={{
@@ -3251,7 +3281,7 @@ export default function WorkshopInventory({
                                                 textTransform: 'uppercase',
                                             }}
                                         >
-                                            SKU
+                                            {t('th.sku')}
                                         </th>
                                         <th
                                             style={{
@@ -3263,7 +3293,7 @@ export default function WorkshopInventory({
                                                 textTransform: 'uppercase',
                                             }}
                                         >
-                                            Department
+                                            {t('th.department')}
                                         </th>
                                         <th
                                             style={{
@@ -3275,7 +3305,7 @@ export default function WorkshopInventory({
                                                 textTransform: 'uppercase',
                                             }}
                                         >
-                                            Category
+                                            {t('th.category')}
                                         </th>
                                         <th
                                             style={{
@@ -3286,9 +3316,9 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
-                                            title="workshop_products.opening_qty — adoption baseline; Opening qty manual adjust also sets current stock"
+                                            title={t('tip.openingCol')}
                                         >
-                                            Opening (adoption)
+                                            {t('th.opening')}
                                         </th>
                                         <th
                                             style={{
@@ -3299,9 +3329,9 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
-                                            title="branch_inventory.qty_on_hand when present; otherwise same as adoption opening until first stock movement"
+                                            title={t('tip.currentCol')}
                                         >
-                                            Current stock
+                                            {t('th.currentStock')}
                                         </th>
                                         <th
                                             style={{
@@ -3312,9 +3342,9 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
-                                            title="Low-stock threshold for this branch (branch_products.criticalStockPoint). When current stock ≤ this value (and &gt; 0), the row is treated as low stock."
+                                            title={t('tip.criticalCol')}
                                         >
-                                            Critical
+                                            {t('th.critical')}
                                         </th>
                                         <th
                                             style={{
@@ -3325,9 +3355,9 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
-                                            title="Warehouse vs workshop unit conversion for this branch"
+                                            title={t('tip.uomCol')}
                                         >
-                                            UOM / conversion
+                                            {t('th.uom')}
                                         </th>
                                         <th
                                             style={{
@@ -3338,9 +3368,9 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
-                                            title="Catalog purchase cost per workshop unit (same as inventory value calculation)"
+                                            title={t('tip.purchaseCol')}
                                         >
-                                            Purchase price
+                                            {t('th.purchasePrice')}
                                         </th>
                                         <th
                                             style={{
@@ -3352,7 +3382,7 @@ export default function WorkshopInventory({
                                                 textTransform: 'uppercase',
                                             }}
                                         >
-                                            Status
+                                            {t('th.status')}
                                         </th>
                                         {canAnyInventoryAction ? (
                                         <th
@@ -3365,7 +3395,7 @@ export default function WorkshopInventory({
                                                 textTransform: 'uppercase',
                                             }}
                                         >
-                                            Actions
+                                            {t('th.actions')}
                                         </th>
                                         ) : null}
                                     </tr>
@@ -3384,7 +3414,7 @@ export default function WorkshopInventory({
                                         </tr>
                                     ) : (
                                         filteredProducts.map((item, idx) => {
-                                            const st = stockStatus(item);
+                                            const st = stockStatus(item, t);
                                             const low = isLowStockRow(item);
                                             const qtyBg =
                                                 item.isInfiniteQty
@@ -3442,7 +3472,7 @@ export default function WorkshopInventory({
                                                             type="checkbox"
                                                             checked={selectedIdSet.has(String(item.id))}
                                                             onChange={() => toggleProductSelection(item.id)}
-                                                            aria-label={`Select ${item.name || 'product'}`}
+                                                            aria-label={t('aria.selectProduct', { name: displayName(item, t('product')) })}
                                                         />
                                                     </td>
                                                     <td style={{ padding: '16px 24px' }}>
@@ -3455,7 +3485,7 @@ export default function WorkshopInventory({
                                                                     fontSize: '0.9375rem',
                                                                 }}
                                                             >
-                                                                {item.name}
+                                                                {displayName(item)}
                                                             </span>
                                                             {item.brand && (
                                                                 <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{item.brand}</span>
@@ -3463,7 +3493,9 @@ export default function WorkshopInventory({
                                                             {(adjustmentLogs[item.id]?.length || 0) > 0 && (
                                                                 <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                                     <History size={12} aria-hidden />
-                                                                    {adjustmentLogs[item.id].length} manual adjustment{adjustmentLogs[item.id].length !== 1 ? 's' : ''}
+                                                                    {adjustmentLogs[item.id].length === 1
+                                                                        ? t('adj.countOne', { count: adjustmentLogs[item.id].length })
+                                                                        : t('adj.countMany', { count: adjustmentLogs[item.id].length })}
                                                                 </span>
                                                             )}
                                                         </div>
@@ -3500,7 +3532,7 @@ export default function WorkshopInventory({
                                                                           secondary: item.stockDisplaySecondary,
                                                                       }
                                                                     : item.isInfiniteQty
-                                                                      ? { primary: 'Unlimited', secondary: null }
+                                                                      ? { primary: t('status.unlimited'), secondary: null }
                                                                       : formatStockOnHandDisplay(item.qty, eff);
                                                             const qtyBg =
                                                                 item.isInfiniteQty || (Number(item.qty) || 0) > 0
@@ -3535,11 +3567,11 @@ export default function WorkshopInventory({
                                                     </td>
                                                     <td className="ws-inv-uom-cell">
                                                         {(() => {
-                                                            const uom = inventoryUomDisplay(item);
+                                                            const uom = inventoryUomDisplay(item, t);
                                                             return (
                                                                 <span
                                                                     className="ws-inv-uom-pill ws-inv-uom-pill-readonly"
-                                                                    title="Unit conversion from master catalog"
+                                                                    title={t('tip.uomCatalog')}
                                                                 >
                                                                     <span className="ws-inv-uom-pill-text">
                                                                         {uom.primary}
@@ -3553,9 +3585,9 @@ export default function WorkshopInventory({
                                                     </td>
                                                     <td
                                                         style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-text-dark)' }}
-                                                        title="Per workshop stock unit (e.g. per Liter when conversion applies)"
+                                                        title={t('tip.perUnit')}
                                                     >
-                                                        {formatSar(item.purchasePrice, { decimals: 2 })}
+                                                        {formatSar(item.purchasePrice, t, { decimals: 2 })}
                                                     </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                         <span
@@ -3588,7 +3620,7 @@ export default function WorkshopInventory({
                                                                     handleOpenRequest(item);
                                                                 }}
                                                             >
-                                                                Request from Supplier
+                                                                {t('btn.requestSupplier')}
                                                             </button>
                                                             ) : null}
                                                             {canManualAdjust ? (
@@ -3601,7 +3633,7 @@ export default function WorkshopInventory({
                                                                     handleOpenAdjust(item);
                                                                 }}
                                                             >
-                                                                Manual Adjust
+                                                                {t('btn.manualAdjust')}
                                                             </button>
                                                             ) : null}
                                                             {canCriticalLevel ? (
@@ -3611,8 +3643,8 @@ export default function WorkshopInventory({
                                                                 style={{ padding: '6px 12px', fontSize: '0.75rem', border: '1px solid var(--color-border)' }}
                                                                 title={
                                                                     isAllBranches
-                                                                        ? 'Select a single branch to edit critical stock level.'
-                                                                        : 'Set low-stock threshold for this branch'
+                                                                        ? t('tip.criticalPickBranch')
+                                                                        : t('tip.criticalSet')
                                                                 }
                                                                 disabled={isAllBranches}
                                                                 onClick={(e) => {
@@ -3620,7 +3652,7 @@ export default function WorkshopInventory({
                                                                     handleOpenCritical(item);
                                                                 }}
                                                             >
-                                                                Critical level
+                                                                {t('btn.criticalLevel')}
                                                             </button>
                                                             ) : null}
                                                         </div>
@@ -3640,18 +3672,18 @@ export default function WorkshopInventory({
 
             <AnimatePresence>
                 {isRequestModalOpen && (
-                    <Modal onClose={() => setIsRequestModalOpen(false)} title="Request Stock from Supplier" width="500px">
+                    <Modal onClose={() => setIsRequestModalOpen(false)} title={t('request.title')} width="500px">
                         <div className="mc-modal-form" style={{ padding: '24px' }}>
                             <div style={{ marginBottom: '20px', padding: '16px', background: '#F9FAFB', borderRadius: '12px', border: '1px solid var(--color-border-light)' }}>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>Product Details</p>
+                                <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>{t('request.productDetails')}</p>
                                 <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{requestItem?.name}</h4>
-                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>SKU: {requestItem?.sku || 'N/A'}</p>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{t('request.sku', { sku: requestItem?.sku || t('na') })}</p>
                             </div>
 
                             <div className="mc-form-group" style={{ marginBottom: '16px' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>CHOOSE SUPPLIER</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>{t('request.chooseSupplier')}</label>
                                 <select className="mc-filter-select" style={{ width: '100%', height: '45px' }} value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)}>
-                                    <option value="">Select a supplier...</option>
+                                    <option value="">{t('request.selectSupplier')}</option>
                                     {MOCK_SUPPLIERS_CATALOG.map((s) => (
                                         <option key={s.id} value={s.id}>
                                             {s.name}
@@ -3661,12 +3693,12 @@ export default function WorkshopInventory({
                             </div>
 
                             <div className="mc-form-group" style={{ marginBottom: '24px' }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>QUANTITY TO REQUEST</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>{t('request.qtyLabel')}</label>
                                 <input
                                     type="number"
                                     className="mc-filter-select"
                                     style={{ width: '100%', height: '45px' }}
-                                    placeholder="Enter quantity..."
+                                    placeholder={t('request.qtyPlaceholder')}
                                     value={requestQty}
                                     onChange={(e) => setRequestQty(e.target.value)}
                                 />
@@ -3674,10 +3706,10 @@ export default function WorkshopInventory({
 
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px' }} onClick={() => setIsRequestModalOpen(false)}>
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button type="button" className="mc-btn-primary" style={{ flex: 2, padding: '12px' }} onClick={handleRequestSubmit} disabled={!selectedSupplier || requestQty <= 0}>
-                                    Submit Request
+                                    {t('btn.submitRequest')}
                                 </button>
                             </div>
                         </div>
@@ -3692,70 +3724,62 @@ export default function WorkshopInventory({
                 {isLowStockProofOpen && (
                     <Modal
                         onClose={() => setIsLowStockProofOpen(false)}
-                        title="Low stock (SKUs) — breakdown"
+                        title={t('proof.lowTitle')}
                         width="920px"
                     >
                         <div style={{ padding: '0 24px 24px' }}>
+                            <p className="ws-kpi-proof-methodology" dangerouslySetInnerHTML={{ __html: t('proof.lowRule') }} />
                             <p className="ws-kpi-proof-methodology">
-                                <strong>Rule:</strong> a SKU counts as <em>low stock</em> only when{' '}
-                                <strong>critical level &gt; 0</strong> and <strong>current stock ≤ critical level</strong>.
-                                Products with critical set to 0 are excluded (not monitored for low stock).
-                            </p>
-                            <p className="ws-kpi-proof-methodology">
-                                <strong>Scope:</strong> {selectedBranchName}
-                                {isAllBranches ? ' (all adopted SKUs in this list)' : ''}.{' '}
-                                <strong>Current stock</strong> is branch on-hand when present; otherwise adoption opening
-                                qty. <strong>Critical</strong> is{' '}
-                                <code style={{ fontSize: '0.8em' }}>branch_products.criticalStockPoint</code> for this
-                                branch.
+                                <span dangerouslySetInnerHTML={{ __html: t('proof.scope', { branch: selectedBranchName }) }} />
+                                {isAllBranches ? t('proof.scopeAllLow') : ''}
+                                <span dangerouslySetInnerHTML={{ __html: t('proof.lowStockExplain') }} />
                             </p>
 
                             <div className="ws-kpi-proof-summary-grid">
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">KPI count (low stock)</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.kpiCount')}</span>
                                     <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.count}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">Out of stock (qty = 0)</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.outOfStock')}</span>
                                     <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.outOfStock}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">Low (qty &gt; 0, ≤ critical)</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.lowOnly')}</span>
                                     <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.lowOnly}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">SKUs with critical set</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.withCritical')}</span>
                                     <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.withCriticalSet}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">SKUs without critical (excluded)</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.withoutCritical')}</span>
                                     <span className="ws-kpi-proof-stat-value">{lowStockBreakdown.withoutCritical}</span>
                                 </div>
                             </div>
 
                             {lowStockBreakdown.lines.length === 0 ? (
                                 <p className="ws-kpi-proof-note">
-                                    No low-stock SKUs in this scope — either stock is above critical for monitored items,
-                                    or critical level is not set on any product.
+                                    {t('proof.lowEmpty')}
                                 </p>
                             ) : (
                                 <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
                                     <table className="ws-table ws-kpi-proof-table">
                                         <thead>
                                             <tr>
-                                                <th style={{ textAlign: 'left' }}>Product</th>
-                                                <th style={{ textAlign: 'left' }}>SKU</th>
-                                                <th style={{ textAlign: 'left' }}>Department</th>
-                                                <th style={{ textAlign: 'right' }}>Current stock</th>
-                                                <th style={{ textAlign: 'right' }}>Critical</th>
-                                                <th style={{ textAlign: 'right' }}>Shortfall</th>
-                                                <th style={{ textAlign: 'left' }}>Status</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.product')}</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.sku')}</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.department')}</th>
+                                                <th style={{ textAlign: 'right' }}>{t('th.currentStock')}</th>
+                                                <th style={{ textAlign: 'right' }}>{t('th.critical')}</th>
+                                                <th style={{ textAlign: 'right' }}>{t('th.shortfall')}</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.status')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {lowStockBreakdown.lines.map((row) => (
                                                 <tr key={row.id}>
-                                                    <td style={{ fontWeight: 600 }}>{row.name}</td>
+                                                    <td style={{ fontWeight: 600 }}>{displayName(row)}</td>
                                                     <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{row.sku}</td>
                                                     <td>{row.departmentName}</td>
                                                     <td
@@ -3808,73 +3832,67 @@ export default function WorkshopInventory({
                 {isInvValueProofOpen && (
                     <Modal
                         onClose={() => setIsInvValueProofOpen(false)}
-                        title="Total inventory value — calculation"
+                        title={t('proof.valueTitle')}
                         width="920px"
                     >
                         <div style={{ padding: '0 24px 24px' }}>
+                            <p className="ws-kpi-proof-methodology" dangerouslySetInnerHTML={{ __html: t('proof.valueFormula') }} />
                             <p className="ws-kpi-proof-methodology">
-                                <strong>Formula:</strong> for each product in scope,{' '}
-                                <em>line value = current stock × purchase price</em>. The KPI total is the sum of all
-                                line values (displayed rounded to the nearest SAR).
-                            </p>
-                            <p className="ws-kpi-proof-methodology">
-                                <strong>Scope:</strong> {selectedBranchName}
-                                {isAllBranches ? ' (all adopted SKUs across branches in this list)' : ''}.{' '}
-                                <strong>Current stock</strong> uses branch on-hand quantity when set; otherwise adoption
-                                opening qty. <strong>Purchase price</strong> is the branch/catalog purchase price on each
-                                row.
+                                <span dangerouslySetInnerHTML={{ __html: t('proof.scope', { branch: selectedBranchName }) }} />
+                                {isAllBranches ? t('proof.scopeAllValue') : ''}
+                                <span dangerouslySetInnerHTML={{ __html: t('proof.valueExplain') }} />
                             </p>
 
                             <div className="ws-kpi-proof-summary-grid">
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">SKUs in list</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.skusInList')}</span>
                                     <span className="ws-kpi-proof-stat-value">{inventoryValueBreakdown.skuCount}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">SKUs with stock &gt; 0</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.skusWithStock')}</span>
                                     <span className="ws-kpi-proof-stat-value">{inventoryValueBreakdown.skusWithStock}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">SKUs with value &gt; 0</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.skusWithValue')}</span>
                                     <span className="ws-kpi-proof-stat-value">{inventoryValueBreakdown.skusWithValue}</span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">Total (exact)</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.totalExact')}</span>
                                     <span className="ws-kpi-proof-stat-value">
-                                        {formatSar(inventoryValueBreakdown.total, { decimals: 2 })}
+                                        {formatSar(inventoryValueBreakdown.total, t, { decimals: 2 })}
                                     </span>
                                 </div>
                                 <div className="ws-kpi-proof-stat">
-                                    <span className="ws-kpi-proof-stat-label">KPI display (rounded)</span>
+                                    <span className="ws-kpi-proof-stat-label">{t('proof.kpiRounded')}</span>
                                     <span className="ws-kpi-proof-stat-value">
-                                        {formatSar(Math.round(inventoryValueBreakdown.total))}
+                                        {formatSar(Math.round(inventoryValueBreakdown.total), t)}
                                     </span>
                                 </div>
                             </div>
 
                             {inventoryValueBreakdown.lines.length === 0 ? (
-                                <p className="ws-kpi-proof-note">No products in this scope yet.</p>
+                                <p className="ws-kpi-proof-note">{t('proof.noProducts')}</p>
                             ) : (
                                 <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
                                     <table className="ws-table ws-kpi-proof-table">
                                         <thead>
                                             <tr>
-                                                <th style={{ textAlign: 'left' }}>Product</th>
-                                                <th style={{ textAlign: 'left' }}>SKU</th>
-                                                <th style={{ textAlign: 'left' }}>Department</th>
-                                                <th style={{ textAlign: 'right' }}>Purchase price</th>
-                                                <th style={{ textAlign: 'right' }}>Current stock</th>
-                                                <th style={{ textAlign: 'right' }}>Line value</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.product')}</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.sku')}</th>
+                                                <th style={{ textAlign: 'left' }}>{t('th.department')}</th>
+                                                <th style={{ textAlign: 'right' }}>{t('th.purchasePrice')}</th>
+                                                <th style={{ textAlign: 'right' }}>{t('th.currentStock')}</th>
+                                                <th style={{ textAlign: 'right' }}>{t('th.lineValue')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {inventoryValueBreakdown.lines.map((row) => (
                                                 <tr key={row.id}>
-                                                    <td style={{ fontWeight: 600 }}>{row.name}</td>
+                                                    <td style={{ fontWeight: 600 }}>{displayName(row)}</td>
                                                     <td style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{row.sku}</td>
                                                     <td>{row.departmentName}</td>
                                                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                        {formatSar(row.purchasePrice, { decimals: 2 })}
+                                                        {formatSar(row.purchasePrice, t, { decimals: 2 })}
                                                     </td>
                                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>{row.qty}</td>
                                                     <td
@@ -3885,7 +3903,7 @@ export default function WorkshopInventory({
                                                             whiteSpace: 'nowrap',
                                                         }}
                                                     >
-                                                        {formatSar(row.lineValue, { decimals: 2 })}
+                                                        {formatSar(row.lineValue, t, { decimals: 2 })}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -3893,7 +3911,7 @@ export default function WorkshopInventory({
                                         <tfoot>
                                             <tr style={{ borderTop: '2px solid var(--color-border)' }}>
                                                 <td colSpan={5} style={{ textAlign: 'right', fontWeight: 800, paddingTop: 14 }}>
-                                                    Total
+                                                    {t('th.total')}
                                                 </td>
                                                 <td
                                                     style={{
@@ -3904,7 +3922,7 @@ export default function WorkshopInventory({
                                                         whiteSpace: 'nowrap',
                                                     }}
                                                 >
-                                                    {formatSar(inventoryValueBreakdown.total, { decimals: 2 })}
+                                                    {formatSar(inventoryValueBreakdown.total, t, { decimals: 2 })}
                                                 </td>
                                             </tr>
                                         </tfoot>

@@ -249,20 +249,39 @@ const GLOBAL_CURRENCY_CODES = [
 ];
 
 /** Hardcoded sources for COA ↔ operational data mapping (UI only until backend persists). */
-const COA_TRANSACTION_MAPPING_OPTIONS = [
-    { value: 'pos_sales', label: 'POS sales' },
-    { value: 'pos_payments', label: 'POS payments (cash / card / split)' },
-    { value: 'pos_refunds', label: 'POS refunds & returns' },
-    { value: 'workshop_invoices', label: 'Workshop invoices (general)' },
-    { value: 'corporate_billing', label: 'Corporate / fleet billing' },
-    { value: 'supplier_purchases', label: 'Supplier purchases & payables' },
-    { value: 'cash_bank_movements', label: 'Cash & bank movements' },
-    { value: 'manual_journal_only', label: 'Manual journal entries only' },
+export const COA_TRANSACTION_MAPPING_OPTIONS = [
+    { value: 'pos_sales', labelKey: 'coa.map.pos_sales' },
+    { value: 'pos_payments', labelKey: 'coa.map.pos_payments' },
+    { value: 'pos_refunds', labelKey: 'coa.map.pos_refunds' },
+    { value: 'workshop_invoices', labelKey: 'coa.map.workshop_invoices' },
+    { value: 'corporate_billing', labelKey: 'coa.map.corporate_billing' },
+    { value: 'supplier_purchases', labelKey: 'coa.map.supplier_purchases' },
+    { value: 'cash_bank_movements', labelKey: 'coa.map.cash_bank_movements' },
+    { value: 'manual_journal_only', labelKey: 'coa.map.manual_journal_only' },
 ];
 
-function ChartOfAccountsView() {
-    return <WorkshopCOAView />;
+function ChartOfAccountsView({ locale }) {
+    return <WorkshopCOAView locale={locale} />;
 }
+
+const JOURNAL_TYPE_LABEL_KEYS = {
+    counter_closing: 'gj.type.counterClosing',
+    locker_pickup: 'gj.type.lockerPickup',
+    locker_bank_deposit: 'gj.type.lockerBank',
+    locker_petty_cash_issue: 'gj.type.lockerPetty',
+    petty_cash_replenishment: 'gj.type.pettyReplenish',
+    petty_cash_expense: 'gj.type.pettyExpense',
+    internal_transfer: 'gj.type.internalXfer',
+    sales: 'gj.type.salesInvoice',
+    General: 'gj.type.general',
+    Payment: 'gj.type.payment',
+    Receipt: 'gj.type.receipt',
+    OpeningBalance: 'gj.type.openingBalance',
+    PurchaseInvoice: 'gj.type.purchaseInvoice',
+    Sales: 'gj.type.sales',
+    POS: 'gj.type.pos',
+    Commission: 'gj.type.commission',
+};
 
 const PAYEE_TYPES = ['Supplier', 'Employee', 'Customer', 'Other'];
 
@@ -313,10 +332,11 @@ function buildRowsFromVoucherPool(makeBlank, pool, count = 2) {
     return Array.from({ length: take }, (_, idx) => makeBlank(idx, pool[idx]));
 }
 
-function TransactionEntryView({ branches = [] }) {
+function TransactionEntryView({ branches = [], locale: localeProp }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
@@ -656,7 +676,7 @@ function TransactionEntryView({ branches = [] }) {
                     update(row.id, { payeeId: pid, payeeName: opt?.name ?? '' });
                 }}
             >
-                <option value="">{t('tx.selectPayee', { type: t(`tx.payee.${row.type}`).toLowerCase() })}</option>
+                <option value="">{t('tx.selectPayee', { type: t(`tx.payee.${row.type}`) })}</option>
                 {options.map((o) => (
                     <option key={o.id} value={o.id}>{o.name}{o.sublabel ? ` — ${o.sublabel}` : ''}</option>
                 ))}
@@ -828,25 +848,25 @@ function TransactionEntryView({ branches = [] }) {
                                     <td><input type="date" className="table-input-field" value={row.date} onChange={(e) => updatePaymentRow(row.id, { date: e.target.value })} /></td>
                                     <td>
                                         <select className="table-input-field" value={row.type} onChange={(e) => updatePaymentRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
-                                            {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                                            {PAYEE_TYPES.map((ptype) => <option key={ptype} value={ptype}>{t(`tx.payee.${ptype}`)}</option>)}
                                         </select>
                                     </td>
                                     <td>{renderPayeeSelect(row, updatePaymentRow)}</td>
                                     <td>{renderAccountSelect(row, updatePaymentRow, coaPayableExpense)}</td>
                                     <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updatePaymentRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
-                                    <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updatePaymentRow(row.id, { ref: e.target.value })} /></td>
+                                    <td><input type="text" className="table-input-field" placeholder={t('tx.refPh')} value={row.ref} onChange={(e) => updatePaymentRow(row.id, { ref: e.target.value })} /></td>
                                     <td>
                                         <input
                                             type="text"
                                             className="table-input-field"
-                                            placeholder="Notes"
+                                            placeholder={t('tx.notesPh')}
                                             value={row.notes}
                                             onChange={(e) => updatePaymentRow(row.id, { notes: e.target.value })}
                                             onKeyDown={handleLastFieldKeyDown(idx, paymentsRows.length)}
                                         />
                                     </td>
                                     <td>
-                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)} title="Delete row">
+                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)} title={t('tx.deleteRow')}>
                                             <Trash2 size={16} />
                                         </button>
                                     </td>
@@ -862,25 +882,25 @@ function TransactionEntryView({ branches = [] }) {
                                     </td>
                                     <td>
                                         <select className="table-input-field" value={row.type} onChange={(e) => updateReceiptRow(row.id, { type: e.target.value, payeeId: '', payeeName: '' })}>
-                                            {PAYEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                                            {PAYEE_TYPES.map((ptype) => <option key={ptype} value={ptype}>{t(`tx.payee.${ptype}`)}</option>)}
                                         </select>
                                     </td>
                                     <td>{renderPayeeSelect(row, updateReceiptRow)}</td>
                                     <td>{renderAccountSelect(row, updateReceiptRow, coaReceivableRevenue)}</td>
                                     <td><input type="number" step="0.01" min="0" className="table-input-field" value={row.amount} onChange={(e) => updateReceiptRow(row.id, { amount: e.target.value })} placeholder="0.00" /></td>
-                                    <td><input type="text" className="table-input-field" placeholder="Ref #" value={row.ref} onChange={(e) => updateReceiptRow(row.id, { ref: e.target.value })} /></td>
+                                    <td><input type="text" className="table-input-field" placeholder={t('tx.refPh')} value={row.ref} onChange={(e) => updateReceiptRow(row.id, { ref: e.target.value })} /></td>
                                     <td>
                                         <input
                                             type="text"
                                             className="table-input-field"
-                                            placeholder="Notes"
+                                            placeholder={t('tx.notesPh')}
                                             value={row.notes}
                                             onChange={(e) => updateReceiptRow(row.id, { notes: e.target.value })}
                                             onKeyDown={handleLastFieldKeyDown(idx, receiptsRows.length)}
                                         />
                                     </td>
                                     <td>
-                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)} title="Delete row">
+                                        <button className="btn-row-delete" onClick={() => removeRow(row.id)} title={t('tx.deleteRow')}>
                                             <Trash2 size={16} />
                                         </button>
                                     </td>
@@ -895,7 +915,7 @@ function TransactionEntryView({ branches = [] }) {
                                                 <input
                                                     type="text"
                                                     className="table-input-field"
-                                                    placeholder="Line description"
+                                                    placeholder={t('tx.lineDescPh')}
                                                     value={row.description}
                                                     onChange={(e) => updateJournalRow(row.id, { description: e.target.value })}
                                                 />
@@ -924,14 +944,14 @@ function TransactionEntryView({ branches = [] }) {
                                                 />
                                             </td>
                                             <td>
-                                                <button className="btn-row-delete" onClick={() => removeRow(row.id)} title="Delete row">
+                                                <button className="btn-row-delete" onClick={() => removeRow(row.id)} title={t('tx.deleteRow')}>
                                                     <Trash2 size={16} />
                                                 </button>
                                             </td>
                                         </tr>
                                     ))}
                                     <tr className="totals-row">
-                                        <td colSpan={2} className="totals-label">Totals</td>
+                                        <td colSpan={2} className="totals-label">{t('tx.totals')}</td>
                                         <td className="total-value">SAR {journalTotals.debit}</td>
                                         <td className="total-value">SAR {journalTotals.credit}</td>
                                         <td></td>
@@ -951,12 +971,12 @@ function TransactionEntryView({ branches = [] }) {
 
                 <div className="trans-table-footer">
                     <div className="trans-total-summary">
-                        {activeTab === 'Payments' && `${validRowCountPayments} valid row${validRowCountPayments === 1 ? '' : 's'} — Total: SAR ${totalPayments.toFixed(2)}`}
-                        {activeTab === 'Receipts' && `${validRowCountReceipts} valid row${validRowCountReceipts === 1 ? '' : 's'} — Total: SAR ${totalReceipts.toFixed(2)}`}
+                        {activeTab === 'Payments' && t('tx.validRows', { n: validRowCountPayments, total: totalPayments.toFixed(2) })}
+                        {activeTab === 'Receipts' && t('tx.validRows', { n: validRowCountReceipts, total: totalReceipts.toFixed(2) })}
                         {activeTab === 'Journal Entry' && (
                             journalTotals.isBalanced
-                                ? `Balanced — SAR ${journalTotals.debit}`
-                                : `Unbalanced — Dr ${journalTotals.debit} / Cr ${journalTotals.credit}`
+                                ? t('tx.balancedAmt', { n: journalTotals.debit })
+                                : t('tx.unbalanced', { dr: journalTotals.debit, cr: journalTotals.credit })
                         )}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -966,7 +986,7 @@ function TransactionEntryView({ branches = [] }) {
                             disabled={saving}
                             style={{ padding: '8px 14px' }}
                         >
-                            <Plus size={14} /> Add row
+                            <Plus size={14} /> {t('tx.addRow')}
                         </button>
                         <button
                             className="btn-save-all"
@@ -978,7 +998,7 @@ function TransactionEntryView({ branches = [] }) {
                             }}
                         >
                             {activeTab === 'Journal Entry' ? <Book size={16} /> : <Shield size={16} />}
-                            {saving ? 'Saving…' : (activeTab === 'Journal Entry' ? 'Post Journal Entry' : `Save All ${activeTab}`)}
+                            {saving ? t('tx.saving') : (activeTab === 'Journal Entry' ? t('tx.postJe') : t('tx.saveAll', { tab: tabLabel }))}
                         </button>
                     </div>
                 </div>
@@ -986,11 +1006,11 @@ function TransactionEntryView({ branches = [] }) {
 
 
             <section className="recent-transactions">
-                <h3 className="recent-trans-title">Recent {activeTab}</h3>
+                <h3 className="recent-trans-title">{t('tx.recent', { tab: tabLabel })}</h3>
                 <div className="recent-trans-placeholder">
                     {recentRows.length === 0 ? (
                         <div style={{ color: '#94A3B8', padding: 20, textAlign: 'center', fontSize: 13 }}>
-                            No recent {activeTab.toLowerCase()} yet.
+                            {t('tx.recentEmpty', { tab: tabLabel })}
                         </div>
                     ) : (
                         recentRows.map((r) => (
@@ -1949,10 +1969,11 @@ function PurchasesView({ taxes }) {
         </div>
     );
 }
-function CashBankView({ branches = [] }) {
+function CashBankView({ branches = [], locale: localeProp }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
@@ -2251,6 +2272,7 @@ function CashBankView({ branches = [] }) {
                 registerType={registerDrill.registerType}
                 initialCoaAccountId={registerDrill.coaAccountId}
                 onClose={closeRegisterDrill}
+                locale={locale}
             />
         ) : (
         <div className="cash-bank-view">
@@ -3021,14 +3043,19 @@ function ExpensesView() {
     );
 }
 
-function GeneralJournalView() {
+function GeneralJournalView({ locale: localeProp }) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
     const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+    const typeLabel = useCallback((type) => {
+        const key = JOURNAL_TYPE_LABEL_KEYS[type];
+        return key ? t(key) : (type || '—');
+    }, [t]);
     const [viewJEOpen, setViewJEOpen] = useState(false);
     const [selectedJE, setSelectedJE] = useState(null);
     const [entries, setEntries] = useState([]);
@@ -3068,7 +3095,7 @@ function GeneralJournalView() {
     const toPrintShape = (entry) => ({
         code: entry.entryNumber,
         date: fmtDate(entry.date),
-        type: entry.type,
+        type: typeLabel(entry.type),
         status: (entry.status || '').toUpperCase(),
         totalDebit: `SAR ${fmtMoney(entry.totalDebit)}`,
         totalCredit: `SAR ${fmtMoney(entry.totalCredit)}`,
@@ -3319,7 +3346,7 @@ function GeneralJournalView() {
                                 <tr key={e.id} className="table-row">
                                     <td className="table-cell font-bold">{e.entryNumber}</td>
                                     <td className="table-cell">{fmtDate(e.date)}</td>
-                                    <td className="table-cell"><span className="badge-type">{e.type}</span></td>
+                                    <td className="table-cell"><span className="badge-type">{typeLabel(e.type)}</span></td>
                                     <td className="table-cell color-muted truncate-text">{e.description || '—'}</td>
                                     <td className="table-cell text-center"><span className="badge-count">{e.lines?.length ?? 0}</span></td>
                                     <td className="table-cell color-green-dark font-bold">SAR {fmtMoney(e.totalDebit)}</td>
@@ -4086,9 +4113,20 @@ function EmployeeAdvancesView() {
     );
 }
 
-export default function WorkshopAccountingPage({ activeTab, branches = [], selectedBranchId = 'all' }) {
+export default function WorkshopAccountingPage({
+    activeTab,
+    branches = [],
+    selectedBranchId = 'all',
+    locale: localeProp,
+}) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        localeProp ||
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
     const { subTab: paramsSubTab } = useParams();
-    
+
     // Normalize activeSub to match the internal view keys
     const getActiveSub = () => {
         const raw = paramsSubTab || (activeTab ? activeTab.replace('acc-', '') : 'cash-bank');
@@ -4119,17 +4157,17 @@ export default function WorkshopAccountingPage({ activeTab, branches = [], selec
 
     return (
         <div className="accounting-page module-container">
-            {activeSub === 'chart-of-accounts' && <ChartOfAccountsView />}
-            {activeSub === 'cash-bank' && <CashBankView branches={branches} />}
-            {activeSub === 'payments' && <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'transactions' && <TransactionEntryView branches={branches} />}
-            {activeSub === 'journal-entries' && <GeneralJournalView />}
-            {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'advances' && <WorkshopAdvances branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'payroll' && <WorkshopPayroll />}
-            {activeSub === 'approvals' && <WorkshopApprovalLimits />}
-            {activeSub === 'ledger' && <WorkshopLedgerView />}
+            {activeSub === 'chart-of-accounts' && <ChartOfAccountsView locale={locale} />}
+            {activeSub === 'cash-bank' && <CashBankView branches={branches} locale={locale} />}
+            {activeSub === 'payments' && <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />}
+            {activeSub === 'transactions' && <TransactionEntryView branches={branches} locale={locale} />}
+            {activeSub === 'journal-entries' && <GeneralJournalView locale={locale} />}
+            {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />}
+            {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />}
+            {activeSub === 'advances' && <WorkshopAdvances branches={branches} selectedBranchId={selectedBranchId} locale={locale} />}
+            {activeSub === 'payroll' && <WorkshopPayroll locale={locale} />}
+            {activeSub === 'approvals' && <WorkshopApprovalLimits locale={locale} />}
+            {activeSub === 'ledger' && <WorkshopLedgerView locale={locale} />}
         </div>
     );
 }

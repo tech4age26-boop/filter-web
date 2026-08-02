@@ -4,6 +4,7 @@ import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { wdT } from '../../utils/workshopDepartmentsI18n';
 
 const DEPT_PAGE_TABS = [
     { id: 'departments', label: 'Departments', permission: 'workshop.departments.departments.view' },
@@ -43,6 +44,7 @@ import {
     MOCK_CATEGORIES,
     UNIT_OPTIONS,
 } from './constants';
+import { catalogDisplayName } from '../../utils/catalogDisplayName';
 
 function pickNumber(...vals) {
     for (const v of vals) {
@@ -128,20 +130,24 @@ function normalizeUomOption(row) {
 }
 
 /** After workshop-wide bulk remove — partial failures still return success: true + failed[]. */
-function summarizeBulkRemoveResult(result) {
+function summarizeBulkRemoveResult(result, t) {
     if (!result || typeof result !== 'object') return;
     const failed = Array.isArray(result.failed) ? result.failed : [];
     if (failed.length === 0) return;
     const removed = Array.isArray(result.removedIds) ? result.removedIds.length : 0;
-    const lines = failed.slice(0, 10).map((f) => `• ${String(f?.id ?? '—')}: ${f?.reason ?? 'Failed'}`);
-    window.alert(`Removed ${removed} item(s). ${failed.length} could not be removed:\n${lines.join('\n')}${failed.length > 10 ? `\n… and ${failed.length - 10} more` : ''}`);
+    const dash = t('emdash');
+    const lines = failed.slice(0, 10).map((f) => `• ${String(f?.id ?? dash)}: ${f?.reason ?? t('failed')}`);
+    const more = failed.length > 10 ? `\n${t('bulk.andMore', { n: failed.length - 10 })}` : '';
+    window.alert(`${t('bulk.removed', { removed, failed: failed.length })}\n${lines.join('\n')}${more}`);
 }
 
-export default function WorkshopDepartments({ selectedBranchId = 'all', branches: branchesProp = [] }) {
+export default function WorkshopDepartments({ selectedBranchId = 'all', branches: branchesProp = [], locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wdT(locale, key, vars), [locale]);
     const { workshop, hasPermission } = useAuth();
 
     // Per-tab visibility (sub-tab gating) — filter tab strip + content rendering
-    const visibleDeptPageTabs = DEPT_PAGE_TABS.filter((t) => hasPermission(t.permission));
+    const visibleDeptPageTabs = DEPT_PAGE_TABS.filter((tab) => hasPermission(tab.permission));
 
     // Per-tab action permissions — used to gate Add/Edit/Delete buttons inside each tab.
     const canCreateDept     = hasPermission('workshop.departments.departments.create');
@@ -262,10 +268,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 : Array.isArray(response?.data) ? response.data
                 : Array.isArray(response) ? response
                 : null;
-            if (!list) throw new Error('Invalid departments response.');
+            if (!list) throw new Error(t('err.invalidDepts'));
             setDepartments(list);
         } catch (error) {
-            setDeptError(error.message || 'Failed to load departments.');
+            setDeptError(error.message || t('err.loadDepts'));
         } finally {
             setIsDeptLoading(false);
         }
@@ -397,11 +403,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 : Array.isArray(response?.data) ? response.data
                 : Array.isArray(response) ? response
                 : null;
-            if (!list) throw new Error('Invalid categories response.');
+            if (!list) throw new Error(t('err.invalidCats'));
             setCategories(list);
             setProductCategories(list.map((category) => ({ id: category.id, name: category.name })));
         } catch (error) {
-            setCategoriesError(error.message || 'Failed to load categories.');
+            setCategoriesError(error.message || t('err.loadCats'));
         } finally {
             setIsCategoriesLoading(false);
         }
@@ -441,7 +447,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             setCategoryForm({ name: '', type: 'product', departmentId: '' });
             await loadCategories();
         } catch (error) {
-            setCategoriesError(error.message || 'Failed to create category.');
+            setCategoriesError(error.message || t('err.createCat'));
         } finally {
             setIsSavingCategory(false);
         }
@@ -462,7 +468,13 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         return {
             id: `product-${product.id}`,
             sourceId: product.id,
-            name: pickItemName(product) || 'Unnamed',
+            name: pickItemName(product) || t('unnamed'),
+            arabicName:
+                product.arabicName
+                ?? product.arabic_name
+                ?? product.productNameArabic
+                ?? product.product_name_arabic
+                ?? null,
             sku: product.sku || '',
             category_id: product.categoryId || product.category_id || category?.id || '',
             type: category?.type || product.type || 'product',
@@ -485,7 +497,13 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const normalizeService = (service) => ({
         id: `service-${service.id}`,
         sourceId: service.id,
-        name: pickItemName(service) || 'Unnamed Service',
+        name: pickItemName(service) || t('unnamedService'),
+        arabicName:
+            service.arabicName
+            ?? service.arabic_name
+            ?? service.serviceNameArabic
+            ?? service.service_name_arabic
+            ?? null,
         sku: '',
         category_id: service.categoryId || service.category_id || '',
         type: 'service',
@@ -601,7 +619,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             const flatServices = extractServices(svcRes).map(buildUnionServiceRow);
             setProducts([...flatProducts, ...flatServices]);
         } catch (error) {
-            setProductsError(error.message || 'Failed to load products and services.');
+            setProductsError(error.message || t('err.loadProducts'));
         } finally {
             setIsProductsLoading(false);
         }
@@ -627,7 +645,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             setShowDeptForm(false);
             setDeptForm({ name: '', branch_id: scopedBranchInitial || 'b1' });
         } catch (error) {
-            setDeptError(error.message || 'Failed to create department.');
+            setDeptError(error.message || t('err.createDept'));
         } finally {
             setIsSavingDept(false);
         }
@@ -785,13 +803,13 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
 
         const workshopId = workshop?.id;
         if (!workshopId) {
-            setProductsError('Workshop session missing. Please login again.');
+            setProductsError(t('err.session'));
             return;
         }
 
         if (!editingProd && isProductRequestFlow) {
             if (!prodForm.master_department_id || !prodForm.master_category_id) {
-                setProductsError('Select a master department and category.');
+                setProductsError(t('err.selectMaster'));
                 return;
             }
         }
@@ -838,7 +856,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 await loadProducts();
                 setShowProdForm(false);
             } catch (error) {
-                setProductsError(error.message || 'Failed to update item.');
+                setProductsError(error.message || t('err.updateItem'));
             } finally {
                 setIsSavingProduct(false);
             }
@@ -901,8 +919,8 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             setProductsError(
                 error.message ||
                     (isProductRequestFlow
-                        ? 'Failed to submit product request. Ensure the catalog product-request API is deployed.'
-                        : 'Failed to create product.'),
+                        ? t('err.productRequest')
+                        : t('err.createProduct')),
             );
         } finally {
             setIsSavingProduct(false);
@@ -911,12 +929,12 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
 
     const removeDeptFromBranch = async (deptId) => {
         if (!branchScope) return;
-        if (!window.confirm(`Remove this department from ${selectedBranchName || 'this branch'}? Adopted categories under it stay; only the link to this branch is dropped. If this branch was the last one using it, it will also be removed from the workshop.`)) return;
+        if (!window.confirm(t('confirm.removeDept', { branch: selectedBranchName || t('scope.thisBranch') }))) return;
         try {
             await removeBranchDepartment(branchScope, deptId);
             await loadDepartments();
         } catch (error) {
-            setDeptError(error.message || 'Failed to remove department from this branch.');
+            setDeptError(error.message || t('err.removeDept'));
         }
     };
 
@@ -924,14 +942,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         const masterId = dept.departmentId || dept.masterId || dept.id;
         const currentlyActive = Boolean(dept.isActive ?? dept.status === 'active');
         const nextActive = !currentlyActive;
-        const branchLabel = selectedBranchName || 'this branch';
+        const branchLabel = selectedBranchName || t('scope.thisBranch');
         const msg = branchScope
             ? nextActive
-                ? `Reactivate "${dept.name}" on ${branchLabel} only?\n\nCategories, products, and services under this department on this branch will be marked active. Other branches are not affected.`
-                : `Deactivate "${dept.name}" on ${branchLabel} only?\n\nCategories, products, and services under this department on this branch will be marked inactive.\n\nOther branches stay unchanged. Past invoices are unchanged — nothing is deleted.`
+                ? t('confirm.reactivateBranch', { name: dept.name, branch: branchLabel })
+                : t('confirm.deactivateBranch', { name: dept.name, branch: branchLabel })
             : nextActive
-              ? `Reactivate "${dept.name}" for the entire workshop?\n\nLinked categories, products, and services on all branches will be marked active.`
-              : `Deactivate "${dept.name}" for the entire workshop?\n\nAll categories, products, and services under this department will be marked inactive on every branch.\n\nPast invoices and historical records stay unchanged — nothing is deleted.`;
+              ? t('confirm.reactivateWorkshop', { name: dept.name })
+              : t('confirm.deactivateWorkshop', { name: dept.name });
         if (!window.confirm(msg)) return;
         setDeptStatusLoadingId(String(masterId));
         setDeptError('');
@@ -941,7 +959,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             await loadCategories();
             await loadProducts();
         } catch (error) {
-            setDeptError(error.message || 'Failed to update department status.');
+            setDeptError(error.message || t('err.updateDeptStatus'));
         } finally {
             setDeptStatusLoadingId(null);
         }
@@ -949,22 +967,22 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
 
     const removeCategoryFromBranch = async (categoryId) => {
         if (!branchScope) return;
-        if (!window.confirm(`Remove this category from ${selectedBranchName || 'this branch'}?`)) return;
+        if (!window.confirm(t('confirm.removeCat', { branch: selectedBranchName || t('scope.thisBranch') }))) return;
         try {
             await removeBranchCategory(branchScope, categoryId);
             await loadCategories();
         } catch (error) {
-            setCategoriesError(error.message || 'Failed to remove category from this branch.');
+            setCategoriesError(error.message || t('err.removeCat'));
         }
     };
 
     const removeProductFromBranch = async (sourceId, isService) => {
         if (!sourceId) return;
-        const noun = isService ? 'service' : 'product';
+        const noun = isService ? t('noun.service') : t('noun.product');
         const scopeLabel = branchScope
-            ? `${selectedBranchName || 'this branch'} only`
-            : 'all branches in this workshop';
-        if (!window.confirm(`Remove this ${noun} from ${scopeLabel}?`)) return;
+            ? t('scope.branchOnly', { branch: selectedBranchName || t('scope.thisBranch') })
+            : t('scope.allWorkshop');
+        if (!window.confirm(t('confirm.removeItem', { noun, scope: scopeLabel }))) return;
         setProductsError('');
         try {
             if (branchScope) {
@@ -972,23 +990,27 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 else await removeBranchProduct(branchScope, sourceId);
             } else if (isService) {
                 const res = await removeWorkshopService(sourceId);
-                summarizeBulkRemoveResult(res);
+                summarizeBulkRemoveResult(res, t);
             } else {
                 const res = await removeWorkshopProduct(sourceId);
-                summarizeBulkRemoveResult(res);
+                summarizeBulkRemoveResult(res, t);
             }
             await loadProducts();
         } catch (error) {
-            setProductsError(error.message || `Failed to remove ${noun}.`);
+            setProductsError(error.message || t('err.removeItem', { noun }));
         }
     };
 
     const removeSelectedFromBranch = async (isService) => {
         const ids = isService ? selectedServiceIds : selectedProductIds;
         if (!ids.length) return;
-        const noun = isService ? 'service' : 'product';
-        const scopeText = branchScope ? `${selectedBranchName || 'this branch'} only` : 'all branches in this workshop';
-        if (!window.confirm(`Remove ${ids.length} ${noun}${ids.length === 1 ? '' : 's'} from ${scopeText}?`)) return;
+        const noun = isService
+            ? (ids.length === 1 ? t('noun.service') : t('noun.services'))
+            : (ids.length === 1 ? t('noun.product') : t('noun.products'));
+        const scopeText = branchScope
+            ? t('scope.branchOnly', { branch: selectedBranchName || t('scope.thisBranch') })
+            : t('scope.allWorkshop');
+        if (!window.confirm(t('confirm.bulkRemove', { count: ids.length, noun, scope: scopeText }))) return;
         setIsBulkRemoving(true);
         setProductsError('');
         try {
@@ -1002,18 +1024,18 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 }
             } else if (isService) {
                 const res = await removeWorkshopServicesBulk(ids.map(String));
-                summarizeBulkRemoveResult(res);
+                summarizeBulkRemoveResult(res, t);
                 const removed = new Set((res?.removedIds || []).map(String));
                 setSelectedServiceIds((prev) => prev.filter((id) => !removed.has(String(id))));
             } else {
                 const res = await removeWorkshopProductsBulk(ids.map(String));
-                summarizeBulkRemoveResult(res);
+                summarizeBulkRemoveResult(res, t);
                 const removed = new Set((res?.removedIds || []).map(String));
                 setSelectedProductIds((prev) => prev.filter((id) => !removed.has(String(id))));
             }
             await loadProducts();
         } catch (error) {
-            setProductsError(error.message || `Failed to bulk remove ${noun}s.`);
+            setProductsError(error.message || t('err.bulkRemove', { noun }));
         } finally {
             setIsBulkRemoving(false);
         }
@@ -1025,39 +1047,39 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     };
 
     const prodFormTitle = editingProd
-        ? 'Edit Product/Service'
+        ? t('prodForm.editTitle')
         : isProductRequestFlow
-          ? 'Request Product'
+          ? t('prodForm.requestProduct')
           : prodForm.type === 'service'
-            ? 'Request Service'
-            : 'Request Product/Service';
+            ? t('prodForm.requestService')
+            : t('prodForm.requestBoth');
 
     const prodFormBackLabel =
         editingProd || prodForm.type === 'service' || activeTab === 'services'
-            ? 'Back to Services'
-            : 'Back to Products';
+            ? t('prodForm.backServices')
+            : t('prodForm.backProducts');
 
     if (showRequestForm) {
         const stockItem = showRequestForm;
         return (
             <WorkshopSubScreen
-                title={`Request Stock — ${stockItem.name}`}
-                subtitle="Submit a replenishment request to your supplier or warehouse."
-                backLabel="Back to Products"
+                title={t('stock.title', { name: stockItem.name })}
+                subtitle={t('stock.subtitle')}
+                backLabel={t('stock.back')}
                 onBack={() => setShowRequestForm(null)}
                 size="narrow"
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                        <button type="button" className="btn-secondary" onClick={() => setShowRequestForm(null)}>Cancel</button>
+                        <button type="button" className="btn-secondary" onClick={() => setShowRequestForm(null)}>{t('btn.cancel')}</button>
                         <button
                             type="button"
                             className="btn-submit"
                             onClick={() => {
-                                alert('Stock request submitted for approval');
+                                alert(t('stock.submitted'));
                                 setShowRequestForm(null);
                             }}
                         >
-                            Submit Request
+                            {t('btn.submitRequest')}
                         </button>
                     </div>
                 )}
@@ -1065,18 +1087,18 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                         <div style={{ background: 'var(--color-bg-muted)', padding: 14, borderRadius: 10 }}>
-                            <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--color-text-muted)', margin: '0 0 4px' }}>Current Stock</p>
+                            <p style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'var(--color-text-muted)', margin: '0 0 4px' }}>{t('stock.current')}</p>
                             <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: 0 }}>
                                 {stockItem.stock_qty}{' '}
                                 <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-text-muted)' }}>{stockItem.unit}</span>
                             </p>
                             {stockItem.critical_level && stockItem.stock_qty <= stockItem.critical_level ? (
-                                <span className="ws-badge ws-badge--red" style={{ marginTop: 8, display: 'inline-block' }}>⚠ Below critical level</span>
+                                <span className="ws-badge ws-badge--red" style={{ marginTop: 8, display: 'inline-block' }}>{t('badge.belowCritical')}</span>
                             ) : null}
                         </div>
-                        <div className="ws-field"><label>Supplier / Warehouse</label><select><option>Al-Jazeera Auto Parts</option><option>Gulf Lubricants Co.</option><option>Saudi Tire Trading</option></select></div>
-                        <div className="ws-field"><label>Quantity Requested ({stockItem.unit})</label><input type="number" placeholder={`Enter qty in ${stockItem.unit}`} /></div>
-                        <div className="ws-field"><label>Notes</label><input placeholder="Optional notes..." /></div>
+                        <div className="ws-field"><label>{t('stock.supplier')}</label><select><option>{t('stock.opt1')}</option><option>{t('stock.opt2')}</option><option>{t('stock.opt3')}</option></select></div>
+                        <div className="ws-field"><label>{t('stock.qty', { unit: stockItem.unit })}</label><input type="number" placeholder={t('stock.qtyPh', { unit: stockItem.unit })} /></div>
+                        <div className="ws-field"><label>{t('stock.notes')}</label><input placeholder={t('stock.notesPh')} /></div>
                     </div>
                 </div>
             </WorkshopSubScreen>
@@ -1086,16 +1108,16 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     if (showCategoryForm) {
         return (
             <WorkshopSubScreen
-                title="Request Category"
-                subtitle="Submit a new category for super-admin catalog approval."
-                backLabel="Back to Categories"
+                title={t('catForm.title')}
+                subtitle={t('catForm.subtitle')}
+                backLabel={t('catForm.back')}
                 onBack={() => !isSavingCategory && setShowCategoryForm(false)}
                 backDisabled={isSavingCategory}
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                        <button type="button" className="btn-secondary" onClick={() => setShowCategoryForm(false)} disabled={isSavingCategory}>Cancel</button>
+                        <button type="button" className="btn-secondary" onClick={() => setShowCategoryForm(false)} disabled={isSavingCategory}>{t('btn.cancel')}</button>
                         <button type="button" className="btn-submit" onClick={saveCategory} disabled={isSavingCategory || !categoryForm.name.trim() || !categoryForm.departmentId}>
-                            {isSavingCategory ? 'Saving...' : 'Save'}
+                            {isSavingCategory ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 )}
@@ -1103,20 +1125,20 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div className="ws-form-grid">
                         <div className="ws-field" style={{ gridColumn: '1/-1' }}>
-                            <label>Name *</label>
+                            <label>{t('prodForm.name')}</label>
                             <input value={categoryForm.name} onChange={(e) => setCategoryForm((f) => ({ ...f, name: e.target.value }))} />
                         </div>
                         <div className="ws-field">
-                            <label>Type *</label>
+                            <label>{t('catForm.type')}</label>
                             <select value={categoryForm.type} onChange={(e) => setCategoryForm((f) => ({ ...f, type: e.target.value }))}>
-                                <option value="product">Product</option>
-                                <option value="service">Service</option>
+                                <option value="product">{t('type.product')}</option>
+                                <option value="service">{t('type.service')}</option>
                             </select>
                         </div>
                         <div className="ws-field">
-                            <label>Department *</label>
+                            <label>{t('catForm.dept')}</label>
                             <select value={categoryForm.departmentId} onChange={(e) => setCategoryForm((f) => ({ ...f, departmentId: e.target.value }))}>
-                                <option value="">Select Department</option>
+                                <option value="">{t('catForm.selectDept')}</option>
                                 {departments.map((department) => (
                                     <option key={department.id} value={department.id}>{department.name}</option>
                                 ))}
@@ -1131,32 +1153,32 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     if (showDeptForm) {
         return (
             <WorkshopSubScreen
-                title="Request Department"
-                subtitle="Submit a department adoption request for your workshop."
-                backLabel="Back to Departments"
+                title={t('deptForm.title')}
+                subtitle={t('deptForm.subtitle')}
+                backLabel={t('deptForm.back')}
                 onBack={() => !isSavingDept && setShowDeptForm(false)}
                 backDisabled={isSavingDept}
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                        <button type="button" className="btn-secondary" onClick={() => setShowDeptForm(false)} disabled={isSavingDept}>Cancel</button>
+                        <button type="button" className="btn-secondary" onClick={() => setShowDeptForm(false)} disabled={isSavingDept}>{t('btn.cancel')}</button>
                         <button type="button" className="btn-submit" disabled={isSavingDept || !deptForm.name.trim()} onClick={saveDept}>
-                            {isSavingDept ? 'Saving...' : 'Save'}
+                            {isSavingDept ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 )}
             >
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div className="ws-form-grid">
-                        <div className="ws-field"><label>Name *</label><input value={deptForm.name} onChange={(e) => setDeptForm((f) => ({ ...f, name: e.target.value }))} /></div>
+                        <div className="ws-field"><label>{t('deptForm.name')}</label><input value={deptForm.name} onChange={(e) => setDeptForm((f) => ({ ...f, name: e.target.value }))} /></div>
                         <div className="ws-field">
-                            <label>Branch</label>
+                            <label>{t('prodForm.branch')}</label>
                             <select
                                 value={deptForm.branch_id}
                                 disabled={!isAllBranches}
                                 onChange={(e) => setDeptForm((f) => ({ ...f, branch_id: e.target.value }))}
                                 style={{ opacity: isAllBranches ? 1 : 0.85 }}
                             >
-                                {isAllBranches && <option value="">Select Branch</option>}
+                                {isAllBranches && <option value="">{t('deptForm.selectBranch')}</option>}
                                 {scopedBranchesForForms.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
@@ -1174,8 +1196,8 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 title={prodFormTitle}
                 subtitle={
                     isProductRequestFlow && !editingProd
-                        ? 'Adds a row to the master catalog queue for super-admin approval.'
-                        : 'Update catalog item details, pricing, and stock thresholds.'
+                        ? t('prodForm.subRequest')
+                        : t('prodForm.subEdit')
                 }
                 backLabel={prodFormBackLabel}
                 size="wide"
@@ -1183,7 +1205,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 backDisabled={isSavingProduct}
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                        <button type="button" className="btn-secondary" onClick={closeProdForm} disabled={isSavingProduct}>Cancel</button>
+                        <button type="button" className="btn-secondary" onClick={closeProdForm} disabled={isSavingProduct}>{t('btn.cancel')}</button>
                         <button
                             type="button"
                             className="btn-submit"
@@ -1194,7 +1216,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             }
                             onClick={saveProd}
                         >
-                            {isSavingProduct ? 'Saving...' : 'Save'}
+                            {isSavingProduct ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 )}
@@ -1203,26 +1225,26 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     {isProductRequestFlow && !editingProd ? (
                         <div className="ws-form-grid">
                             <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Request adds a row to the master catalog queue (super-admin). Departments and categories are loaded from the global master catalog.
+                                {t('prodForm.hint')}
                             </p>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Name *</label>
+                                <label>{t('prodForm.name')}</label>
                                 <input value={prodForm.name} onChange={(e) => setProdForm((f) => ({ ...f, name: e.target.value }))} />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Arabic name</label>
-                                <input value={prodForm.arabic_name} onChange={(e) => setProdForm((f) => ({ ...f, arabic_name: e.target.value }))} dir="rtl" placeholder="الاسم بالعربية" />
+                                <label>{t('prodForm.nameAr')}</label>
+                                <input value={prodForm.arabic_name} onChange={(e) => setProdForm((f) => ({ ...f, arabic_name: e.target.value }))} dir="rtl" placeholder={t('prodForm.nameArPh')} />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Brand name</label>
+                                <label>{t('prodForm.brand')}</label>
                                 <input value={prodForm.brand_name} onChange={(e) => setProdForm((f) => ({ ...f, brand_name: e.target.value }))} />
                             </div>
                             <div className="ws-field">
-                                <label>SKU</label>
-                                <input value={prodForm.sku} onChange={(e) => setProdForm((f) => ({ ...f, sku: e.target.value }))} placeholder="Optional" />
+                                <label>{t('prodForm.sku')}</label>
+                                <input value={prodForm.sku} onChange={(e) => setProdForm((f) => ({ ...f, sku: e.target.value }))} placeholder={t('prodForm.optional')} />
                             </div>
                             <div className="ws-field">
-                                <label>Unit *</label>
+                                <label>{t('prodForm.unit')}</label>
                                 <select value={prodForm.unit} onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}>
                                     {(uomSelectOptions.length
                                         ? uomSelectOptions
@@ -1233,25 +1255,25 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 </select>
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Description</label>
-                                <textarea rows={3} value={prodForm.description} onChange={(e) => setProdForm((f) => ({ ...f, description: e.target.value }))} placeholder="Product description" style={{ width: '100%', resize: 'vertical' }} />
+                                <label>{t('prodForm.desc')}</label>
+                                <textarea rows={3} value={prodForm.description} onChange={(e) => setProdForm((f) => ({ ...f, description: e.target.value }))} placeholder={t('prodForm.descPh')} style={{ width: '100%', resize: 'vertical' }} />
                             </div>
                             <div className="ws-field">
-                                <label>Sales price inclusive VAT (expected) *</label>
-                                <input type="number" min={0} step="0.01" value={prodForm.sale_price_incl_vat} onChange={(e) => setProdForm((f) => ({ ...f, sale_price_incl_vat: e.target.value }))} placeholder="0.00" />
+                                <label>{t('prodForm.salesPriceIncl')}</label>
+                                <input type="number" min={0} step="0.01" value={prodForm.sale_price_incl_vat} onChange={(e) => setProdForm((f) => ({ ...f, sale_price_incl_vat: e.target.value }))} placeholder={t('prodForm.pricePh')} />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Notes</label>
-                                <textarea rows={2} value={prodForm.notes} onChange={(e) => setProdForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Internal notes for approvers" style={{ width: '100%', resize: 'vertical' }} />
+                                <label>{t('prodForm.notes')}</label>
+                                <textarea rows={2} value={prodForm.notes} onChange={(e) => setProdForm((f) => ({ ...f, notes: e.target.value }))} placeholder={t('prodForm.notesPh')} style={{ width: '100%', resize: 'vertical' }} />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Department (master) *</label>
+                                <label>{t('prodForm.deptMaster')}</label>
                                 <select
                                     value={prodForm.master_department_id}
                                     disabled={masterDeptLoading}
                                     onChange={(e) => setProdForm((f) => ({ ...f, master_department_id: e.target.value, master_category_id: '', category_id: '' }))}
                                 >
-                                    <option value="">{masterDeptLoading ? 'Loading…' : 'Select department'}</option>
+                                    <option value="">{masterDeptLoading ? t('prodForm.loading') : t('prodForm.selectDept')}</option>
                                     {masterDeptOptions.map((d) => {
                                         const id = d.id ?? d.departmentId ?? d.masterId;
                                         return <option key={id} value={id}>{d.name || pickDeptLabel(d)}</option>;
@@ -1259,18 +1281,18 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 </select>
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Category (master) *</label>
+                                <label>{t('prodForm.catMaster')}</label>
                                 <select
                                     value={prodForm.master_category_id}
                                     disabled={!prodForm.master_department_id || masterCatLoading}
                                     onChange={(e) => setProdForm((f) => ({ ...f, master_category_id: e.target.value, category_id: e.target.value }))}
                                 >
                                     <option value="">
-                                        {!prodForm.master_department_id ? 'Select a department first' : masterCatLoading ? 'Loading…' : 'Select category'}
+                                        {!prodForm.master_department_id ? t('prodForm.selectDeptFirst') : masterCatLoading ? t('prodForm.loading') : t('prodForm.selectCat')}
                                     </option>
                                     {masterCatOptions.map((c) => {
                                         const id = c.id ?? c.categoryId ?? c.masterId;
-                                        return <option key={id} value={id}>{c.name || c.categoryName || '—'}</option>;
+                                        return <option key={id} value={id}>{c.name || c.categoryName || t('emdash')}</option>;
                                     })}
                                 </select>
                             </div>
@@ -1279,49 +1301,49 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         <>
                             <div className="ws-form-grid">
                                 <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                    <label>Name *</label>
+                                    <label>{t('prodForm.name')}</label>
                                     <input value={prodForm.name} onChange={(e) => setProdForm((f) => ({ ...f, name: e.target.value }))} />
                                 </div>
                                 <div className="ws-field">
-                                    <label>SKU / Barcode</label>
-                                    <input value={prodForm.sku} onChange={(e) => setProdForm((f) => ({ ...f, sku: e.target.value }))} placeholder="Optional" />
+                                    <label>{t('prodForm.skuBarcode')}</label>
+                                    <input value={prodForm.sku} onChange={(e) => setProdForm((f) => ({ ...f, sku: e.target.value }))} placeholder={t('prodForm.optional')} />
                                 </div>
                                 <div className="ws-field">
-                                    <label>Category</label>
+                                    <label>{t('prodForm.category')}</label>
                                     <select value={prodForm.category_id} onChange={(e) => setProdForm((f) => ({ ...f, category_id: e.target.value }))}>
-                                        <option value="">Select Category</option>
+                                        <option value="">{t('prodForm.selectCategory')}</option>
                                         {productCategories.map((c) => (
                                             <option key={c.id} value={c.id}>{c.name}</option>
                                         ))}
                                     </select>
                                 </div>
                                 <div className="ws-field">
-                                    <label>Branch</label>
+                                    <label>{t('prodForm.branch')}</label>
                                     <select value={prodForm.branch_id} disabled={!isAllBranches} onChange={(e) => setProdForm((f) => ({ ...f, branch_id: e.target.value }))} style={{ opacity: isAllBranches ? 1 : 0.85 }}>
-                                        {isAllBranches && <option value="">Select Branch</option>}
+                                        {isAllBranches && <option value="">{t('prodForm.selectBranch')}</option>}
                                         {scopedBranchesForForms.map((b) => (
                                             <option key={b.id} value={b.id}>{b.name}</option>
                                         ))}
                                     </select>
                                 </div>
                                 <div className="ws-field">
-                                    <label>Department</label>
+                                    <label>{t('prodForm.department')}</label>
                                     <select value={prodForm.department_id} onChange={(e) => setProdForm((f) => ({ ...f, department_id: e.target.value, department_ids: e.target.value ? [e.target.value] : [] }))}>
-                                        <option value="">Select Department</option>
+                                        <option value="">{t('prodForm.selectDepartment')}</option>
                                         {departments.map((d) => (
                                             <option key={d.id} value={d.id}>{d.name}</option>
                                         ))}
                                     </select>
                                 </div>
                                 <div className="ws-field">
-                                    <label>Type</label>
+                                    <label>{t('prodForm.type')}</label>
                                     <select value={prodForm.type} onChange={(e) => setProdForm((f) => ({ ...f, type: e.target.value }))}>
-                                        <option value="product">Product</option>
-                                        <option value="service">Service</option>
+                                        <option value="product">{t('type.product')}</option>
+                                        <option value="service">{t('type.service')}</option>
                                     </select>
                                 </div>
                                 <div className="ws-field">
-                                    <label>Unit</label>
+                                    <label>{t('prodForm.unitLabel')}</label>
                                     <select value={prodForm.unit} onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}>
                                         {productUnits.map((u) => (
                                             <option key={u} value={u}>{u}</option>
@@ -1329,32 +1351,32 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                     </select>
                                 </div>
                                 <div className="ws-field">
-                                    <label>Purchase Price (SAR)</label>
+                                    <label>{t('prodForm.purchase')}</label>
                                     <input type="number" value={prodForm.purchase_price} onChange={(e) => setProdForm((f) => ({ ...f, purchase_price: e.target.value }))} />
                                 </div>
                                 <div className="ws-field">
-                                    <label>Sale Price (SAR, incl. VAT)</label>
+                                    <label>{t('prodForm.sale')}</label>
                                     <input type="number" value={prodForm.sale_price} onChange={(e) => setProdForm((f) => ({ ...f, sale_price: e.target.value }))} />
                                 </div>
                                 <div className="ws-field">
-                                    <label>Current Stock Qty</label>
+                                    <label>{t('prodForm.stockQty')}</label>
                                     <input type="number" value={prodForm.stock_qty} onChange={(e) => setProdForm((f) => ({ ...f, stock_qty: e.target.value }))} />
                                 </div>
                                 <div className="ws-field">
                                     <label>
-                                        Critical Level{' '}
-                                        <span style={{ fontSize: '0.6875rem', color: '#DC2626' }}>(alert threshold)</span>
+                                        {t('prodForm.critical')}{' '}
+                                        <span style={{ fontSize: '0.6875rem', color: '#DC2626' }}>{t('prodForm.criticalHint')}</span>
                                     </label>
                                     <input type="number" value={prodForm.critical_level} onChange={(e) => setProdForm((f) => ({ ...f, critical_level: e.target.value }))} />
                                 </div>
                                 <div className="ws-field">
-                                    <label>Reorder Level</label>
+                                    <label>{t('prodForm.reorder')}</label>
                                     <input type="number" value={prodForm.reorder_level} onChange={(e) => setProdForm((f) => ({ ...f, reorder_level: e.target.value }))} />
                                 </div>
                             </div>
                             {prodForm.critical_level && prodForm.stock_qty <= parseFloat(prodForm.critical_level) && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 12, marginTop: 16, fontSize: '0.8125rem', color: '#DC2626' }}>
-                                    <AlertTriangle size={16} /> Current stock is at/below critical level — saving will notify all active suppliers.
+                                    <AlertTriangle size={16} /> {t('prodForm.criticalWarn')}
                                 </div>
                             )}
                         </>
@@ -1367,7 +1389,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Dept & Products</h2><p className="ws-page-sub">Departments and product catalog with stock levels</p></div>
+                <div><h2 className="ws-page-title">{t('page.title')}</h2><p className="ws-page-sub">{t('page.subtitle')}</p></div>
             </div>
 
             <div style={{
@@ -1382,8 +1404,8 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 fontSize: '0.8125rem',
                 fontWeight: 700,
             }}>
-                <span>Viewing:</span>
-                <span>{branchScope ? (selectedBranchName || `Branch ${selectedBranchId}`) : 'All branches (workshop union)'}</span>
+                <span>{t('viewing')}</span>
+                <span>{branchScope ? (selectedBranchName || t('scope.branch', { id: selectedBranchId })) : t('scope.allUnion')}</span>
             </div>
             {!branchScope && (
                 <div
@@ -1398,7 +1420,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         fontWeight: 600,
                     }}
                 >
-                    To see correct current stock of the branch select a specific branch
+                    {t('banner.pickBranch')}
                 </div>
             )}
 
@@ -1406,7 +1428,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 <div style={{display:'flex',alignItems:'center',gap:12,background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:12,padding:14,marginBottom:20}}>
                     <AlertTriangle size={20} style={{color:'#DC2626',flexShrink:0}}/>
                     <p style={{margin:0,fontSize:'0.875rem',fontWeight:600,color:'#DC2626'}}>
-                        {criticalCount} product{criticalCount > 1 ? 's are' : ' is'} at or below critical stock level — suppliers have been notified.
+                        {criticalCount > 1 ? t('banner.criticalMany', { count: criticalCount }) : t('banner.criticalOne', { count: criticalCount })}
                     </p>
                 </div>
             )}
@@ -1418,7 +1440,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         onClick={() => setActiveTab('departments')}
                         className={`ws-dept-tab${activeTab === 'departments' ? ' active' : ''}`}
                     >
-                        Departments ({departments.length})
+                        {t('tab.departments')} ({departments.length})
                     </button>
                 )}
                 {hasPermission('workshop.departments.products.view') && (
@@ -1427,7 +1449,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         onClick={() => setActiveTab('products')}
                         className={`ws-dept-tab${activeTab === 'products' ? ' active' : ''}`}
                     >
-                        Products ({productItems.length})
+                        {t('tab.products')} ({productItems.length})
                         {criticalCount > 0 && (
                             <span className="ws-nav-badge ws-dept-tab-badge">{criticalCount}</span>
                         )}
@@ -1439,7 +1461,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         onClick={() => setActiveTab('services')}
                         className={`ws-dept-tab${activeTab === 'services' ? ' active' : ''}`}
                     >
-                        Services ({serviceItems.length})
+                        {t('tab.services')} ({serviceItems.length})
                     </button>
                 )}
                 {hasPermission('workshop.departments.categories.view') && (
@@ -1448,7 +1470,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         onClick={() => setActiveTab('categories')}
                         className={`ws-dept-tab${activeTab === 'categories' ? ' active' : ''}`}
                     >
-                        Categories ({categories.length})
+                        {t('tab.categories')} ({categories.length})
                     </button>
                 )}
             </div>
@@ -1457,11 +1479,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 <div>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16, gap: 10}}>
                         <button className="btn-portal" onClick={loadDepartments} disabled={isDeptLoading}>
-                            <RefreshCw size={14} /> {isDeptLoading ? 'Refreshing...' : 'Refresh'}
+                            <RefreshCw size={14} /> {isDeptLoading ? t('btn.refreshing') : t('btn.refresh')}
                         </button>
                         {canCreateDept && (
                             <button className="btn-portal" onClick={() => setShowDeptForm(true)}>
-                                <Plus size={14}/> Request Department
+                                <Plus size={14}/> {t('btn.requestDept')}
                             </button>
                         )}
                     </div>
@@ -1473,15 +1495,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     <div className="ws-section">
                         <WsTableScroll>
                         <table className="ws-table">
-                            <thead><tr><th>Name</th><th>Branches</th><th>Status</th>{(canEditDept || (branchScope && canDeleteDept)) && <th>Actions</th>}</tr></thead>
+                            <thead><tr><th>{t('th.name')}</th><th>{t('th.branches')}</th><th>{t('th.status')}</th>{(canEditDept || (branchScope && canDeleteDept)) && <th>{t('th.actions')}</th>}</tr></thead>
                             <tbody>
                                 {departments.length === 0 ? (
                                     <tr><td colSpan={(canEditDept || (branchScope && canDeleteDept)) ? 4 : 3} style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                         {isDeptLoading
-                                            ? 'Loading departments...'
+                                            ? t('empty.loadingDepts')
                                             : branchScope
-                                                ? `No departments adopted into ${selectedBranchName || 'this branch'} yet. Add some from the Master Catalog.`
-                                                : 'No departments adopted into your workshop yet. Add some from the Master Catalog.'}
+                                                ? t('empty.noDeptsBranch', { name: selectedBranchName || t('scope.thisBranch') })
+                                                : t('empty.noDeptsWorkshop')}
                                     </td></tr>
                                 ) : departments.map(d => {
                                     const isActive = Boolean(d.isActive ?? d.status === 'active');
@@ -1490,7 +1512,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         <tr key={d.id}>
                                             <td><strong>{d.name}</strong></td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(d)}</td>
-                                            <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span></td>
+                                            <td><span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? t('status.active') : t('status.inactive')}</span></td>
                                             {(canEditDept || (branchScope && canDeleteDept)) && (
                                                 <td>
                                                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1512,10 +1534,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                                 }}
                                                             >
                                                                 {deptStatusLoadingId === String(masterId)
-                                                                    ? 'Saving…'
+                                                                    ? t('btn.savingEllipsis')
                                                                     : isActive
-                                                                      ? 'Deactivate'
-                                                                      : 'Activate'}
+                                                                      ? t('btn.deactivate')
+                                                                      : t('btn.activate')}
                                                             </button>
                                                         )}
                                                         {branchScope && canDeleteDept && (
@@ -1524,7 +1546,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                                 onClick={() => removeDeptFromBranch(masterId)}
                                                                 style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
                                                             >
-                                                                Remove from this branch
+                                                                {t('btn.removeBranch')}
                                                             </button>
                                                         )}
                                                     </div>
@@ -1551,16 +1573,16 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'center',justifyContent:'space-between',padding:16}}>
                             <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
                                 <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
-                                    <option value="all">All Departments</option>
+                                    <option value="all">{t('filter.allDepartments')}</option>
                                     {departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
                                 <button onClick={()=>setLowStockOnly(!lowStockOnly)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:8,border:`1px solid ${lowStockOnly?'#FCA5A5':'var(--color-border)'}`,background:lowStockOnly?'#FEF2F2':'#fff',color:lowStockOnly?'#DC2626':'var(--color-text-muted)',fontWeight:700,fontSize:'0.8125rem',cursor:'pointer'}}>
-                                    <AlertTriangle size={14}/> Low Stock Only
+                                    <AlertTriangle size={14}/> {t('filter.lowStockOnly')}
                                 </button>
                             </div>
                             <div style={{display:'flex',gap:10}}>
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
-                                    <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
+                                    <RefreshCw size={14}/> {isProductsLoading ? t('btn.refreshing') : t('btn.refresh')}
                                 </button>
                                 {canDeleteProduct && (
                                     <button
@@ -1569,11 +1591,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         disabled={isBulkRemoving || selectedProductIds.length === 0}
                                         style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
                                     >
-                                        Remove Selected ({selectedProductIds.length})
+                                        {t('btn.removeSelected', { count: selectedProductIds.length })}
                                     </button>
                                 )}
                                 {canCreateProduct && (
-                                    <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> Request Product</button>
+                                    <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> {t('btn.requestProduct')}</button>
                                 )}
                             </div>
                         </div>
@@ -1588,29 +1610,29 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                 type="checkbox"
                                                 checked={allProductRowsSelected}
                                                 onChange={toggleAllProductsOnPage}
-                                                aria-label="Select all products on page"
+                                                aria-label={t('aria.selectAllProducts')}
                                             />
                                         </th>
-                                        <th>Name</th>
-                                        <th>SKU</th>
-                                        <th>Unit</th>
-                                        <th>Sale Price</th>
-                                        <th>Purchase Price</th>
+                                        <th>{t('th.name')}</th>
+                                        <th>{t('th.sku')}</th>
+                                        <th>{t('th.unit')}</th>
+                                        <th>{t('th.salePrice')}</th>
+                                        <th>{t('th.purchasePrice')}</th>
                                         {branchScope ? (
                                             <>
-                                                <th title="openingQty — set when this branch adopted from catalog; not changed by manual stock adjustments">Opening (adoption)</th>
-                                                <th title="currentQty — on hand now (sales, GRN, adjustments); matches opening until an inventory row exists">Current stock</th>
+                                                <th title={t('tip.openingBranch')}>{t('th.opening')}</th>
+                                                <th title={t('tip.currentStock')}>{t('th.currentStock')}</th>
                                             </>
                                         ) : (
-                                            <th title="openingQty on workshop/union list (adoption baseline where applicable)">Opening (adoption)</th>
+                                            <th title={t('tip.openingUnion')}>{t('th.opening')}</th>
                                         )}
-                                        <th>Critical</th>
-                                        <th>Branches</th>
-                                        <th>Status</th>
+                                        <th>{t('th.critical')}</th>
+                                        <th>{t('th.branches')}</th>
+                                        <th>{t('th.status')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>{productItems.length === 0 ? (
-                                    <tr><td colSpan={branchScope ? 11 : 10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading products...' : 'No products found'}</td></tr>
+                                    <tr><td colSpan={branchScope ? 11 : 10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? t('empty.loadingProducts') : t('empty.noProducts')}</td></tr>
                                 ) : productItems.map(p => {
                                     const isCritical = p.critical_level && p.stock_qty <= p.critical_level;
                                     const isActive = Boolean(p.isActive ?? p.status === 'active');
@@ -1621,14 +1643,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                     type="checkbox"
                                                     checked={selectedProductIds.includes(String(p.sourceId))}
                                                     onChange={() => toggleProductSelection(p.sourceId)}
-                                                    aria-label={`Select product ${p.name}`}
+                                                    aria-label={t('aria.selectProduct', { name: catalogDisplayName(p, locale) || p.name })}
                                                 />
                                             </td>
-                                            <td><strong>{p.name}</strong></td>
-                                            <td style={{fontFamily:'monospace',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>{p.sku || '—'}</td>
+                                            <td><strong>{catalogDisplayName(p, locale) || p.name}</strong></td>
+                                            <td style={{fontFamily:'monospace',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>{p.sku || t('emdash')}</td>
                                             <td style={{textTransform:'capitalize'}}>{p.unit}</td>
-                                            <td>SAR {(p.sale_price||0).toFixed(2)}</td>
-                                            <td style={{color:'var(--color-text-muted)'}}>SAR {(p.purchase_price||0).toFixed(2)}</td>
+                                            <td>{t('money.sar', { amount: (p.sale_price||0).toFixed(2) })}</td>
+                                            <td style={{color:'var(--color-text-muted)'}}>{t('money.sar', { amount: (p.purchase_price||0).toFixed(2) })}</td>
                                             {branchScope ? (
                                                 <>
                                                     <td style={{ textAlign: 'center', color: 'var(--color-text-muted)' }}>{p.adoption_opening_qty ?? '—'}</td>
@@ -1641,7 +1663,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(p)}</td>
                                             <td>
                                                 <span className={`ws-badge ${isActive ? (isCritical ? 'ws-badge--red' : 'ws-badge--green') : 'ws-badge--gray'}`}>
-                                                    {!isActive ? 'inactive' : isCritical ? '⚠ Critical' : 'active'}
+                                                    {!isActive ? t('status.inactive') : isCritical ? t('badge.critical') : t('status.active')}
                                                 </span>
                                                 {canDeleteProduct && (
                                                     <button
@@ -1649,7 +1671,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                         onClick={() => removeProductFromBranch(p.sourceId, false)}
                                                         style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
                                                     >
-                                                        {branchScope ? 'Remove' : 'Remove from workshop'}
+                                                        {branchScope ? t('btn.remove') : t('btn.removeWorkshop')}
                                                     </button>
                                                 )}
                                             </td>
@@ -1673,13 +1695,13 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'center',justifyContent:'space-between',padding:16}}>
                             <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
                                 <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
-                                    <option value="all">All Departments</option>
+                                    <option value="all">{t('filter.allDepartments')}</option>
                                     {departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
                                 </select>
                             </div>
                             <div style={{display:'flex',gap:10}}>
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
-                                    <RefreshCw size={14}/> {isProductsLoading ? 'Refreshing...' : 'Refresh'}
+                                    <RefreshCw size={14}/> {isProductsLoading ? t('btn.refreshing') : t('btn.refresh')}
                                 </button>
                                 {canDeleteService && (
                                     <button
@@ -1688,11 +1710,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         disabled={isBulkRemoving || selectedServiceIds.length === 0}
                                         style={{ background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA' }}
                                     >
-                                        Remove Selected ({selectedServiceIds.length})
+                                        {t('btn.removeSelected', { count: selectedServiceIds.length })}
                                     </button>
                                 )}
                                 {canCreateService && (
-                                    <button className="btn-portal" onClick={() => openAddProd('service')}><Plus size={14}/> Request Service</button>
+                                    <button className="btn-portal" onClick={() => openAddProd('service')}><Plus size={14}/> {t('btn.requestService')}</button>
                                 )}
                             </div>
                         </div>
@@ -1705,11 +1727,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         type="checkbox"
                                         checked={allServiceRowsSelected}
                                         onChange={toggleAllServicesOnPage}
-                                        aria-label="Select all services on page"
+                                        aria-label={t('aria.selectAllServices')}
                                     />
-                                </th><th>Name</th><th>Department</th><th>Sale Price</th><th>Branches</th><th>Status</th></tr></thead>
+                                </th><th>{t('th.name')}</th><th>{t('th.department')}</th><th>{t('th.salePrice')}</th><th>{t('th.branches')}</th><th>{t('th.status')}</th></tr></thead>
                                 <tbody>{serviceItems.length === 0 ? (
-                                    <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? 'Loading services...' : 'No services found'}</td></tr>
+                                    <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? t('empty.loadingServices') : t('empty.noServices')}</td></tr>
                                 ) : serviceItems.map(s => {
                                     const isActive = Boolean(s.isActive ?? s.status === 'active');
                                     return (
@@ -1719,22 +1741,22 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                     type="checkbox"
                                                     checked={selectedServiceIds.includes(String(s.sourceId))}
                                                     onChange={() => toggleServiceSelection(s.sourceId)}
-                                                    aria-label={`Select service ${s.name}`}
+                                                    aria-label={t('aria.selectService', { name: catalogDisplayName(s, locale) || s.name })}
                                                 />
                                             </td>
-                                            <td><strong>{s.name}</strong></td>
-                                            <td style={{color:'var(--color-text-muted)'}}>{s.dept || '—'}</td>
-                                            <td>SAR {(s.sale_price||0).toFixed(2)}</td>
+                                            <td><strong>{catalogDisplayName(s, locale) || s.name}</strong></td>
+                                            <td style={{color:'var(--color-text-muted)'}}>{s.dept || t('emdash')}</td>
+                                            <td>{t('money.sar', { amount: (s.sale_price||0).toFixed(2) })}</td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(s)}</td>
                                             <td>
-                                                <span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? 'active' : 'inactive'}</span>
+                                                <span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? t('status.active') : t('status.inactive')}</span>
                                                 {canDeleteService && (
                                                     <button
                                                         type="button"
                                                         onClick={() => removeProductFromBranch(s.sourceId, true)}
                                                         style={{ marginLeft: 8, padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
                                                     >
-                                                        {branchScope ? 'Remove' : 'Remove from workshop'}
+                                                        {branchScope ? t('btn.remove') : t('btn.removeWorkshop')}
                                                     </button>
                                                 )}
                                             </td>
@@ -1751,11 +1773,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 <div>
                     <div style={{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:10,marginBottom:16}}>
                         <button className="btn-portal" onClick={loadCategories} disabled={isCategoriesLoading}>
-                            <RefreshCw size={14} /> {isCategoriesLoading ? 'Refreshing...' : 'Refresh'}
+                            <RefreshCw size={14} /> {isCategoriesLoading ? t('btn.refreshing') : t('btn.refresh')}
                         </button>
                         {canCreateCategory && (
                             <button className="btn-portal" onClick={() => setShowCategoryForm(true)}>
-                                <Plus size={14} /> Request Category
+                                <Plus size={14} /> {t('btn.requestCategory')}
                             </button>
                         )}
                     </div>
@@ -1767,15 +1789,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     <div className="ws-section">
                         <WsTableScroll>
                             <table className="ws-table">
-                                <thead><tr><th>Name</th><th>Type</th><th>Department</th><th>Branches</th><th>Status</th>{branchScope && <th>Actions</th>}</tr></thead>
+                                <thead><tr><th>{t('th.name')}</th><th>{t('th.type')}</th><th>{t('th.department')}</th><th>{t('th.branches')}</th><th>{t('th.status')}</th>{branchScope && <th>{t('th.actions')}</th>}</tr></thead>
                                 <tbody>
                                     {categories.length === 0 ? (
                                         <tr><td colSpan={branchScope ? 6 : 5} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>
                                             {isCategoriesLoading
-                                                ? 'Loading categories...'
+                                                ? t('empty.loadingCategories')
                                                 : branchScope
-                                                    ? `No categories adopted into ${selectedBranchName || 'this branch'} yet.`
-                                                    : 'No categories adopted into your workshop yet.'}
+                                                    ? t('empty.noCatsBranch', { name: selectedBranchName || t('scope.thisBranch') })
+                                                    : t('empty.noCatsWorkshop')}
                                         </td></tr>
                                     ) : categories.map((category) => {
                                         const masterId = category.categoryId || category.masterId || category.id;
@@ -1788,7 +1810,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                 <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(category)}</td>
                                                 <td>
                                                     <span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>
-                                                        {isActive ? 'active' : 'inactive'}
+                                                        {isActive ? t('status.active') : t('status.inactive')}
                                                     </span>
                                                 </td>
                                                 {branchScope && (
@@ -1798,7 +1820,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                             onClick={() => removeCategoryFromBranch(masterId)}
                                                             style={{ padding: '4px 10px', background: '#FEF2F2', color: '#B91C1C', border: '1px solid #FECACA', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
                                                         >
-                                                            Remove from this branch
+                                                            {t('btn.removeBranch')}
                                                         </button>
                                                     </td>
                                                 )}

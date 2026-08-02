@@ -9,6 +9,7 @@ import {
 } from '../../services/employeeExpenseApi';
 import { getWorkshopOptions } from '../../services/superAdminApi';
 import ExpenseProofPicker from '../../components/accounting/ExpenseProofPicker';
+import { wpcT } from '../../utils/workshopPettyCashI18n';
 
 function resolveInitialWorkshopId({ workshopIdProp, user, workshop }) {
     return String(workshopIdProp || user?.workshopId || workshop?.id || '');
@@ -19,7 +20,10 @@ export default function PettyCashRecordForms({
     defaultBranchId = '',
     onSubmitted,
     compact = false,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wpcT(locale, key, vars), [locale]);
     const { user, workshop } = useAuth();
     const isPlatformAdmin = user?.userType === 'platform_admin';
 
@@ -57,8 +61,8 @@ export default function PettyCashRecordForms({
             const match = workshops.find((w) => String(w.id) === String(selectedWorkshopId));
             if (match) return match.name || match.label || `#${match.id}`;
         }
-        return workshop?.name || user?.workshopName || 'Current workshop';
-    }, [isPlatformAdmin, workshops, selectedWorkshopId, workshop, user]);
+        return workshop?.name || user?.workshopName || t('workshop.current');
+    }, [isPlatformAdmin, workshops, selectedWorkshopId, workshop, user, t]);
 
     const defaultPettyCashExpenseId = useMemo(() => {
         const match = categories.find(
@@ -130,16 +134,16 @@ export default function PettyCashRecordForms({
     const handleSubmitFund = async () => {
         setFundMsg('');
         if (!selectedWorkshopId) {
-            setFundMsg('Select a workshop.');
+            setFundMsg(t('err.selectWorkshop'));
             return;
         }
         const amt = Number(fundAmount);
         if (!Number.isFinite(amt) || amt <= 0) {
-            setFundMsg('Enter a valid amount.');
+            setFundMsg(t('err.validAmount'));
             return;
         }
         if (!fundBranch) {
-            setFundMsg('Select a branch.');
+            setFundMsg(t('err.selectBranch'));
             return;
         }
         setFundSubmitting(true);
@@ -158,7 +162,7 @@ export default function PettyCashRecordForms({
             setFundNote('');
             onSubmitted?.();
         } catch (e) {
-            setFundMsg(e?.message || 'Submit failed.');
+            setFundMsg(e?.message || t('err.submitFailed'));
         } finally {
             setFundSubmitting(false);
         }
@@ -167,24 +171,24 @@ export default function PettyCashRecordForms({
     const handleSubmitExpense = async () => {
         setExpMsg('');
         if (!selectedWorkshopId) {
-            setExpMsg('Select a workshop.');
+            setExpMsg(t('err.selectWorkshop'));
             return;
         }
         const amt = Number(expAmount);
         if (!Number.isFinite(amt) || amt <= 0) {
-            setExpMsg('Enter a valid amount.');
+            setExpMsg(t('err.validAmount'));
             return;
         }
         if (!expCategory) {
-            setExpMsg('Select an expense category.');
+            setExpMsg(t('err.selectCategory'));
             return;
         }
         if (!expBranch) {
-            setExpMsg('Select a branch.');
+            setExpMsg(t('err.selectBranch'));
             return;
         }
         if (!expProofPreview) {
-            setExpMsg('Expense proof image is required.');
+            setExpMsg(t('err.proofRequired'));
             return;
         }
         setExpSubmitting(true);
@@ -209,7 +213,7 @@ export default function PettyCashRecordForms({
             setExpProofPreview(null);
             onSubmitted?.();
         } catch (e) {
-            setExpMsg(e?.message || 'Submit failed.');
+            setExpMsg(e?.message || t('err.submitFailed'));
         } finally {
             setExpSubmitting(false);
         }
@@ -217,13 +221,13 @@ export default function PettyCashRecordForms({
 
     const workshopField = isPlatformAdmin && workshops.length > 0 ? (
         <div className="form-group form-group-full">
-            <label className="form-label">Workshop *</label>
+            <label className="form-label">{t('form.workshopRequired')}</label>
             <select
                 className="form-input-field"
                 value={selectedWorkshopId}
                 onChange={(e) => handleWorkshopChange(e.target.value)}
             >
-                <option value="">Select workshop</option>
+                <option value="">{t('form.selectWorkshop')}</option>
                 {workshops.map((w) => (
                     <option key={w.id} value={w.id}>{w.name || w.label || `#${w.id}`}</option>
                 ))}
@@ -231,7 +235,7 @@ export default function PettyCashRecordForms({
         </div>
     ) : (
         <div className="form-group form-group-full">
-            <label className="form-label">Workshop</label>
+            <label className="form-label">{t('form.workshop')}</label>
             <input type="text" className="form-input-field" value={workshopLabel} readOnly disabled />
         </div>
     );
@@ -240,48 +244,46 @@ export default function PettyCashRecordForms({
         <section style={{ marginBottom: compact ? 12 : 16 }}>
             {!compact ? (
                 <p className="cash-bank-desc" style={{ marginBottom: 12 }}>
-                    Fund top-ups post <strong>DR [1280] Employee Petty Cash Fund</strong> (branch account);
-                    expenses post <strong>DR [6100] Employee Petty Cash Expense</strong> and{' '}
-                    <strong>CR [1280]</strong> for the selected workshop and branch.
+                    {t('forms.glHint')}
                 </p>
             ) : null}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button type="button" className="btn-portal" onClick={() => setFundOpen((v) => !v)}>
-                    <Plus size={16} /> Request Fund Top-Up
+                    <Plus size={16} /> {t('btn.requestFund')}
                 </button>
                 <button type="button" className="btn-portal" onClick={() => setExpenseOpen((v) => !v)}>
-                    <Plus size={16} /> Submit Expense
+                    <Plus size={16} /> {t('btn.submitExpense')}
                 </button>
             </div>
 
             {fundOpen ? (
                 <section style={{ padding: 18, background: '#fafafa', borderRadius: 12, marginBottom: 12, border: '1px solid #E2E8F0' }}>
-                    <h3 style={{ margin: '0 0 12px' }}>Request Fund Top-Up</h3>
+                    <h3 style={{ margin: '0 0 12px' }}>{t('form.requestFundTitle')}</h3>
                     {fundMsg ? <p className="form-help-text" style={{ color: '#B45309' }}>{fundMsg}</p> : null}
                     <div className="modal-form-grid">
                         {workshopField}
                         <div className="form-group">
-                            <label className="form-label">Branch *</label>
+                            <label className="form-label">{t('form.branchRequired')}</label>
                             <select className="form-input-field" value={fundBranch} onChange={(e) => setFundBranch(e.target.value)}>
-                                <option value="">Select branch</option>
+                                <option value="">{t('form.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Amount (SAR) *</label>
+                            <label className="form-label">{t('form.amountSar')}</label>
                             <input type="number" min="0" step="0.01" className="form-input-field" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)} />
                         </div>
                         <div className="form-group form-group-full">
-                            <label className="form-label">Reason / Note</label>
+                            <label className="form-label">{t('form.reasonNote')}</label>
                             <input type="text" className="form-input-field" value={fundNote} onChange={(e) => setFundNote(e.target.value)} />
                         </div>
                         <div className="form-group form-group-full" style={{ display: 'flex', gap: 8 }}>
                             <button type="button" className="btn-portal" disabled={fundSubmitting} onClick={handleSubmitFund}>
-                                {fundSubmitting ? 'Submitting…' : 'Submit Request'}
+                                {fundSubmitting ? t('btn.submitting') : t('btn.submitRequest')}
                             </button>
-                            <button type="button" className="btn-portal-outline" onClick={() => setFundOpen(false)}>Cancel</button>
+                            <button type="button" className="btn-portal-outline" onClick={() => setFundOpen(false)}>{t('btn.cancel')}</button>
                         </div>
                     </div>
                 </section>
@@ -289,38 +291,38 @@ export default function PettyCashRecordForms({
 
             {expenseOpen ? (
                 <section style={{ padding: 18, background: '#fafafa', borderRadius: 12, marginBottom: 12, border: '1px solid #E2E8F0' }}>
-                    <h3 style={{ margin: '0 0 12px' }}>Submit Expense</h3>
+                    <h3 style={{ margin: '0 0 12px' }}>{t('form.submitExpenseTitle')}</h3>
                     {expMsg ? <p className="form-help-text" style={{ color: '#B45309' }}>{expMsg}</p> : null}
                     <div className="modal-form-grid">
                         {workshopField}
                         <div className="form-group">
-                            <label className="form-label">Branch *</label>
+                            <label className="form-label">{t('form.branchRequired')}</label>
                             <select className="form-input-field" value={expBranch} onChange={(e) => setExpBranch(e.target.value)}>
-                                <option value="">Select branch</option>
+                                <option value="">{t('form.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Expense category *</label>
+                            <label className="form-label">{t('form.expenseCategory')}</label>
                             <select className="form-input-field" value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>
-                                <option value="">Select category</option>
+                                <option value="">{t('form.selectCategory')}</option>
                                 {categories.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.code} · {c.name}</option>
+                                    <option key={c.id} value={c.id}>{t('form.categoryOption', { code: c.code, name: c.name })}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Amount (SAR) *</label>
+                            <label className="form-label">{t('form.amountSar')}</label>
                             <input type="number" min="0" step="0.01" className="form-input-field" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} />
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Expense date</label>
+                            <label className="form-label">{t('form.expenseDate')}</label>
                             <input type="date" className="form-input-field" value={expDate} onChange={(e) => setExpDate(e.target.value)} />
                         </div>
                         <div className="form-group form-group-full">
-                            <label className="form-label">Description</label>
+                            <label className="form-label">{t('form.description')}</label>
                             <input type="text" className="form-input-field" value={expNote} onChange={(e) => setExpNote(e.target.value)} />
                         </div>
                         <ExpenseProofPicker
@@ -328,12 +330,13 @@ export default function PettyCashRecordForms({
                             preview={expProofPreview}
                             onChange={setExpProofPreview}
                             disabled={expSubmitting}
+                            label={t('form.expenseProof')}
                         />
                         <div className="form-group form-group-full" style={{ display: 'flex', gap: 8 }}>
                             <button type="button" className="btn-portal" disabled={expSubmitting} onClick={handleSubmitExpense}>
-                                {expSubmitting ? 'Submitting…' : 'Submit Expense'}
+                                {expSubmitting ? t('btn.submitting') : t('btn.submitExpense')}
                             </button>
-                            <button type="button" className="btn-portal-outline" onClick={() => setExpenseOpen(false)}>Cancel</button>
+                            <button type="button" className="btn-portal-outline" onClick={() => setExpenseOpen(false)}>{t('btn.cancel')}</button>
                         </div>
                     </div>
                 </section>

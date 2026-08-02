@@ -13,6 +13,7 @@ import {
     workshopCorporateCustomersParams,
     filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
+import { wcorpT } from '../../utils/workshopCorporateI18n';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -27,11 +28,15 @@ const statusBadgeClass = (status) => {
     return 'ws-badge--gray';
 };
 
-const STATUS_OPTIONS = [
-    { value: 'active', label: 'Active' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'rejected', label: 'Rejected' },
-];
+const STATUS_VALUES = ['active', 'pending', 'rejected'];
+
+function statusLabel(t, status) {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'active') return t('status.active');
+    if (normalized === 'pending') return t('status.pending');
+    if (normalized === 'rejected') return t('status.rejected');
+    return status || t('status.unknown');
+}
 
 function buildEditForm(row) {
     const person = (row.contactPerson || row.customer?.name || '').trim() || (row.customer?.name || '');
@@ -80,7 +85,7 @@ function buildPatchBody(form, initial) {
     return body;
 }
 
-function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
+function EditCorporateAccountModal({ row, branches, onClose, onSaved, t }) {
     const [form, setForm] = useState(() => buildEditForm(row));
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
@@ -116,7 +121,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
         try {
             const body = buildPatchBody(form, initialRef.current);
             if (Object.keys(body).length === 0) {
-                setSaveError('No changes to save.');
+                setSaveError(t('err.noChanges'));
                 return;
             }
             await apiFetch(`/workshop-staff/corporate-account/${row.id}`, {
@@ -126,7 +131,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
             onSaved?.();
             onClose();
         } catch (e) {
-            setSaveError(e.message || 'Failed to save.');
+            setSaveError(e.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -134,29 +139,29 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
 
     return (
         <Modal
-            title="Edit Corporate Account"
+            title={t('edit.title')}
             onClose={onClose}
             width="520px"
             footer={
                 <>
                     <button type="button" className="btn-portal-outline" onClick={onClose} disabled={saving}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button type="button" className="btn-portal" onClick={handleSave} disabled={saving || !form.companyName.trim()}>
-                        {saving ? 'Saving...' : 'Save Changes'}
+                        {saving ? t('btn.saving') : t('btn.saveChanges')}
                     </button>
                 </>
             }
         >
             <div style={{ fontSize: '0.875rem' }}>
                 <p style={{ margin: '0 0 16px', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                    Update the details below. Only changed fields will be sent.
+                    {t('edit.hint')}
                 </p>
                 {saveError && (
                     <p style={{ margin: '0 0 12px', color: '#B91C1C', fontSize: '0.8125rem' }}>{saveError}</p>
                 )}
 
-                <FieldRow icon={Building2} label="Company Name">
+                <FieldRow icon={Building2} label={t('edit.companyName')}>
                     <input
                         type="text"
                         value={form.companyName}
@@ -164,7 +169,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={User} label="Customer Name">
+                <FieldRow icon={User} label={t('edit.customerName')}>
                     <input
                         type="text"
                         value={form.customerName}
@@ -172,7 +177,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Phone} label="Mobile">
+                <FieldRow icon={Phone} label={t('edit.mobile')}>
                     <input
                         type="text"
                         value={form.mobile}
@@ -180,7 +185,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label="Tax ID (VAT)">
+                <FieldRow icon={FileText} label={t('edit.taxId')}>
                     <input
                         type="text"
                         value={form.taxId}
@@ -188,7 +193,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label="CR number">
+                <FieldRow icon={FileText} label={t('edit.crNumber')}>
                     <input
                         type="text"
                         value={form.crNumber}
@@ -196,15 +201,15 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={ToggleLeft} label="Status">
+                <FieldRow icon={ToggleLeft} label={t('edit.status')}>
                     <select
                         value={form.status}
                         onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', cursor: 'pointer' }}
                     >
-                        {STATUS_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                                {o.label}
+                        {STATUS_VALUES.map((value) => (
+                            <option key={value} value={value}>
+                                {t(`status.${value}`)}
                             </option>
                         ))}
                     </select>
@@ -213,10 +218,10 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                 <div style={{ marginTop: 8, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '0.875rem' }}>
                         <Store size={18} style={{ color: 'var(--color-text-muted)' }} />
-                        Select Branches
+                        {t('edit.selectBranches')}
                     </div>
                     <span className="ws-nav-badge--yellow" style={{ fontSize: '0.6875rem' }}>
-                        {form.selectedBranchIds.length} selected
+                        {t('edit.selectedCount', { count: form.selectedBranchIds.length })}
                     </span>
                 </div>
                 <div
@@ -231,7 +236,7 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved }) {
                 >
                     {branches.length === 0 ? (
                         <p style={{ margin: 12, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                            No branches loaded. Refresh the page or add branches first.
+                            {t('edit.noBranches')}
                         </p>
                     ) : (
                         branches.map((b) => {
@@ -287,7 +292,7 @@ function parseCorporateCustomersResponse(response) {
     return { list: arr, total };
 }
 
-function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSuccess }) {
+function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSuccess, t }) {
     const defaultBranches = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return [String(selectedBranchId)];
         return [];
@@ -343,15 +348,15 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
         const crNumber = form.crNumber.trim();
         const referralId = form.referralId.trim();
         if (!companyName || !contactPerson || !mobile || !email || !password) {
-            setSaveError('Company, contact, mobile, email, and password are required.');
+            setSaveError(t('err.requiredRegister'));
             return;
         }
         if (password.length < 8) {
-            setSaveError('Password must be at least 8 characters.');
+            setSaveError(t('err.passwordLen'));
             return;
         }
         if (!form.selectedBranchIds.length) {
-            setSaveError('Select at least one branch to link this corporate account.');
+            setSaveError(t('err.selectBranch'));
             return;
         }
         setSaving(true);
@@ -370,12 +375,12 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
             if (referralId) payload.referralId = referralId;
             const res = await postCorporateRegister(payload);
             if (res && res.success === false) {
-                throw new Error(res.message || 'Registration failed.');
+                throw new Error(res.message || t('err.register'));
             }
             onSuccess?.();
             onClose();
         } catch (e) {
-            setSaveError(e.message || 'Registration failed.');
+            setSaveError(e.message || t('err.register'));
         } finally {
             setSaving(false);
         }
@@ -383,9 +388,9 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
 
     return (
         <WorkshopSubScreen
-            title="Register corporate customer"
-            subtitle="Signup request for super-admin approval — link branches in your workshop."
-            backLabel="Back to Corporate Management"
+            title={t('register.title')}
+            subtitle={t('register.subtitle')}
+            backLabel={t('register.back')}
             onBack={onClose}
             backDisabled={saving}
             size="form"
@@ -393,24 +398,23 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
             footer={(
                 <>
                     <button type="button" className="btn-portal-outline" onClick={onClose} disabled={saving}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button type="button" className="btn-portal" onClick={handleSubmit} disabled={saving}>
-                        {saving ? 'Submitting...' : 'Submit for approval'}
+                        {saving ? t('btn.submitting') : t('btn.submitApproval')}
                     </button>
                 </>
             )}
         >
             <div className="ws-section" style={{ padding: 20, fontSize: '0.875rem' }}>
                 <p style={{ margin: '0 0 16px', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                    Sends a signup request for super-admin approval. You can link only branches in your workshop here;
-                    the administrator can attach additional branches when approving.
+                    {t('register.hint')}
                 </p>
                 {saveError && (
                     <p style={{ margin: '0 0 12px', color: '#B91C1C', fontSize: '0.8125rem' }}>{saveError}</p>
                 )}
 
-                <FieldRow icon={Building2} label="Company name *">
+                <FieldRow icon={Building2} label={t('register.companyName')}>
                     <input
                         type="text"
                         value={form.companyName}
@@ -418,7 +422,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={User} label="Contact person *">
+                <FieldRow icon={User} label={t('register.contactPerson')}>
                     <input
                         type="text"
                         value={form.contactPerson}
@@ -426,7 +430,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Phone} label="Mobile *">
+                <FieldRow icon={Phone} label={t('register.mobile')}>
                     <input
                         type="text"
                         value={form.mobile}
@@ -434,7 +438,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Mail} label="Portal email *">
+                <FieldRow icon={Mail} label={t('register.email')}>
                     <input
                         type="email"
                         value={form.email}
@@ -443,7 +447,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Lock} label="Portal password *">
+                <FieldRow icon={Lock} label={t('register.password')}>
                     <input
                         type="password"
                         value={form.password}
@@ -452,7 +456,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label="VAT number">
+                <FieldRow icon={FileText} label={t('register.vat')}>
                     <input
                         type="text"
                         value={form.vatNumber}
@@ -460,7 +464,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label="CR number">
+                <FieldRow icon={FileText} label={t('register.crNumber')}>
                     <input
                         type="text"
                         value={form.crNumber}
@@ -468,14 +472,15 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={User} label="Referral ID (optional)">
+                <FieldRow icon={User} label={t('register.referral')}>
                     <input
                         type="text"
                         inputMode="numeric"
                         value={form.referralId}
                         onChange={(e) =>
-                            setForm((f) => ({ ...f, referralId: e.target.value.replace(/\D/g, '') }))}
-                        placeholder="Referral row ID"
+                            setForm((f) => ({ ...f, referralId: e.target.value.replace(/\D/g, '') }))
+                        }
+                        placeholder={t('register.referralPlaceholder')}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
@@ -483,10 +488,10 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                 <div style={{ marginTop: 8, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '0.875rem' }}>
                         <Store size={18} style={{ color: 'var(--color-text-muted)' }} />
-                        Linked branches *
+                        {t('register.linkedBranches')}
                     </div>
                     <span className="ws-nav-badge--yellow" style={{ fontSize: '0.6875rem' }}>
-                        {form.selectedBranchIds.length} selected
+                        {t('register.selectedCount', { count: form.selectedBranchIds.length })}
                     </span>
                 </div>
                 <div
@@ -501,7 +506,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                 >
                     {branches.length === 0 ? (
                         <p style={{ margin: 12, textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                            No branches loaded. Refresh the page or open again after branches load.
+                            {t('register.noBranches')}
                         </p>
                     ) : (
                         branches.map((b) => {
@@ -542,7 +547,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
     );
 }
 
-function AddCorporateUserModal({ row, onClose, onSuccess }) {
+function AddCorporateUserModal({ row, onClose, onSuccess, t }) {
     const [form, setForm] = useState({ name: '', email: '', password: '' });
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
@@ -559,11 +564,11 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
         const email = form.email.trim();
         const password = form.password;
         if (!name || !email || !password) {
-            setSaveError('Name, email, and password are required.');
+            setSaveError(t('err.requiredUser'));
             return;
         }
         if (password.length < 8) {
-            setSaveError('Password must be at least 8 characters.');
+            setSaveError(t('err.passwordLen'));
             return;
         }
         setSaving(true);
@@ -581,21 +586,23 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
             onSuccess?.();
             onClose();
         } catch (e) {
-            setSaveError(e.message || 'Failed to create user.');
+            setSaveError(e.message || t('err.createUser'));
         } finally {
             setSaving(false);
         }
     };
 
+    const accountName = row.companyName || row.customer?.name || t('emdash');
+
     return (
         <Modal
-            title="Add corporate portal user"
+            title={t('addUser.title')}
             onClose={onClose}
             width="480px"
             footer={
                 <>
                     <button type="button" className="btn-portal-outline" onClick={onClose} disabled={saving}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -603,22 +610,22 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
                         onClick={handleCreate}
                         disabled={saving || !form.name.trim() || !form.email.trim() || !form.password}
                     >
-                        {saving ? 'Creating...' : 'Create user'}
+                        {saving ? t('btn.creating') : t('btn.createUser')}
                     </button>
                 </>
             }
         >
             <div style={{ fontSize: '0.875rem' }}>
                 <p style={{ margin: '0 0 8px', color: 'var(--color-text-muted)', fontSize: '0.8125rem' }}>
-                    Account: <strong>{row.companyName || row.customer?.name || '—'}</strong>
+                    {t('addUser.accountLabel')} <strong>{accountName}</strong>
                 </p>
                 <p style={{ margin: '0 0 16px', color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
-                    Creates a corporate user linked to this corporate account ({String(row.id)}).
+                    {t('addUser.hint', { id: String(row.id) })}
                 </p>
                 {saveError && (
                     <p style={{ margin: '0 0 12px', color: '#B91C1C', fontSize: '0.8125rem' }}>{saveError}</p>
                 )}
-                <FieldRow icon={User} label="Name">
+                <FieldRow icon={User} label={t('addUser.name')}>
                     <input
                         type="text"
                         value={form.name}
@@ -627,7 +634,7 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Mail} label="Email">
+                <FieldRow icon={Mail} label={t('addUser.email')}>
                     <input
                         type="email"
                         value={form.email}
@@ -636,7 +643,7 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={Lock} label="Password">
+                <FieldRow icon={Lock} label={t('addUser.password')}>
                     <input
                         type="password"
                         value={form.password}
@@ -650,7 +657,14 @@ function AddCorporateUserModal({ row, onClose, onSuccess }) {
     );
 }
 
-export default function WorkshopCorporateManagement({ selectedBranchId = 'all', branches: branchesFromLayout = [] }) {
+export default function WorkshopCorporateManagement({
+    selectedBranchId = 'all',
+    branches: branchesFromLayout = [],
+    locale: localeProp,
+}) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wcorpT(locale, key, vars), [locale]);
+
     const [customers, setCustomers] = useState([]);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
@@ -677,11 +691,11 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
     }, [mergedBranches]);
 
     const branchLabel = useMemo(() => {
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
+        if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
         return (
-            mergedBranches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch'
+            mergedBranches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.fallback')
         );
-    }, [mergedBranches, selectedBranchId]);
+    }, [mergedBranches, selectedBranchId, t]);
 
     const visibleCustomers = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return customers;
@@ -710,20 +724,20 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
         try {
             const params = workshopCorporateCustomersParams(selectedBranchId);
             const response = await getWorkshopCorporateCustomers(params);
-            const { list, total: t } = parseCorporateCustomersResponse(response);
+            const { list, total: totalCount } = parseCorporateCustomersResponse(response);
             if (response?.success === false && list.length === 0) {
-                throw new Error(response.message || 'Failed to load corporate customers.');
+                throw new Error(response.message || t('err.load'));
             }
             setCustomers(list);
-            setTotal(t > 0 ? t : list.length);
+            setTotal(totalCount > 0 ? totalCount : list.length);
         } catch (err) {
-            setError(err.message || 'Failed to load corporate customers.');
+            setError(err.message || t('err.load'));
             setCustomers([]);
             setTotal(0);
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     useEffect(() => {
         loadCorporateCustomers();
@@ -740,6 +754,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                 selectedBranchId={selectedBranchId}
                 onClose={() => setRegisterOpen(false)}
                 onSuccess={loadCorporateCustomers}
+                t={t}
             />
         );
     }
@@ -748,18 +763,18 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Corporate Management</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Corporate customers linked to your workshop · <strong>{branchLabel}</strong>
+                        {t('page.subtitleBefore')} <strong>{branchLabel}</strong>
                     </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <button type="button" className="btn-portal-outline" onClick={() => setRegisterOpen(true)}>
                         <Plus size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
-                        Register corporate
+                        {t('btn.register')}
                     </button>
                     <button type="button" className="btn-portal" onClick={loadCorporateCustomers} disabled={isLoading}>
-                        <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
+                        <RefreshCw size={14} /> {isLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
                 </div>
             </div>
@@ -773,10 +788,10 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
             <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Total Corporate Customers</p>
+                        <p className="ws-kpi-label">{t('kpi.total')}</p>
                         <p className="ws-kpi-value">{(selectedBranchId && selectedBranchId !== 'all' ? visibleCustomers.length : total)}</p>
                     </div>
-                    <div className="ws-kpi-icon ws-kpi-icon--blue">CORP</div>
+                    <div className="ws-kpi-icon ws-kpi-icon--blue">{t('kpi.badge')}</div>
                 </div>
             </div>
 
@@ -785,15 +800,15 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                     <table className="ws-table">
                         <thead>
                             <tr>
-                                <th>Company</th>
-                                <th>Contact</th>
-                                <th>Mobile</th>
-                                <th>VAT</th>
-                                <th>Credit Limit</th>
-                                <th>Due Balance</th>
-                                <th>Branches</th>
-                                <th>Status</th>
-                                <th style={{ textAlign: 'right' }}>Actions</th>
+                                <th>{t('th.company')}</th>
+                                <th>{t('th.contact')}</th>
+                                <th>{t('th.mobile')}</th>
+                                <th>{t('th.vat')}</th>
+                                <th>{t('th.creditLimit')}</th>
+                                <th>{t('th.dueBalance')}</th>
+                                <th>{t('th.branches')}</th>
+                                <th>{t('th.status')}</th>
+                                <th style={{ textAlign: 'right' }}>{t('th.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -802,7 +817,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                             ) : visibleCustomers.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                        No corporate customers found
+                                        {t('empty.none')}
                                     </td>
                                 </tr>
                             ) : (
@@ -810,18 +825,18 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                     const isPending = String(row.status || '').toLowerCase() === 'pending';
                                     return (
                                     <tr key={row.id ?? row.corporate_account_id ?? row.companyName}>
-                                        <td><strong>{row.companyName || row.customer?.name || '—'}</strong></td>
-                                        <td>{row.contactPerson || '—'}</td>
-                                        <td>{row.customer?.mobile || '—'}</td>
+                                        <td><strong>{row.companyName || row.customer?.name || t('emdash')}</strong></td>
+                                        <td>{row.contactPerson || t('emdash')}</td>
+                                        <td>{row.customer?.mobile || t('emdash')}</td>
                                         <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                            {row.customer?.vatNumber || row.customer?.taxId || '—'}
+                                            {row.customer?.vatNumber || row.customer?.taxId || t('emdash')}
                                         </td>
-                                        <td>SAR {toNumber(row.creditLimit).toLocaleString()}</td>
-                                        <td>SAR {toNumber(row.dueBalance).toLocaleString()}</td>
+                                        <td>{t('money.sar', { amount: toNumber(row.creditLimit).toLocaleString() })}</td>
+                                        <td>{t('money.sar', { amount: toNumber(row.dueBalance).toLocaleString() })}</td>
                                         <td style={{ fontSize: '0.8125rem', maxWidth: 220 }}>
                                             {(() => {
                                                 const ids = row.selectedBranchIds ?? row.selected_branch_ids ?? [];
-                                                if (!Array.isArray(ids) || ids.length === 0) return '—';
+                                                if (!Array.isArray(ids) || ids.length === 0) return t('emdash');
                                                 return ids
                                                     .map((id) => branchNameById.get(String(id)) || String(id))
                                                     .join(', ');
@@ -829,7 +844,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                         </td>
                                         <td>
                                             <span className={`ws-badge ${statusBadgeClass(row.status)}`}>
-                                                {row.status || 'unknown'}
+                                                {statusLabel(t, row.status)}
                                             </span>
                                         </td>
                                         <td style={{ textAlign: 'right' }}>
@@ -842,12 +857,12 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                                     disabled={isPending}
                                                     title={
                                                         isPending
-                                                            ? 'Available after super admin approves registration'
+                                                            ? t('title.addUserPending')
                                                             : undefined
                                                     }
                                                 >
                                                     <UserPlus size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
-                                                    Add user
+                                                    {t('btn.addUser')}
                                                 </button>
                                                 <button
                                                     type="button"
@@ -857,12 +872,12 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                                                     disabled={isPending}
                                                     title={
                                                         isPending
-                                                            ? 'Edit after super admin approval'
+                                                            ? t('title.editPending')
                                                             : undefined
                                                     }
                                                 >
                                                     <Pencil size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
-                                                    Edit
+                                                    {t('btn.edit')}
                                                 </button>
                                             </div>
                                         </td>
@@ -882,6 +897,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                     branches={mergedBranches}
                     onClose={() => setEditing(null)}
                     onSaved={loadCorporateCustomers}
+                    t={t}
                 />
             )}
             {addUserFor && (
@@ -890,6 +906,7 @@ export default function WorkshopCorporateManagement({ selectedBranchId = 'all', 
                     row={addUserFor}
                     onClose={() => setAddUserFor(null)}
                     onSuccess={loadCorporateCustomers}
+                    t={t}
                 />
             )}
         </div>

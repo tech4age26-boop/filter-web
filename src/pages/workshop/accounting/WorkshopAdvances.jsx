@@ -73,13 +73,22 @@ const makeAdvanceRow = () => ({
     reason: '',
 });
 
-export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all' }) {
+export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all', locale: localeProp }) {
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
     const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
+    const statusLabel = useCallback((status) => {
+        const s = String(status || '').toLowerCase();
+        if (s === 'pending' || s === 'approved' || s === 'repaid' || s === 'rejected') {
+            return t(`adv.status.${s}`);
+        }
+        return status || '—';
+    }, [t]);
 
     const [activeTab, setActiveTab] = useState('By Employee');
     const [filter, setFilter] = useState('All');
@@ -526,7 +535,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                         <td className="table-cell">SAR {fmt(a.balance)}</td>
                                         <td className="table-cell">
                                             <span className={`status-badge ${(a.status || '').toLowerCase() === 'approved' ? 'approved' : 'pending'}`}>
-                                                {a.status}
+                                                {statusLabel(a.status)}
                                             </span>
                                         </td>
                                     </tr>

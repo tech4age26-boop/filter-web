@@ -6,19 +6,25 @@ import {
     listApprovalLimits,
     listApprovalRoles,
 } from '../../../services/workshopApprovalLimitsApi';
+import { accT } from '../../../utils/accountingI18n';
 import '../../../styles/admin/AccountingPage.css';
 
-const ROLE_LABELS = {
-    manager: 'Manager',
-    supervisor: 'Supervisor',
-    team_leader: 'Team Leader',
-    cashier: 'Cashier',
-    technician: 'Technician',
-    accounting: 'Accounting',
-    staff: 'Staff (other)',
-};
+export default function WorkshopApprovalLimits({ locale: localeProp } = {}) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
 
-export default function WorkshopApprovalLimits() {
+    const roleLabel = useCallback(
+        (roleKey) => {
+            const key = `approvalLimits.role.${roleKey}`;
+            const translated = t(key);
+            return translated === key ? roleKey : translated;
+        },
+        [t],
+    );
+
     const [rows, setRows] = useState([]);
     const [approvers, setApprovers] = useState([]);
     const [approverRoles, setApproverRoles] = useState(['workshop_admin', 'accounting']);
@@ -51,11 +57,11 @@ export default function WorkshopApprovalLimits() {
             setApprovers(apprRes?.users ?? []);
             setApproverRoles(rolesRes?.approverRoles ?? ['workshop_admin', 'accounting']);
         } catch (e) {
-            setError(e?.message || 'Could not load approval matrix.');
+            setError(e?.message || t('approvalLimits.err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -76,10 +82,10 @@ export default function WorkshopApprovalLimits() {
                 approverRole: r.approverRole || undefined,
             }));
             const res = await bulkUpsertApprovalLimits(items);
-            setMsg(`Saved ${res?.count ?? items.length} role rules.`);
+            setMsg(t('approvalLimits.saved', { n: res?.count ?? items.length }));
             await loadAll();
         } catch (e) {
-            setError(e?.message || 'Could not save approval matrix.');
+            setError(e?.message || t('approvalLimits.err.save'));
         } finally {
             setSaving(false);
         }
@@ -93,10 +99,9 @@ export default function WorkshopApprovalLimits() {
     return (
         <div className="accounting-page module-container">
             <header className="cash-bank-header">
-                <h2 className="cash-bank-title"><Shield size={20} style={{ marginRight: 8 }} />Approval Limits</h2>
+                <h2 className="cash-bank-title"><Shield size={20} style={{ marginRight: 8 }} />{t('approvalLimits.title')}</h2>
                 <p className="cash-bank-desc">
-                    Set per-request and daily approval limits per role, and designate the default approver.
-                    Workshop owner and accounting can always approve in parallel.
+                    {t('approvalLimits.desc')}
                 </p>
             </header>
 
@@ -105,13 +110,13 @@ export default function WorkshopApprovalLimits() {
 
             <div className="cash-bank-actions" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
                 <button type="button" className="btn-portal" disabled={saving || loading} onClick={save}>
-                    <Save size={16} style={{ marginRight: 6 }} /> {saving ? 'Saving…' : 'Save Matrix'}
+                    <Save size={16} style={{ marginRight: 6 }} /> {saving ? t('approvalLimits.saving') : t('approvalLimits.save')}
                 </button>
                 <button type="button" className="btn-portal-outline" disabled={loading} onClick={loadAll}>
-                    <RefreshCw size={16} style={{ marginRight: 6 }} /> Refresh
+                    <RefreshCw size={16} style={{ marginRight: 6 }} /> {t('approvalLimits.refresh')}
                 </button>
                 <span style={{ marginLeft: 'auto', color: '#64748B' }}>
-                    {summary.configured}/{summary.total} roles configured
+                    {t('approvalLimits.configured', { configured: summary.configured, total: summary.total })}
                 </span>
             </div>
 
@@ -119,22 +124,22 @@ export default function WorkshopApprovalLimits() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Role</th>
-                            <th className="table-th">Per-Request Limit (SAR)</th>
-                            <th className="table-th">Daily Limit (SAR)</th>
-                            <th className="table-th">Designated Approver</th>
-                            <th className="table-th">Fallback Approver Role</th>
+                            <th className="table-th">{t('approvalLimits.th.role')}</th>
+                            <th className="table-th">{t('approvalLimits.th.perRequest')}</th>
+                            <th className="table-th">{t('approvalLimits.th.daily')}</th>
+                            <th className="table-th">{t('approvalLimits.th.approver')}</th>
+                            <th className="table-th">{t('approvalLimits.th.fallbackRole')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={5} className="table-cell table-empty">Loading…</td></tr>
+                            <tr><td colSpan={5} className="table-cell table-empty">{t('approvalLimits.loading')}</td></tr>
                         ) : rows.length === 0 ? (
-                            <tr><td colSpan={5} className="table-cell table-empty">No roles available.</td></tr>
+                            <tr><td colSpan={5} className="table-cell table-empty">{t('approvalLimits.empty')}</td></tr>
                         ) : rows.map((r, idx) => (
                             <tr key={r.roleKey}>
                                 <td className="table-cell">
-                                    <strong>{ROLE_LABELS[r.roleKey] ?? r.roleKey}</strong>
+                                    <strong>{roleLabel(r.roleKey)}</strong>
                                     <div style={{ color: '#94A3B8', fontSize: '0.75rem' }}>{r.roleKey}</div>
                                 </td>
                                 <td className="table-cell">
@@ -163,7 +168,7 @@ export default function WorkshopApprovalLimits() {
                                         value={r.approverUserId ?? ''}
                                         onChange={(e) => updateRow(idx, { approverUserId: e.target.value || null })}
                                     >
-                                        <option value="">— Use role fallback —</option>
+                                        <option value="">{t('approvalLimits.useFallback')}</option>
                                         {approvers.map((u) => (
                                             <option key={u.id} value={u.id}>
                                                 {u.name || u.email} ({u.role || u.userType})
@@ -177,7 +182,7 @@ export default function WorkshopApprovalLimits() {
                                         value={r.approverRole ?? ''}
                                         onChange={(e) => updateRow(idx, { approverRole: e.target.value || null })}
                                     >
-                                        <option value="">— None —</option>
+                                        <option value="">{t('approvalLimits.none')}</option>
                                         {approverRoles.map((role) => (
                                             <option key={role} value={role}>{role}</option>
                                         ))}
@@ -190,8 +195,7 @@ export default function WorkshopApprovalLimits() {
             </section>
 
             <p className="form-help-text" style={{ marginTop: 12 }}>
-                If a request is within the limits, the designated approver (or fallback role) handles it. Otherwise
-                it escalates to the workshop admin. Accounting users may always approve in parallel.
+                {t('approvalLimits.footer')}
             </p>
         </div>
     );

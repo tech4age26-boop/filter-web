@@ -8,6 +8,7 @@ import {
     updateLocalSupplier,
 } from '../../services/workshopSuppliersApi';
 import { useAuth } from '../../context/AuthContext';
+import { wnasT } from '../../utils/workshopNonAffiliatedSuppliersI18n';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const fmtMoney = (v) =>
@@ -16,7 +17,7 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
-function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSaving, selectedBranchId = 'all' }) {
+function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSaving, selectedBranchId = 'all', t }) {
     const isAll = !selectedBranchId || selectedBranchId === 'all';
     const visibleBranches = isAll
         ? branches
@@ -38,13 +39,13 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
     const isEdit = Boolean(supplier?.id);
     return (
         <Modal
-            title={isEdit ? 'Edit Non-Affiliated Supplier' : 'Add Non-Affiliated Supplier'}
+            title={isEdit ? t('modal.editTitle') : t('modal.addTitle')}
             onClose={isSaving ? () => {} : onClose}
             width="min(640px, 96vw)"
             footer={
                 <div className="ws-aff-modal-footer">
                     <button type="button" className="btn-portal-outline" onClick={onClose} disabled={isSaving}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -52,7 +53,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         disabled={isSaving || !form.name.trim()}
                         onClick={() => onSave(form)}
                     >
-                        {isSaving ? 'Saving...' : isEdit ? 'Update' : 'Add supplier'}
+                        {isSaving ? t('btn.saving') : isEdit ? t('btn.update') : t('btn.addSupplier')}
                     </button>
                 </div>
             }
@@ -60,23 +61,23 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
             <div className="ws-local-sup-modal-form">
                 <div className="ws-local-sup-modal-grid">
                     <div className="ws-local-sup-modal-field ws-local-sup-modal-field--full">
-                        <label>Supplier name *</label>
+                        <label>{t('modal.name')}</label>
                         <input
                             className="ws-local-sup-modal-input"
                             value={form.name}
                             onChange={(e) => set('name', e.target.value)}
-                            placeholder="e.g. Local Trading Co."
+                            placeholder={t('modal.namePlaceholder')}
                         />
                     </div>
                     <div className="ws-local-sup-modal-field">
-                        <label>Branch (optional)</label>
+                        <label>{t('modal.branch')}</label>
                         <select
                             className="ws-local-sup-modal-input"
                             value={form.branchId || ''}
                             onChange={(e) => set('branchId', e.target.value)}
                             disabled={!isAll}
                         >
-                            {isAll && <option value="">— None (workshop-wide) —</option>}
+                            {isAll && <option value="">{t('modal.branchNone')}</option>}
                             {visibleBranches.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
@@ -85,7 +86,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         </select>
                     </div>
                     <div className="ws-local-sup-modal-field">
-                        <label>Contact person</label>
+                        <label>{t('modal.contactPerson')}</label>
                         <input
                             className="ws-local-sup-modal-input"
                             value={form.contactPerson}
@@ -93,7 +94,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         />
                     </div>
                     <div className="ws-local-sup-modal-field">
-                        <label>Phone</label>
+                        <label>{t('modal.phone')}</label>
                         <input
                             className="ws-local-sup-modal-input"
                             value={form.phone}
@@ -101,7 +102,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         />
                     </div>
                     <div className="ws-local-sup-modal-field">
-                        <label>Email</label>
+                        <label>{t('modal.email')}</label>
                         <input
                             className="ws-local-sup-modal-input"
                             value={form.email}
@@ -110,7 +111,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         />
                     </div>
                     <div className="ws-local-sup-modal-field">
-                        <label>VAT ID</label>
+                        <label>{t('modal.vatId')}</label>
                         <input
                             className="ws-local-sup-modal-input"
                             value={form.vatId}
@@ -118,7 +119,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         />
                     </div>
                     <div className="ws-local-sup-modal-field">
-                        <label>CR Number</label>
+                        <label>{t('modal.crNumber')}</label>
                         <input
                             className="ws-local-sup-modal-input"
                             value={form.crNumber}
@@ -126,7 +127,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                         />
                     </div>
                     <div className="ws-local-sup-modal-field ws-local-sup-modal-field--full">
-                        <label>Address</label>
+                        <label>{t('modal.address')}</label>
                         <textarea
                             className="ws-local-sup-modal-input"
                             rows={2}
@@ -137,7 +138,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                     {!isEdit && (
                         <>
                             <div className="ws-local-sup-modal-field">
-                                <label>Opening balance (SAR)</label>
+                                <label>{t('modal.openingBalance')}</label>
                                 <input
                                     className="ws-local-sup-modal-input"
                                     type="number"
@@ -145,11 +146,11 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                                     min="0"
                                     value={form.openingBalance}
                                     onChange={(e) => set('openingBalance', e.target.value)}
-                                    placeholder="0.00"
+                                    placeholder={t('modal.openingBalancePlaceholder')}
                                 />
                             </div>
                             <div className="ws-local-sup-modal-field">
-                                <label>As of date</label>
+                                <label>{t('modal.asOfDate')}</label>
                                 <input
                                     className="ws-local-sup-modal-input"
                                     type="date"
@@ -169,7 +170,10 @@ export default function WorkshopNonAffiliatedSuppliers({
     selectedBranchId = 'all',
     branches = [],
     onTabChange,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wnasT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const canCreate = hasPermission('workshop.non-affiliated-suppliers.create');
     const canEdit   = hasPermission('workshop.non-affiliated-suppliers.edit');
@@ -192,11 +196,11 @@ export default function WorkshopNonAffiliatedSuppliers({
             setError('');
         } catch (e) {
             console.error(e);
-            setError(e?.message || 'Failed to load suppliers');
+            setError(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     useEffect(() => {
         loadList();
@@ -231,7 +235,7 @@ export default function WorkshopNonAffiliatedSuppliers({
             setEditTarget(null);
             await loadList();
         } catch (e) {
-            alert(e?.message || 'Failed to save supplier');
+            alert(e?.message || t('err.save'));
         } finally {
             setSaving(false);
         }
@@ -244,7 +248,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                 rs.map((r) => (r.id === row.id ? { ...r, isActive: !r.isActive } : r)),
             );
         } catch (e) {
-            alert(e?.message || 'Failed to update supplier');
+            alert(e?.message || t('err.update'));
         }
     };
 
@@ -256,11 +260,11 @@ export default function WorkshopNonAffiliatedSuppliers({
     return (
         <div className="ws-suppliers-page">
             <div className="ws-suppliers-header">
-                <h2 className="ws-suppliers-title">Non-Affiliated Suppliers</h2>
+                <h2 className="ws-suppliers-title">{t('page.title')}</h2>
                 <div className="ws-suppliers-header-actions">
                     <button type="button" className="btn-portal-outline" onClick={loadList} disabled={loading}>
                         <RefreshCw size={14} />
-                        Refresh
+                        {t('btn.refresh')}
                     </button>
                     {canCreate && (
                         <button
@@ -272,7 +276,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                             }}
                         >
                             <Plus size={14} />
-                            Add new non-affiliated supplier
+                            {t('btn.add')}
                         </button>
                     )}
                 </div>
@@ -280,10 +284,11 @@ export default function WorkshopNonAffiliatedSuppliers({
 
             <div className="ws-suppliers-stats">
                 <div className="ws-suppliers-stat ws-suppliers-stat--neutral">
-                    Total: <strong>{rows.length}</strong>
+                    {t('stat.total')} <strong>{rows.length}</strong>
                 </div>
                 <div className="ws-suppliers-stat ws-suppliers-stat--balance">
-                    Aggregate payable balance: <strong>{fmtMoney(totalBalance)} SAR</strong>
+                    {t('stat.aggregate')}{' '}
+                    <strong>{t('money.sar', { amount: fmtMoney(totalBalance) })}</strong>
                 </div>
             </div>
 
@@ -292,12 +297,12 @@ export default function WorkshopNonAffiliatedSuppliers({
                 <table className="ws-suppliers-table">
                     <thead>
                         <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
-                            <th style={{ padding: 12, width: 60 }}>S.No.</th>
-                            <th style={{ padding: 12 }}>Supplier name</th>
-                            <th style={{ padding: 12 }}>Branch</th>
-                            <th style={{ padding: 12 }}>Opening</th>
-                            <th style={{ padding: 12 }}>Final balance (SAR)</th>
-                            <th style={{ padding: 12, width: 110, textAlign: 'center' }}>Active</th>
+                            <th style={{ padding: 12, width: 60 }}>{t('th.sno')}</th>
+                            <th style={{ padding: 12 }}>{t('th.name')}</th>
+                            <th style={{ padding: 12 }}>{t('th.branch')}</th>
+                            <th style={{ padding: 12 }}>{t('th.opening')}</th>
+                            <th style={{ padding: 12 }}>{t('th.finalBalance')}</th>
+                            <th style={{ padding: 12, width: 110, textAlign: 'center' }}>{t('th.active')}</th>
                             <th style={{ padding: 12, width: 200 }}></th>
                         </tr>
                     </thead>
@@ -305,13 +310,13 @@ export default function WorkshopNonAffiliatedSuppliers({
                         {loading ? (
                             <tr>
                                 <td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#64748B' }}>
-                                    Loading suppliers...
+                                    {t('loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#64748B' }}>
-                                    No non-affiliated suppliers yet. Click "Add new non-affiliated supplier" to create one.
+                                    {t('empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -330,11 +335,11 @@ export default function WorkshopNonAffiliatedSuppliers({
                                     >
                                         {r.name}
                                     </td>
-                                    <td style={{ padding: 12 }}>{r.branchName || '—'}</td>
-                                    <td style={{ padding: 12 }}>{fmtMoney(r.openingBalance)}</td>
-                                    <td style={{ padding: 12 }}>{fmtMoney(r.finalBalance)}</td>
+                                    <td style={{ padding: 12 }}>{r.branchName || t('emdash')}</td>
+                                    <td style={{ padding: 12 }}>{t('money.sar', { amount: fmtMoney(r.openingBalance) })}</td>
+                                    <td style={{ padding: 12 }}>{t('money.sar', { amount: fmtMoney(r.finalBalance) })}</td>
                                     <td style={{ padding: 12, textAlign: 'center' }}>
-                                        <label className="ws-suppliers-toggle" title={canEdit ? undefined : 'No edit permission'} style={{ opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
+                                        <label className="ws-suppliers-toggle" title={canEdit ? undefined : t('toggle.noEditPerm')} style={{ opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={Boolean(r.isActive)}
@@ -359,7 +364,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                                                 }
                                             >
                                                 <FileText size={12} />
-                                                Ledger
+                                                {t('btn.ledger')}
                                             </button>
                                             {canEdit && (
                                                 <button
@@ -371,7 +376,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                                                     }}
                                                 >
                                                     <Edit size={12} />
-                                                    Edit
+                                                    {t('btn.edit')}
                                                 </button>
                                             )}
                                         </div>
@@ -393,6 +398,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                     supplier={editTarget}
                     branches={branches}
                     selectedBranchId={selectedBranchId}
+                    t={t}
                     onClose={() => {
                         setShowForm(false);
                         setEditTarget(null);

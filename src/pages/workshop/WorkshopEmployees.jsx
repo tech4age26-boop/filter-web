@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import * as workshopPermsApi from '../../services/workshopPermissionsApi';
 import { codesToActionsByTab, flattenActionsByTab } from '../../utils/permissions';
 import { ROLE_OPTIONS, COMMISSION_TYPE_OPTIONS, normalizeCommissionType } from './constants';
+import { wempT } from '../../utils/workshopEmployeesI18n';
 import {
     loadWorkshopEmployeesCombined,
     createWorkshopTechnician,
@@ -42,6 +43,9 @@ const isPortalStaffRole = (r) =>
 
 const isLockerPortalRole = (r) => r === 'locker_supervisor' || r === 'locker_collector';
 
+const formatRoleName = (slug) =>
+    slug.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+
 /** Manager / supervisor / team leader rows (recordType portal_user or legacy role-only lists). */
 function isPortalEmployeeRow(emp) {
     if (!emp) return false;
@@ -52,13 +56,57 @@ function isPortalEmployeeRow(emp) {
     return isPortalStaffRole(r);
 }
 
-function mapBranchOption(branch) {
+function mapBranchOption(branch, fallbackName = 'Branch') {
     return {
         ...branch,
         id: branch.id ?? branch._id,
-        name: branch.name ?? branch.branchName ?? 'Branch',
+        name: branch.name ?? branch.branchName ?? fallbackName,
         approvalStatus: branch.approvalStatus ?? branch.approval_status ?? null,
     };
+}
+
+function jobRoleLabel(t, role) {
+    const key = String(role || '').toLowerCase().replace(/\s+/g, '_');
+    if (!key) return '';
+    const translated = t(`role.${key}`);
+    return translated === `role.${key}` ? String(role || '').replace(/_/g, ' ') : translated;
+}
+
+function roleNameLabel(t, slug) {
+    const translated = t(`roleName.${slug}`);
+    return translated === `roleName.${slug}` ? formatRoleName(slug) : translated;
+}
+
+function commissionLabel(t, value) {
+    const translated = t(`commission.${value}`);
+    return translated === `commission.${value}`
+        ? (COMMISSION_TYPE_OPTIONS.find((o) => o.value === value)?.label || value)
+        : translated;
+}
+
+function portalIdLabel(t, id) {
+    const translated = t(`portal.id.${id}`);
+    return translated === `portal.id.${id}` ? id : translated;
+}
+
+function actionLabel(t, action) {
+    const translated = t(`action.${action}`);
+    return translated === `action.${action}` ? action : translated;
+}
+
+function statusLabel(t, status) {
+    if (status === 'pending') return t('status.pendingApproval');
+    if (status === 'active') return t('status.active');
+    if (status === 'inactive') return t('status.inactive');
+    return status || t('emdash');
+}
+
+function getPortalOptions(t) {
+    return [
+        { id: 'workshop', label: t('portal.workshop') },
+        { id: 'cashier', label: t('portal.cashier') },
+        { id: 'technician', label: t('portal.technician') },
+    ];
 }
 
 function parseWorkshopDepartmentsResponse(res) {
@@ -97,7 +145,10 @@ function WorkshopEmployees({
     selectedBranchId = 'all',
     branches: branchesProp = [],
     workshopId = null,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wempT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const canCreate = hasPermission('workshop.employees.create');
     const canEdit   = hasPermission('workshop.employees.edit');
@@ -168,7 +219,7 @@ function WorkshopEmployees({
 
     useEffect(() => {
         if (branchesProp?.length) {
-            setBranchList(filterPortalVisibleBranches(branchesProp).map(mapBranchOption));
+            setBranchList(filterPortalVisibleBranches(branchesProp).map((b) => mapBranchOption(b, t('branch.fallback'))));
             return;
         }
         let cancelled = false;
@@ -177,18 +228,18 @@ function WorkshopEmployees({
                 if (cancelled) return;
                 const raw = filterPortalVisibleBranches(unwrapWorkshopBranchesResponse(r));
                 if (raw.length > 0) {
-                    setBranchList(raw.map(mapBranchOption));
+                    setBranchList(raw.map((b) => mapBranchOption(b, t('branch.fallback'))));
                     return;
                 }
                 if (r?.success && Array.isArray(r.branches)) {
-                    setBranchList(filterPortalVisibleBranches(r.branches).map(mapBranchOption));
+                    setBranchList(filterPortalVisibleBranches(r.branches).map((b) => mapBranchOption(b, t('branch.fallback'))));
                 }
             })
             .catch(() => {});
         return () => {
             cancelled = true;
         };
-    }, [branchesProp]);
+    }, [branchesProp, t]);
 
     /** Cashiers / portal staff may only be assigned to super-admin–approved branches. */
     const branchesForNonTechnicianSelect = useMemo(() => {
@@ -199,11 +250,11 @@ function WorkshopEmployees({
         if (editing?.branchId) {
             const cur = branchList.find((b) => String(b.id) === String(editing.branchId));
             if (cur && !approved.some((b) => String(b.id) === String(cur.id))) {
-                return [...approved, mapBranchOption(cur)];
+                return [...approved, mapBranchOption(cur, t('branch.fallback'))];
             }
         }
         return approved;
-    }, [branchList, editing]);
+    }, [branchList, editing, t]);
 
     const branchSelectOptions = useMemo(() => {
         const asTechnician = form.is_technician || isTechnicianRole(form.role);
@@ -238,11 +289,11 @@ function WorkshopEmployees({
             setEmployees(rows);
         } catch (e) {
             setEmployees([]);
-            setListError(e.message || 'Failed to load employees.');
+            setListError(e.message || t('err.loadEmployees'));
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, workshopId]);
+    }, [selectedBranchId, workshopId, t]);
 
     useEffect(() => {
         loadEmployees();
@@ -620,19 +671,19 @@ function WorkshopEmployees({
             editing && isLockerPortalRole(String(editing.role || '').toLowerCase().replace(/\s+/g, '_'));
         const isNonTechEdit = editing && editing._source !== 'technician' && !editingLocker;
         if ((isCashierCreate || isPortalCreate || isNonTechEdit) && !form.branchId) {
-            alert('Assign a super-admin–approved branch (required for cashiers, staff, and portal roles).');
+            alert(t('alert.branchRequired'));
             return;
         }
         if (asTechnician && !editing && !form.branchId) {
-            alert('Select the branch where this technician works — they only appear on POS for cashiers at that branch.');
+            alert(t('alert.techBranchRequired'));
             return;
         }
         if (asTechnician && !form.workshop_duty && !form.oncall_available) {
-            alert('Select at least one technician type: Workshop and/or On-Call.');
+            alert(t('alert.techTypeRequired'));
             return;
         }
         if (form.role === 'team_leader' && !form.teamLeaderDepartmentId?.trim()) {
-            alert('Select the department this team leader is responsible for.');
+            alert(t('alert.teamLeaderDeptRequired'));
             return;
         }
         setSaving(true);
@@ -693,12 +744,12 @@ function WorkshopEmployees({
                             //   - Role no longer exists (deleted in another tab)
                             // Keep the modal open + setSaving(false) so user can retry
                             // without losing their other unsaved edits.
-                            const msg = String(rerr?.message || 'unknown error');
+                            const msg = String(rerr?.message || t('err.unknown'));
                             const isNetwork = /Can't reach|ECONNREFUSED|ETIMEDOUT|fetch failed/i.test(msg);
                             alert(
                                 isNetwork
-                                    ? `Employee details saved, but ROLE assignment couldn't reach the database.\n\nThis is usually a temporary network blip — try saving again in a few seconds. Your role choice is still in the form.`
-                                    : `Employee saved, but role assignment failed:\n${msg}`,
+                                    ? t('alert.roleAssignNetwork')
+                                    : t('alert.roleAssignFailed', { msg }),
                             );
                             // Bail out before modal closes so the user can retry without
                             // re-opening + re-picking the role.
@@ -743,7 +794,7 @@ function WorkshopEmployees({
             setEditing(null);
             await loadEmployees();
         } catch (e) {
-            alert(e.message || 'Save failed');
+            alert(e.message || t('alert.saveFailed'));
         } finally {
             setSaving(false);
         }
@@ -755,10 +806,10 @@ function WorkshopEmployees({
         const source = typeof emp === 'object' ? emp._source : arguments[1];
         const isPortal = typeof emp === 'object' && isPortalEmployeeRow(emp);
         if (source === 'technician') {
-            alert('Technicians cannot be deleted. Edit the technician and set Status to Inactive instead.');
+            alert(t('alert.techNoDelete'));
             return;
         }
-        if (!confirm('Remove this employee? This cannot be undone.')) return;
+        if (!confirm(t('confirm.removeEmployee'))) return;
         setSaving(true);
         try {
             if (isPortal) {
@@ -771,7 +822,7 @@ function WorkshopEmployees({
             }
             await loadEmployees();
         } catch (e) {
-            alert(e.message || 'Delete failed');
+            alert(e.message || t('alert.deleteFailed'));
         } finally {
             setSaving(false);
         }
@@ -782,6 +833,7 @@ function WorkshopEmployees({
             <WorkshopRoleScreen
                 role={roleEditTarget.id ? roleEditTarget : null}
                 branches={branchList}
+                t={t}
                 onBack={() => setRoleEditTarget(null)}
                 onSaved={async () => {
                     setRoleEditTarget(null);
@@ -796,6 +848,7 @@ function WorkshopEmployees({
             <PortalAccessScreen
                 employee={portalAccessTarget}
                 roles={workshopRoles}
+                t={t}
                 onBack={() => setPortalAccessTarget(null)}
                 onSaved={async () => {
                     setPortalAccessTarget(null);
@@ -809,6 +862,7 @@ function WorkshopEmployees({
         return (
             <EmployeePermissionsScreen
                 employee={permissionsTarget}
+                t={t}
                 onBack={() => setPermissionsTarget(null)}
                 onSaved={() => setPermissionsTarget(null)}
             />
@@ -818,13 +872,13 @@ function WorkshopEmployees({
     if (modalOpen) {
         return (
             <WorkshopSubScreen
-                title={editing ? 'Edit Employee' : 'Add New Employee'}
+                title={editing ? t('form.editTitle') : t('form.addTitle')}
                 subtitle={
                     editing
-                        ? `Update ${editing.name || 'employee'} details, role, and access.`
-                        : 'Create a cashier, technician, or portal staff member for this workshop.'
+                        ? t('form.editSubtitle', { name: editing.name || t('form.editSubtitleFallback') })
+                        : t('form.addSubtitle')
                 }
-                backLabel="Back to Employees"
+                backLabel={t('back.employees')}
                 onBack={() => !saving && setModalOpen(false)}
                 backDisabled={saving}
                 size="full"
@@ -832,10 +886,10 @@ function WorkshopEmployees({
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
                         <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)} disabled={saving}>
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" className="btn-submit" onClick={handleSave} disabled={saving}>
-                            {saving ? 'Saving…' : 'Save'}
+                            {saving ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 )}
@@ -844,34 +898,34 @@ function WorkshopEmployees({
                         <div className="ws-employee-form__sections">
                             <div className="ws-employee-form__section">
                                 <div className="ws-employee-form__section-title">
-                                    BASIC INFORMATION
+                                    {t('form.sectionBasic')}
                                 </div>
                                 <div className="ws-form-grid ws-form-grid--employee">
                                     <div className="ws-field">
-                                        <label>Full Name *</label>
+                                        <label>{t('form.fullName')}</label>
                                         <input
                                             value={form.full_name}
                                             onChange={(e) => set('full_name', e.target.value)}
-                                            placeholder="Full Name"
+                                            placeholder={t('form.fullNamePh')}
                                             required
                                         />
                                     </div>
                                     <div className="ws-field">
-                                        <label>Mobile *</label>
+                                        <label>{t('form.mobile')}</label>
                                         <input
                                             value={form.mobile}
                                             onChange={(e) => set('mobile', e.target.value)}
-                                            placeholder="05XXXXXXXX"
+                                            placeholder={t('form.mobilePh')}
                                             required
                                         />
                                     </div>
                                     <div className="ws-field">
-                                        <label>Email</label>
-                                        <input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Email" />
+                                        <label>{t('form.email')}</label>
+                                        <input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder={t('form.emailPh')} />
                                     </div>
                                     <div className="ws-field">
-                                        <label>Iqama / CNIC</label>
-                                        <input value={form.iqama} onChange={(e) => set('iqama', e.target.value)} placeholder="Iqama / CNIC" />
+                                        <label>{t('form.iqama')}</label>
+                                        <input value={form.iqama} onChange={(e) => set('iqama', e.target.value)} placeholder={t('form.iqamaPh')} />
                                     </div>
                                     <div className="ws-field">
                                         {(() => {
@@ -881,15 +935,15 @@ function WorkshopEmployees({
                                             const branchRequired = !asTechnician && !isLocker && (!editing || nonTechEdit);
                                             return (
                                                 <label>
-                                                    Branch{' '}
+                                                    {t('form.branch')}{' '}
                                                     {isLocker ? (
                                                         <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
-                                                            (not used — locker users are workshop-wide)
+                                                            {t('form.branchLockerHint')}
                                                         </span>
                                                     ) : branchRequired ? (
                                                         '*'
                                                     ) : (
-                                                        <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>(optional for technicians)</span>
+                                                        <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>{t('form.branchOptionalTech')}</span>
                                                     )}
                                                 </label>
                                             );
@@ -907,20 +961,20 @@ function WorkshopEmployees({
                                             }}
                                         >
                                             <option value="">
-                                                {isLockerPortalRole(form.role) ? '— Not applicable —' : 'Select Branch'}
+                                                {isLockerPortalRole(form.role) ? t('form.branchNotApplicable') : t('form.selectBranch')}
                                             </option>
                                             {branchSelectOptions.map((b) => (
                                                 <option key={b.id} value={String(b.id)}>
                                                     {b.name}
                                                     {String(b.approvalStatus ?? '').toLowerCase() === 'pending'
-                                                        ? ' (pending approval)'
+                                                        ? t('branch.pendingApproval')
                                                         : ''}
                                                 </option>
                                             ))}
                                         </select>
                                     </div>
                                     <div className="ws-field">
-                                        <label>Role</label>
+                                        <label>{t('form.role')}</label>
                                         <select
                                             value={form.role}
                                             disabled={!roleSelectEditable}
@@ -936,14 +990,14 @@ function WorkshopEmployees({
                                         >
                                             {roleSelectOptions.map((r) => (
                                                 <option key={r} value={r}>
-                                                    {r.replace(/_/g, ' ')}
+                                                    {jobRoleLabel(t, r)}
                                                 </option>
                                             ))}
                                         </select>
                                         <small style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
                                             {roleSelectEditable
-                                                ? 'Job title — controls which workshop sub-flow they’re slotted into.'
-                                                : 'Role is set at creation for this employee type and can’t be changed here. Use the Permission Role below to adjust their dashboard access.'}
+                                                ? t('form.roleHintEditable')
+                                                : t('form.roleHintLocked')}
                                         </small>
                                     </div>
 
@@ -954,28 +1008,28 @@ function WorkshopEmployees({
                                                 isPortalStaffRole(form.role) &&
                                                 !isLockerPortalRole(form.role))) && (
                                         <div className="ws-field">
-                                            <label>Permission Role</label>
+                                            <label>{t('form.permissionRole')}</label>
                                             <select
                                                 value={form.permissionRoleId}
                                                 onChange={(e) => setForm((f) => ({ ...f, permissionRoleId: e.target.value }))}
                                             >
-                                                <option value="">— No role (full access via legacy bypass) —</option>
-                                                {/* Show ALL workshop-managed roles regardless of portal — admin can
-                                                    assign cross-portal if they know what they're doing. Each option's
-                                                    portal is shown in the label so the choice is informed. Backend
-                                                    still validates portal compatibility on save. */}
+                                                <option value="">{t('form.noRoleBypass')}</option>
                                                 {workshopRoles.length === 0 ? (
                                                     <option value="" disabled>
-                                                        (No workshop roles created yet — create one in Roles & Permissions panel)
+                                                        {t('form.noWorkshopRoles')}
                                                     </option>
                                                 ) : workshopRoles.map((r) => (
                                                     <option key={r.id} value={r.id}>
-                                                        {r.name} [{r.portal}] · {r.permissionCount} permissions
+                                                        {t('form.roleOption', {
+                                                            name: r.name,
+                                                            portal: portalIdLabel(t, r.portal),
+                                                            count: r.permissionCount,
+                                                        })}
                                                     </option>
                                                 ))}
                                             </select>
                                             <small style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
-                                                Controls dashboard tabs + actions. To change portal or password, use the 🔑 Portal Access button.
+                                                {t('form.permissionRoleHint')}
                                             </small>
                                         </div>
                                     )}
@@ -983,16 +1037,15 @@ function WorkshopEmployees({
                                     {form.role === 'team_leader' && (
                                         <div className="ws-field" style={{ gridColumn: '1/-1' }}>
                                             <label>
-                                                Department for team leader <span style={{ color: '#B91C1C' }}>*</span>
+                                                {t('form.teamLeaderDept')} <span style={{ color: '#B91C1C' }}>*</span>
                                             </label>
                                             {!form.branchId ? (
                                                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
-                                                    Choose a branch first — departments are loaded for that branch.
+                                                    {t('form.chooseBranchFirst')}
                                                 </p>
                                             ) : teamLeaderDepartments.length === 0 ? (
                                                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
-                                                    No departments adopted for this branch yet. Add departments from the
-                                                    Master Catalog, then try again.
+                                                    {t('form.noDeptsBranch')}
                                                 </p>
                                             ) : (
                                                 <select
@@ -1000,7 +1053,7 @@ function WorkshopEmployees({
                                                     onChange={(e) => set('teamLeaderDepartmentId', e.target.value)}
                                                     style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                                                 >
-                                                    <option value="">Select department</option>
+                                                    <option value="">{t('form.selectDepartment')}</option>
                                                     {teamLeaderDepartments.map((d) => {
                                                         const id = String(d.id ?? d._id);
                                                         return (
@@ -1016,14 +1069,14 @@ function WorkshopEmployees({
                                     {(form.is_technician || isTechnicianRole(form.role)) && (
                                         <div className="ws-field" style={{ gridColumn: '1/-1' }}>
                                             <label>
-                                                Departments{' '}
+                                                {t('form.departments')}{' '}
                                                 <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
-                                                    (workshop departments this technician can work in)
+                                                    {t('form.departmentsHint')}
                                                 </span>
                                             </label>
                                             {workshopDepartments.length === 0 ? (
                                                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: '6px 0 0' }}>
-                                                    No departments adopted yet. Add some from the Master Catalog first.
+                                                    {t('form.noDeptsYet')}
                                                 </p>
                                             ) : (
                                                 <div
@@ -1062,7 +1115,7 @@ function WorkshopEmployees({
 
                             <div className="ws-employee-form__section">
                                 <div className="ws-employee-form__section-title">
-                                    TECHNICIAN SETTINGS
+                                    {t('form.sectionTech')}
                                 </div>
                                 <div className="ws-employee-form__tech-row">
                                     <label
@@ -1081,18 +1134,18 @@ function WorkshopEmployees({
                                                 }));
                                             }}
                                         />
-                                        This employee is a Technician
+                                        {t('form.isTechnician')}
                                     </label>
                                 </div>
                                 {(form.is_technician || isTechnicianRole(form.role)) && (
                                     <div className="ws-employee-form__tech-type">
                                         <div className="ws-employee-form__section-subtitle">
-                                            Technician type
+                                            {t('form.techType')}
                                         </div>
                                         <p className="ws-employee-form__hint">
                                             {isCreateTechnicianMode
-                                                ? 'Default for new technicians: both Workshop and On-Call are enabled.'
-                                                : 'Select one or both. Workshop covers in-house assignment; On-Call covers mobile / after-hours eligibility.'}
+                                                ? t('form.techHintCreate')
+                                                : t('form.techHintEdit')}
                                         </p>
                                         <div className="ws-employee-form__tech-checks">
                                             <label className="ws-employee-form__check-label">
@@ -1102,7 +1155,7 @@ function WorkshopEmployees({
                                                     onChange={(e) => set('workshop_duty', e.target.checked)}
                                                     disabled={isCreateTechnicianMode}
                                                 />
-                                                Workshop
+                                                {t('form.workshop')}
                                             </label>
                                             <label className="ws-employee-form__check-label">
                                                 <input
@@ -1111,7 +1164,7 @@ function WorkshopEmployees({
                                                     onChange={(e) => set('oncall_available', e.target.checked)}
                                                     disabled={isCreateTechnicianMode}
                                                 />
-                                                On-Call
+                                                {t('form.onCall')}
                                             </label>
                                         </div>
                                     </div>
@@ -1120,11 +1173,11 @@ function WorkshopEmployees({
 
                             <div className="ws-employee-form__section">
                                 <div className="ws-employee-form__section-title">
-                                    FINANCIAL
+                                    {t('form.sectionFinancial')}
                                 </div>
                                 <div className="ws-form-grid ws-form-grid--employee">
                                     <div className="ws-field">
-                                        <label>Basic Salary (SAR)</label>
+                                        <label>{t('form.basicSalary')}</label>
                                         <input
                                             type="number"
                                             value={form.basic_salary}
@@ -1133,7 +1186,7 @@ function WorkshopEmployees({
                                         />
                                     </div>
                                     <div className="ws-field">
-                                        <label>Commission %</label>
+                                        <label>{t('form.commissionPct')}</label>
                                         <input
                                             type="number"
                                             value={form.commission_percent}
@@ -1142,20 +1195,20 @@ function WorkshopEmployees({
                                         />
                                     </div>
                                     <div className="ws-field">
-                                        <label>Commission Type</label>
+                                        <label>{t('form.commissionType')}</label>
                                         <select value={form.commission_type} onChange={(e) => set('commission_type', e.target.value)}>
                                             {COMMISSION_TYPE_OPTIONS.map((o) => (
                                                 <option key={o.value} value={o.value}>
-                                                    {o.label}
+                                                    {commissionLabel(t, o.value)}
                                                 </option>
                                             ))}
                                         </select>
                                     </div>
                                     <div className="ws-field">
-                                        <label>Status</label>
+                                        <label>{t('form.status')}</label>
                                         <select value={form.status} onChange={(e) => set('status', e.target.value)}>
-                                            <option value="active">Active</option>
-                                            <option value="inactive">Inactive</option>
+                                            <option value="active">{t('status.active')}</option>
+                                            <option value="inactive">{t('status.inactive')}</option>
                                         </select>
                                     </div>
                                 </div>
@@ -1163,16 +1216,16 @@ function WorkshopEmployees({
 
                             <div className="ws-employee-form__section">
                                 <div className="ws-employee-form__section-title">
-                                    {editing ? 'RESET PASSWORD' : 'INITIAL PASSWORD'}
+                                    {editing ? t('form.sectionPasswordReset') : t('form.sectionPasswordInitial')}
                                 </div>
                                 <div className="ws-form-grid ws-form-grid--employee" style={{ marginTop: 10 }}>
                                     <div className="ws-field ws-employee-form__password-field">
                                         <label>
-                                            {editing ? 'New Password' : 'Password'}{' '}
+                                            {editing ? t('form.newPassword') : t('form.password')}{' '}
                                             <span style={{ fontWeight: 500, color: 'var(--color-text-muted)' }}>
                                                 {editing
-                                                    ? '(leave blank to keep the current password)'
-                                                    : '(optional — a temporary password is generated if blank)'}
+                                                    ? t('form.passwordKeepHint')
+                                                    : t('form.passwordOptionalHint')}
                                             </span>
                                         </label>
                                         <div style={{ position: 'relative' }}>
@@ -1180,14 +1233,14 @@ function WorkshopEmployees({
                                                 type={showPassword ? 'text' : 'password'}
                                                 value={form.password}
                                                 onChange={(e) => set('password', e.target.value)}
-                                                placeholder={editing ? 'New password' : 'Leave blank to auto-generate'}
+                                                placeholder={editing ? t('form.passwordPhEdit') : t('form.passwordPhCreate')}
                                                 autoComplete="new-password"
                                                 style={{ paddingRight: 40, width: '100%' }}
                                             />
                                             <button
                                                 type="button"
                                                 onClick={() => setShowPassword((v) => !v)}
-                                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                                aria-label={showPassword ? t('form.hidePassword') : t('form.showPassword')}
                                                 style={{
                                                     position: 'absolute',
                                                     right: 8,
@@ -1215,25 +1268,26 @@ function WorkshopEmployees({
     if (rolesPanelOpen && canManagePermissions) {
         return (
             <WorkshopSubScreen
-                title="Roles & Permissions"
-                subtitle="Create roles and assign permission bundles to employees."
-                backLabel="Back to Employees"
+                title={t('rolesPanel.title')}
+                subtitle={t('rolesPanel.subtitle')}
+                backLabel={t('back.employees')}
                 onBack={() => setRolesPanelOpen(false)}
                 size="full"
             >
                 <WorkshopRolesPanel
                     roles={workshopRoles}
+                    t={t}
                     canCreate={canCreateRoles}
                     canDelete={canDeleteRoles}
                     onCreate={() => setRoleEditTarget({})}
                     onEdit={(r) => setRoleEditTarget(r)}
                     onDelete={async (r) => {
-                        if (!window.confirm(`Delete role "${r.name}"?`)) return;
+                        if (!window.confirm(t('confirm.deleteRole', { name: r.name }))) return;
                         try {
                             await workshopPermsApi.deleteRole(r.id);
                             await loadWorkshopRoles();
                         } catch (e) {
-                            alert(e?.message || 'Could not delete role');
+                            alert(e?.message || t('alert.deleteRoleFailed'));
                         }
                     }}
                 />
@@ -1245,11 +1299,9 @@ function WorkshopEmployees({
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Employees</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        One list from the workshop employees API (staff, technicians, and cashiers). Portal roles
-                        (manager / supervisor / team leader) show here when the server returns them; they sign in with
-                        the workshop portal after approval.
+                        {t('page.subtitle')}
                     </p>
                 </div>
                 <div className="ws-page-header-actions">
@@ -1257,14 +1309,14 @@ function WorkshopEmployees({
                         <button
                             className="btn-portal-outline"
                             onClick={() => setRolesPanelOpen(true)}
-                            title="Manage workshop roles & permissions"
+                            title={t('btn.rolesPermsTitle')}
                         >
-                            <ShieldCheck size={15} /> Roles & Permissions ({workshopRoles.length})
+                            <ShieldCheck size={15} /> {t('btn.rolesPerms', { count: workshopRoles.length })}
                         </button>
                     )}
                     {canCreate && (
                         <button className="btn-portal" onClick={openAdd} disabled={saving}>
-                            <Plus size={15} /> Add New Employee
+                            <Plus size={15} /> {t('btn.addEmployee')}
                         </button>
                     )}
                 </div>
@@ -1278,7 +1330,7 @@ function WorkshopEmployees({
             <div className="ws-kpi-grid ws-kpi-grid--staff">
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Total Staff</p>
+                        <p className="ws-kpi-label">{t('kpi.totalStaff')}</p>
                         <p className="ws-kpi-value">{displayedEmployees.length}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--blue">
@@ -1287,7 +1339,7 @@ function WorkshopEmployees({
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">On Workshop Duty</p>
+                        <p className="ws-kpi-label">{t('kpi.workshopDuty')}</p>
                         <p className="ws-kpi-value">{displayedEmployees.filter((e) => e.workshop_duty).length}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--green">
@@ -1296,7 +1348,7 @@ function WorkshopEmployees({
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">On-Call</p>
+                        <p className="ws-kpi-label">{t('kpi.onCall')}</p>
                         <p className="ws-kpi-value">{displayedEmployees.filter((e) => e.oncall_available).length}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--purple">
@@ -1311,26 +1363,28 @@ function WorkshopEmployees({
                         type="text"
                         value={empSearch}
                         onChange={(e) => setEmpSearch(e.target.value)}
-                        placeholder="Search employees & technicians…"
-                        aria-label="Search employees and technicians"
+                        placeholder={t('search.placeholder')}
+                        aria-label={t('search.aria')}
                     />
                 </div>
                 {!loading && empSearch.trim() && (
                     <p className="ws-emp-search-count">
-                        {searchedEmployees.length} match{searchedEmployees.length === 1 ? '' : 'es'}
+                        {searchedEmployees.length === 1
+                            ? t('search.matchOne', { count: searchedEmployees.length })
+                            : t('search.matchMany', { count: searchedEmployees.length })}
                     </p>
                 )}
                 {loading && (
                     <div style={{ padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                         <Loader size={20} style={{ animation: 'ws-spin 0.8s linear infinite' }} />
-                        <span style={{ fontSize: '0.875rem' }}>Loading employees…</span>
+                        <span style={{ fontSize: '0.875rem' }}>{t('loading.employees')}</span>
                     </div>
                 )}
                 {!loading && searchedEmployees.length === 0 ? (
                     <p style={{ padding: 16, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
                         {empSearch.trim()
-                            ? `No employees or technicians match “${empSearch.trim()}”.`
-                            : 'No employees in this view.'}
+                            ? t('empty.noMatch', { query: empSearch.trim() })
+                            : t('empty.none')}
                     </p>
                 ) : (
                     !loading && (
@@ -1338,16 +1392,16 @@ function WorkshopEmployees({
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>Name</th>
-                                    <th>Role</th>
-                                    <th>Assigned Role</th>
-                                    <th>Department</th>
-                                    <th>Branch</th>
-                                    <th>Phone</th>
-                                    <th>Commission %</th>
-                                    <th className="ws-col-narrow">Workshop Duty</th>
-                                    <th className="ws-col-narrow">Status</th>
-                                    <th>Actions</th>
+                                    <th>{t('th.name')}</th>
+                                    <th>{t('th.role')}</th>
+                                    <th>{t('th.assignedRole')}</th>
+                                    <th>{t('th.department')}</th>
+                                    <th>{t('th.branch')}</th>
+                                    <th>{t('th.phone')}</th>
+                                    <th>{t('th.commissionPct')}</th>
+                                    <th className="ws-col-narrow">{t('th.workshopDuty')}</th>
+                                    <th className="ws-col-narrow">{t('th.status')}</th>
+                                    <th>{t('th.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1356,7 +1410,7 @@ function WorkshopEmployees({
                                         <td>
                                             <strong>{emp.name}</strong>
                                         </td>
-                                        <td>{String(emp.role || '').replace(/_/g, ' ') || '—'}</td>
+                                        <td>{jobRoleLabel(t, emp.role) || t('emdash')}</td>
                                         <td>
                                             {emp.permissionRole ? (
                                                 <span style={{
@@ -1367,13 +1421,13 @@ function WorkshopEmployees({
                                                     {emp.permissionRole.name}
                                                 </span>
                                             ) : (
-                                                <span style={{ color: '#94a3b8' }}>—</span>
+                                                <span style={{ color: '#94a3b8' }}>{t('emdash')}</span>
                                             )}
                                         </td>
                                         <td>
                                             {(() => {
                                                 const names = getEmployeeDepartmentNames(emp);
-                                                if (!names.length) return '—';
+                                                if (!names.length) return t('emdash');
                                                 return (
                                                     <div className="ws-cell-stack">
                                                         {names.map((name) => (
@@ -1388,7 +1442,7 @@ function WorkshopEmployees({
                                         <td>
                                             {(() => {
                                                 const names = getEmployeeBranchNames(emp);
-                                                if (!names.length) return '—';
+                                                if (!names.length) return t('emdash');
                                                 return (
                                                     <div className="ws-cell-stack">
                                                         {names.map((name) => (
@@ -1404,7 +1458,7 @@ function WorkshopEmployees({
                                         <td>{emp.commission_percent}%</td>
                                         <td className="ws-col-narrow">
                                             <span className={`ws-badge ${emp.workshop_duty ? 'ws-badge--green' : 'ws-badge--gray'}`}>
-                                                {emp.workshop_duty ? 'Active' : 'Off'}
+                                                {emp.workshop_duty ? t('status.active') : t('status.off')}
                                             </span>
                                         </td>
                                         <td className="ws-col-narrow">
@@ -1417,37 +1471,37 @@ function WorkshopEmployees({
                                                           : 'ws-badge--red'
                                                 }`}
                                             >
-                                                {emp.status === 'pending' ? 'pending approval' : emp.status}
+                                                {statusLabel(t, emp.status)}
                                             </span>
                                         </td>
                                         <td onClick={(e) => e.stopPropagation()}>
                                             <RowActionsMenu
                                                 disabled={saving}
-                                                ariaLabel={`Actions for ${emp.name || 'employee'}`}
+                                                ariaLabel={t('aria.actionsFor', { name: emp.name || t('aria.employeeFallback') })}
                                                 items={[
                                                     {
                                                         id: 'edit',
-                                                        label: 'Edit',
+                                                        label: t('btn.edit'),
                                                         hidden: !canEdit,
                                                         onClick: () => openEdit(emp),
                                                     },
                                                     {
                                                         id: 'portal-access',
-                                                        label: 'Portal access',
-                                                        title: 'Grant / change portal access (cashier / technician / workshop)',
+                                                        label: t('btn.portalAccess'),
+                                                        title: t('btn.portalAccessTitle'),
                                                         hidden: !(canManagePermissions && emp.userId),
                                                         onClick: () => setPortalAccessTarget(emp),
                                                     },
                                                     {
                                                         id: 'permissions',
-                                                        label: 'Override permissions',
-                                                        title: 'Override permissions for this user',
+                                                        label: t('btn.overridePerms'),
+                                                        title: t('btn.overridePermsTitle'),
                                                         hidden: !(canManagePermissions && emp.userId),
                                                         onClick: () => setPermissionsTarget(emp),
                                                     },
                                                     {
                                                         id: 'delete',
-                                                        label: 'Delete',
+                                                        label: t('btn.delete'),
                                                         danger: true,
                                                         hidden: !(canDelete && emp._source !== 'technician'),
                                                         onClick: () => handleDelete(emp),
@@ -1473,12 +1527,6 @@ export default WorkshopEmployees;
 /*  Workshop Roles Panel — lists this workshop's custom roles                */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-const PORTAL_OPTIONS = [
-    { id: 'workshop',   label: 'Workshop Admin Portal' },
-    { id: 'cashier',    label: 'Cashier (POS) Portal' },
-    { id: 'technician', label: 'Technician Portal' },
-];
-
 /**
  * Predefined role names — same job-titles list used by the Add Employee form
  * (ROLE_OPTIONS in workshop/constants.js). Keeping this list in sync means a
@@ -1495,24 +1543,20 @@ const PREDEFINED_ROLE_NAMES = [
     'locker_collector',
 ];
 
-const formatRoleName = (slug) =>
-    slug.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
-
-function WorkshopRolesPanel({ roles, canCreate = true, canDelete = true, onCreate, onEdit, onDelete }) {
+function WorkshopRolesPanel({ roles, t, canCreate = true, canDelete = true, onCreate, onEdit, onDelete }) {
     return (
         <div className="ws-section" style={{ marginBottom: 16, padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Workshop Roles</h3>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{t('rolesPanel.heading')}</h3>
                 {canCreate && (
                     <button className="btn-portal" onClick={onCreate}>
-                        <Plus size={14} /> Create Role
+                        <Plus size={14} /> {t('btn.createRole')}
                     </button>
                 )}
             </div>
             {roles.length === 0 ? (
                 <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0 }}>
-                    No custom roles yet. Click <strong>Create Role</strong> to bundle a set of permissions
-                    you can later assign to employees.
+                    {t('rolesPanel.empty')}
                 </p>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
@@ -1532,20 +1576,22 @@ function WorkshopRolesPanel({ roles, canCreate = true, canDelete = true, onCreat
                                     color:      r.portal === 'cashier' ? '#1e40af' :
                                                 r.portal === 'technician' ? '#9a3412' : '#166534',
                                 }}>
-                                    {r.portal}
+                                    {portalIdLabel(t, r.portal)}
                                 </span>
                             </div>
                             {r.description && (
                                 <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{r.description}</p>
                             )}
                             <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>
-                                {r.permissionCount} permissions · {r.userCount} user(s) assigned
+                                {t('rolesPanel.permUsers', { perms: r.permissionCount, users: r.userCount })}
                             </p>
                             {r.portal === 'workshop' && (
                                 <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
-                                    Branches: {r.branchScope === 'all' || !r.branches?.length
-                                        ? 'All'
-                                        : r.branches.map((b) => b.name).join(', ')}
+                                    {t('rolesPanel.branches', {
+                                        names: r.branchScope === 'all' || !r.branches?.length
+                                            ? t('rolesPanel.branchesAll')
+                                            : r.branches.map((b) => b.name).join(', '),
+                                    })}
                                 </p>
                             )}
                             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -1554,7 +1600,7 @@ function WorkshopRolesPanel({ roles, canCreate = true, canDelete = true, onCreat
                                     style={{ flex: 1, padding: '5px', background: '#EFF6FF', color: '#2563EB', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
                                     onClick={() => onEdit(r)}
                                 >
-                                    <Pencil size={12} /> Edit
+                                    <Pencil size={12} /> {t('btn.edit')}
                                 </button>
                                 {!r.isSystem && (
                                     <button
@@ -1562,7 +1608,7 @@ function WorkshopRolesPanel({ roles, canCreate = true, canDelete = true, onCreat
                                         style={{ flex: 1, padding: '5px', background: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
                                         onClick={() => onDelete(r)}
                                     >
-                                        <Trash2 size={12} /> Delete
+                                        <Trash2 size={12} /> {t('btn.delete')}
                                     </button>
                                 )}
                             </div>
@@ -1578,7 +1624,7 @@ function WorkshopRolesPanel({ roles, canCreate = true, canDelete = true, onCreat
 /*  Workshop Role Create / Edit Screen                                         */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
+function WorkshopRoleScreen({ role, branches = [], t, onBack, onSaved }) {
     const isEdit = Boolean(role?.id);
     const [name, setName] = useState(role?.name ?? '');
     const [description, setDescription] = useState(role?.description ?? '');
@@ -1606,7 +1652,7 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
     }, [portal]);
 
     const totalActions = useMemo(
-        () => tree.reduce((s, sec) => s + sec.tabs.reduce((c, t) => c + (t.actions?.length ?? 0), 0), 0),
+        () => tree.reduce((s, sec) => s + sec.tabs.reduce((c, tab) => c + (tab.actions?.length ?? 0), 0), 0),
         [tree],
     );
     const selectedCount = useMemo(
@@ -1625,17 +1671,17 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
     const selectAll = () => {
         const allOn = selectedCount === totalActions;
         const next = {};
-        if (!allOn) for (const sec of tree) for (const t of sec.tabs) {
-            next[t.key] = {};
-            for (const a of t.actions) next[t.key][a] = true;
+        if (!allOn) for (const sec of tree) for (const tab of sec.tabs) {
+            next[tab.key] = {};
+            for (const a of tab.actions) next[tab.key][a] = true;
         }
         setPerms(next);
     };
 
     const handleSave = async () => {
-        if (!name.trim()) { alert('Role name is required'); return; }
+        if (!name.trim()) { alert(t('alert.roleNameRequired')); return; }
         if (portal === 'workshop' && branchScope === 'specific' && selectedBranchIds.length === 0) {
-            alert('Pick at least one branch, or switch to "All Branches"');
+            alert(t('alert.pickBranchOrAll'));
             return;
         }
         setSaving(true);
@@ -1658,7 +1704,7 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
             }
             onSaved?.();
         } catch (e) {
-            alert(e?.message || 'Could not save role');
+            alert(e?.message || t('alert.saveRoleFailed'));
         } finally {
             setSaving(false);
         }
@@ -1666,17 +1712,17 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
 
     return (
         <WorkshopSubScreen
-            title={isEdit ? `Edit Role — ${role.name}` : 'Create Workshop Role'}
-            subtitle="Bundle permissions and optional branch scope for workshop staff."
-            backLabel="Back to Roles"
+            title={isEdit ? t('roleScreen.editTitle', { name: role.name }) : t('roleScreen.createTitle')}
+            subtitle={t('roleScreen.subtitle')}
+            backLabel={t('back.roles')}
             onBack={onBack}
             backDisabled={saving}
             size="xl"
             footer={(
                 <>
-                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>Cancel</button>
+                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>{t('btn.cancel')}</button>
                     <button className="btn-portal" onClick={handleSave} disabled={saving}>
-                        {saving ? 'Saving…' : (isEdit ? 'Save Changes' : 'Create Role')}
+                        {saving ? t('btn.saving') : (isEdit ? t('btn.saveChanges') : t('btn.createRole'))}
                     </button>
                 </>
             )}
@@ -1684,72 +1730,69 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
             <div className="ws-section" style={{ padding: 20, fontSize: '0.875rem' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Role name *</label>
+                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.name')}</label>
                         <select
                             value={PREDEFINED_ROLE_NAMES.includes(name) ? name : (name ? '__custom__' : '')}
                             onChange={(e) => {
                                 const v = e.target.value;
-                                if (v === '__custom__') setName('');     // open free-text below
+                                if (v === '__custom__') setName('');
                                 else if (v === '') setName('');
                                 else setName(v);
                             }}
                             disabled={isEdit}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isEdit ? 0.7 : 1 }}
                         >
-                            <option value="">— Pick a role name —</option>
+                            <option value="">{t('roleScreen.pickName')}</option>
                             {PREDEFINED_ROLE_NAMES.map((n) => (
-                                <option key={n} value={n}>{formatRoleName(n)}</option>
+                                <option key={n} value={n}>{roleNameLabel(t, n)}</option>
                             ))}
-                            <option value="__custom__">Custom name…</option>
+                            <option value="__custom__">{t('roleScreen.customName')}</option>
                         </select>
-                        {/* Free-text input only when user picked "Custom" (or in edit mode). */}
                         {(!PREDEFINED_ROLE_NAMES.includes(name) || isEdit) && (
                             <input
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
-                                placeholder={isEdit ? '' : 'Type a custom name'}
+                                placeholder={isEdit ? '' : t('roleScreen.customNamePh')}
                                 style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', marginTop: 6 }}
                             />
                         )}
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Portal</label>
+                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.portal')}</label>
                         <select
                             value={portal}
                             onChange={(e) => { setPortal(e.target.value); setPerms({}); }}
                             disabled={isEdit}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isEdit ? 0.7 : 1 }}
                         >
-                            {PORTAL_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                            {getPortalOptions(t).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                         </select>
                         {isEdit && (
-                            <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>Portal cannot change after creation.</small>
+                            <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{t('roleScreen.portalLocked')}</small>
                         )}
                     </div>
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Description</label>
+                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.description')}</label>
                     <input value={description} onChange={(e) => setDescription(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }} />
                 </div>
 
-                {/* Branch scope — workshop portal only. Cashier & technician use
-                    per-user User.branchId (set at employee creation) for scoping. */}
                 {portal === 'workshop' && (
                     <div style={{ marginBottom: 14, padding: 12, background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 10 }}>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch Access</label>
+                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.branchAccess')}</label>
                         <select
                             value={branchScope}
                             onChange={(e) => setBranchScope(e.target.value)}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', marginBottom: branchScope === 'specific' ? 10 : 0 }}
                         >
-                            <option value="all">All Branches (no restriction)</option>
-                            <option value="specific">Specific Branches…</option>
+                            <option value="all">{t('roleScreen.branchAll')}</option>
+                            <option value="specific">{t('roleScreen.branchSpecific')}</option>
                         </select>
 
                         {branchScope === 'specific' && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                 {branches.length === 0 ? (
-                                    <small style={{ color: '#92400e' }}>No branches available.</small>
+                                    <small style={{ color: '#92400e' }}>{t('roleScreen.noBranches')}</small>
                                 ) : branches.map((b) => {
                                     const id = String(b.id);
                                     const on = selectedBranchIds.includes(id);
@@ -1777,7 +1820,7 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
                             </div>
                         )}
                         <small style={{ display: 'block', marginTop: 8, color: '#64748b', fontSize: '0.75rem' }}>
-                            Users with this role will only be able to switch between the selected branches in the sidebar.
+                            {t('roleScreen.branchHint')}
                         </small>
                     </div>
                 )}
@@ -1788,26 +1831,25 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
                     border: '1px solid var(--color-border)', marginBottom: 12,
                 }}>
                     <span style={{ fontWeight: 700 }}>
-                        {selectedCount} of {totalActions} permissions selected
+                        {t('roleScreen.permsSelected', { selected: selectedCount, total: totalActions })}
                     </span>
                     <button type="button" className="btn-link" onClick={selectAll}>
-                        {selectedCount === totalActions ? 'Deselect All' : 'Select All'}
+                        {selectedCount === totalActions ? t('btn.deselectAll') : t('btn.selectAll')}
                     </button>
                 </div>
 
                 {loadingTree ? (
                     <div style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>
-                        <Loader size={18} className="spin" /> Loading permissions…
+                        <Loader size={18} className="spin" /> {t('roleScreen.loadingPerms')}
                     </div>
                 ) : tree.length === 0 ? (
                     <div style={{ padding: 20, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: '0.875rem' }}>
-                        No permissions defined yet for the <strong>{portal}</strong> portal. You can still
-                        create the role — assigned users will use the legacy fallback (full access for now).
+                        {t('roleScreen.noPermsDefined', { portal: portalIdLabel(t, portal) })}
                     </div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                         {tree.map((sec) => (
-                            <SectionCard key={sec.section} section={sec} perms={perms} onToggleAction={toggleAction} onToggleTab={toggleTabAll} />
+                            <SectionCard key={sec.section} section={sec} perms={perms} t={t} onToggleAction={toggleAction} onToggleTab={toggleTabAll} />
                         ))}
                     </div>
                 )}
@@ -1816,26 +1858,10 @@ function WorkshopRoleScreen({ role, branches = [], onBack, onSaved }) {
     );
 }
 
-const ACTION_LABEL = {
-    view: 'View',
-    create: 'Create',
-    edit: 'Edit',
-    delete: 'Delete',
-    approve: 'Approve',
-    reject: 'Reject',
-    export: 'Export',
-    add: 'Add',
-    manage: 'Manage',
-    'request-from-supplier': 'Request from Supplier',
-    'manual-adjust': 'Manual Adjust',
-    'critical-level': 'Critical level',
-    'force-logout': 'Force Logout',
-};
-
-function SectionCard({ section, perms, onToggleAction, onToggleTab }) {
+function SectionCard({ section, perms, t, onToggleAction, onToggleTab }) {
     const [open, setOpen] = useState(true);
-    const total = section.tabs.reduce((s, t) => s + (t.actions?.length ?? 0), 0);
-    const checked = section.tabs.reduce((s, t) => s + (t.actions?.filter((a) => perms[t.key]?.[a]).length ?? 0), 0);
+    const total = section.tabs.reduce((s, tab) => s + (tab.actions?.length ?? 0), 0);
+    const checked = section.tabs.reduce((s, tab) => s + (tab.actions?.filter((a) => perms[tab.key]?.[a]).length ?? 0), 0);
     return (
         <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: 12, background: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -1869,7 +1895,7 @@ function SectionCard({ section, perms, onToggleAction, onToggleTab }) {
                                         fontSize: '0.7rem', fontWeight: 700,
                                     }}>
                                         <input type="checkbox" checked={on} onChange={() => onToggleAction(tab.key, a)} style={{ display: 'none' }} />
-                                        {ACTION_LABEL[a] || a}
+                                        {actionLabel(t, a)}
                                     </label>
                                 );
                             })}
@@ -1885,7 +1911,7 @@ function SectionCard({ section, perms, onToggleAction, onToggleTab }) {
 /*  Portal Access Screen — per employee                                        */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function PortalAccessScreen({ employee, roles, onBack, onSaved }) {
+function PortalAccessScreen({ employee, roles, t, onBack, onSaved }) {
     const [portal, setPortal] = useState('workshop');
     const [roleId, setRoleId] = useState('');
     const [password, setPassword] = useState('');
@@ -1900,9 +1926,9 @@ function PortalAccessScreen({ employee, roles, onBack, onSaved }) {
 
     const handleSave = async () => {
         setError('');
-        if (!portal) { setError('Select a portal'); return; }
+        if (!portal) { setError(t('err.selectPortal')); return; }
         if (password && password.length > 0 && password.length < 6) {
-            setError('Password must be at least 6 characters (or leave blank to keep current)');
+            setError(t('err.passwordMin'));
             return;
         }
         setSaving(true);
@@ -1914,7 +1940,7 @@ function PortalAccessScreen({ employee, roles, onBack, onSaved }) {
             });
             onSaved?.();
         } catch (e) {
-            setError(e?.message || 'Could not grant portal access');
+            setError(e?.message || t('err.grantAccess'));
         } finally {
             setSaving(false);
         }
@@ -1922,80 +1948,81 @@ function PortalAccessScreen({ employee, roles, onBack, onSaved }) {
 
     return (
         <WorkshopSubScreen
-            title={`Portal Access — ${employee.name || employee.email}`}
-            subtitle="Choose which portal this employee signs into and which role applies."
-            backLabel="Back to Employees"
+            title={t('portalAccess.title', { name: employee.name || employee.email })}
+            subtitle={t('portalAccess.subtitle')}
+            backLabel={t('back.employees')}
             onBack={onBack}
             backDisabled={saving}
             size="form"
             footer={(
                 <>
-                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>Cancel</button>
+                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>{t('btn.cancel')}</button>
                     <button className="btn-portal" onClick={handleSave} disabled={saving}>
-                        {saving ? 'Saving…' : 'Grant Access'}
+                        {saving ? t('btn.saving') : t('btn.grantAccess')}
                     </button>
                 </>
             )}
         >
             <div className="ws-section" style={{ padding: 20, fontSize: '0.875rem' }}>
                 <div style={{ padding: 12, background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 10, marginBottom: 14 }}>
-                    <strong>{employee.name || '—'}</strong>
-                    <div style={{ color: '#64748b', fontSize: '0.8125rem' }}>{employee.email || 'no email'}</div>
+                    <strong>{employee.name || t('emdash')}</strong>
+                    <div style={{ color: '#64748b', fontSize: '0.8125rem' }}>{employee.email || t('portalAccess.noEmail')}</div>
                 </div>
                 {error && (
                     <div style={{ marginBottom: 12, padding: 10, background: '#fef2f2', color: '#991b1b', borderRadius: 8 }}>{error}</div>
                 )}
 
                 <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Portal *</label>
+                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('portalAccess.portal')}</label>
                     <select
                         value={portal}
                         onChange={(e) => { setPortal(e.target.value); setRoleId(''); }}
                         style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                     >
-                        {PORTAL_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                        {getPortalOptions(t).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                     </select>
                     <small style={{ color: '#64748b', fontSize: '0.75rem' }}>
-                        The employee will sign in via this portal's login page using their email + password.
+                        {t('portalAccess.portalHint')}
                     </small>
                 </div>
 
                 <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Role</label>
+                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('portalAccess.role')}</label>
                     <select
                         value={roleId}
                         onChange={(e) => setRoleId(e.target.value)}
                         style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                     >
-                        <option value="">— No role (full access via legacy bypass) —</option>
+                        <option value="">{t('form.noRoleBypass')}</option>
                         {availableRoles.map((r) => (
                             <option key={r.id} value={r.id}>
-                                {r.name} · {r.permissionCount} permissions
+                                {t('portalAccess.roleOption', { name: r.name, count: r.permissionCount })}
                             </option>
                         ))}
                     </select>
                     {availableRoles.length === 0 && (
                         <small style={{ color: '#92400e', fontSize: '0.75rem' }}>
-                            No roles defined for the {portal} portal yet. Create one in <strong>Roles & Permissions</strong> first.
+                            {t('portalAccess.noRolesForPortal', { portal: portalIdLabel(t, portal) })}
                         </small>
                     )}
                 </div>
 
                 <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>
-                        New password <span style={{ fontWeight: 400, color: '#64748b' }}>(leave blank to keep current)</span>
+                        {t('portalAccess.newPassword')} <span style={{ fontWeight: 400, color: '#64748b' }}>{t('portalAccess.passwordKeep')}</span>
                     </label>
                     <div style={{ position: 'relative' }}>
                         <input
                             type={showPassword ? 'text' : 'password'}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Min 6 characters"
+                            placeholder={t('portalAccess.passwordPh')}
                             style={{ width: '100%', padding: '10px 36px 10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                         />
                         <button
                             type="button"
                             onClick={() => setShowPassword((v) => !v)}
+                            aria-label={showPassword ? t('form.hidePassword') : t('form.showPassword')}
                             style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
                         >
                             {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -2007,8 +2034,7 @@ function PortalAccessScreen({ employee, roles, onBack, onSaved }) {
                     padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe',
                     borderRadius: 8, fontSize: '0.75rem', color: '#1e40af',
                 }}>
-                    💡 This replaces any existing portal access this employee has — one employee can only
-                    use one portal at a time.
+                    {t('portalAccess.note')}
                 </div>
             </div>
         </WorkshopSubScreen>
@@ -2019,7 +2045,7 @@ function PortalAccessScreen({ employee, roles, onBack, onSaved }) {
 /*  Employee Permission Override Screen                                        */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function EmployeePermissionsScreen({ employee, onBack, onSaved }) {
+function EmployeePermissionsScreen({ employee, t, onBack, onSaved }) {
     const userId = employee.userId ?? employee.id;
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -2045,15 +2071,15 @@ function EmployeePermissionsScreen({ employee, onBack, onSaved }) {
             setTree(treeRes?.tree ?? []);
             setPerms(codesToActionsByTab(res?.effectiveCodes ?? []));
         }).catch((e) => {
-            if (!cancelled) setError(e?.message || 'Failed to load permissions');
+            if (!cancelled) setError(e?.message || t('err.loadPerms'));
         }).finally(() => {
             if (!cancelled) setLoading(false);
         });
         return () => { cancelled = true; };
-    }, [userId, employee]);
+    }, [userId, employee, t]);
 
     const total = useMemo(
-        () => tree.reduce((s, sec) => s + sec.tabs.reduce((c, t) => c + (t.actions?.length ?? 0), 0), 0),
+        () => tree.reduce((s, sec) => s + sec.tabs.reduce((c, tab) => c + (tab.actions?.length ?? 0), 0), 0),
         [tree],
     );
     const checked = useMemo(
@@ -2076,20 +2102,20 @@ function EmployeePermissionsScreen({ employee, onBack, onSaved }) {
             await workshopPermsApi.setEmployeePermissions(userId, flattenActionsByTab(perms));
             onSaved?.();
         } catch (e) {
-            alert(e?.message || 'Could not save');
+            alert(e?.message || t('alert.saveOverrideFailed'));
         } finally {
             setSaving(false);
         }
     };
 
     const handleReset = async () => {
-        if (!window.confirm('Revert this employee to their role\'s default permissions?')) return;
+        if (!window.confirm(t('confirm.resetPerms'))) return;
         setSaving(true);
         try {
             await workshopPermsApi.clearEmployeePermissions(userId);
             onSaved?.();
         } catch (e) {
-            alert(e?.message || 'Could not reset');
+            alert(e?.message || t('alert.resetFailed'));
         } finally {
             setSaving(false);
         }
@@ -2097,20 +2123,20 @@ function EmployeePermissionsScreen({ employee, onBack, onSaved }) {
 
     return (
         <WorkshopSubScreen
-            title={`Permissions — ${employee.name || employee.email}`}
-            subtitle="Override this employee's effective permissions on top of their assigned role."
-            backLabel="Back to Employees"
+            title={t('empPerms.title', { name: employee.name || employee.email })}
+            subtitle={t('empPerms.subtitle')}
+            backLabel={t('back.employees')}
             onBack={onBack}
             backDisabled={saving}
             size="xl"
             footer={(
                 <>
                     {hasOverride && (
-                        <button className="btn-portal-outline" onClick={handleReset} disabled={saving}>Reset to role defaults</button>
+                        <button className="btn-portal-outline" onClick={handleReset} disabled={saving}>{t('btn.resetRoleDefaults')}</button>
                     )}
-                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>Cancel</button>
+                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>{t('btn.cancel')}</button>
                     <button className="btn-portal" onClick={handleSave} disabled={saving || loading}>
-                        {saving ? 'Saving…' : 'Save Override'}
+                        {saving ? t('btn.saving') : t('btn.saveOverride')}
                     </button>
                 </>
             )}
@@ -2124,15 +2150,15 @@ function EmployeePermissionsScreen({ employee, onBack, onSaved }) {
                     color: hasOverride ? '#6b21a8' : '#1e40af',
                 }}>
                     {hasOverride
-                        ? '🟣 Custom override active for this employee.'
-                        : '🔵 Using role defaults — saving below creates a per-user override.'}
+                        ? t('empPerms.overrideActive')
+                        : t('empPerms.usingDefaults')}
                 </div>
                 {error && (
                     <div style={{ marginBottom: 12, padding: 10, background: '#fef2f2', color: '#991b1b', borderRadius: 8 }}>{error}</div>
                 )}
                 {loading ? (
                     <div style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>
-                        <Loader size={18} className="spin" /> Loading…
+                        <Loader size={18} className="spin" /> {t('empPerms.loading')}
                     </div>
                 ) : (
                     <>
@@ -2141,16 +2167,16 @@ function EmployeePermissionsScreen({ employee, onBack, onSaved }) {
                             padding: '10px 14px', borderRadius: 10, background: '#f1f5f9',
                             border: '1px solid var(--color-border)', marginBottom: 12,
                         }}>
-                            <strong>{checked} of {total} permissions selected</strong>
+                            <strong>{t('empPerms.permsSelected', { checked, total })}</strong>
                         </div>
                         {tree.length === 0 ? (
                             <div style={{ padding: 20, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
-                                No permissions defined for this portal yet.
+                                {t('empPerms.noPerms')}
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                 {tree.map((sec) => (
-                                    <SectionCard key={sec.section} section={sec} perms={perms} onToggleAction={toggleAction} onToggleTab={toggleTabAll} />
+                                    <SectionCard key={sec.section} section={sec} perms={perms} t={t} onToggleAction={toggleAction} onToggleTab={toggleTabAll} />
                                 ))}
                             </div>
                         )}
@@ -2170,3 +2196,4 @@ function inferPortalFromEmployee(emp) {
     if (role === 'cashier') return 'cashier';
     return 'workshop';
 }
+

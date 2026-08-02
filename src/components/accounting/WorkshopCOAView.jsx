@@ -38,6 +38,7 @@ import {
     startOfMonthISO,
     todayISO,
 } from '../../pages/admin/saAccountingDateRange';
+import { accT } from '../../utils/accountingI18n';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -66,20 +67,27 @@ const palette = {
 };
 
 const typeGroups = [
-    { key: 'ASSET', label: 'Assets', color: '#3b82f6' },
-    { key: 'LIABILITY', label: 'Liabilities', color: '#ef4444' },
-    { key: 'EQUITY', label: 'Equity', color: '#8b5cf6' },
-    { key: 'INCOME', label: 'Revenue', color: '#16a34a' },
-    { key: 'EXPENSE', label: 'Expenses', color: '#f59e0b' },
+    { key: 'ASSET', color: '#3b82f6' },
+    { key: 'LIABILITY', color: '#ef4444' },
+    { key: 'EQUITY', color: '#8b5cf6' },
+    { key: 'INCOME', color: '#16a34a' },
+    { key: 'EXPENSE', color: '#f59e0b' },
 ];
 
 const selectTypes = [
-    { value: '', label: 'All Types' },
-    { value: 'ASSET', label: 'Asset' },
-    { value: 'LIABILITY', label: 'Liability' },
-    { value: 'EQUITY', label: 'Equity' },
-    { value: 'INCOME', label: 'Income' },
-    { value: 'EXPENSE', label: 'Expense' },
+    { value: '', typeKey: 'all' },
+    { value: 'ASSET', typeKey: 'ASSET' },
+    { value: 'LIABILITY', typeKey: 'LIABILITY' },
+    { value: 'EQUITY', typeKey: 'EQUITY' },
+    { value: 'INCOME', typeKey: 'INCOME' },
+    { value: 'EXPENSE', typeKey: 'EXPENSE' },
+];
+
+const COA_TABS = [
+    { id: 'Chart of Accounts', labelKey: 'tab.coa' },
+    { id: 'Trial Balance', labelKey: 'tab.tb' },
+    { id: 'P&L', labelKey: 'coa.tab.plShort' },
+    { id: 'Balance Sheet', labelKey: 'tab.bs' },
 ];
 
 const subtypeByType = {
@@ -107,7 +115,16 @@ function normalizeAccount(raw) {
     };
 }
 
-function toLabel(value = '') {
+function toLabel(value = '', t) {
+    const key = String(value || '');
+    if (t && key) {
+        const subKey = `coa.sub.${key}`;
+        const sub = t(subKey);
+        if (sub !== subKey) return sub;
+        const typeKey = `coa.type.${key}`;
+        const typ = t(typeKey);
+        if (typ !== typeKey) return typ;
+    }
     return String(value)
         .toLowerCase()
         .split('_')
@@ -115,13 +132,13 @@ function toLabel(value = '') {
         .join(' ');
 }
 
-function getNormalBalance(type) {
-    if (type === 'ASSET' || type === 'EXPENSE') return 'Debit';
-    return 'Credit';
+function getNormalBalance(type, t) {
+    if (type === 'ASSET' || type === 'EXPENSE') return t('coa.normal.debit');
+    return t('coa.normal.credit');
 }
 
-function getErrorMessage(error) {
-    return error?.message || 'Something went wrong. Please try again.';
+function getErrorMessage(error, t) {
+    return error?.message || t('coa.err.generic');
 }
 
 function flattenTree(nodes = [], depth = 0, acc = []) {
@@ -158,15 +175,16 @@ const reportCard = {
     background: '#fff',
 };
 
-const fmtMoney = (n) => `SAR ${Number(n || 0).toFixed(2)}`;
+const fmtMoneyNum = (n) => Number(n || 0).toFixed(2);
+const fmtMoney = (n, t) => t('money.sar', { n: fmtMoneyNum(n) });
 
 /** Closing balance from posted journals (same basis as Trial Balance). */
-function formatFinalBalance(acc) {
+function formatFinalBalance(acc, t) {
     const dr = Number(acc.closingDebit || 0);
     const cr = Number(acc.closingCredit || 0);
-    if (dr >= 0.005) return { text: `${fmtMoney(dr)} Dr`, color: '#1d4ed8' };
-    if (cr >= 0.005) return { text: `${fmtMoney(cr)} Cr`, color: '#b91c1c' };
-    return { text: '—', color: palette.textSecondary };
+    if (dr >= 0.005) return { text: t('money.sarDr', { n: fmtMoneyNum(dr) }), color: '#1d4ed8' };
+    if (cr >= 0.005) return { text: t('money.sarCr', { n: fmtMoneyNum(cr) }), color: '#b91c1c' };
+    return { text: t('money.dash'), color: palette.textSecondary };
 }
 
 const fmtDateLabel = (d) => {
@@ -183,7 +201,12 @@ const fmtDateLabel = (d) => {
  * on the New Account modal lets a branch-specific account live alongside shared
  * ones (cash registers, branch bank accounts, etc.).
  */
-export default function WorkshopCOAView({ readOnly = false }) {
+export default function WorkshopCOAView({ readOnly = false, locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [treeAccounts, setTreeAccounts] = useState([]);
@@ -284,7 +307,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 setAccounts(normalizedFlat);
                 setTreeAccounts(normalizedTree);
             } catch (err) {
-                if (!cancelled) setError(getErrorMessage(err));
+                if (!cancelled) setError(getErrorMessage(err, t));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -293,7 +316,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
         return () => {
             cancelled = true;
         };
-    }, [reloadTick, selectedType, selectedBranch]);
+    }, [reloadTick, selectedType, selectedBranch, t]);
 
     const treeFlat = useMemo(() => flattenTree(treeAccounts), [treeAccounts]);
 
@@ -395,7 +418,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
 
     const onSubmit = async () => {
         if (!form.name.trim() || !form.code.trim() || !form.type || !form.subType) {
-            setSubmitError('Please fill all required fields.');
+            setSubmitError(t('coa.err.required'));
             return;
         }
         setSubmitLoading(true);
@@ -419,7 +442,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
             setIsModalOpen(false);
             setReloadTick((x) => x + 1);
         } catch (err) {
-            setSubmitError(getErrorMessage(err));
+            setSubmitError(getErrorMessage(err, t));
         } finally {
             setSubmitLoading(false);
         }
@@ -433,7 +456,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
             setPendingDeleteId('');
             setReloadTick((x) => x + 1);
         } catch (err) {
-            setDeleteError(getErrorMessage(err));
+            setDeleteError(getErrorMessage(err, t));
         } finally {
             setDeleteLoadingId('');
         }
@@ -505,7 +528,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                 style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }}
             />
             <select value={value} onChange={(e) => onChange(e.target.value)} style={branchSelectStyle}>
-                <option value="">All branches</option>
+                <option value="">{t('scope.allBranches')}</option>
                 {branches.map((b) => (
                     <option key={b.id} value={b.id}>
                         {b.name}
@@ -543,19 +566,19 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             onClick={loadTrialBalance}
                             style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
                         >
-                            Apply
+                            {t('date.apply')}
                         </button>
                         <button
                             type="button"
                             onClick={() =>
                                 printHtml(
-                                    'Trial Balance',
-                                    `<h2>Trial Balance</h2><div>${fmtDateLabel(tbFilters.dateFrom)} - ${fmtDateLabel(tbFilters.dateTo)}</div>`,
+                                    t('tb.printTitle'),
+                                    `<h2>${t('tb.printTitle')}</h2><div>${fmtDateLabel(tbFilters.dateFrom)} - ${fmtDateLabel(tbFilters.dateTo)}</div>`,
                                 )
                             }
                             style={{ ...inputStyle, width: 'auto', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
-                            <Printer size={14} /> Print
+                            <Printer size={14} /> {t('btn.print')}
                         </button>
                         <div
                             style={{
@@ -568,14 +591,20 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             }}
                         >
                             {tbData.isBalanced ? <CheckCircle2 size={16} /> : null}
-                            {tbData.isBalanced ? 'Balanced' : 'Unbalanced'}
+                            {tbData.isBalanced ? t('tb.balanced') : t('tb.unbalanced')}
                         </div>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                                 <tr>
-                                    {['Account Code', 'Account Name', 'Type', 'Debit Balance', 'Credit Balance'].map(
+                                    {[
+                                        t('tb.th.code'),
+                                        t('tb.th.name'),
+                                        t('tb.th.type'),
+                                        t('tb.th.debit'),
+                                        t('tb.th.credit'),
+                                    ].map(
                                         (h) => (
                                             <th
                                                 key={h}
@@ -597,7 +626,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 {(tbData.accounts || []).length === 0 ? (
                                     <tr>
                                         <td colSpan={5} style={{ padding: 16, color: palette.textSecondary, textAlign: 'center' }}>
-                                            {tbLoading ? 'Loading...' : 'No accounts for selected range'}
+                                            {tbLoading ? t('loading') : t('tb.empty')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -605,18 +634,18 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                         <tr key={`${a.code}-${a.name}`}>
                                             <td style={{ padding: 8 }}>{a.code}</td>
                                             <td style={{ padding: 8 }}>{a.name}</td>
-                                            <td style={{ padding: 8 }}>{toLabel(a.type)}</td>
-                                            <td style={{ padding: 8 }}>{fmtMoney(a.debitBalance)}</td>
-                                            <td style={{ padding: 8 }}>{fmtMoney(a.creditBalance)}</td>
+                                            <td style={{ padding: 8 }}>{toLabel(a.type, t)}</td>
+                                            <td style={{ padding: 8 }}>{fmtMoney(a.debitBalance, t)}</td>
+                                            <td style={{ padding: 8 }}>{fmtMoney(a.creditBalance, t)}</td>
                                         </tr>
                                     ))
                                 )}
                                 <tr>
                                     <td colSpan={3} style={{ padding: 8, fontWeight: 700 }}>
-                                        Totals
+                                        {t('tb.totals')}
                                     </td>
-                                    <td style={{ padding: 8, fontWeight: 700 }}>{fmtMoney(tbData.totalDebits)}</td>
-                                    <td style={{ padding: 8, fontWeight: 700 }}>{fmtMoney(tbData.totalCredits)}</td>
+                                    <td style={{ padding: 8, fontWeight: 700 }}>{fmtMoney(tbData.totalDebits, t)}</td>
+                                    <td style={{ padding: 8, fontWeight: 700 }}>{fmtMoney(tbData.totalCredits, t)}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -654,103 +683,103 @@ export default function WorkshopCOAView({ readOnly = false }) {
                         <input type="date" value={plFilters.dateTo} onChange={(e) => setPlFilters((p) => ({ ...p, dateTo: e.target.value }))} style={inputStyle} />
                         {renderBranchPicker(plFilters.branchId, (v) => setPlFilters((p) => ({ ...p, branchId: v })))}
                         <button type="button" onClick={loadPL} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
-                            Apply
+                            {t('date.apply')}
                         </button>
                         <button
                             type="button"
                             onClick={() =>
                                 printHtml(
-                                    'Profit and Loss',
-                                    `<h2>Profit & Loss Statement</h2><div>Period: ${fmtDateLabel(plFilters.dateFrom)} — ${fmtDateLabel(plFilters.dateTo)}</div>`,
+                                    t('pl.printTitle'),
+                                    `<h2>${t('pl.printHeading')}</h2><div>${t('pl.period', { from: fmtDateLabel(plFilters.dateFrom), to: fmtDateLabel(plFilters.dateTo) })}</div>`,
                                 )
                             }
                             style={{ ...inputStyle, width: 'auto', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
-                            <Printer size={14} /> Print
+                            <Printer size={14} /> {t('btn.print')}
                         </button>
                     </div>
                     {plLoading ? (
-                        <div style={{ color: palette.textSecondary }}>Loading...</div>
+                        <div style={{ color: palette.textSecondary }}>{t('loading')}</div>
                     ) : (
                         <>
-                            <div style={sectionHeader}>REVENUE</div>
+                            <div style={sectionHeader}>{t('pl.revenue')}</div>
                             {d.revenue.length === 0 ? (
-                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>No revenue accounts</div>
+                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noRevenue')}</div>
                             ) : (
                                 d.revenue.map((r) => (
                                     <div key={r.code} style={rowStyle}>
                                         <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount)}</span>
+                                        <span>{fmtMoney(r.amount, t)}</span>
                                     </div>
                                 ))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#16a34a' }}>
-                                <span>Total Revenue</span>
-                                <span>{fmtMoney(d.totalRevenue)}</span>
+                                <span>{t('pl.totalRevenue')}</span>
+                                <span>{fmtMoney(d.totalRevenue, t)}</span>
                             </div>
-                            <div style={sectionHeader}>COST OF GOODS SOLD</div>
+                            <div style={sectionHeader}>{t('pl.cogs')}</div>
                             {d.costOfGoodsSold.length === 0 ? (
-                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>No COGS accounts</div>
+                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noCogs')}</div>
                             ) : (
                                 d.costOfGoodsSold.map((r) => (
                                     <div key={r.code} style={rowStyle}>
                                         <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount)}</span>
+                                        <span>{fmtMoney(r.amount, t)}</span>
                                     </div>
                                 ))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#dc2626' }}>
-                                <span>Total Cost of Goods Sold</span>
-                                <span>{fmtMoney(d.totalCOGS)}</span>
+                                <span>{t('pl.totalCogs')}</span>
+                                <span>{fmtMoney(d.totalCOGS, t)}</span>
                             </div>
                             <div style={{ ...rowStyle, fontWeight: 800, color: '#16a34a' }}>
-                                <span>Gross Profit</span>
-                                <span>{fmtMoney(d.grossProfit)}</span>
+                                <span>{t('pl.grossProfit')}</span>
+                                <span>{fmtMoney(d.grossProfit, t)}</span>
                             </div>
-                            <div style={sectionHeader}>OPERATING EXPENSES</div>
+                            <div style={sectionHeader}>{t('pl.opex')}</div>
                             {d.operatingExpenses.length === 0 ? (
-                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>No operating expenses</div>
+                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noOpex')}</div>
                             ) : (
                                 d.operatingExpenses.map((r) => (
                                     <div key={r.code} style={rowStyle}>
                                         <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount)}</span>
+                                        <span>{fmtMoney(r.amount, t)}</span>
                                     </div>
                                 ))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#dc2626' }}>
-                                <span>Total Operating Expenses</span>
-                                <span>{fmtMoney(d.totalOperatingExpenses)}</span>
+                                <span>{t('pl.totalOpex')}</span>
+                                <span>{fmtMoney(d.totalOperatingExpenses, t)}</span>
                             </div>
-                            <div style={sectionHeader}>OTHER INCOME</div>
+                            <div style={sectionHeader}>{t('pl.otherIncome')}</div>
                             {d.otherIncome.length === 0 ? (
-                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>No other income</div>
+                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noOtherIncome')}</div>
                             ) : (
                                 d.otherIncome.map((r) => (
                                     <div key={r.code} style={rowStyle}>
                                         <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount)}</span>
+                                        <span>{fmtMoney(r.amount, t)}</span>
                                     </div>
                                 ))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#16a34a' }}>
-                                <span>Total Other Income</span>
-                                <span>{fmtMoney(d.totalOtherIncome)}</span>
+                                <span>{t('pl.totalOtherIncome')}</span>
+                                <span>{fmtMoney(d.totalOtherIncome, t)}</span>
                             </div>
-                            <div style={sectionHeader}>OTHER EXPENSES</div>
+                            <div style={sectionHeader}>{t('pl.otherExpenses')}</div>
                             {d.otherExpenses.length === 0 ? (
-                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>No other expenses</div>
+                                <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noOtherExpenses')}</div>
                             ) : (
                                 d.otherExpenses.map((r) => (
                                     <div key={r.code} style={rowStyle}>
                                         <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount)}</span>
+                                        <span>{fmtMoney(r.amount, t)}</span>
                                     </div>
                                 ))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#dc2626' }}>
-                                <span>Total Other Expenses</span>
-                                <span>{fmtMoney(d.totalOtherExpenses)}</span>
+                                <span>{t('pl.totalOtherExpenses')}</span>
+                                <span>{fmtMoney(d.totalOtherExpenses, t)}</span>
                             </div>
                             <div
                                 style={{
@@ -764,8 +793,8 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                     fontWeight: 800,
                                 }}
                             >
-                                <span>Net Income / (Loss)</span>
-                                <span style={{ color: d.netIncome >= 0 ? '#22c55e' : '#ef4444' }}>{fmtMoney(d.netIncome)}</span>
+                                <span>{t('pl.netIncome')}</span>
+                                <span style={{ color: d.netIncome >= 0 ? '#22c55e' : '#ef4444' }}>{fmtMoney(d.netIncome, t)}</span>
                             </div>
                         </>
                     )}
@@ -796,92 +825,92 @@ export default function WorkshopCOAView({ readOnly = false }) {
                     />
                     {renderBranchPicker(bsFilters.branchId, (v) => setBsFilters((p) => ({ ...p, branchId: v })))}
                     <button type="button" onClick={loadBalanceSheet} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
-                        Apply
+                        {t('date.apply')}
                     </button>
                     <button
                         type="button"
                         onClick={() =>
-                            printHtml('Balance Sheet', `<h2>Balance Sheet</h2><div>As of: ${fmtDateLabel(bsFilters.asOf)}</div>`)
+                            printHtml(t('bs.printTitle'), `<h2>${t('bs.printTitle')}</h2><div>${t('bs.asOf', { date: fmtDateLabel(bsFilters.asOf) })}</div>`)
                         }
                         style={{ ...inputStyle, width: 'auto', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     >
-                        <Printer size={14} /> Print
+                        <Printer size={14} /> {t('btn.print')}
                     </button>
                 </div>
                 {bsLoading ? (
-                    <div style={{ color: palette.textSecondary }}>Loading...</div>
+                    <div style={{ color: palette.textSecondary }}>{t('loading')}</div>
                 ) : (
                     <>
-                        <div style={{ fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700 }}>ASSETS</div>
+                        <div style={{ fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700 }}>{t('bs.assets')}</div>
                         <div style={{ ...bsRow, fontWeight: 700 }}>
-                            <span>Current Assets</span>
-                            <span>{fmtMoney(b.assets.current.reduce((s, x) => s + x.amount, 0))}</span>
+                            <span>{t('bs.currentAssets')}</span>
+                            <span>{fmtMoney(b.assets.current.reduce((s, x) => s + x.amount, 0), t)}</span>
                         </div>
                         {b.assets.current.map((r) => (
                             <div key={`ac-${r.code}`} style={bsRow}>
                                 <span>{r.name}</span>
-                                <span>{fmtMoney(r.amount)}</span>
+                                <span>{fmtMoney(r.amount, t)}</span>
                             </div>
                         ))}
                         <div style={{ ...bsRow, fontWeight: 700 }}>
-                            <span>Fixed Assets</span>
-                            <span>{fmtMoney(b.assets.fixed.reduce((s, x) => s + x.amount, 0))}</span>
+                            <span>{t('bs.fixedAssets')}</span>
+                            <span>{fmtMoney(b.assets.fixed.reduce((s, x) => s + x.amount, 0), t)}</span>
                         </div>
                         {b.assets.fixed.map((r) => (
                             <div key={`af-${r.code}`} style={bsRow}>
                                 <span>{r.name}</span>
-                                <span>{fmtMoney(r.amount)}</span>
+                                <span>{fmtMoney(r.amount, t)}</span>
                             </div>
                         ))}
                         <div style={{ ...bsRow, fontWeight: 700 }}>
-                            <span>Other Assets</span>
-                            <span>{fmtMoney(b.assets.other.reduce((s, x) => s + x.amount, 0))}</span>
+                            <span>{t('bs.otherAssets')}</span>
+                            <span>{fmtMoney(b.assets.other.reduce((s, x) => s + x.amount, 0), t)}</span>
                         </div>
                         {b.assets.other.map((r) => (
                             <div key={`ao-${r.code}`} style={bsRow}>
                                 <span>{r.name}</span>
-                                <span>{fmtMoney(r.amount)}</span>
+                                <span>{fmtMoney(r.amount, t)}</span>
                             </div>
                         ))}
                         <div style={{ ...bsRow, fontWeight: 800 }}>
-                            <span>Total Assets</span>
-                            <span>{fmtMoney(b.assets.totalAssets)}</span>
+                            <span>{t('bs.totalAssets')}</span>
+                            <span>{fmtMoney(b.assets.totalAssets, t)}</span>
                         </div>
-                        <div style={{ fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700, marginTop: 12 }}>LIABILITIES</div>
+                        <div style={{ fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700, marginTop: 12 }}>{t('bs.liabilities')}</div>
                         <div style={{ ...bsRow, fontWeight: 700 }}>
-                            <span>Current Liabilities</span>
-                            <span>{fmtMoney(b.liabilities.current.reduce((s, x) => s + x.amount, 0))}</span>
+                            <span>{t('bs.currentLiab')}</span>
+                            <span>{fmtMoney(b.liabilities.current.reduce((s, x) => s + x.amount, 0), t)}</span>
                         </div>
                         {b.liabilities.current.map((r) => (
                             <div key={`lc-${r.code}`} style={bsRow}>
                                 <span>{r.name}</span>
-                                <span>{fmtMoney(r.amount)}</span>
+                                <span>{fmtMoney(r.amount, t)}</span>
                             </div>
                         ))}
                         <div style={{ ...bsRow, fontWeight: 700 }}>
-                            <span>Long-term Liabilities</span>
-                            <span>{fmtMoney(b.liabilities.longTerm.reduce((s, x) => s + x.amount, 0))}</span>
+                            <span>{t('bs.longTermLiab')}</span>
+                            <span>{fmtMoney(b.liabilities.longTerm.reduce((s, x) => s + x.amount, 0), t)}</span>
                         </div>
                         {b.liabilities.longTerm.map((r) => (
                             <div key={`ll-${r.code}`} style={bsRow}>
                                 <span>{r.name}</span>
-                                <span>{fmtMoney(r.amount)}</span>
+                                <span>{fmtMoney(r.amount, t)}</span>
                             </div>
                         ))}
                         <div style={{ ...bsRow, fontWeight: 800 }}>
-                            <span>Total Liabilities</span>
-                            <span>{fmtMoney(b.liabilities.totalLiabilities)}</span>
+                            <span>{t('bs.totalLiab')}</span>
+                            <span>{fmtMoney(b.liabilities.totalLiabilities, t)}</span>
                         </div>
-                        <div style={{ fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700, marginTop: 12 }}>EQUITY</div>
+                        <div style={{ fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700, marginTop: 12 }}>{t('bs.equity')}</div>
                         {b.equity.accounts.map((r) => (
                             <div key={`eq-${r.code}`} style={bsRow}>
                                 <span>{r.name}</span>
-                                <span>{fmtMoney(r.amount)}</span>
+                                <span>{fmtMoney(r.amount, t)}</span>
                             </div>
                         ))}
                         <div style={{ ...bsRow, fontWeight: 800 }}>
-                            <span>Total Equity</span>
-                            <span>{fmtMoney(b.equity.totalEquity)}</span>
+                            <span>{t('bs.totalEquity')}</span>
+                            <span>{fmtMoney(b.equity.totalEquity, t)}</span>
                         </div>
                         <div
                             style={{
@@ -895,8 +924,8 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 fontWeight: 800,
                             }}
                         >
-                            <span>Total Liabilities + Equity</span>
-                            <span>{fmtMoney(b.totalLiabilitiesAndEquity)}</span>
+                            <span>{t('bs.totalLiabEquity')}</span>
+                            <span>{fmtMoney(b.totalLiabilitiesAndEquity, t)}</span>
                         </div>
                     </>
                 )}
@@ -904,7 +933,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
         );
     };
 
-    const modalTitle = editingId ? 'Edit Account' : 'New Account';
+    const modalTitle = editingId ? t('coa.modal.edit') : t('coa.modal.new');
 
     return (
         <div
@@ -927,11 +956,11 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             color: palette.textPrimary,
                         }}
                     >
-                        Accounting
+                        {t('coa.title')}
                     </h1>
                 </div>
                 <p style={{ margin: 0, color: palette.textSecondary, fontSize: '0.875rem' }}>
-                    Workshop Chart of Accounts &amp; Financial Reports
+                    {t('coa.subtitle')}
                 </p>
             </div>
 
@@ -945,13 +974,13 @@ export default function WorkshopCOAView({ readOnly = false }) {
                     background: palette.cardBg,
                 }}
             >
-                {['Chart of Accounts', 'Trial Balance', 'P&L', 'Balance Sheet'].map((tab) => {
-                    const active = tab === activeTab;
+                {COA_TABS.map((tab) => {
+                    const active = tab.id === activeTab;
                     return (
                         <button
-                            key={tab}
+                            key={tab.id}
                             type="button"
-                            onClick={() => setActiveTab(tab)}
+                            onClick={() => setActiveTab(tab.id)}
                             style={{
                                 border: 'none',
                                 background: 'transparent',
@@ -962,7 +991,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 cursor: 'pointer',
                             }}
                         >
-                            {tab}
+                            {t(tab.labelKey)}
                         </button>
                     );
                 })}
@@ -989,10 +1018,10 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 }}
                             >
                                 <div style={{ fontSize: 14, color: palette.textSecondary, marginBottom: 6 }}>
-                                    {group.label}
+                                    {t(`coa.group.${group.key}`)}
                                 </div>
                                 <div style={{ fontSize: 18, fontWeight: 700, color: group.color }}>
-                                    {(grouped[group.key] || []).length} accounts
+                                    {t('coa.accountsCount', { n: (grouped[group.key] || []).length })}
                                 </div>
                             </div>
                         ))}
@@ -1016,7 +1045,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             <input
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search accounts..."
+                                placeholder={t('coa.searchPh')}
                                 style={{
                                     width: '100%',
                                     border: `1px solid ${palette.border}`,
@@ -1043,8 +1072,8 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 }}
                             >
                                 {selectTypes.map((item) => (
-                                    <option key={item.label} value={item.value}>
-                                        {item.label}
+                                    <option key={item.typeKey} value={item.value}>
+                                        {item.typeKey === 'all' ? t('coa.type.all') : t(`coa.type.${item.typeKey}`)}
                                     </option>
                                 ))}
                             </select>
@@ -1072,15 +1101,12 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 }}
                             >
                                 <Plus size={16} />
-                                New Account
+                                {t('coa.newAccount')}
                             </button>
                         )}
                     </div>
                     <p className="sa-acc-coa-hint" style={{ margin: '0 0 12px' }}>
-                        Final balance is from posted journals (all dates). Click a detail account row to open its
-                        ledger statement — same layout as Platform HQ. Petty cash controls{' '}
-                        <strong>[1280]</strong> / <strong>[6100]</strong> and cash/bank detail accounts open
-                        filtered register views.
+                        {t('coa.hint.ws')}
                     </p>
 
                     {loading ? (
@@ -1096,7 +1122,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             }}
                         >
                             <RefreshCw size={16} />
-                            Loading accounts...
+                            {t('coa.loading')}
                         </div>
                     ) : error ? (
                         <div
@@ -1120,13 +1146,14 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                     cursor: 'pointer',
                                 }}
                             >
-                                Retry
+                                {t('coa.retry')}
                             </button>
                         </div>
                     ) : (
                         <div style={{ border: `1px solid ${palette.border}`, borderRadius: 8, overflow: 'hidden' }}>
                             {typeGroups.map((group) => {
                                 const rows = grouped[group.key] || [];
+                                const groupLabel = t(`coa.group.${group.key}`);
                                 return (
                                     <div key={group.key} style={{ borderTop: `1px solid ${palette.border}` }}>
                                         <div
@@ -1139,9 +1166,11 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                 alignItems: 'center',
                                             }}
                                         >
-                                            <strong style={{ color: palette.textPrimary }}>{group.label}</strong>
+                                            <strong style={{ color: palette.textPrimary }}>{groupLabel}</strong>
                                             <span style={{ color: palette.textSecondary, fontSize: 13 }}>
-                                                {rows.length} {rows.length === 1 ? 'account' : 'accounts'}
+                                                {rows.length === 1
+                                                    ? t('coa.accountCount', { n: rows.length })
+                                                    : t('coa.accountsCount', { n: rows.length })}
                                             </span>
                                         </div>
 
@@ -1149,16 +1178,16 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                             <thead>
                                                 <tr>
                                                     {[
-                                                        'Code',
-                                                        'Account Name',
-                                                        'Subtype',
-                                                        'Branch',
-                                                        'Normal Bal.',
-                                                        'Final balance',
-                                                        'Status',
-                                                        'Actions',
+                                                        t('coa.th.code'),
+                                                        t('coa.th.name'),
+                                                        t('coa.th.subtype'),
+                                                        t('coa.th.branch'),
+                                                        t('coa.th.normalBal'),
+                                                        t('coa.th.finalBal'),
+                                                        t('coa.th.status'),
+                                                        t('coa.th.actions'),
                                                     ]
-                                                        .filter((h) => !readOnly || h !== 'Actions')
+                                                        .filter((h) => !readOnly || h !== t('coa.th.actions'))
                                                         .map((header) => (
                                                             <th
                                                                 key={header}
@@ -1188,23 +1217,25 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                 padding: '14px 12px',
                                                             }}
                                                         >
-                                                            No {group.label.toLowerCase()} accounts
+                                                            {t('coa.emptyType', { type: groupLabel })}
                                                         </td>
                                                     </tr>
                                                 ) : (
                                                     rows.map((acc) => {
                                                         const parentName = acc.parentId
-                                                            ? parentNameById.get(String(acc.parentId)) || '—'
-                                                            : '—';
+                                                            ? parentNameById.get(String(acc.parentId)) || t('money.dash')
+                                                            : t('money.dash');
                                                         const branchName = acc.branchId
-                                                            ? branchById.get(String(acc.branchId)) || '—'
-                                                            : 'Shared';
+                                                            ? branchById.get(String(acc.branchId)) || t('money.dash')
+                                                            : t('coa.shared');
                                                         const autoLinked = acc.isAutoSeed;
                                                         const controlBadge = WORKSHOP_COA_CONTROL_BADGES[String(acc.code)];
                                                         const marker =
                                                             (treeFlat.find((x) => String(x.id) === String(acc.id)) || {})._marker || '';
-                                                        const bal = formatFinalBalance(acc);
+                                                        const bal = formatFinalBalance(acc, t);
                                                         const ledgerClickable = isWorkshopCoaLedgerClickable(acc);
+                                                        const statusKey = `coa.status.${acc.status || 'active'}`;
+                                                        const statusLabel = t(statusKey) !== statusKey ? t(statusKey) : (acc.status || t('coa.status.active'));
                                                         return (
                                                             <tr
                                                                 key={acc.id}
@@ -1257,7 +1288,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                     marginLeft: 8,
                                                                                 }}
                                                                             >
-                                                                                Auto-linked
+                                                                                {t('coa.autoLinked')}
                                                                             </span>
                                                                         )}
                                                                         {controlBadge ? (
@@ -1272,7 +1303,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                     marginLeft: 8,
                                                                                 }}
                                                                             >
-                                                                                {controlBadge.label}
+                                                                                {t('coa.badge.control')}
                                                                             </span>
                                                                         ) : null}
                                                                     </div>
@@ -1294,18 +1325,18 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                 marginTop: 4,
                                                                             }}
                                                                         >
-                                                                            Branch & employee detail — open ledger and use filters.
+                                                                            {t('coa.pettyHint')}
                                                                         </div>
                                                                     ) : null}
                                                                 </td>
                                                                 <td style={{ padding: '12px', color: palette.textSecondary }}>
-                                                                    {toLabel(acc.subType)}
+                                                                    {toLabel(acc.subType, t)}
                                                                 </td>
                                                                 <td style={{ padding: '12px', color: palette.textSecondary }}>
                                                                     {branchName}
                                                                 </td>
                                                                 <td style={{ padding: '12px', color: palette.textSecondary }}>
-                                                                    {getNormalBalance(acc.type)}
+                                                                    {getNormalBalance(acc.type, t)}
                                                                 </td>
                                                                 <td
                                                                     style={{
@@ -1329,7 +1360,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                             fontWeight: 600,
                                                                         }}
                                                                     >
-                                                                        {acc.status || 'active'}
+                                                                        {statusLabel}
                                                                     </span>
                                                                 </td>
                                                                 {!readOnly && (
@@ -1348,7 +1379,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                     fontSize: 12,
                                                                                 }}
                                                                             >
-                                                                                <span>Are you sure?</span>
+                                                                                <span>{t('coa.confirmDelete')}</span>
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={() => onConfirmDelete(acc.id)}
@@ -1363,8 +1394,8 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                     }}
                                                                                 >
                                                                                     {deleteLoadingId === acc.id
-                                                                                        ? 'Deleting...'
-                                                                                        : 'Yes, Delete'}
+                                                                                        ? t('coa.deleting')
+                                                                                        : t('coa.yesDelete')}
                                                                                 </button>
                                                                                 <button
                                                                                     type="button"
@@ -1381,7 +1412,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                         cursor: 'pointer',
                                                                                     }}
                                                                                 >
-                                                                                    Cancel
+                                                                                    {t('btn.cancel')}
                                                                                 </button>
                                                                             </div>
                                                                         ) : (
@@ -1396,7 +1427,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                         cursor: 'pointer',
                                                                                         padding: 0,
                                                                                     }}
-                                                                                    title="Edit"
+                                                                                    title={t('coa.editTitle')}
                                                                                 >
                                                                                     <Pencil size={16} />
                                                                                 </button>
@@ -1414,7 +1445,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                                                                             cursor: 'pointer',
                                                                                             padding: 0,
                                                                                         }}
-                                                                                        title="Delete"
+                                                                                        title={t('coa.deleteTitle')}
                                                                                     >
                                                                                         <Trash2 size={16} />
                                                                                     </button>
@@ -1494,7 +1525,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Account Code *</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.code')}</label>
                                 <input
                                     maxLength={20}
                                     value={form.code}
@@ -1503,7 +1534,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 />
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Account Name *</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.name')}</label>
                                 <input
                                     value={form.name}
                                     onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
@@ -1512,21 +1543,21 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             </div>
 
                             <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Account Type *</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.type')}</label>
                                 <select
                                     value={form.type}
                                     onChange={(e) => onTypeChange(e.target.value)}
                                     style={inputStyle}
                                 >
-                                    <option value="ASSET">Asset</option>
-                                    <option value="LIABILITY">Liability</option>
-                                    <option value="EQUITY">Equity</option>
-                                    <option value="INCOME">Income</option>
-                                    <option value="EXPENSE">Expense</option>
+                                    <option value="ASSET">{t('coa.type.ASSET')}</option>
+                                    <option value="LIABILITY">{t('coa.type.LIABILITY')}</option>
+                                    <option value="EQUITY">{t('coa.type.EQUITY')}</option>
+                                    <option value="INCOME">{t('coa.type.INCOME')}</option>
+                                    <option value="EXPENSE">{t('coa.type.EXPENSE')}</option>
                                 </select>
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Subtype</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.subtype')}</label>
                                 <select
                                     value={form.subType}
                                     onChange={(e) => setForm((p) => ({ ...p, subType: e.target.value }))}
@@ -1534,7 +1565,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                 >
                                     {subtypeOptions.map((sub) => (
                                         <option key={sub} value={sub}>
-                                            {toLabel(sub)}
+                                            {toLabel(sub, t)}
                                         </option>
                                     ))}
                                 </select>
@@ -1542,14 +1573,14 @@ export default function WorkshopCOAView({ readOnly = false }) {
 
                             <div>
                                 <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>
-                                    Branch
+                                    {t('coa.field.branch')}
                                 </label>
                                 <select
                                     value={form.branchId}
                                     onChange={(e) => setForm((p) => ({ ...p, branchId: e.target.value }))}
                                     style={inputStyle}
                                 >
-                                    <option value="">Shared (all branches)</option>
+                                    <option value="">{t('coa.field.branchShared')}</option>
                                     {branches.map((b) => (
                                         <option key={b.id} value={b.id}>
                                             {b.name}
@@ -1557,22 +1588,22 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                     ))}
                                 </select>
                                 <div style={{ fontSize: 11, color: palette.textSecondary, marginTop: 4 }}>
-                                    Tag the account to a branch (e.g. its bank/cash register), or leave shared so all branches post to it.
+                                    {t('coa.field.branchHelp')}
                                 </div>
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Normal Balance</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.normalBal')}</label>
                                 <input
-                                    value={getNormalBalance(form.type)}
+                                    value={getNormalBalance(form.type, t)}
                                     readOnly
                                     style={{ ...inputStyle, background: '#f9fafb' }}
                                 />
                             </div>
 
                             <div style={{ gridColumn: 'span 2' }}>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Parent Account</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.parent')}</label>
                                 <input
-                                    placeholder="Search parent..."
+                                    placeholder={t('coa.field.parentSearch')}
                                     value={parentSearch}
                                     onChange={(e) => setParentSearch(e.target.value)}
                                     style={{ ...inputStyle, marginBottom: 6 }}
@@ -1582,7 +1613,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                     onChange={(e) => setForm((p) => ({ ...p, parentId: e.target.value }))}
                                     style={inputStyle}
                                 >
-                                    <option value="">None (top-level)</option>
+                                    <option value="">{t('coa.field.parentNone')}</option>
                                     {parentOptions.map((acc) => (
                                         <option key={acc.id} value={acc.id}>
                                             {acc.code} - {acc.name}
@@ -1592,20 +1623,20 @@ export default function WorkshopCOAView({ readOnly = false }) {
                             </div>
 
                             <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Status</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.status')}</label>
                                 <select
                                     value={form.status}
                                     onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
                                     style={inputStyle}
                                 >
-                                    <option value="active">active</option>
-                                    <option value="inactive">inactive</option>
+                                    <option value="active">{t('coa.status.active')}</option>
+                                    <option value="inactive">{t('coa.status.inactive')}</option>
                                 </select>
                             </div>
                             <div></div>
 
                             <div style={{ gridColumn: 'span 2' }}>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>Description</label>
+                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.description')}</label>
                                 <textarea
                                     rows={3}
                                     value={form.description}
@@ -1630,7 +1661,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                         opacity: submitLoading ? 0.6 : 1,
                                     }}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -1647,7 +1678,7 @@ export default function WorkshopCOAView({ readOnly = false }) {
                                         opacity: submitLoading ? 0.6 : 1,
                                     }}
                                 >
-                                    {submitLoading ? 'Saving...' : editingId ? 'Update Account' : 'Create Account'}
+                                    {submitLoading ? t('coa.saving') : editingId ? t('coa.update') : t('coa.create')}
                                 </button>
                             </div>
                         </div>

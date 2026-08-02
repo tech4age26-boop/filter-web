@@ -24,9 +24,10 @@ function formatFilterUserLabel(u) {
     return role ? `${name} (${role})` : name;
 }
 
-export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all' }) {
+export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all', locale: localeProp }) {
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';

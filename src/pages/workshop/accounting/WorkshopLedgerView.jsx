@@ -11,9 +11,10 @@ const fmt = (n) => {
     return x.toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-export default function WorkshopLedgerView() {
+export default function WorkshopLedgerView({ locale: localeProp } = {}) {
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';

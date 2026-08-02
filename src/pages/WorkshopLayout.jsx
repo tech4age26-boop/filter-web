@@ -6,6 +6,8 @@ import {
     NAV_ITEMS,
 } from './workshop/constants';
 import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROUTE_REDIRECTS } from './workshop/staff-app/constants';
+import { staffAppT, NAV_LABEL_KEYS as STAFF_APP_NAV_LABEL_KEYS } from '../utils/staffAppI18n';
+import { accT } from '../utils/accountingI18n';
 import StaffAppPage from './workshop/staff-app/StaffAppPage';
 import WorkshopEmployees from './workshop/WorkshopEmployees';
 import WorkshopApprovals from './workshop/WorkshopApprovals';
@@ -49,6 +51,7 @@ import {
 } from '../services/workshopStaffApi';
 import { useAuth } from '../context/AuthContext';
 import { firstVisibleWorkshopPath, workshopTabToPath } from '../utils/permissions';
+import { wsDashT } from '../utils/workshopDashboardI18n';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
@@ -73,6 +76,15 @@ export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
     const { logout, hasPermission, user } = useAuth();
+    const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
+
+    useEffect(() => {
+        document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.lang = locale === 'ar' ? 'ar' : 'en';
+        localStorage.setItem('portal-locale', locale);
+    }, [locale]);
+
+    const lt = useCallback((key, vars) => wsDashT(locale, key, vars), [locale]);
 
     /**
      * Branch-restriction rules for the workshop portal (priority top-down):
@@ -487,8 +499,8 @@ export default function WorkshopLayout() {
             case 'acc-advances':      
             case 'acc-payroll':
             case 'acc-approvals':
-            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'acc-ledger-statement': return <WorkshopAccountLedgerPage />;
+            case 'acc-ledger':        return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'acc-ledger-statement': return <WorkshopAccountLedgerPage locale={locale} />;
             case 'sap-overview':
             case 'sap-expenses':
             case 'sap-requests':
@@ -506,6 +518,7 @@ export default function WorkshopLayout() {
                         branches={activeBranches}
                         branchLockedId={userBranchLock}
                         onNavigate={handleTabChange}
+                        locale={locale}
                     />
                 );
             case 'platform-chat':
@@ -517,6 +530,7 @@ export default function WorkshopLayout() {
                     <WorkshopEmployees
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
+                        locale={locale}
                     />
                 );
             case 'dashboard':
@@ -535,7 +549,7 @@ export default function WorkshopLayout() {
                         onLowStockAlertsChange={setDashboardLowStockCount}
                     />
                 );
-            case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'catalog':
                 return <Navigate to="/workshop/departments" replace />;
             case 'purchases':   return (
@@ -544,6 +558,7 @@ export default function WorkshopLayout() {
                     clearTabState={() => setTabState(null)}
                     selectedBranchId={selectedBranch}
                     branches={activeBranches}
+                    locale={locale}
                 />
             );
             case 'approvals':
@@ -552,18 +567,20 @@ export default function WorkshopLayout() {
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                         branchLockedId={userBranchLock}
+                        locale={locale}
                     />
                 );
-            case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'purchase-returns': return <WorkshopPurchaseReturns selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'discounts': return <WorkshopDiscounts selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} />;
+            case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'purchase-returns': return <WorkshopPurchaseReturns selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'discounts': return <WorkshopDiscounts selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} locale={locale} />;
             case 'affiliated-suppliers':
                 return (
                     <WorkshopAffiliatedSuppliers
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                         onTabChange={handleTabChange}
+                        locale={locale}
                     />
                 );
             case 'non-affiliated-suppliers':
@@ -572,6 +589,7 @@ export default function WorkshopLayout() {
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                         onTabChange={handleTabChange}
+                        locale={locale}
                     />
                 );
             case 'supplier-ledger':
@@ -581,28 +599,30 @@ export default function WorkshopLayout() {
                         onTabChange={handleTabChange}
                     />
                 );
-            case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'logs': return <WorkshopLogs selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'locker-management': return <WorkshopLockerManagement />;
+            case 'reports':     return <WorkshopReports selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'logs': return <WorkshopLogs selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'locker-management': return <WorkshopLockerManagement locale={locale} />;
             case 'catalog-new': return (
                 <WorkshopCatalogNew
                     branches={activeBranches}
                     selectedBranchId={selectedBranch}
                     branchLockedId={userBranchLock}
                     allowAllBranches={hasFullBranchAccess}
+                    locale={locale}
                 />
             );
-            case 'promo-codes': return <WorkshopPromoCodes selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} />;
-            case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} />;
-            case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} />;
+            case 'promo-codes': return <WorkshopPromoCodes selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'corporate-management': return <WorkshopCorporateManagement selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'branches':    return <WorkshopBranches selectedBranchId={selectedBranch} locale={locale} />;
+            case 'commissions': return <WorkshopCommissions selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'my-petty-cash':
                 return (
                     <WorkshopMyPettyCash
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                         workshopId={user?.workshopId ? String(user.workshopId) : null}
+                        locale={locale}
                     />
                 );
             case 'inventory': return (
@@ -612,6 +632,7 @@ export default function WorkshopLayout() {
                     selectedProducts={selectedProducts}
                     onTabChange={handleTabChange}
                     updateProductStatus={updateProductStatus}
+                    locale={locale}
                 />
             );
             default:            return (
@@ -620,47 +641,101 @@ export default function WorkshopLayout() {
                     selectedBranchId={selectedBranch}
                     branches={activeBranches}
                     onLowStockAlertsChange={setDashboardLowStockCount}
+                    locale={locale}
                 />
             );
         }
     };
 
+    const navLabelFor = useCallback((id, fallback) => {
+        if (id === 'dashboard') return lt('nav.dashboard');
+        if (id === 'departments') return lt('nav.departments');
+        if (id === 'catalog-new') return lt('nav.catalog');
+        if (id === 'inventory') return lt('nav.inventory');
+        if (id === 'purchases') return lt('nav.purchases');
+        if (id === 'purchase-returns') return lt('nav.purchaseReturns');
+        if (id === 'sales-returns') return lt('nav.salesReturns');
+        if (id === 'discounts') return lt('nav.discounts');
+        if (id === 'suppliers') return lt('nav.suppliers');
+        if (id === 'affiliated-suppliers') return lt('nav.affiliatedSuppliers');
+        if (id === 'non-affiliated-suppliers') return lt('nav.nonAffiliatedSuppliers');
+        if (id === 'reports') return lt('nav.reports');
+        if (id === 'pos-monitoring') return lt('nav.posMonitoring');
+        if (id === 'logs') return lt('nav.logs');
+        if (id === 'locker-management') return lt('nav.lockerManagement');
+        if (id === 'employees') return lt('nav.employees');
+        if (id === 'approvals') return lt('nav.approvals');
+        if (id === 'my-petty-cash') return lt('nav.myPettyCash');
+        if (id === 'staff-app') return lt('nav.staffApp');
+        if (id === 'promo-codes') return lt('nav.promoCodes');
+        if (id === 'corporate-management') return lt('nav.corporateManagement');
+        if (id === 'commissions') return lt('nav.commissions');
+        if (id === 'branches') return lt('nav.branches');
+        if (id === 'accounting') return lt('nav.accounting');
+        if (id === 'acc-chart') return accT(locale, 'tab.coa');
+        if (id === 'acc-cash') return accT(locale, 'tab.cashBank');
+        if (id === 'acc-transactions') return accT(locale, 'tab.transactions');
+        if (id === 'acc-journal') return accT(locale, 'tab.journal');
+        if (id === 'acc-expenses') return accT(locale, 'tab.expenses');
+        if (id === 'acc-receipts') return accT(locale, 'tab.receipts');
+        if (id === 'acc-payments') return accT(locale, 'tab.payments');
+        if (id === 'acc-advances') return accT(locale, 'tab.advances');
+        if (id === 'acc-payroll') return accT(locale, 'tab.payroll');
+        if (id === 'acc-approvals') return accT(locale, 'tab.approvalLimits');
+        if (id === 'acc-ledger') return accT(locale, 'tab.ledger');
+        if (STAFF_APP_NAV_LABEL_KEYS[id]) return staffAppT(locale, STAFF_APP_NAV_LABEL_KEYS[id]);
+        return fallback;
+    }, [lt, locale]);
+
     const currentLabel =
         activeTab === 'supplier-ledger'
-            ? 'Supplier Ledger'
-            : activeTab.startsWith('sap-')
-                ? 'Staff App Management'
-                : NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || 'Dashboard';
+            ? lt('nav.supplierLedger')
+            : activeTab === 'acc-ledger-statement'
+                ? accT(locale, 'tab.ledger')
+                : activeTab.startsWith('sap-')
+                ? `${lt('nav.staffApp')} — ${navLabelFor(activeTab, '')}`
+                : activeTab.startsWith('acc-')
+                ? `${lt('nav.accounting')} — ${navLabelFor(activeTab, '')}`
+                : navLabelFor(
+                    activeTab,
+                    NAV_ITEMS.flatMap(i => i.subItems ? [i, ...i.subItems] : [i]).find(n => n.id === activeTab)?.label || lt('nav.dashboard'),
+                );
     const topbarSubtitle = activeTab === 'my-wallet'
         ? ''
         : activeTab === 'catalog-new'
-            ? 'Corporate master catalog'
+            ? lt('nav.catalogSubtitle')
             : selectedBranchName;
 
     const isWalletTab = activeTab === 'my-wallet';
 
     if (activeTab === 'platform-chat') {
         return (
-            <div className="portal-layout--chat-fullscreen">
+            <div className="portal-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
                 <WorkshopPlatformChatPage />
             </div>
         );
     }
 
     return (
-        <div className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}${isWalletTab ? ' workshop-layout--my-wallet' : ''}`}>
+        <div
+            className={`workshop-layout${isMobileMenuOpen ? ' mobile-menu-open' : ''}${isWalletTab ? ' workshop-layout--my-wallet' : ''}`}
+            dir={locale === 'ar' ? 'rtl' : 'ltr'}
+        >
             {isMobileMenuOpen && (
                 <button
                     type="button"
                     className="ws-sidebar-overlay"
-                    aria-label="Close navigation menu"
+                    aria-label={lt('layout.closeNav')}
                     onClick={() => setIsMobileMenuOpen(false)}
                 />
             )}
             <aside className={`ws-sidebar${isMobileMenuOpen ? ' open' : ''}`}>
                 <div className="ws-logo">
                     <div className="ws-logo-icon"><Building2 size={20}/></div>
-                    <div><p className="ws-logo-title">Filter Admin Workshop</p><p className="ws-logo-sub">Portal</p></div>
+                    <div>
+                        <p className="ws-logo-title">{lt('layout.logoTitle')}</p>
+                        <p className="ws-logo-sub">{lt('layout.logoSub')}</p>
+                    </div>
                 </div>
                 {activeTab !== 'catalog-new' && !isWalletTab && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
@@ -669,14 +744,14 @@ export default function WorkshopLayout() {
                         value={selectedBranch}
                         onChange={e => setSelectedBranch(e.target.value)}
                         disabled={!!userBranchLock}
-                        title={userBranchLock ? 'You are scoped to a single branch by your role' : undefined}
+                        title={userBranchLock ? lt('layout.branchScoped') : undefined}
                         style={{
                             opacity: userBranchLock ? 0.85 : 1,
                             cursor: userBranchLock ? 'not-allowed' : 'pointer',
                         }}
                     >
                         {/* Hide "All Branches" when the user is locked to a single branch. */}
-                        {!userBranchLock && !inventoryBranchOnly ? <option value="all">All Branches</option> : null}
+                        {!userBranchLock && !inventoryBranchOnly ? <option value="all">{lt('layout.allBranches')}</option> : null}
                         {activeBranches.map((branch) => (
                             <option key={branch.id} value={branch.id}>{branch.name}</option>
                         ))}
@@ -702,7 +777,7 @@ export default function WorkshopLayout() {
                                     }}
                                 >
                                     <item.icon size={18} stroke="currentColor" />
-                                    <span>{item.label}</span>
+                                    <span>{navLabelFor(item.id, item.label)}</span>
                                     {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
                                     {hasSub && (
                                         <span style={{ marginLeft: 'auto', opacity: 0.5 }}>
@@ -739,7 +814,7 @@ export default function WorkshopLayout() {
                                                             opacity: activeTab === sub.id ? 1 : 0.7
                                                         }}
                                                     >
-                                                        {sub.label}
+                                                        {navLabelFor(sub.id, sub.label)}
                                                     </button>
                                                 ))}
                                             </motion.div>
@@ -768,7 +843,7 @@ export default function WorkshopLayout() {
                             type="button"
                             className="ws-mobile-menu-toggle"
                             onClick={() => setIsMobileMenuOpen((open) => !open)}
-                            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+                            aria-label={isMobileMenuOpen ? lt('layout.closeMenu') : lt('layout.openMenu')}
                             aria-expanded={isMobileMenuOpen}
                         >
                             {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -781,17 +856,36 @@ export default function WorkshopLayout() {
                     <div className="ws-topbar-right">
                         {dashboardLowStockCount > 0 && (
                             <button className="ws-alert-badge" onClick={() => setActiveTab('departments')}>
-                                <AlertTriangle size={14}/> {dashboardLowStockCount} stock alert{dashboardLowStockCount > 1 ? 's' : ''}
+                                <AlertTriangle size={14}/>{' '}
+                                {dashboardLowStockCount === 1
+                                    ? lt('layout.stockAlert', { count: dashboardLowStockCount })
+                                    : lt('layout.stockAlerts', { count: dashboardLowStockCount })}
                             </button>
                         )}
-                        <div className="ws-online-badge"><div className="ws-online-dot"/> Online</div>
+                        <div className="ws-lang-switcher" role="group" aria-label="Language">
+                            <button
+                                type="button"
+                                className={`ws-lang-btn ${locale === 'en' ? 'active' : ''}`}
+                                onClick={() => setLocale('en')}
+                            >
+                                EN
+                            </button>
+                            <button
+                                type="button"
+                                className={`ws-lang-btn ws-lang-btn-ar ${locale === 'ar' ? 'active' : ''}`}
+                                onClick={() => setLocale('ar')}
+                            >
+                                العربية
+                            </button>
+                        </div>
+                        <div className="ws-online-badge"><div className="ws-online-dot"/> {lt('layout.online')}</div>
                     </div>
                 </header>
                 {apiLoading && (
                     <div className="ws-global-loader" role="status" aria-live="polite">
                         <div className="ws-global-loader__inner">
                             <div className="ws-global-loader__spinner" aria-hidden="true" />
-                            <span className="ws-global-loader__text">Loading...</span>
+                            <span className="ws-global-loader__text">{lt('layout.loading')}</span>
                         </div>
                     </div>
                 )}

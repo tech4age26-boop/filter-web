@@ -7,10 +7,11 @@ import WsTableScroll from '../../components/workshop/WsTableScroll';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
 import { useAuth } from '../../context/AuthContext';
+import { wsupT } from '../../utils/workshopSuppliersI18n';
 
-const SUPPLIER_TABS = [
-    { id: 'suppliers', label: 'Suppliers',         permission: 'workshop.suppliers.list.view' },
-    { id: 'purchases', label: 'Purchase History',  permission: 'workshop.suppliers.purchases.view' },
+const SUPPLIER_TAB_DEFS = [
+    { id: 'suppliers', labelKey: 'tab.suppliers', permission: 'workshop.suppliers.list.view' },
+    { id: 'purchases', labelKey: 'tab.purchases', permission: 'workshop.suppliers.purchases.view' },
 ];
 import {
     getWorkshopSuppliers,
@@ -97,8 +98,30 @@ function purchasePaymentBadgeClass(paymentStatus) {
     return 'ws-badge--red';
 }
 
+function formatCategory(category, t) {
+    if (category === 'Workshop only' || category === 'workshop_local') return t('category.workshopOnly');
+    if (!category || category === '—') return t('emdash');
+    return category;
+}
+
+function statusLabel(status, t) {
+    const key = String(status || '').toLowerCase();
+    if (!key) return t('emdash');
+    const k = `status.${key}`;
+    const translated = t(k);
+    return translated === k ? String(status) : translated;
+}
+
+function paymentLabel(status, t) {
+    const key = String(status || '').toLowerCase();
+    if (!key) return t('emdash');
+    const k = `payment.${key}`;
+    const translated = t(k);
+    return translated === k ? String(status) : translated;
+}
+
 /** Paginated purchase history + full-page invoice view — remounted when branch changes (key on parent) so page resets. */
-function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
+function SuppliersPurchaseHistoryPanel({ selectedBranchId, t }) {
     const [page, setPage] = useState(1);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(null);
@@ -123,17 +146,17 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
             const list = unwrapWorkshopSupplierPurchaseInvoiceList(res);
             const mapped = list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean);
             setRows(mapped);
-            const tRaw = res?.total ?? res?.count;
-            const t = tRaw != null ? Number(tRaw) : mapped.length;
-            setTotal(Number.isFinite(t) ? t : mapped.length);
+            const totalRaw = res?.total ?? res?.count;
+            const totalNum = totalRaw != null ? Number(totalRaw) : mapped.length;
+            setTotal(Number.isFinite(totalNum) ? totalNum : mapped.length);
         } catch (e) {
             setRows([]);
             setTotal(null);
-            setError(e.message || 'Could not load purchase history.');
+            setError(e.message || t('err.loadHistory'));
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, offset]);
+    }, [selectedBranchId, offset, t]);
 
     useEffect(() => {
         load();
@@ -158,9 +181,9 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
             const res = await getWorkshopSupplierPurchaseInvoice(row.id);
             const inv = unwrapWorkshopStaffSupplierPurchaseInvoiceGet(res);
             setViewDetail(inv && typeof inv === 'object' ? inv : null);
-            if (!inv) setViewError('Invoice response was empty.');
+            if (!inv) setViewError(t('err.invoiceEmpty'));
         } catch (e) {
-            setViewError(e.message || 'Could not load invoice details.');
+            setViewError(e.message || t('err.loadInvoice'));
         } finally {
             setViewLoading(false);
         }
@@ -168,17 +191,21 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
 
     const rangeLabel =
         total != null && total > 0
-            ? `${offset + 1}–${Math.min(offset + rows.length, total)} of ${total}`
+            ? t('history.rangeOf', {
+                  start: offset + 1,
+                  end: Math.min(offset + rows.length, total),
+                  total,
+              })
             : rows.length > 0
-              ? `${offset + 1}–${offset + rows.length}`
-              : '0';
+              ? t('history.rangePartial', { start: offset + 1, end: offset + rows.length })
+              : t('history.rangeZero');
 
     if (viewRow) {
         return (
             <WorkshopSubScreen
-                title={`Purchase invoice ${viewRow.invoice_number || viewRow.id}`}
+                title={t('view.title', { num: viewRow.invoice_number || viewRow.id })}
                 subtitle={viewRow.vendor_name || undefined}
-                backLabel="Back to Purchase History"
+                backLabel={t('view.back')}
                 onBack={closeView}
                 size="xl"
             >
@@ -199,14 +226,14 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                 ) : null}
                 {viewLoading ? (
                     <p style={{ marginBottom: 12, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                        Loading full invoice…
+                        {t('loading.invoice')}
                     </p>
                 ) : null}
                 {!viewLoading && viewDetail ? (
                     <WorkshopPurchaseInvoiceView detail={viewDetail} listRow={viewRow} />
                 ) : null}
                 {!viewLoading && !viewDetail && viewError ? (
-                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Unable to display this invoice.</p>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>{t('empty.invoiceDisplay')}</p>
                 ) : null}
             </WorkshopSubScreen>
         );
@@ -226,14 +253,14 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                     }}
                 >
                     <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', flex: 1, minWidth: 160 }}>
-                        Workshop purchase invoices sent to suppliers
+                        {t('history.hint')}
                         {selectedBranchId && selectedBranchId !== 'all' ? (
                             <>
                                 {' '}
-                                · Branch filter applies
+                                · {t('branch.filterApplies')}
                             </>
                         ) : (
-                            <> · All branches</>
+                            <> · {t('branch.all')}</>
                         )}
                         {' · '}
                         <span style={{ fontWeight: 600, color: 'var(--color-text-body)' }}>{rangeLabel}</span>
@@ -245,7 +272,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         disabled={loading}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     >
-                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                        <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('btn.refresh')}
                     </button>
                 </div>
                 {error && (
@@ -267,12 +294,12 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Invoice #</th>
-                            <th>Vendor</th>
-                            <th>Grand Total</th>
-                            <th>VAT</th>
-                            <th>Status</th>
-                            <th>Payment</th>
+                            <th>{t('th.invoiceNo')}</th>
+                            <th>{t('th.vendor')}</th>
+                            <th>{t('th.grandTotal')}</th>
+                            <th>{t('th.vat')}</th>
+                            <th>{t('th.status')}</th>
+                            <th>{t('th.payment')}</th>
                             <th style={{ width: 88 }}> </th>
                         </tr>
                     </thead>
@@ -281,7 +308,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                             <tr>
                                 <td colSpan={7} style={{ textAlign: 'center', padding: 32 }}>
                                     <Loader className="spin" size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />
-                                    Loading purchase history…
+                                    {t('loading.history')}
                                 </td>
                             </tr>
                         ) : (
@@ -290,31 +317,33 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                                     <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>
                                         {p.invoice_number}
                                     </td>
-                                    <td>{p.vendor_name || '—'}</td>
+                                    <td>{p.vendor_name || t('emdash')}</td>
                                     <td>
                                         <strong>
-                                            SAR{' '}
-                                            {Number(p.grand_total || 0).toLocaleString(undefined, {
-                                                minimumFractionDigits: 0,
-                                                maximumFractionDigits: 2,
+                                            {t('money.sar', {
+                                                amount: Number(p.grand_total || 0).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 0,
+                                                    maximumFractionDigits: 2,
+                                                }),
                                             })}
                                         </strong>
                                     </td>
                                     <td style={{ color: 'var(--color-text-muted)' }}>
-                                        SAR{' '}
-                                        {Number(p.vat_amount || 0).toLocaleString(undefined, {
-                                            minimumFractionDigits: 0,
-                                            maximumFractionDigits: 2,
+                                        {t('money.sar', {
+                                            amount: Number(p.vat_amount || 0).toLocaleString(undefined, {
+                                                minimumFractionDigits: 0,
+                                                maximumFractionDigits: 2,
+                                            }),
                                         })}
                                     </td>
                                     <td>
                                         <span className={`ws-badge ${purchaseInvoiceStatusBadgeClass(p.status)}`}>
-                                            {p.status}
+                                            {statusLabel(p.status, t)}
                                         </span>
                                     </td>
                                     <td>
                                         <span className={`ws-badge ${purchasePaymentBadgeClass(p.payment_status)}`}>
-                                            {p.payment_status}
+                                            {paymentLabel(p.payment_status, t)}
                                         </span>
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
@@ -325,7 +354,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                                             onClick={() => void openView(p)}
                                         >
                                             <Eye size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                                            View
+                                            {t('btn.view')}
                                         </button>
                                     </td>
                                 </tr>
@@ -334,14 +363,14 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         {!loading && rows.length === 0 && !error && (
                             <tr>
                                 <td colSpan={7} style={{ textAlign: 'center', padding: 32 }}>
-                                    No purchase invoices yet. Create them from the Purchases area or supplier actions.
+                                    {t('empty.history')}
                                 </td>
                             </tr>
                         )}
                         {!loading && rows.length === 0 && error && (
                             <tr>
                                 <td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--color-text-muted)' }}>
-                                    Could not load rows — see message above.
+                                    {t('empty.historyError')}
                                 </td>
                             </tr>
                         )}
@@ -361,7 +390,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                         }}
                     >
                         <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            Page {page} of {totalPages}
+                            {t('history.pageOf', { page, total: totalPages })}
                         </span>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button
@@ -370,7 +399,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                                 disabled={page <= 1}
                                 onClick={() => setPage((x) => Math.max(1, x - 1))}
                             >
-                                Previous
+                                {t('btn.previous')}
                             </button>
                             <button
                                 type="button"
@@ -378,7 +407,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
                                 disabled={page >= totalPages}
                                 onClick={() => setPage((x) => Math.min(totalPages, x + 1))}
                             >
-                                Next
+                                {t('btn.next')}
                             </button>
                         </div>
                     </div>
@@ -388,17 +417,19 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId }) {
     );
 }
 
-export default function WorkshopSuppliers({ selectedBranchId = 'all', branches = [], onTabChange }) {
+export default function WorkshopSuppliers({ selectedBranchId = 'all', branches = [], onTabChange, locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wsupT(locale, key, vars), [locale]);
     const branchLabel = useMemo(() => {
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
-        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
-    }, [branches, selectedBranchId]);
+        if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.fallback');
+    }, [branches, selectedBranchId, t]);
     const { hasPermission } = useAuth();
-    const visibleSupplierTabs = SUPPLIER_TABS.filter((t) => hasPermission(t.permission));
+    const visibleSupplierTabs = SUPPLIER_TAB_DEFS.filter((tab) => hasPermission(tab.permission));
     const [activeTab, setActiveTab] = useState(() => visibleSupplierTabs[0]?.id ?? 'suppliers');
     useEffect(() => {
         if (visibleSupplierTabs.length === 0) return;
-        if (!visibleSupplierTabs.some((t) => t.id === activeTab)) {
+        if (!visibleSupplierTabs.some((tab) => tab.id === activeTab)) {
             setActiveTab(visibleSupplierTabs[0].id);
         }
     }, [visibleSupplierTabs, activeTab]);
@@ -441,8 +472,8 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 const rows = unwrapSuppliersResponse(res).map(normalizeSupplierRow).filter((r) => r.id);
                 merged.push(...rows);
                 lastMeta = pickListMeta(res);
-                const total = lastMeta.total;
-                if (total != null && merged.length >= total) break;
+                const listTotal = lastMeta.total;
+                if (listTotal != null && merged.length >= listTotal) break;
                 if (rows.length < SUPPLIERS_PAGE_LIMIT) break;
                 offset += SUPPLIERS_PAGE_LIMIT;
             }
@@ -483,45 +514,47 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                     setUsingRegisteredFallback(true);
                     setListError(
                         missingWorkshopIdColumn
-                            ? 'Loaded via fallback: /workshop-staff/suppliers currently fails due backend schema (missing suppliers.workshop_id).'
-                            : 'Loaded via fallback: /workshop-staff/suppliers is not authorized for this session/token.',
+                            ? t('err.fallbackSchema')
+                            : t('err.fallbackAuth'),
                     );
                     return;
                 } catch {
                     // fallthrough to standard error below
                 }
             }
-            setListError(e.message || 'Could not load suppliers.');
+            setListError(e.message || t('err.loadSuppliers'));
             setSuppliers([]);
             setListMeta({ total: null, outstanding: null, currencyCode: null });
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     useEffect(() => {
-        const t = setTimeout(() => {
+        const timer = setTimeout(() => {
             loadSuppliers(searchInput);
         }, 320);
-        return () => clearTimeout(t);
+        return () => clearTimeout(timer);
     }, [searchInput, loadSuppliers]);
 
     const listSummaryLine = useMemo(() => {
         const parts = [];
         if (listMeta.total != null && suppliers.length > 0) {
             if (suppliers.length < listMeta.total) {
-                parts.push(`${suppliers.length} of ${listMeta.total} suppliers`);
+                parts.push(t('summary.countOf', { shown: suppliers.length, total: listMeta.total }));
+            } else if (suppliers.length === 1) {
+                parts.push(t('summary.countOne'));
             } else {
-                parts.push(`${suppliers.length} supplier${suppliers.length === 1 ? '' : 's'}`);
+                parts.push(t('summary.countMany', { count: suppliers.length }));
             }
         }
         if (listMeta.outstanding != null && listMeta.currencyCode) {
-            parts.push(`Outstanding: ${listMeta.outstanding} ${listMeta.currencyCode}`);
+            parts.push(t('summary.outstandingCur', { amount: listMeta.outstanding, currency: listMeta.currencyCode }));
         } else if (listMeta.outstanding != null) {
-            parts.push(`Outstanding: ${listMeta.outstanding}`);
+            parts.push(t('summary.outstanding', { amount: listMeta.outstanding }));
         }
         return parts.join(' · ');
-    }, [suppliers.length, listMeta.total, listMeta.outstanding, listMeta.currencyCode]);
+    }, [suppliers.length, listMeta.total, listMeta.outstanding, listMeta.currencyCode, t]);
 
     const subtotal = items.reduce((s, i) => s + (i.total || 0), 0);
     const vat = subtotal * 0.15;
@@ -560,6 +593,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
     if (showAddSupplierScreen) {
         return (
             <WorkshopAddSupplierScreen
+                locale={locale}
                 onBack={() => setShowAddSupplierScreen(false)}
                 onSuccess={() => loadSuppliers(searchInput)}
             />
@@ -569,8 +603,8 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
     if (showPurchaseForm && selectedSupplier) {
         return (
             <WorkshopSubScreen
-                title={`Add Purchase Invoice — ${selectedSupplier.name}`}
-                backLabel="Back to Suppliers"
+                title={t('purchase.title', { name: selectedSupplier.name })}
+                backLabel={t('purchase.back')}
                 onBack={() => {
                     setShowPurchaseForm(false);
                     setSelectedSupplier(null);
@@ -586,10 +620,10 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 setSelectedSupplier(null);
                             }}
                         >
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="button" className="btn-submit" onClick={submitPurchase}>
-                            Submit Purchase Invoice
+                            {t('btn.submitPurchase')}
                         </button>
                     </div>
                 }
@@ -597,7 +631,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 <div className="ws-section" style={{ padding: 20 }}>
                     <div style={{ marginBottom: 16 }}>
                         <label style={{ fontSize: '0.75rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
-                            Items
+                            {t('purchase.items')}
                         </label>
                         {items.map((item, idx) => (
                             <div
@@ -620,7 +654,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                         fontSize: '0.8125rem',
                                     }}
                                 >
-                                    <option value="">Product</option>
+                                    <option value="">{t('purchase.product')}</option>
                                     {products.map((p) => (
                                         <option key={p.id} value={p.id}>
                                             {p.name}
@@ -629,7 +663,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 </select>
                                 <input
                                     type="number"
-                                    placeholder="Qty"
+                                    placeholder={t('purchase.qty')}
                                     value={item.quantity}
                                     onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
                                     style={{
@@ -640,7 +674,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 />
                                 <input
                                     type="number"
-                                    placeholder="Unit Price"
+                                    placeholder={t('purchase.unitPrice')}
                                     value={item.unit_price}
                                     onChange={(e) => updateItem(idx, 'unit_price', parseFloat(e.target.value) || 0)}
                                     style={{
@@ -650,7 +684,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                     }}
                                 />
                                 <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-                                    SAR {(item.total || 0).toFixed(0)}
+                                    {t('money.sar', { amount: (item.total || 0).toFixed(0) })}
                                 </span>
                                 {items.length > 1 ? (
                                     <button
@@ -686,7 +720,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 ])
                             }
                         >
-                            <Plus size={14} /> Add Item
+                            <Plus size={14} /> {t('btn.addItem')}
                         </button>
                     </div>
                     <div
@@ -698,12 +732,12 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                         }}
                     >
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ color: 'var(--color-text-muted)' }}>Subtotal</span>
-                            <span>SAR {subtotal.toFixed(2)}</span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>{t('purchase.subtotal')}</span>
+                            <span>{t('money.sar', { amount: subtotal.toFixed(2) })}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ color: 'var(--color-text-muted)' }}>VAT 15%</span>
-                            <span>SAR {vat.toFixed(2)}</span>
+                            <span style={{ color: 'var(--color-text-muted)' }}>{t('purchase.vat15')}</span>
+                            <span>{t('money.sar', { amount: vat.toFixed(2) })}</span>
                         </div>
                         <div
                             style={{
@@ -714,18 +748,18 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 borderTop: '1px solid var(--color-border)',
                             }}
                         >
-                            <span>Grand Total</span>
-                            <span>SAR {grandTotal.toFixed(2)}</span>
+                            <span>{t('purchase.grandTotal')}</span>
+                            <span>{t('money.sar', { amount: grandTotal.toFixed(2) })}</span>
                         </div>
                     </div>
                     <div>
                         <label style={{ fontSize: '0.75rem', fontWeight: 700, display: 'block', marginBottom: 6 }}>
-                            Notes
+                            {t('purchase.notes')}
                         </label>
                         <input
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
-                            placeholder="Optional notes…"
+                            placeholder={t('purchase.notesPlaceholder')}
                             style={{
                                 width: '100%',
                                 padding: '8px 12px',
@@ -743,20 +777,20 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Suppliers & Purchases</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Manage vendors and purchase invoices · <strong>{branchLabel}</strong>
+                        {t('page.subtitle')} · <strong>{branchLabel}</strong>
                     </p>
                 </div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                {visibleSupplierTabs.map((t) => {
-                    const active = activeTab === t.id;
+                {visibleSupplierTabs.map((tab) => {
+                    const active = activeTab === tab.id;
                     return (
                         <button
-                            key={t.id}
+                            key={tab.id}
                             type="button"
-                            onClick={() => setActiveTab(t.id)}
+                            onClick={() => setActiveTab(tab.id)}
                             style={{
                                 padding: '8px 16px',
                                 borderRadius: 8,
@@ -767,7 +801,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 border: active ? 'none' : '1px solid var(--color-border)',
                             }}
                         >
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     );
                 })}
@@ -777,7 +811,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                     <div className="ws-section" style={{ marginBottom: 16 }}>
                         <div style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                             <input
-                                placeholder="Search suppliers (name, phone, CR, VAT, category)…"
+                                placeholder={t('search.placeholder')}
                                 value={searchInput}
                                 onChange={(e) => setSearchInput(e.target.value)}
                                 style={{
@@ -797,7 +831,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 disabled={loading}
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                             >
-                                <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                                <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('btn.refresh')}
                             </button>
                             <button
                                 type="button"
@@ -805,7 +839,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                 onClick={() => setShowAddSupplierScreen(true)}
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                             >
-                                <Plus size={14} /> Add Supplier
+                                <Plus size={14} /> {t('btn.addSupplier')}
                             </button>
                         </div>
                         {listSummaryLine && !listError ? (
@@ -841,22 +875,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                             <div>
                                 <strong>{listError}</strong>
                                 <p style={{ margin: '6px 0 0', opacity: 0.9 }}>
-                                    {usingRegisteredFallback ? (
-                                        <>
-                                            Showing only rows with <code>isLinkedToWorkshop=true</code> from{' '}
-                                            <code style={{ fontSize: '0.8rem' }}>
-                                                GET /workshop-staff/suppliers/registered
-                                            </code>{' '}
-                                            until backend query is migrated to <code>workshop_suppliers</code>.
-                                        </>
-                                    ) : (
-                                        <>
-                                            The workshop portal expects{' '}
-                                            <code style={{ fontSize: '0.8rem' }}>GET /workshop-staff/suppliers</code> with the
-                                            workshop JWT. Optional: <code>q</code> or <code>search</code>, <code>limit</code> (≤500),{' '}
-                                            <code>offset</code>.
-                                        </>
-                                    )}
+                                    {usingRegisteredFallback ? t('err.fallbackHint') : t('err.loadHint')}
                                 </p>
                             </div>
                         </div>
@@ -866,12 +885,12 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>Supplier Name</th>
-                                    <th>Contact</th>
-                                    <th>CR No</th>
-                                    <th>VAT ID</th>
-                                    <th>Category</th>
-                                    <th>Actions</th>
+                                    <th>{t('th.supplierName')}</th>
+                                    <th>{t('th.contact')}</th>
+                                    <th>{t('th.crNo')}</th>
+                                    <th>{t('th.vatId')}</th>
+                                    <th>{t('th.category')}</th>
+                                    <th>{t('th.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -879,39 +898,39 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                     <tr>
                                         <td colSpan={6} style={{ textAlign: 'center', padding: 32 }}>
                                             <Loader className="spin" size={24} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 8 }} />
-                                            Loading suppliers…
+                                            {t('loading.suppliers')}
                                         </td>
                                     </tr>
                                 ) : suppliers.length === 0 ? (
                                     <tr>
                                         <td colSpan={6} style={{ textAlign: 'center', padding: 32 }}>
                                             {listError
-                                                ? 'Unable to load suppliers — see message above.'
+                                                ? t('empty.loadFailed')
                                                 : searchInput.trim()
-                                                  ? 'No suppliers match your search.'
-                                                  : 'No suppliers registered yet.'}
+                                                  ? t('empty.noMatch')
+                                                  : t('empty.none')}
                                         </td>
                                     </tr>
                                 ) : (
                                     suppliers.map((s) => (
                                         <tr key={s.id}>
                                             <td>
-                                                <strong>{s.name}</strong>
+                                                <strong>{s.name === '—' ? t('emdash') : s.name}</strong>
                                                 {s.status === 'inactive' && (
                                                     <span className="ws-badge ws-badge--gray" style={{ marginLeft: 8 }}>
-                                                        Inactive
+                                                        {t('status.inactive')}
                                                     </span>
                                                 )}
                                             </td>
-                                            <td>{s.phone || s.contactPerson || '—'}</td>
+                                            <td>{s.phone || s.contactPerson || t('emdash')}</td>
                                             <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>
-                                                {s.crNumber || '—'}
+                                                {s.crNumber || t('emdash')}
                                             </td>
                                             <td style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>
-                                                {s.vatId || '—'}
+                                                {s.vatId || t('emdash')}
                                             </td>
                                             <td>
-                                                <span className="ws-badge ws-badge--gray">{s.category}</span>
+                                                <span className="ws-badge ws-badge--gray">{formatCategory(s.category, t)}</span>
                                             </td>
                                             <td>
                                                 <button
@@ -934,7 +953,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                                     }}
                                                 >
                                                     <ShoppingCart size={12} style={{ marginRight: 4 }} />
-                                                    Add Purchase
+                                                    {t('btn.addPurchase')}
                                                 </button>
                                             </td>
                                         </tr>
@@ -947,7 +966,11 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                 </>
             )}
             {activeTab === 'purchases' && (
-                <SuppliersPurchaseHistoryPanel key={String(selectedBranchId)} selectedBranchId={selectedBranchId} />
+                <SuppliersPurchaseHistoryPanel
+                    key={String(selectedBranchId)}
+                    selectedBranchId={selectedBranchId}
+                    t={t}
+                />
             )}
         </div>
     );
