@@ -9,7 +9,6 @@ import PromoCodeFormFields from '../../components/promo/PromoCodeFormFields';
 import {
     buildPromoPayload,
     catalogItemId,
-    dateOnly,
     emptyPromoForm as emptyForm,
     promoToForm,
     strTrim,
@@ -18,6 +17,7 @@ import {
 } from '../../components/promo/promoCodeFormUtils';
 import { useAuth } from '../../context/AuthContext';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
+import { wpromoLocalizeValidation, wpromoT } from '../../utils/workshopPromoCodesI18n';
 
 const inferScope = (explicit, ids) => {
     const s = String(explicit ?? '').trim().toLowerCase();
@@ -25,36 +25,38 @@ const inferScope = (explicit, ids) => {
     return ids.length > 0 ? 'selected' : 'all';
 };
 
-function scopeLabel(scope, count, kind) {
-    if (scope === 'none') return `No ${kind}`;
-    if (scope === 'selected') return `${count} ${kind}`;
-    return `All ${kind}`;
+function scopeLabel(t, scope, count, kind) {
+    if (scope === 'none') return t(`scope.${kind}.none`);
+    if (scope === 'selected') return t(`scope.${kind}.selected`, { count });
+    return t(`scope.${kind}.all`);
 }
 
-function scopeSummary(promo, branches) {
+function scopeSummary(t, promo, branches) {
     const branchIds = promo.branchIds ?? [];
     const productIds = promo.productIds ?? [];
     const serviceIds = promo.serviceIds ?? [];
     const productScope = inferScope(promo.productScope, productIds);
     const serviceScope = inferScope(promo.serviceScope, serviceIds);
     const branchText = branchIds.length === 0
-        ? 'All branches'
+        ? t('branch.all')
         : branchIds.length === 1
-            ? (branches.find((b) => String(b.id) === String(branchIds[0]))?.name ?? '1 branch')
-            : `${branchIds.length} branches`;
-    const productText = scopeLabel(productScope, productIds.length, 'products');
-    const serviceText = scopeLabel(serviceScope, serviceIds.length, 'services');
+            ? (branches.find((b) => String(b.id) === String(branchIds[0]))?.name ?? t('branch.one'))
+            : t('branch.n', { count: branchIds.length });
+    const productText = scopeLabel(t, productScope, productIds.length, 'products');
+    const serviceText = scopeLabel(t, serviceScope, serviceIds.length, 'services');
     return { branchText, productText, serviceText };
 }
 
-export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches = [], locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wpromoT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const canCreatePromo = hasPermission('workshop.promo-codes.create');
     const canEditPromo   = hasPermission('workshop.promo-codes.edit');
     const branchLabel = useMemo(() => {
-        if (!selectedBranchId || selectedBranchId === 'all') return 'All branches';
-        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || 'Branch';
-    }, [branches, selectedBranchId]);
+        if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
+        return branches.find((b) => String(b.id) === String(selectedBranchId))?.name || t('branch.fallback');
+    }, [branches, selectedBranchId, t]);
 
     const [promoCodes, setPromoCodes] = useState([]);
     const [total, setTotal] = useState(0);
@@ -88,7 +90,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                 })}`,
             );
             if (!(response?.success && Array.isArray(response.promoCodes))) {
-                throw new Error('Invalid promo codes response.');
+                throw new Error(t('err.invalidResponse'));
             }
             let rows = response.promoCodes;
             if (selectedBranchId && selectedBranchId !== 'all') {
@@ -102,11 +104,11 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
             setPromoCodes(rows);
             setTotal(response.total ?? rows.length);
         } catch (err) {
-            setError(err.message || 'Failed to load promo codes.');
+            setError(err.message || t('err.load'));
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     useEffect(() => {
         loadPromoCodes();
@@ -220,12 +222,12 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
 
         const validationMsg = validateForm();
         if (validationMsg) {
-            setModalError(validationMsg);
+            setModalError(wpromoLocalizeValidation(locale, validationMsg));
             return;
         }
 
         if (!editingPromo?.id && !strTrim(form.code)) {
-            setModalError('Promo code is required.');
+            setModalError(t('err.codeRequired'));
             return;
         }
 
@@ -240,7 +242,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                     body: JSON.stringify(payload),
                 });
                 if (response?.success === false) {
-                    throw new Error(response.message || 'Failed to update promo code.');
+                    throw new Error(response.message || t('err.update'));
                 }
             } else {
                 await apiFetch('/workshop-staff/promo-code/create', {
@@ -256,7 +258,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
             closeModal();
             await loadPromoCodes();
         } catch (err) {
-            setModalError(err.message || (editingPromo ? 'Failed to update promo code.' : 'Failed to create promo code.'));
+            setModalError(err.message || (editingPromo ? t('err.update') : t('err.create')));
         } finally {
             setIsSaving(false);
         }
@@ -269,13 +271,14 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
         || form.serviceScope === 'selected'
         || (form.branchMode === 'selected' && form.branchIds.length > 0);
     const saveBlockedByCatalog = catalogLoading && needsCatalogForSave;
+    const dash = t('emdash');
 
     if (showCreateModal) {
         return (
             <WorkshopSubScreen
-                title={editingPromo ? `Edit Promo — ${editingPromo.code}` : 'Create Promo Code'}
-                subtitle="Discount rules, branch scope, and catalog eligibility."
-                backLabel="Back to Promo Codes"
+                title={editingPromo ? t('modal.editTitle', { code: editingPromo.code }) : t('modal.createTitle')}
+                subtitle={t('modal.subtitle')}
+                backLabel={t('modal.back')}
                 onBack={closeModal}
                 backDisabled={isSaving}
                 size="xl"
@@ -288,7 +291,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                         ) : null}
                         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
                             <button type="button" className="btn-secondary" onClick={closeModal} disabled={isSaving}>
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 type="submit"
@@ -296,7 +299,13 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                                 className="btn-submit"
                                 disabled={isSaving || saveBlockedByCatalog}
                             >
-                                {isSaving ? 'Saving...' : saveBlockedByCatalog ? 'Loading catalog...' : editingPromo ? 'Update Promo' : 'Create Promo'}
+                                {isSaving
+                                    ? t('btn.saving')
+                                    : saveBlockedByCatalog
+                                        ? t('btn.loadingCatalog')
+                                        : editingPromo
+                                            ? t('btn.updatePromo')
+                                            : t('btn.createPromo')}
                             </button>
                         </div>
                     </div>
@@ -329,18 +338,18 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Promo Codes</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Create and manage promotional codes · <strong>{branchLabel}</strong>
+                        {t('page.subtitleLead')} · <strong>{branchLabel}</strong>
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                     <button type="button" className="btn-portal" onClick={loadPromoCodes} disabled={isLoading}>
-                        <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
+                        <RefreshCw size={14} /> {isLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
                     {canCreatePromo && (
                         <button type="button" className="btn-portal" onClick={openCreate}>
-                            <Plus size={14} /> Create Promo
+                            <Plus size={14} /> {t('btn.create')}
                         </button>
                     )}
                 </div>
@@ -355,17 +364,17 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
             <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Total Promo Codes</p>
+                        <p className="ws-kpi-label">{t('kpi.total')}</p>
                         <p className="ws-kpi-value">{total}</p>
                     </div>
-                    <div className="ws-kpi-icon ws-kpi-icon--purple">PC</div>
+                    <div className="ws-kpi-icon ws-kpi-icon--purple">{t('kpi.icon.pc')}</div>
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Active</p>
+                        <p className="ws-kpi-label">{t('kpi.active')}</p>
                         <p className="ws-kpi-value">{activeCount}</p>
                     </div>
-                    <div className="ws-kpi-icon ws-kpi-icon--green">ON</div>
+                    <div className="ws-kpi-icon ws-kpi-icon--green">{t('kpi.icon.on')}</div>
                 </div>
             </div>
 
@@ -374,16 +383,16 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                     <table className="ws-table">
                         <thead>
                             <tr>
-                                <th>Code</th>
-                                <th>Discount</th>
-                                <th>Branches</th>
-                                <th>Products</th>
-                                <th>Services</th>
-                                <th>Validity</th>
-                                <th>Usage</th>
-                                <th>Min Order</th>
-                                <th>Status</th>
-                                <th style={{ width: 100 }}>Actions</th>
+                                <th>{t('th.code')}</th>
+                                <th>{t('th.discount')}</th>
+                                <th>{t('th.branches')}</th>
+                                <th>{t('th.products')}</th>
+                                <th>{t('th.services')}</th>
+                                <th>{t('th.validity')}</th>
+                                <th>{t('th.usage')}</th>
+                                <th>{t('th.minOrder')}</th>
+                                <th>{t('th.status')}</th>
+                                <th style={{ width: 100 }}>{t('th.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -392,35 +401,41 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                             ) : promoCodes.length === 0 ? (
                                 <tr>
                                     <td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                        No promo codes found
+                                        {t('empty')}
                                     </td>
                                 </tr>
                             ) : (
                                 promoCodes.map((promo) => {
-                                    const scope = scopeSummary(promo, branches);
+                                    const scope = scopeSummary(t, promo, branches);
                                     return (
                                         <tr key={promo.id}>
                                             <td><strong>{promo.code}</strong></td>
                                             <td>
                                                 {promo.discountType === 'percent'
-                                                    ? `${toNumber(promo.discountValue)}%`
-                                                    : `SAR ${toNumber(promo.discountValue).toLocaleString()}`}
+                                                    ? t('discount.percent', { value: toNumber(promo.discountValue) })
+                                                    : t('money.sar', { amount: toNumber(promo.discountValue).toLocaleString() })}
                                             </td>
                                             <td>{scope.branchText}</td>
                                             <td>{scope.productText}</td>
                                             <td>{scope.serviceText}</td>
                                             <td>
-                                                {promo.validFrom || '—'} to {promo.validTo || '—'}
+                                                {t('validity.range', {
+                                                    from: promo.validFrom || dash,
+                                                    to: promo.validTo || dash,
+                                                })}
                                             </td>
                                             <td>
                                                 {promo.usageLimit != null && promo.usageLimit !== ''
-                                                    ? `${toNumber(promo.usageCount)} / ${toNumber(promo.usageLimit)}`
-                                                    : `${toNumber(promo.usageCount)} / ∞`}
+                                                    ? t('usage.limited', {
+                                                        used: toNumber(promo.usageCount),
+                                                        limit: toNumber(promo.usageLimit),
+                                                    })
+                                                    : t('usage.unlimited', { used: toNumber(promo.usageCount) })}
                                             </td>
-                                            <td>SAR {toNumber(promo.minOrderAmount).toLocaleString()}</td>
+                                            <td>{t('money.sar', { amount: toNumber(promo.minOrderAmount).toLocaleString() })}</td>
                                             <td>
                                                 <span className={`ws-badge ${promo.isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>
-                                                    {promo.isActive ? 'active' : 'inactive'}
+                                                    {promo.isActive ? t('status.active') : t('status.inactive')}
                                                 </span>
                                             </td>
                                             <td>
@@ -431,7 +446,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                                                         style={{ padding: '6px 10px', fontSize: '0.75rem' }}
                                                         onClick={() => openEdit(promo)}
                                                     >
-                                                        <Pencil size={12} /> Edit
+                                                        <Pencil size={12} /> {t('btn.edit')}
                                                     </button>
                                                 )}
                                             </td>

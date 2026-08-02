@@ -15,6 +15,7 @@ import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from '
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import PettyCashRecordForms from './PettyCashRecordForms';
 import { useAuth } from '../../context/AuthContext';
+import { wpcT } from '../../utils/workshopPettyCashI18n';
 import '../../styles/admin/AccountingPage.css';
 
 const EMPTY_BRANCHES = [];
@@ -23,7 +24,10 @@ export default function WorkshopPettyCashManagement({
     selectedBranchId = 'all',
     branches: branchesProp,
     workshopId = null,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wpcT(locale, key, vars), [locale]);
     const scopeQuery = useMemo(
         () => (workshopId ? { workshopId: String(workshopId) } : {}),
         [workshopId],
@@ -94,11 +98,11 @@ export default function WorkshopPettyCashManagement({
         try {
             await primary;
         } catch (e) {
-            setError(e?.message || 'Could not load petty cash management data.');
+            setError(e?.message || t('err.loadMgmt'));
         } finally {
             setLoading(false);
         }
-    }, [effectiveBranch, scopeQuery]);
+    }, [effectiveBranch, scopeQuery, t]);
 
     useEffect(() => {
         const next =
@@ -131,19 +135,19 @@ export default function WorkshopPettyCashManagement({
         setIssueMsg('');
         const amt = Number(issueAmount);
         if (!issueUserId) {
-            setIssueMsg('Select a staff member.');
+            setIssueMsg(t('err.selectStaff'));
             return;
         }
         if (!issueBranchId) {
-            setIssueMsg('Select a branch.');
+            setIssueMsg(t('err.selectBranch'));
             return;
         }
         if (!Number.isFinite(amt) || amt <= 0) {
-            setIssueMsg('Enter a valid amount.');
+            setIssueMsg(t('err.validAmount'));
             return;
         }
         if (!issuePayFrom) {
-            setIssueMsg('Select the cash/bank account to pay from.');
+            setIssueMsg(t('err.selectPayFrom'));
             return;
         }
         setIssueSubmitting(true);
@@ -163,7 +167,7 @@ export default function WorkshopPettyCashManagement({
             setIssueNote('');
             await loadAll();
         } catch (e) {
-            setIssueMsg(e?.message || 'Could not issue petty cash.');
+            setIssueMsg(e?.message || t('err.issueFailed'));
         } finally {
             setIssueSubmitting(false);
         }
@@ -175,7 +179,7 @@ export default function WorkshopPettyCashManagement({
             row.payFromAccountId ||
             '';
         if (row.kind === 'fund_request' && !payFrom) {
-            setError('Select a pay-from cash/bank account before approving a fund top-up.');
+            setError(t('err.approvePayFrom'));
             return;
         }
         setActionBusyId(row.id);
@@ -186,14 +190,14 @@ export default function WorkshopPettyCashManagement({
             }, scopeQuery);
             await loadAll();
         } catch (e) {
-            setError(e?.message || 'Approve failed.');
+            setError(e?.message || t('err.approveFailed'));
         } finally {
             setActionBusyId(null);
         }
     };
 
     const handleReject = async (row) => {
-        const reason = window.prompt('Rejection reason (required):');
+        const reason = window.prompt(t('prompt.rejectReason'));
         if (!reason?.trim()) return;
         setActionBusyId(row.id);
         setError('');
@@ -201,7 +205,7 @@ export default function WorkshopPettyCashManagement({
             await rejectExpenseRequest(row.id, { reason: reason.trim() }, scopeQuery);
             await loadAll();
         } catch (e) {
-            setError(e?.message || 'Reject failed.');
+            setError(e?.message || t('err.rejectFailed'));
         } finally {
             setActionBusyId(null);
         }
@@ -209,8 +213,8 @@ export default function WorkshopPettyCashManagement({
 
     const onIssueUserChange = (userId) => {
         setIssueUserId(userId);
-        const t = targets.find((u) => String(u.id) === String(userId));
-        if (t?.branchId) setIssueBranchId(String(t.branchId));
+        const target = targets.find((u) => String(u.id) === String(userId));
+        if (target?.branchId) setIssueBranchId(String(target.branchId));
     };
 
     const openStaffRegister = useCallback(async (row) => {
@@ -222,12 +226,12 @@ export default function WorkshopPettyCashManagement({
             const res = await getStaffPettyCashWallet(row.user.id, { limit: 100 });
             setRegisterData(res);
         } catch (e) {
-            setError(e?.message || 'Could not load wallet register.');
+            setError(e?.message || t('err.loadRegister'));
             setRegisterRow(null);
         } finally {
             setRegisterLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const closeStaffRegister = () => {
         setRegisterRow(null);
@@ -242,10 +246,8 @@ export default function WorkshopPettyCashManagement({
     return (
         <div className="accounting-page module-container">
             <header className="cash-bank-header">
-                <h2 className="cash-bank-title">Petty Cash Management</h2>
-                <p className="cash-bank-desc">
-                    Manage petty-cash floats for all workshop staff — issue cash, review requests, and monitor balances.
-                </p>
+                <h2 className="cash-bank-title">{t('page.mgmtTitle')}</h2>
+                <p className="cash-bank-desc">{t('page.mgmtDesc')}</p>
             </header>
 
             {error ? (
@@ -257,23 +259,24 @@ export default function WorkshopPettyCashManagement({
                 defaultBranchId={selectedBranchId}
                 onSubmitted={loadAll}
                 compact
+                locale={locale}
             />
 
             <div className="cash-bank-stats">
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><Wallet size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Total Staff Float</p>
-                        <p className="cash-bank-stat-value">SAR {formatSar(summary.totalFloat)}</p>
-                        <p className="cash-bank-stat-meta">{summary.walletCount} staff wallets</p>
+                        <p className="cash-bank-stat-label">{t('stat.totalStaffFloat')}</p>
+                        <p className="cash-bank-stat-value">{t('money.sar', { amount: formatSar(summary.totalFloat) })}</p>
+                        <p className="cash-bank-stat-meta">{t('stat.staffWallets', { count: summary.walletCount })}</p>
                     </div>
                 </div>
                 <div className="cash-bank-stat-card">
                     <div className="cash-bank-stat-icon"><RefreshCw size={24} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Pending Requests</p>
-                        <p className="cash-bank-stat-value">SAR {formatSar(summary.pendingAmount)}</p>
-                        <p className="cash-bank-stat-meta">{summary.pendingCount} awaiting action</p>
+                        <p className="cash-bank-stat-label">{t('stat.pendingRequests')}</p>
+                        <p className="cash-bank-stat-value">{t('money.sar', { amount: formatSar(summary.pendingAmount) })}</p>
+                        <p className="cash-bank-stat-meta">{t('stat.awaitingAction', { count: summary.pendingCount })}</p>
                     </div>
                 </div>
             </div>
@@ -289,13 +292,13 @@ export default function WorkshopPettyCashManagement({
                 border: '1px solid #E2E8F0',
             }}>
                 <div>
-                    <label className="form-label">Branch</label>
+                    <label className="form-label">{t('form.branch')}</label>
                     <select
                         className="form-input-field"
                         value={branchFilter}
                         onChange={(e) => setBranchFilter(e.target.value)}
                     >
-                        <option value="">All branches</option>
+                        <option value="">{t('form.allBranches')}</option>
                         {branches.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
@@ -304,24 +307,24 @@ export default function WorkshopPettyCashManagement({
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
                     {canIssue && (
                         <button type="button" className="btn-portal" onClick={() => setIssueOpen(true)}>
-                            <Plus size={16} /> Issue Petty Cash
+                            <Plus size={16} /> {t('btn.issuePettyCash')}
                         </button>
                     )}
                     <button type="button" className="btn-portal-outline" onClick={loadAll} disabled={loading}>
-                        <RefreshCw size={16} /> Refresh
+                        <RefreshCw size={16} /> {t('btn.refresh')}
                     </button>
                 </div>
             </section>
 
             {issueOpen ? (
                 <section style={{ padding: 18, background: '#fafafa', borderRadius: 12, marginBottom: 16, border: '1px solid #E2E8F0' }}>
-                    <h3 style={{ margin: '0 0 12px' }}>Issue Petty Cash to Staff</h3>
+                    <h3 style={{ margin: '0 0 12px' }}>{t('form.issueTitle')}</h3>
                     {issueMsg ? <p className="form-help-text" style={{ color: '#B45309' }}>{issueMsg}</p> : null}
                     <div className="modal-form-grid">
                         <div className="form-group">
-                            <label className="form-label">Staff member *</label>
+                            <label className="form-label">{t('form.staffMember')}</label>
                             <select className="form-input-field" value={issueUserId} onChange={(e) => onIssueUserChange(e.target.value)}>
-                                <option value="">Select staff</option>
+                                <option value="">{t('form.selectStaff')}</option>
                                 {targets.map((u) => (
                                     <option key={u.id} value={u.id}>
                                         {u.name}{u.role ? ` (${String(u.role).replace(/_/g, ' ')})` : ''}
@@ -330,67 +333,67 @@ export default function WorkshopPettyCashManagement({
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Branch *</label>
+                            <label className="form-label">{t('form.branchRequired')}</label>
                             <select className="form-input-field" value={issueBranchId} onChange={(e) => setIssueBranchId(e.target.value)}>
-                                <option value="">Select branch</option>
+                                <option value="">{t('form.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Amount (SAR) *</label>
+                            <label className="form-label">{t('form.amountSar')}</label>
                             <input type="number" min="0" step="0.01" className="form-input-field" value={issueAmount} onChange={(e) => setIssueAmount(e.target.value)} />
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Pay from (cash/bank) *</label>
+                            <label className="form-label">{t('form.payFrom')}</label>
                             <select className="form-input-field" value={issuePayFrom} onChange={(e) => setIssuePayFrom(e.target.value)}>
-                                <option value="">Select account</option>
+                                <option value="">{t('form.selectAccount')}</option>
                                 {cashAccounts.map((a) => (
                                     <option key={a.id} value={a.id}>{a.name}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="form-group form-group-full">
-                            <label className="form-label">Note</label>
+                            <label className="form-label">{t('form.note')}</label>
                             <input type="text" className="form-input-field" value={issueNote} onChange={(e) => setIssueNote(e.target.value)} />
                         </div>
                         <div className="form-group form-group-full" style={{ display: 'flex', gap: 8 }}>
                             <button type="button" className="btn-portal" disabled={issueSubmitting} onClick={handleIssue}>
-                                {issueSubmitting ? 'Issuing…' : 'Issue Now'}
+                                {issueSubmitting ? t('btn.issuing') : t('btn.issueNow')}
                             </button>
-                            <button type="button" className="btn-portal-outline" onClick={() => setIssueOpen(false)}>Cancel</button>
+                            <button type="button" className="btn-portal-outline" onClick={() => setIssueOpen(false)}>{t('btn.cancel')}</button>
                         </div>
                     </div>
                 </section>
             ) : null}
 
             {openThread ? (
-                <MessageThread requestId={openThread} onClose={() => setOpenThread(null)} />
+                <MessageThread requestId={openThread} onClose={() => setOpenThread(null)} t={t} locale={locale} />
             ) : null}
 
             <section className="premium-table cash-bank-table">
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0' }}>
-                    <strong>Staff Wallets</strong>
+                    <strong>{t('section.staffWallets')}</strong>
                     <p className="form-help-text" style={{ margin: '4px 0 0', fontWeight: 400 }}>
-                        Click a staff row to open their petty cash wallet register.
+                        {t('section.staffWalletsHint')}
                     </p>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Staff</th>
-                            <th className="table-th">Role</th>
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">Balance</th>
-                            <th className="table-th" style={{ width: 40 }} aria-label="Open register" />
+                            <th className="table-th">{t('th.staff')}</th>
+                            <th className="table-th">{t('th.role')}</th>
+                            <th className="table-th">{t('th.branch')}</th>
+                            <th className="table-th">{t('th.balance')}</th>
+                            <th className="table-th" style={{ width: 40 }} aria-label={t('aria.openRegister')} />
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={5} className="table-cell table-empty">Loading…</td></tr>
+                            <tr><td colSpan={5} className="table-cell table-empty">{t('loading')}</td></tr>
                         ) : wallets.length === 0 ? (
-                            <tr><td colSpan={5} className="table-cell table-empty">No staff wallets yet. Issue petty cash to create one.</td></tr>
+                            <tr><td colSpan={5} className="table-cell table-empty">{t('empty.wallets')}</td></tr>
                         ) : wallets.map((w) => (
                             <tr
                                 key={w.user?.id ?? w.walletId}
@@ -399,12 +402,12 @@ export default function WorkshopPettyCashManagement({
                                     cursor: w.user?.id ? 'pointer' : 'default',
                                     background: registerRow?.user?.id === w.user?.id ? '#F8FAFC' : undefined,
                                 }}
-                                title={w.user?.id ? 'Open wallet register' : undefined}
+                                title={w.user?.id ? t('title.openRegister') : undefined}
                             >
-                                <td className="table-cell">{w.user?.name ?? '—'}</td>
-                                <td className="table-cell">{w.user?.role ? String(w.user.role).replace(/_/g, ' ') : '—'}</td>
-                                <td className="table-cell">{w.branch?.name ?? '—'}</td>
-                                <td className="table-cell"><strong>SAR {formatSar(w.currentBalance)}</strong></td>
+                                <td className="table-cell">{w.user?.name ?? t('emDash')}</td>
+                                <td className="table-cell">{w.user?.role ? String(w.user.role).replace(/_/g, ' ') : t('emDash')}</td>
+                                <td className="table-cell">{w.branch?.name ?? t('emDash')}</td>
+                                <td className="table-cell"><strong>{t('money.sar', { amount: formatSar(w.currentBalance) })}</strong></td>
                                 <td className="table-cell" style={{ color: '#94A3B8' }}>
                                     {w.user?.id ? <ChevronRight size={16} /> : null}
                                 </td>
@@ -416,17 +419,17 @@ export default function WorkshopPettyCashManagement({
 
             {registerRow ? (
                 <Modal
-                    title="Petty Cash Wallet Register"
+                    title={t('modal.registerTitle')}
                     onClose={closeStaffRegister}
                     width={920}
                     contentClassName="cash-bank-table"
                 >
                     <div style={{ marginBottom: 16 }}>
                         <p style={{ margin: '0 0 4px', fontSize: '1.05rem', fontWeight: 600 }}>
-                            {registerStaff?.name ?? 'Staff member'}
+                            {registerStaff?.name ?? t('staff.member')}
                         </p>
                         <p className="form-help-text" style={{ margin: 0 }}>
-                            {registerStaff?.role ? String(registerStaff.role).replace(/_/g, ' ') : 'Staff'}
+                            {registerStaff?.role ? String(registerStaff.role).replace(/_/g, ' ') : t('staff.fallback')}
                             {registerWallet?.branch?.name ? ` · ${registerWallet.branch.name}` : registerRow?.branch?.name ? ` · ${registerRow.branch.name}` : ''}
                         </p>
                     </div>
@@ -434,28 +437,31 @@ export default function WorkshopPettyCashManagement({
                     <div className="cash-bank-stat-card" style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
                         <div className="cash-bank-stat-icon"><Wallet size={22} /></div>
                         <div>
-                            <p className="cash-bank-stat-label">Current Balance</p>
+                            <p className="cash-bank-stat-label">{t('stat.currentBalance')}</p>
                             <p className="cash-bank-stat-value">
-                                SAR {formatSar(registerWallet?.currentBalance ?? registerRow?.currentBalance ?? 0)}
+                                {t('money.sar', { amount: formatSar(registerWallet?.currentBalance ?? registerRow?.currentBalance ?? 0) })}
                             </p>
                             <p className="cash-bank-stat-meta">
-                                {registerWallet?.coaAccount?.code ?? registerRow?.coaCode ?? '—'}
-                                {' · '}
-                                {registerWallet?.name ?? registerRow?.walletName ?? 'Petty Cash Wallet'}
+                                {t('stat.walletMeta', {
+                                    code: registerWallet?.coaAccount?.code ?? registerRow?.coaCode ?? t('emDash'),
+                                    name: registerWallet?.name ?? registerRow?.walletName ?? t('stat.walletDefaultName'),
+                                })}
                             </p>
                         </div>
                     </div>
 
                     <header style={{ padding: '0 0 8px', borderBottom: '1px solid #E2E8F0', marginBottom: 0 }}>
-                        <strong>Wallet Register — Top-ups & Expenses</strong>
+                        <strong>{t('section.walletRegister')}</strong>
                     </header>
                     <WalletTransactionsTable
                         transactions={registerTransactions}
                         loading={registerLoading}
+                        t={t}
+                        locale={locale}
                         emptyMessage={
                             registerWallet
-                                ? 'No transactions yet.'
-                                : 'No wallet register yet. Issue petty cash or approve a fund top-up to create one.'
+                                ? t('empty.transactions')
+                                : t('empty.noWalletRegister')
                         }
                     />
                 </Modal>
@@ -463,38 +469,38 @@ export default function WorkshopPettyCashManagement({
 
             <section className="premium-table cash-bank-table" style={{ marginTop: 16 }}>
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0' }}>
-                    <strong>All Staff Requests</strong>
+                    <strong>{t('section.allStaffRequests')}</strong>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Date</th>
-                            <th className="table-th">Staff</th>
-                            <th className="table-th">Type</th>
-                            <th className="table-th">Branch</th>
-                            <th className="table-th">Amount</th>
-                            <th className="table-th">Proof</th>
-                            <th className="table-th">Status</th>
-                            <th className="table-th">Pay from</th>
-                            <th className="table-th">Actions</th>
+                            <th className="table-th">{t('th.date')}</th>
+                            <th className="table-th">{t('th.staff')}</th>
+                            <th className="table-th">{t('th.type')}</th>
+                            <th className="table-th">{t('th.branch')}</th>
+                            <th className="table-th">{t('th.amount')}</th>
+                            <th className="table-th">{t('th.proof')}</th>
+                            <th className="table-th">{t('th.status')}</th>
+                            <th className="table-th">{t('th.payFrom')}</th>
+                            <th className="table-th">{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {requests.length === 0 ? (
-                            <tr><td colSpan={9} className="table-cell table-empty">No requests.</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">{t('empty.noRequests')}</td></tr>
                         ) : requests.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.createdAt).toLocaleDateString()}</td>
-                                <td className="table-cell">{r.requestedBy?.name ?? '—'}</td>
-                                <td className="table-cell">{r.kind === 'fund_request' ? 'Fund top-up' : 'Expense'}</td>
-                                <td className="table-cell">{r.branch?.name ?? '—'}</td>
-                                <td className="table-cell">SAR {formatSar(r.amount)}</td>
+                                <td className="table-cell">{r.requestedBy?.name ?? t('emDash')}</td>
+                                <td className="table-cell">{r.kind === 'fund_request' ? t('kind.fundTopUp') : t('kind.expense')}</td>
+                                <td className="table-cell">{r.branch?.name ?? t('emDash')}</td>
+                                <td className="table-cell">{t('money.sar', { amount: formatSar(r.amount) })}</td>
                                 <td className="table-cell">
                                     {r.kind === 'expense' ? (
                                         <ExpenseProofThumbnail proofUrl={r.proofUrl} size={36} />
-                                    ) : '—'}
+                                    ) : t('emDash')}
                                 </td>
-                                <td className="table-cell"><StatusBadge status={r.status} /></td>
+                                <td className="table-cell"><StatusBadge status={r.status} t={t} /></td>
                                 <td className="table-cell">
                                     {r.status === 'pending' && r.kind === 'fund_request' ? (
                                         <select
@@ -506,13 +512,13 @@ export default function WorkshopPettyCashManagement({
                                                 [r.id]: e.target.value,
                                             }))}
                                         >
-                                            <option value="">Select account</option>
+                                            <option value="">{t('form.selectAccount')}</option>
                                             {cashAccounts.map((a) => (
                                                 <option key={a.id} value={a.id}>{a.name}</option>
                                             ))}
                                         </select>
                                     ) : (
-                                        r.payFromAccountName ?? '—'
+                                        r.payFromAccountName ?? t('emDash')
                                     )}
                                 </td>
                                 <td className="table-cell">
@@ -525,7 +531,7 @@ export default function WorkshopPettyCashManagement({
                                                     disabled={actionBusyId === r.id}
                                                     onClick={() => handleApprove(r)}
                                                 >
-                                                    <CheckCircle size={14} /> Approve
+                                                    <CheckCircle size={14} /> {t('btn.approve')}
                                                 </button>
                                                 <button
                                                     type="button"
@@ -533,12 +539,14 @@ export default function WorkshopPettyCashManagement({
                                                     disabled={actionBusyId === r.id}
                                                     onClick={() => handleReject(r)}
                                                 >
-                                                    <XCircle size={14} /> Reject
+                                                    <XCircle size={14} /> {t('btn.reject')}
                                                 </button>
                                             </>
                                         ) : null}
                                         <button type="button" className="btn-edit-zone" onClick={() => setOpenThread(r.id)}>
-                                            Messages{r.messageCount > 0 ? ` (${r.messageCount})` : ''}
+                                            {r.messageCount > 0
+                                                ? t('btn.messagesCount', { count: r.messageCount })
+                                                : t('btn.messages')}
                                         </button>
                                     </div>
                                 </td>

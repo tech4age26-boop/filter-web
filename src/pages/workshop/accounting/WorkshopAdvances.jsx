@@ -75,16 +75,30 @@ const makeAdvanceRow = () => ({
     reason: '',
 });
 
-const ADV_TAB_IDS = new Set(ADV_TABS.map((t) => t.id));
+const ADV_TAB_IDS = new Set(ADV_TABS.map((tab) => tab.id));
 
-export default function WorkshopAdvances({ branches = [], selectedBranchId = 'all', initialTab: initialTabProp }) {
+export default function WorkshopAdvances({
+    branches = [],
+    selectedBranchId = 'all',
+    locale: localeProp,
+    initialTab: initialTabProp,
+}) {
     const outletCtx = useOutletContext() || {};
     const [searchParams] = useSearchParams();
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
     const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
+    const statusLabel = useCallback((status) => {
+        const s = String(status || '').toLowerCase();
+        if (s === 'pending' || s === 'approved' || s === 'repaid' || s === 'rejected') {
+            return t(`adv.status.${s}`);
+        }
+        return status || '—';
+    }, [t]);
 
     const initialTab = (() => {
         if (initialTabProp && ADV_TAB_IDS.has(initialTabProp)) return initialTabProp;
@@ -593,7 +607,7 @@ export default function WorkshopAdvances({ branches = [], selectedBranchId = 'al
                                         <td className="table-cell">SAR {fmt(a.balance)}</td>
                                         <td className="table-cell">
                                             <span className={`status-badge ${(a.status || '').toLowerCase() === 'approved' ? 'approved' : 'pending'}`}>
-                                                {a.status}
+                                                {statusLabel(a.status)}
                                             </span>
                                         </td>
                                     </tr>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams } from 'react-router-dom';
+import { useOutletContext, useParams } from 'react-router-dom';
 import WorkshopApprovalLimits from './accounting/WorkshopApprovalLimits';
 import WorkshopReceiptsLog from './accounting/WorkshopReceiptsLog';
 import WorkshopPaymentsLog from './accounting/WorkshopPaymentsLog';
@@ -38,30 +38,50 @@ function resolveActiveSub(paramsSubTab, activeTab) {
     };
 }
 
-export default function WorkshopAccountingPage({ activeTab, branches = [], selectedBranchId = 'all' }) {
+export default function WorkshopAccountingPage({
+    activeTab,
+    branches = [],
+    selectedBranchId = 'all',
+    locale: localeProp,
+}) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        localeProp ||
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
     const { subTab: paramsSubTab } = useParams();
     const { activeSub, openSalaryTab } = resolveActiveSub(paramsSubTab, activeTab);
 
     return (
         <div className="accounting-page module-container">
-            {activeSub === 'chart-of-accounts' && <WorkshopCOAPage />}
-            {activeSub === 'period-closings' && <WorkshopPeriodClosingsPage />}
-            {activeSub === 'cash-bank' && <WorkshopCashBankPage branches={branches} />}
-            {activeSub === 'payments' && <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'transactions' && <WorkshopTransactionEntryPage branches={branches} />}
-            {activeSub === 'journal-entries' && <WorkshopGeneralJournalPage />}
-            {activeSub === 'expenses' && <WorkshopExpensesLog branches={branches} selectedBranchId={selectedBranchId} />}
-            {activeSub === 'receipts' && <WorkshopReceiptsLog branches={branches} selectedBranchId={selectedBranchId} />}
+            {activeSub === 'chart-of-accounts' && <WorkshopCOAPage locale={locale} />}
+            {activeSub === 'period-closings' && <WorkshopPeriodClosingsPage locale={locale} />}
+            {activeSub === 'cash-bank' && <WorkshopCashBankPage branches={branches} locale={locale} />}
+            {activeSub === 'payments' && (
+                <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />
+            )}
+            {activeSub === 'transactions' && (
+                <WorkshopTransactionEntryPage branches={branches} locale={locale} />
+            )}
+            {activeSub === 'journal-entries' && <WorkshopGeneralJournalPage locale={locale} />}
+            {activeSub === 'expenses' && (
+                <WorkshopExpensesLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />
+            )}
+            {activeSub === 'receipts' && (
+                <WorkshopReceiptsLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />
+            )}
             {activeSub === 'advances' && (
                 <WorkshopAdvances
                     branches={branches}
                     selectedBranchId={selectedBranchId}
+                    locale={locale}
                     initialTab={openSalaryTab ? 'Salary' : undefined}
                 />
             )}
-            {activeSub === 'approvals' && <WorkshopApprovalLimits />}
-            {activeSub === 'ledger' && <WorkshopLedgerView />}
-            {activeSub === 'vat' && <WorkshopVatReport />}
+            {activeSub === 'approvals' && <WorkshopApprovalLimits locale={locale} />}
+            {activeSub === 'ledger' && <WorkshopLedgerView locale={locale} />}
+            {activeSub === 'vat' && <WorkshopVatReport locale={locale} />}
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import ProfessionalLedgerStatementDocument from '../../../components/accounting/ProfessionalLedgerStatementDocument';
 import {
@@ -22,6 +22,7 @@ import {
     isWorkshopPettyCashFundLedgerAccount,
     parseWorkshopLedgerAccountIdFromPath,
 } from '../workshopCoaAccountRouting';
+import { accT } from '../../../utils/accountingI18n';
 import { LOCKER_EXPENSE_CATEGORIES } from '../../locker/lockerExpenseCategories';
 import '../../../styles/admin/AccountingPage.css';
 
@@ -29,7 +30,15 @@ import '../../../styles/admin/AccountingPage.css';
  * Workshop admin — full-page ledger for petty cash fund [1280], employee petty
  * cash expenses [6100], locker expenses [6110], and other COA accounts.
  */
-export default function WorkshopAccountLedgerPage() {
+export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        localeProp ||
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
     const routeParams = useParams();
     const location = useLocation();
     const accountId =
@@ -63,7 +72,7 @@ export default function WorkshopAccountLedgerPage() {
     const [data, setData] = useState(null);
     const loadSeqRef = useRef(0);
 
-    const entityLabel = workshop?.name || user?.workshopName || 'Workshop';
+    const entityLabel = workshop?.name || user?.workshopName || t('stmt.entity.workshop');
 
     useEffect(() => {
         if (urlDateFrom) setDateFrom(urlDateFrom);
@@ -73,7 +82,7 @@ export default function WorkshopAccountLedgerPage() {
 
     const load = useCallback(async (opts = {}) => {
         if (!accountId) {
-            setErr('Could not determine which account to load. Open the ledger from Chart of Accounts.');
+            setErr(t('stmt.err.noAccount'));
             setLoading(false);
             return;
         }
@@ -110,20 +119,20 @@ export default function WorkshopAccountLedgerPage() {
             if (seq !== loadSeqRef.current) return;
             const payload = unwrapLedgerPayload(res);
             if (!payload || typeof payload !== 'object') {
-                throw new Error('Empty ledger response from server');
+                throw new Error(t('stmt.err.empty'));
             }
             if (!Array.isArray(payload.rows)) {
-                throw new Error('Ledger response is missing transaction rows');
+                throw new Error(t('stmt.err.missingRows'));
             }
             setData(payload);
         } catch (e) {
             if (seq !== loadSeqRef.current) return;
-            setErr(e?.message || 'Failed to load ledger');
+            setErr(e?.message || t('stmt.err.load'));
             setData(null);
         } finally {
             if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter]);
+    }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter, t]);
 
     useEffect(() => {
         void load();
@@ -173,7 +182,7 @@ export default function WorkshopAccountLedgerPage() {
                 totals: root?.totals,
             });
         } catch (e) {
-            setErr(e?.message || 'PDF export failed');
+            setErr(e?.message || t('stmt.err.pdf'));
         }
     }
 
@@ -188,7 +197,7 @@ export default function WorkshopAccountLedgerPage() {
                 totals: root?.totals,
             });
         } catch (e) {
-            setErr(e?.message || 'Excel export failed');
+            setErr(e?.message || t('stmt.err.excel'));
         }
     }
 
@@ -212,7 +221,7 @@ export default function WorkshopAccountLedgerPage() {
     function syncWalletUserFromInput() {
         if (walletUserFilter) return walletUserFilter;
         const raw = String(walletUserInput || '').trim();
-        if (!raw || raw.toLowerCase() === 'all employees') {
+        if (!raw || raw.toLowerCase() === 'all employees' || raw === t('stmt.allEmployees')) {
             setWalletUserFilter('');
             return '';
         }
@@ -271,11 +280,11 @@ export default function WorkshopAccountLedgerPage() {
         || isWorkshopPettyCashExpenseLedger
         || isWorkshopLockerExpensesLedger;
     const scopeNote = isWorkshopLockerExpensesLedger
-        ? `${entityLabel} · Locker Expenses ledger`
+        ? t('stmt.scope.locker', { entity: entityLabel })
         : isWorkshopPettyCashExpenseLedger
-            ? `${entityLabel} · Employee petty cash expense ledger`
+            ? t('stmt.scope.expense', { entity: entityLabel })
             : isWorkshopPettyCashFundLedger
-                ? `${entityLabel} · Employee petty cash fund ledger`
+                ? t('stmt.scope.fund', { entity: entityLabel })
                 : '';
 
     const ledgerFilterOptions = useMemo(() => {
@@ -301,10 +310,10 @@ export default function WorkshopAccountLedgerPage() {
                 key: o.id,
                 label: o.label,
             })),
-            walletUsers: [{ key: '', label: 'All employees' }],
-            branches: [{ key: '', label: 'All branches' }],
+            walletUsers: [{ key: '', label: t('stmt.allEmployees') }],
+            branches: [{ key: '', label: t('stmt.allBranches') }],
         };
-    }, [data?.filterOptions, isPettyCashExpenseLedger, isWorkshopLockerExpensesLedger]);
+    }, [data?.filterOptions, isPettyCashExpenseLedger, isWorkshopLockerExpensesLedger, t]);
 
     const walletUserComboboxOptions = useMemo(
         () =>
@@ -373,7 +382,7 @@ export default function WorkshopAccountLedgerPage() {
         <div className="accounting-page module-container">
             <ProfessionalLedgerStatementDocument
                 onBack={() => navigate('/workshop/accounting/chart-of-accounts')}
-                backLabel="Back to Chart of Accounts"
+                backLabel={t('stmt.backToCoa')}
                 scopeNote={scopeNote}
                 loading={loading}
                 error={err}
@@ -399,13 +408,13 @@ export default function WorkshopAccountLedgerPage() {
                 showPettyCashExpenseColumns={isPettyCashExpenseLedger}
                 walletUserColumnLabel={
                     isWorkshopLockerExpensesLedger
-                        ? 'Recorded by'
+                        ? t('stmt.recordedBy')
                         : isWorkshopPettyCashExpenseLedger
-                            ? 'Wallet user / employee'
-                            : 'Employee'
+                            ? t('stmt.walletUserEmployee')
+                            : t('stmt.employee')
                 }
-                expenseCategoryColumnLabel="Account category"
-                closingBalanceKpiLabel="Closing Balance (selected period)"
+                expenseCategoryColumnLabel={t('stmt.accountCategory')}
+                closingBalanceKpiLabel={t('stmt.closingBalanceKpi')}
                 filterOptions={ledgerFilterOptions}
                 expenseCategoryFilter={expenseCategoryFilter}
                 onExpenseCategoryFilterChange={setExpenseCategoryFilter}

@@ -83,9 +83,10 @@ function sourceLabel(source, t) {
     return null;
 }
 
-export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all' }) {
+export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 'all', locale: localeProp }) {
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useOutletContext } from 'react-router-dom';
 import {
     Book,
@@ -109,13 +109,13 @@ function parseApParty(apParty) {
 
 function mapSupplierApLinesToGl(apLedger) {
     return (apLedger?.rows ?? []).map((row) => {
-        const desc = row.description || '—';
+        const desc = row.description || 'ΓÇö';
         const invMatch = String(desc).match(/\b((?:PI|WLPI|INV|SI|DN|CN|JE)-[\w-]+)/i);
         return {
             id: row.id,
             date: row.date,
-            entryNumber: invMatch?.[1] || row.refType || '—',
-            journalType: row.refType || '—',
+            entryNumber: invMatch?.[1] || row.refType || 'ΓÇö',
+            journalType: row.refType || 'ΓÇö',
             journalDescription: desc,
             lineDescription: desc,
             source: 'supplier_ap',
@@ -185,15 +185,15 @@ function mapCorporateArLinesToGl(corpLedger) {
         return {
             id: row.id,
             date: row.date,
-            entryNumber: row.invoiceNo || '—',
-            journalType: row.type || '—',
-            journalDescription: row.productsServicesEn || row.productsServices || '—',
-            lineDescription: row.productsServicesEn || row.productsServices || '—',
+            entryNumber: row.invoiceNo || 'ΓÇö',
+            journalType: row.type || 'ΓÇö',
+            journalDescription: row.productsServicesEn || row.productsServices || 'ΓÇö',
+            lineDescription: row.productsServicesEn || row.productsServices || 'ΓÇö',
             source: 'corporate_ar',
             debit: dr,
             credit: cr,
             runningBalance: Number(row.runningBalance) || 0,
-            vehicleNo: row.vehicleNo || '—',
+            vehicleNo: row.vehicleNo || 'ΓÇö',
             invoiceId: row.invoiceId || null,
         };
     });
@@ -208,7 +208,7 @@ function isJournalEntryRef(text) {
     return /^JE[-_]/i.test(String(text || '').trim());
 }
 
-/** Map workshop-staff PDF/details payload → InvoiceDetailsModal shape. */
+/** Map workshop-staff PDF/details payload ΓåÆ InvoiceDetailsModal shape. */
 function mapRecentPdfToInvoice(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const src = raw?.invoice && typeof raw.invoice === 'object' ? raw.invoice : raw;
@@ -303,11 +303,12 @@ async function loadWorkshopInvoiceModal(invoiceId) {
     return invoice;
 }
 
-export default function WorkshopLedgerView() {
+export default function WorkshopLedgerView({ locale: localeProp } = {}) {
     const outletCtx = useOutletContext() || {};
     const { workshop } = useAuth() || {};
     const location = useLocation();
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
@@ -394,9 +395,9 @@ export default function WorkshopLedgerView() {
                 const heading = a.hasChildren || a.isHeading;
                 return {
                     id: String(a.id),
-                    label: `${code} · ${name}`,
+                    label: `${code} ┬╖ ${name}`,
                     subtitle: heading
-                        ? `${a.type || 'Account'} · Heading`
+                        ? `${a.type || 'Account'} ┬╖ Heading`
                         : String(a.type || 'Account'),
                     searchText: `${code} ${name} ${a.type || ''} ${a.subType || ''}`,
                 };
@@ -420,7 +421,7 @@ export default function WorkshopLedgerView() {
         clearLedgerResults();
     }, [accountId, dateFrom, dateTo, corpParty, apParty, clearLedgerResults]);
 
-    // Reset corporate party filter when leaving 1110 (filter UI only — no ledger fetch).
+    // Reset corporate party filter when leaving 1110 (filter UI only ΓÇö no ledger fetch).
     useEffect(() => {
         if (!showCorpPartyFilter) {
             setCorpParty(CORP_ALL);
@@ -429,7 +430,7 @@ export default function WorkshopLedgerView() {
         }
     }, [showCorpPartyFilter]);
 
-    // Reset AP supplier filter when leaving AP accounts or switching affiliated ↔ local.
+    // Reset AP supplier filter when leaving AP accounts or switching affiliated Γåö local.
     useEffect(() => {
         if (!showApPartyFilter) {
             setApParty(AP_ALL);
@@ -586,11 +587,11 @@ export default function WorkshopLedgerView() {
         ];
         const customers = (corpCustomers || []).map((c) => ({
             id: `${CORP_PREFIX}${c.corporateAccountId}`,
-            label: c.companyName || c.customerName || '—',
+            label: c.companyName || c.customerName || 'ΓÇö',
             subtitle: [
                 c.vatNumber ? `VAT ${c.vatNumber}` : null,
                 `Due SAR ${fmt(c.dueBalance)}`,
-            ].filter(Boolean).join(' · '),
+            ].filter(Boolean).join(' ┬╖ '),
             trailing: c.dueBalance > 0 ? `SAR ${fmt(c.dueBalance)}` : undefined,
             searchText: `${c.companyName} ${c.customerName} ${c.vatNumber} ${c.contactPerson} ${c.mobile}`,
         }));
@@ -612,7 +613,7 @@ export default function WorkshopLedgerView() {
             if (!sid || seen.has(sid)) continue;
             seen.add(sid);
             const id = isAff ? `${AP_PREFIX}affiliated:${sid}` : `${AP_PREFIX}local:${sid}`;
-            const name = isAff ? (s.supplierName || '—') : (s.name || '—');
+            const name = isAff ? (s.supplierName || 'ΓÇö') : (s.name || 'ΓÇö');
             const phone = isAff ? s.mobile : s.phone;
             const vat = s.vatId || '';
             suppliers.push({
@@ -623,7 +624,7 @@ export default function WorkshopLedgerView() {
                     phone || null,
                     s.branchName || null,
                     `Due SAR ${fmt(s.finalBalance)}`,
-                ].filter(Boolean).join(' · '),
+                ].filter(Boolean).join(' ┬╖ '),
                 trailing: Number(s.finalBalance) !== 0 ? `SAR ${fmt(s.finalBalance)}` : undefined,
                 searchText: `${name} ${vat} ${phone || ''} ${s.email || ''} ${s.contactPerson || ''}`,
             });
@@ -780,7 +781,7 @@ export default function WorkshopLedgerView() {
         companyName: selectedCorpProfile?.companyName
             || selectedApProfile?.companyName
             || (ledger?.account?.code
-                ? `${ledger.account.code} — ${ledger.account.name}`
+                ? `${ledger.account.code} ΓÇö ${ledger.account.name}`
                 : ledger?.account?.name)
             || workshop?.name
             || 'FILTER',
@@ -993,14 +994,14 @@ export default function WorkshopLedgerView() {
         });
         setSelectedJE({
             code: entry.entryNumber,
-            date: entry.date ? new Date(entry.date).toLocaleDateString() : '—',
+            date: entry.date ? new Date(entry.date).toLocaleDateString() : 'ΓÇö',
             type: entry.type,
             status: (entry.status || '').toUpperCase(),
             totalDebit: `SAR ${fmtMoney(entry.totalDebit)}`,
             totalCredit: `SAR ${fmtMoney(entry.totalCredit)}`,
             description: entry.description || '',
             lines: (entry.lines || []).map((l) => ({
-                account: `${l.accountCode || ''}${l.accountCode ? ' — ' : ''}${l.accountName || ''}`,
+                account: `${l.accountCode || ''}${l.accountCode ? ' ΓÇö ' : ''}${l.accountName || ''}`,
                 description: l.description || '',
                 debit: l.debit ? fmtMoney(l.debit) : '',
                 credit: l.credit ? fmtMoney(l.credit) : '',
@@ -1067,7 +1068,7 @@ export default function WorkshopLedgerView() {
 
     const handleEntryClick = useCallback(async (line) => {
         const entryNo = String(line?.entryNumber || '').trim();
-        if (!entryNo || entryNo === '—') return;
+        if (!entryNo || entryNo === 'ΓÇö') return;
         const key = String(line.id || entryNo);
         setEntryLoadingKey(key);
         setError('');
@@ -1077,7 +1078,7 @@ export default function WorkshopLedgerView() {
                 await openPurchaseInvoiceByRef(line);
                 return;
             }
-            // Corporate AR RET rows point invoiceId at the source invoice — open that first.
+            // Corporate AR RET rows point invoiceId at the source invoice ΓÇö open that first.
             if (/^RET-/i.test(entryNo)) {
                 if (line.invoiceId) {
                     await openInvoiceByRef({ invoiceId: line.invoiceId, invoiceNo: entryNo });
@@ -1257,11 +1258,11 @@ export default function WorkshopLedgerView() {
                     <div className="cash-bank-stat-card">
                         <div className="cash-bank-stat-icon"><Book size={24} /></div>
                         <div>
-                            <p className="cash-bank-stat-label">{ledger.account.code} · {ledger.account.name}</p>
+                            <p className="cash-bank-stat-label">{ledger.account.code} ┬╖ {ledger.account.name}</p>
                             <p className="cash-bank-stat-value">SAR {fmt(statementClosing)}</p>
                             <p className="cash-bank-stat-meta">
-                                {ledger.account.type} · {t('ledger.meta.normal')} {ledger.account.normalBalance}
-                                {` · ${t('ledger.meta.showingPage', {
+                                {ledger.account.type} ┬╖ {t('ledger.meta.normal')} {ledger.account.normalBalance}
+                                {` ┬╖ ${t('ledger.meta.showingPage', {
                                     shown: pageLines.length,
                                     total: filteredLines.length,
                                     page,
@@ -1280,10 +1281,10 @@ export default function WorkshopLedgerView() {
                                     ? t('ledger.periodRange', {
                                         from: dateFrom
                                             ? new Date(`${dateFrom}T00:00:00`).toLocaleDateString()
-                                            : '—',
+                                            : 'ΓÇö',
                                         to: dateTo
                                             ? new Date(`${dateTo}T00:00:00`).toLocaleDateString()
-                                            : '—',
+                                            : 'ΓÇö',
                                     })
                                     : t('ledger.periodAll')}
                             </p>
@@ -1404,14 +1405,14 @@ export default function WorkshopLedgerView() {
                             <>
                                 {page === 1 ? (
                                     <tr style={{ background: '#F8FAFC' }}>
-                                        <td className="table-cell">{dateFrom ? new Date(`${dateFrom}T00:00:00`).toLocaleDateString() : '—'}</td>
-                                        <td className="table-cell">—</td>
+                                        <td className="table-cell">{dateFrom ? new Date(`${dateFrom}T00:00:00`).toLocaleDateString() : 'ΓÇö'}</td>
+                                        <td className="table-cell">ΓÇö</td>
                                         <td className="table-cell">{t('ledger.openingType')}</td>
-                                        {showVehicleCol ? <td className="table-cell">—</td> : null}
+                                        {showVehicleCol ? <td className="table-cell">ΓÇö</td> : null}
                                         <td className="table-cell" style={{ fontWeight: 600 }}>{openingPeriodLabel}</td>
-                                        <td className="table-cell">—</td>
-                                        <td className="table-cell" style={{ textAlign: 'right' }}>—</td>
-                                        <td className="table-cell" style={{ textAlign: 'right' }}>—</td>
+                                        <td className="table-cell">ΓÇö</td>
+                                        <td className="table-cell" style={{ textAlign: 'right' }}>ΓÇö</td>
+                                        <td className="table-cell" style={{ textAlign: 'right' }}>ΓÇö</td>
                                         <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
                                             SAR {fmt(statementOpening)}
                                         </td>
@@ -1423,7 +1424,7 @@ export default function WorkshopLedgerView() {
                                     const entryNo = String(l.entryNumber || '').trim();
                                     const clickable = Boolean(
                                         entryNo
-                                        && entryNo !== '—'
+                                        && entryNo !== 'ΓÇö'
                                         && (
                                             l.invoiceId
                                             || l.refId
@@ -1438,7 +1439,7 @@ export default function WorkshopLedgerView() {
                                     return (
                                         <tr key={l.id}>
                                             <td className="table-cell">
-                                                {l.date ? new Date(l.date).toLocaleDateString() : '—'}
+                                                {l.date ? new Date(l.date).toLocaleDateString() : 'ΓÇö'}
                                             </td>
                                             <td className="table-cell" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
                                                 {clickable ? (
@@ -1459,18 +1460,18 @@ export default function WorkshopLedgerView() {
                                                     >
                                                         {loadingThis ? t('loading') : entryNo}
                                                     </button>
-                                                ) : (entryNo || '—')}
+                                                ) : (entryNo || 'ΓÇö')}
                                             </td>
-                                            <td className="table-cell">{l.journalType || '—'}</td>
+                                            <td className="table-cell">{l.journalType || 'ΓÇö'}</td>
                                             {showVehicleCol ? (
-                                                <td className="table-cell">{l.vehicleNo || '—'}</td>
+                                                <td className="table-cell">{l.vehicleNo || 'ΓÇö'}</td>
                                             ) : null}
                                             <td className="table-cell" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {l.lineDescription || l.journalDescription || '—'}
+                                                {l.lineDescription || l.journalDescription || 'ΓÇö'}
                                             </td>
-                                            <td className="table-cell">{l.source ?? '—'}</td>
-                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.debit ? `SAR ${fmt(l.debit)}` : '—'}</td>
-                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.credit ? `SAR ${fmt(l.credit)}` : '—'}</td>
+                                            <td className="table-cell">{l.source ?? 'ΓÇö'}</td>
+                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.debit ? `SAR ${fmt(l.debit)}` : 'ΓÇö'}</td>
+                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.credit ? `SAR ${fmt(l.credit)}` : 'ΓÇö'}</td>
                                             <td className="table-cell" style={{ textAlign: 'right', fontWeight: 600 }}>SAR {fmt(l.runningBalance)}</td>
                                         </tr>
                                     );
@@ -1560,7 +1561,7 @@ export default function WorkshopLedgerView() {
             {piModalOpen && piDetail ? (
                 <Modal
                     title={t('ledger.piTitle', {
-                        no: piDetail.invoiceNumber || piDetail.invoiceNo || piDetail.id || '—',
+                        no: piDetail.invoiceNumber || piDetail.invoiceNo || piDetail.id || 'ΓÇö',
                     })}
                     onClose={() => {
                         setPiModalOpen(false);
@@ -1570,10 +1571,10 @@ export default function WorkshopLedgerView() {
                 >
                     <div style={{ display: 'grid', gap: 10 }}>
                         <div><strong>{t('ledger.th.type')}:</strong> {piDetail.kind === 'local' ? t('ledger.ap.local') : t('ledger.ap.affiliated')}</div>
-                        <div><strong>{t('ledger.th.entryNo')}:</strong> {piDetail.invoiceNumber || piDetail.invoiceNo || '—'}</div>
-                        <div><strong>{t('ledger.th.date')}:</strong> {piDetail.issueDate ? new Date(piDetail.issueDate).toLocaleDateString() : '—'}</div>
-                        <div><strong>Supplier:</strong> {piDetail.supplierName || piDetail.localSupplier?.name || piDetail.supplier?.name || '—'}</div>
-                        <div><strong>Status:</strong> {piDetail.status || '—'}</div>
+                        <div><strong>{t('ledger.th.entryNo')}:</strong> {piDetail.invoiceNumber || piDetail.invoiceNo || 'ΓÇö'}</div>
+                        <div><strong>{t('ledger.th.date')}:</strong> {piDetail.issueDate ? new Date(piDetail.issueDate).toLocaleDateString() : 'ΓÇö'}</div>
+                        <div><strong>Supplier:</strong> {piDetail.supplierName || piDetail.localSupplier?.name || piDetail.supplier?.name || 'ΓÇö'}</div>
+                        <div><strong>Status:</strong> {piDetail.status || 'ΓÇö'}</div>
                         <div><strong>Total:</strong> SAR {fmt(piDetail.grandTotal ?? piDetail.totalAmount ?? piDetail.total)}</div>
                         {piDetail.journalId ? (
                             <button
@@ -1591,7 +1592,7 @@ export default function WorkshopLedgerView() {
             {returnModalOpen && returnDetail ? (
                 <Modal
                     title={t('ledger.returnTitle', {
-                        no: returnDetail.creditNoteNo || returnDetail.returnNo || '—',
+                        no: returnDetail.creditNoteNo || returnDetail.returnNo || 'ΓÇö',
                     })}
                     onClose={() => {
                         setReturnModalOpen(false);
@@ -1600,12 +1601,12 @@ export default function WorkshopLedgerView() {
                     width={560}
                 >
                     <div style={{ display: 'grid', gap: 10 }}>
-                        <div><strong>{t('ledger.th.entryNo')}:</strong> {returnDetail.returnNo || returnDetail.creditNoteNo || '—'}</div>
-                        <div><strong>{t('ledger.th.date')}:</strong> {returnDetail.returnDate ? new Date(returnDetail.returnDate).toLocaleDateString() : '—'}</div>
-                        <div><strong>Invoice:</strong> {returnDetail.invoiceNo || '—'}</div>
-                        <div><strong>{t('ledger.th.vehicle')}:</strong> {returnDetail.vehicleNo || returnDetail.plateNo || '—'}</div>
-                        <div><strong>Customer:</strong> {returnDetail.customerName || '—'}</div>
-                        <div><strong>Status:</strong> {returnDetail.status || '—'}</div>
+                        <div><strong>{t('ledger.th.entryNo')}:</strong> {returnDetail.returnNo || returnDetail.creditNoteNo || 'ΓÇö'}</div>
+                        <div><strong>{t('ledger.th.date')}:</strong> {returnDetail.returnDate ? new Date(returnDetail.returnDate).toLocaleDateString() : 'ΓÇö'}</div>
+                        <div><strong>Invoice:</strong> {returnDetail.invoiceNo || 'ΓÇö'}</div>
+                        <div><strong>{t('ledger.th.vehicle')}:</strong> {returnDetail.vehicleNo || returnDetail.plateNo || 'ΓÇö'}</div>
+                        <div><strong>Customer:</strong> {returnDetail.customerName || 'ΓÇö'}</div>
+                        <div><strong>Status:</strong> {returnDetail.status || 'ΓÇö'}</div>
                         <div><strong>Total:</strong> SAR {fmt(returnDetail.totalAmount)}</div>
                         {returnDetail.invoiceId || returnDetail.invoiceNo ? (
                             <button
@@ -1660,7 +1661,7 @@ export default function WorkshopLedgerView() {
                         </div>
                         <div className="je-detail-desc-box">
                             <span className="je-field-label">{t('gj.modal.description')}</span>
-                            <p className="je-field-value">{selectedJE.description || '—'}</p>
+                            <p className="je-field-value">{selectedJE.description || 'ΓÇö'}</p>
                         </div>
                         <div className="je-lines-section">
                             <h4 className="je-section-title">{t('gj.modal.lines')}</h4>
@@ -1679,8 +1680,8 @@ export default function WorkshopLedgerView() {
                                             <tr key={idx}>
                                                 <td className="font-bold">{line.account}</td>
                                                 <td className="color-muted">{line.description}</td>
-                                                <td className="text-right color-green-dark">{line.debit || '—'}</td>
-                                                <td className="text-right color-blue-dark">{line.credit || '—'}</td>
+                                                <td className="text-right color-green-dark">{line.debit || 'ΓÇö'}</td>
+                                                <td className="text-right color-blue-dark">{line.credit || 'ΓÇö'}</td>
                                             </tr>
                                         ))}
                                     </tbody>

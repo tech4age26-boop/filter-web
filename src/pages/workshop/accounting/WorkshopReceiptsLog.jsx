@@ -3,9 +3,10 @@ import { useOutletContext } from 'react-router-dom';
 import WorkshopTransactionsLog from './WorkshopTransactionsLog';
 import { accT } from '../../../utils/accountingI18n';
 
-export default function WorkshopReceiptsLog({ branches = [], selectedBranchId = 'all' }) {
+export default function WorkshopReceiptsLog({ branches = [], selectedBranchId = 'all', locale: localeProp }) {
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';
@@ -19,6 +20,7 @@ export default function WorkshopReceiptsLog({ branches = [], selectedBranchId = 
             emptyHint={t('rcpt.empty')}
             branches={branches}
             selectedBranchId={selectedBranchId}
+            locale={locale}
         />
     );
 }

@@ -5,6 +5,7 @@ import {
     linkSuppliersToWorkshop,
     createWorkshopSupplier,
 } from '../../services/workshopStaffApi';
+import { wsupT } from '../../utils/workshopSuppliersI18n';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 
@@ -49,7 +50,15 @@ const labelStyle = {
     marginBottom: 6,
 };
 
-export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBack, onSuccess }) {
+export default function WorkshopAddSupplierScreen({
+    initialView = 'browse',
+    onBack,
+    onSuccess,
+    locale: localeProp,
+}) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wsupT(locale, key, vars), [locale]);
+
     const [view, setView] = useState(initialView === 'register' ? 'register' : 'browse');
     const [registeredSearchInput, setRegisteredSearchInput] = useState('');
     const [registeredSuppliers, setRegisteredSuppliers] = useState([]);
@@ -81,18 +90,18 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
             setRegisteredSuppliers(rows);
         } catch (e) {
             setRegisteredSuppliers([]);
-            setRegisteredError(e.message || 'Could not load registered suppliers.');
+            setRegisteredError(e.message || t('add.err.loadRegistered'));
         } finally {
             setRegisteredLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         if (view !== 'browse') return undefined;
-        const t = setTimeout(() => {
+        const timer = setTimeout(() => {
             loadRegisteredSuppliers(registeredSearchInput);
         }, 280);
-        return () => clearTimeout(t);
+        return () => clearTimeout(timer);
     }, [view, registeredSearchInput, loadRegisteredSuppliers]);
 
     const toggleRegisteredSupplier = (supplierId) => {
@@ -124,7 +133,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
             if (typeof onSuccess === 'function') await onSuccess();
             if (typeof onBack === 'function') onBack();
         } catch (e) {
-            setRegisteredError(e.message || 'Failed to add selected suppliers to workshop.');
+            setRegisteredError(e.message || t('add.err.linkFailed'));
         } finally {
             setLinkingSuppliers(false);
         }
@@ -133,7 +142,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
     const handleRegisterNewSupplier = async () => {
         const name = newSupplierName.trim();
         if (!name) {
-            setRegisterSupplierError('Company name is required.');
+            setRegisterSupplierError(t('add.err.nameRequired'));
             return;
         }
         setRegisteringSupplier(true);
@@ -154,7 +163,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
             if (typeof onSuccess === 'function') await onSuccess();
             if (typeof onBack === 'function') onBack();
         } catch (e) {
-            setRegisterSupplierError(e.message || 'Could not register supplier.');
+            setRegisterSupplierError(e.message || t('add.err.register'));
         } finally {
             setRegisteringSupplier(false);
         }
@@ -174,12 +183,11 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
             }}
         >
             <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)', flex: '1 1 200px' }}>
-                Pick on-platform suppliers (they can use the supplier portal), or add a workshop-only vendor with no
-                login.
+                {t('add.footer.hint')}
             </p>
             <div style={{ display: 'flex', gap: 10, marginLeft: 'auto' }}>
                 <button type="button" className="btn-secondary" disabled={busy} onClick={onBack}>
-                    Cancel
+                    {t('add.btn.cancel')}
                 </button>
                 <button
                     type="button"
@@ -187,7 +195,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                     disabled={busy || selectedRegisteredIds.length === 0}
                     onClick={handleLinkSelectedSuppliers}
                 >
-                    {linkingSuppliers ? 'Adding…' : `Add Selected (${selectedRegisteredIds.length})`}
+                    {linkingSuppliers ? t('add.btn.adding') : t('add.btn.addSelected', { count: selectedRegisteredIds.length })}
                 </button>
             </div>
         </div>
@@ -213,14 +221,14 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                     resetRegisterSupplierForm();
                 }}
             >
-                Back to list
+                {t('add.btn.backToList')}
             </button>
             <div style={{ display: 'flex', gap: 10, marginLeft: 'auto' }}>
                 <button type="button" className="btn-secondary" disabled={busy} onClick={onBack}>
-                    Cancel
+                    {t('add.btn.cancel')}
                 </button>
                 <button type="button" className="btn-submit" disabled={busy} onClick={handleRegisterNewSupplier}>
-                    {registeringSupplier ? 'Saving…' : 'Add to my workshop'}
+                    {registeringSupplier ? t('add.btn.saving') : t('add.btn.addToWorkshop')}
                 </button>
             </div>
         </div>
@@ -228,13 +236,13 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
 
     return (
         <WorkshopSubScreen
-            title={view === 'register' ? 'Add workshop-only supplier' : 'Add Supplier to Workshop'}
+            title={view === 'register' ? t('add.title.register') : t('add.title.browse')}
             subtitle={
                 view === 'register'
-                    ? 'Vendor for your workshop only — no supplier portal login'
-                    : 'Link registered suppliers or add a workshop-only vendor'
+                    ? t('add.subtitle.register')
+                    : t('add.subtitle.browse')
             }
-            backLabel="Back to Suppliers"
+            backLabel={t('add.back')}
             onBack={onBack}
             backDisabled={busy}
             size={view === 'register' ? 'form' : 'xl'}
@@ -258,11 +266,11 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                     ) : null}
                     <div>
                         <label style={labelStyle}>
-                            Name <span style={{ color: '#DC2626' }}>*</span>
+                            {t('add.label.name')} <span style={{ color: '#DC2626' }}>*</span>
                         </label>
                         <input
                             type="text"
-                            placeholder="Company name"
+                            placeholder={t('add.placeholder.company')}
                             value={newSupplierName}
                             onChange={(e) => setNewSupplierName(e.target.value)}
                             style={inputShell}
@@ -270,7 +278,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                         />
                     </div>
                     <div>
-                        <label style={labelStyle}>VAT number</label>
+                        <label style={labelStyle}>{t('add.label.vat')}</label>
                         <input
                             type="text"
                             value={newSupplierVat}
@@ -286,7 +294,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                         }}
                     >
                         <div>
-                            <label style={labelStyle}>Mobile</label>
+                            <label style={labelStyle}>{t('add.label.mobile')}</label>
                             <input
                                 type="text"
                                 value={newSupplierMobile}
@@ -296,10 +304,10 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                             />
                         </div>
                         <div>
-                            <label style={labelStyle}>Email (optional)</label>
+                            <label style={labelStyle}>{t('add.label.email')}</label>
                             <input
                                 type="email"
-                                placeholder="Contact email — no portal login"
+                                placeholder={t('add.placeholder.email')}
                                 value={newSupplierEmail}
                                 onChange={(e) => setNewSupplierEmail(e.target.value)}
                                 style={inputShell}
@@ -308,7 +316,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                         </div>
                     </div>
                     <div>
-                        <label style={labelStyle}>Address</label>
+                        <label style={labelStyle}>{t('add.label.address')}</label>
                         <input
                             type="text"
                             value={newSupplierAddress}
@@ -317,7 +325,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                         />
                     </div>
                     <div>
-                        <label style={labelStyle}>Notes</label>
+                        <label style={labelStyle}>{t('add.label.notes')}</label>
                         <textarea
                             value={newSupplierNotes}
                             onChange={(e) => setNewSupplierNotes(e.target.value)}
@@ -331,8 +339,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                         />
                     </div>
                     <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                        This vendor is stored for your workshop only. They are not given a supplier portal account. To
-                        link an on-platform supplier that can log in, go back and use Add Selected.
+                        {t('add.hint.register')}
                     </p>
                 </div>
             ) : (
@@ -346,7 +353,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                         }}
                     >
                         <input
-                            placeholder="Search all registered suppliers..."
+                            placeholder={t('add.placeholder.search')}
                             value={registeredSearchInput}
                             onChange={(e) => setRegisteredSearchInput(e.target.value)}
                             style={{
@@ -372,7 +379,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                                 fontSize: '0.8125rem',
                             }}
                         >
-                            Workshop-only supplier
+                            {t('add.btn.workshopOnly')}
                         </button>
                     </div>
                     {registeredError ? (
@@ -399,7 +406,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                                 borderRadius: 10,
                             }}
                         >
-                            Loading registered suppliers...
+                            {t('add.loading')}
                         </div>
                     ) : registeredSuppliers.length === 0 ? (
                         <div
@@ -411,8 +418,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                                 borderRadius: 10,
                             }}
                         >
-                            No registered suppliers found. Use “Workshop-only supplier” to add a vendor for this
-                            workshop without a platform login.
+                            {t('add.empty')}
                         </div>
                     ) : (
                         <div
@@ -425,11 +431,11 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                             <table className="ws-table" style={{ margin: 0 }}>
                                 <thead>
                                     <tr>
-                                        <th>Supplier</th>
-                                        <th>Contact</th>
-                                        <th>CR</th>
-                                        <th>VAT</th>
-                                        <th style={{ textAlign: 'right' }}>Action</th>
+                                        <th>{t('add.th.supplier')}</th>
+                                        <th>{t('add.th.contact')}</th>
+                                        <th>{t('add.th.cr')}</th>
+                                        <th>{t('add.th.vat')}</th>
+                                        <th style={{ textAlign: 'right' }}>{t('add.th.action')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -445,14 +451,14 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                                                 }}
                                             >
                                                 <td>
-                                                    <strong>{s.name}</strong>
+                                                    <strong>{s.name === '—' ? t('emdash') : s.name}</strong>
                                                 </td>
-                                                <td>{s.phone || s.email || '—'}</td>
+                                                <td>{s.phone || s.email || t('emdash')}</td>
                                                 <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                                                    {s.crNumber || '—'}
+                                                    {s.crNumber || t('emdash')}
                                                 </td>
                                                 <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                                                    {s.vatId || '—'}
+                                                    {s.vatId || t('emdash')}
                                                 </td>
                                                 <td style={{ textAlign: 'right' }}>
                                                     <button
@@ -469,7 +475,7 @@ export default function WorkshopAddSupplierScreen({ initialView = 'browse', onBa
                                                             toggleRegisteredSupplier(s.id);
                                                         }}
                                                     >
-                                                        {selected ? 'Selected' : 'Select'}
+                                                        {selected ? t('add.btn.selected') : t('add.btn.select')}
                                                     </button>
                                                 </td>
                                             </tr>

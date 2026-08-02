@@ -180,9 +180,11 @@ export default function WorkshopTransactionsLog({
     emptyHint,
     branches = [],
     selectedBranchId = 'all',
+    locale: localeProp,
 }) {
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';

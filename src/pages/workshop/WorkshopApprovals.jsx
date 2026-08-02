@@ -12,6 +12,7 @@ import { buildReceivedQtyByInvoiceItemIdPayload } from '../../utils/receivedQtyP
 import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts, listAffiliatedPurchaseReturns, getAffiliatedPurchaseReturn, approveAffiliatedPurchaseReturn } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
+import { waT } from '../../utils/workshopApprovalsI18n';
 
 function loadWorkshopRequesterWallet({ userId, currencyCode }) {
     return apiFetch(
@@ -22,18 +23,18 @@ function loadWorkshopRequesterWallet({ userId, currencyCode }) {
     ).then((res) => ({ balance: Number(res?.balance ?? 0) }));
 }
 
-function cashBankRegisterKindLabel(row) {
+function cashBankRegisterKindLabel(row, t) {
     const kind = String(row?.kind || 'OPERATING');
-    if (kind === 'SYSTEM_LOCKER_VAULT') return 'Locker vault';
-    if (kind === 'SYSTEM_CASHIER_TILL') return 'Cashier till';
-    if (kind === 'SYSTEM_PETTY_CASH_WALLET') return 'Petty cash wallet';
+    if (kind === 'SYSTEM_LOCKER_VAULT') return t('kind.lockerVault');
+    if (kind === 'SYSTEM_CASHIER_TILL') return t('kind.cashierTill');
+    if (kind === 'SYSTEM_PETTY_CASH_WALLET') return t('kind.pettyCashWallet');
     const type = String(row?.type || row?.apiType || '').toUpperCase();
-    if (type === 'BANK') return 'Bank';
-    if (type === 'PETTY_CASH') return 'Petty cash';
-    return 'Cash';
+    if (type === 'BANK') return t('kind.bank');
+    if (type === 'PETTY_CASH') return t('kind.pettyCash');
+    return t('kind.cash');
 }
 
-function normalizeWorkshopPayFromAccounts(res) {
+function normalizeWorkshopPayFromAccounts(res, t) {
     const list = Array.isArray(res?.accounts)
         ? res.accounts
         : Array.isArray(res?.data?.accounts)
@@ -41,8 +42,8 @@ function normalizeWorkshopPayFromAccounts(res) {
             : [];
     return list.map((row) => {
         const id = String(row.id);
-        const name = row.name || 'Account';
-        const kindLabel = cashBankRegisterKindLabel(row);
+        const name = row.name || t('account.fallback');
+        const kindLabel = cashBankRegisterKindLabel(row, t);
         const balance = Number(row.currentBalance ?? row.balance ?? 0);
         const formatted = balance.toLocaleString(undefined, {
             minimumFractionDigits: 2,
@@ -56,14 +57,16 @@ function normalizeWorkshopPayFromAccounts(res) {
             type: row.type || '',
             branchId: row.branchId != null ? String(row.branchId) : '',
             branchName: row.branchName || row.branch?.name || '',
-            label: `${name} (${kindLabel}) — SAR ${formatted}`,
+            label: t('account.label', { name, kindLabel, money: t('money.sar', { amount: formatted }) }),
             balance,
         };
     });
 }
 
-function loadWorkshopCashAccounts() {
-    return listWorkshopCashBankAccounts({ status: 'active' }).then(normalizeWorkshopPayFromAccounts);
+function loadWorkshopCashAccounts(t) {
+    return listWorkshopCashBankAccounts({ status: 'active' }).then((res) =>
+        normalizeWorkshopPayFromAccounts(res, t),
+    );
 }
 
 function loadWorkshopBudgetAccounts({ branchId }) {
@@ -72,25 +75,26 @@ function loadWorkshopBudgetAccounts({ branchId }) {
     ).then((res) => (Array.isArray(res?.accounts) ? res.accounts : []));
 }
 
-function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onConfirm }) {
+function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onConfirm, t }) {
     const [remarks, setRemarks] = useState('');
     const [acct, setAcct] = useState({ blocked: true, loading: true });
     const branchId = row?.branchId != null ? String(row.branchId) : '';
-    const branchName = row?.branchName || 'this branch';
-    const requesterName = row?.cashier?.name || row?.requestedBy || 'Platform admin';
+    const branchName = row?.branchName || t('fallback.thisBranch');
+    const requesterName = row?.cashier?.name || row?.requestedBy || t('fallback.platformAdmin');
     const amount = Number(row?.amount ?? 0);
+    const amountFmt = amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const isExpense = mode === 'expense';
     const displayError = error || acct.blockReason;
 
     return (
         <Modal
-            title={isExpense ? 'Approve Platform Admin Expense' : 'Approve Platform Admin Fund Request'}
+            title={isExpense ? t('modal.approveExpenseTitle') : t('modal.approveFundTitle')}
             onClose={busy ? undefined : onCancel}
             width={520}
             footer={(
                 <>
                     <button type="button" className="btn-secondary" disabled={busy} onClick={onCancel}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         type="button"
@@ -114,7 +118,7 @@ function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onC
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
                         {' '}
-                        {isExpense ? 'Approve Expense' : 'Approve & Post Journal'}
+                        {isExpense ? t('btn.approveExpense') : t('btn.approvePostJournal')}
                     </button>
                 </>
             )}
@@ -125,16 +129,15 @@ function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onC
                 </p>
             ) : null}
             <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                Approve {isExpense ? 'expense' : 'fund request'} for <strong>{requesterName}</strong> at branch{' '}
-                <strong>{branchName}</strong>. Amount{' '}
-                <strong>SAR {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>{' '}
-                {isExpense
-                    ? 'will be drawn from the selected budget account.'
-                    : 'will be credited to their wallet from the selected payment account.'}
+                {isExpense ? t('modal.approveExpenseLead') : t('modal.approveFundLead')}{' '}
+                <strong>{requesterName}</strong> {t('modal.atBranch')}{' '}
+                <strong>{branchName}</strong>. {t('modal.amount')}{' '}
+                <strong>{t('money.sar', { amount: amountFmt })}</strong>{' '}
+                {isExpense ? t('modal.expenseTail') : t('modal.fundTail')}
             </p>
             {row?.description ? (
                 <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                    {isExpense ? 'Details' : 'Purpose'}: <strong>{row.description}</strong>
+                    {isExpense ? t('modal.details') : t('modal.purpose')}: <strong>{row.description}</strong>
                 </p>
             ) : null}
 
@@ -147,20 +150,21 @@ function AdminWalletWorkshopApproveModal({ row, mode, busy, error, onCancel, onC
                 requesterUserId={isExpense ? String(row?.adminUserId ?? '') : ''}
                 requesterName={isExpense ? (row?.adminUserName || requesterName) : ''}
                 currencyCode={row?.currencyCode ?? 'SAR'}
-                loadCashAccounts={loadWorkshopCashAccounts}
+                loadCashAccounts={() => loadWorkshopCashAccounts(t)}
                 loadBudgetAccounts={loadWorkshopBudgetAccounts}
                 loadRequesterWalletBalance={isExpense ? loadWorkshopRequesterWallet : undefined}
                 onChange={setAcct}
             />
 
             <label className="form-label" htmlFor="ws-admin-wallet-approve-remarks" style={{ marginTop: 14 }}>
-                Remarks <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optional)</span>
+                {t('modal.remarks')}{' '}
+                <span style={{ color: '#94a3b8', fontWeight: 400 }}>{t('modal.optional')}</span>
             </label>
             <textarea
                 id="ws-admin-wallet-approve-remarks"
                 className="form-input-field"
                 rows={3}
-                placeholder="e.g. Approved for branch petty cash float."
+                placeholder={t('modal.remarksPlaceholder')}
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 disabled={busy}
@@ -177,14 +181,14 @@ function isAffiliatedPurchaseReturnRow(row) {
     return row?._source === 'affiliated_purchase_return';
 }
 
-function formatAdminWalletApproverSummary(row) {
+function formatAdminWalletApproverSummary(row, t) {
     if (String(row?.status || '').toLowerCase() !== 'approved') return null;
     const parts = [];
     if (row.superAdminApprovedByName?.trim()) {
-        parts.push(`Super Admin: ${row.superAdminApprovedByName.trim()}`);
+        parts.push(t('approver.superAdmin', { name: row.superAdminApprovedByName.trim() }));
     }
     if (row.workshopAdminApprovedByName?.trim()) {
-        parts.push(`Workshop Admin: ${row.workshopAdminApprovedByName.trim()}`);
+        parts.push(t('approver.workshopAdmin', { name: row.workshopAdminApprovedByName.trim() }));
     }
     if (parts.length > 0) return parts.join(' · ');
     return row.approvedByName?.trim() || null;
@@ -327,21 +331,29 @@ function isExpenseRequest(row) {
     return k === 'expense' || k === 'expenses';
 }
 
-function formatRequestKindLabel(row) {
-    if (isSupplierSalesInvoiceRow(row)) return 'Supplier invoice';
-    if (isAffiliatedPurchaseReturnRow(row)) return 'Purchase return';
-    if (isSalesReturnRow(row)) return 'Sales return';
-    if (isAdminWalletFundRow(row)) return 'Platform admin fund';
-    if (isAdminWalletExpenseRow(row)) return 'Platform admin expense';
-    if (isLockerExpenseRow(row)) return 'Locker expense';
+function formatRequestKindLabel(row, t) {
+    if (isSupplierSalesInvoiceRow(row)) return t('type.supplierInvoice');
+    if (isAffiliatedPurchaseReturnRow(row)) return t('type.purchaseReturn');
+    if (isSalesReturnRow(row)) return t('type.salesReturn');
+    if (isAdminWalletFundRow(row)) return t('type.platformAdminFund');
+    if (isAdminWalletExpenseRow(row)) return t('type.platformAdminExpense');
+    if (isLockerExpenseRow(row)) return t('type.lockerExpense');
     const kind = row?.kind ?? row?.type;
     const k = String(kind || '')
         .trim()
         .toLowerCase();
-    if (isTopUpRequest({ kind })) return 'Top up';
-    if (isExpenseRequest({ kind })) return 'Expense';
-    if (!kind) return '—';
+    if (isTopUpRequest({ kind })) return t('type.topUp');
+    if (isExpenseRequest({ kind })) return t('type.expense');
+    if (!kind) return t('emdash');
     return String(kind).replace(/_/g, ' ');
+}
+
+function statusLabel(status, t) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'pending') return t('status.pending');
+    if (s === 'approved') return t('status.approved');
+    if (s === 'rejected') return t('status.rejected');
+    return status || t('status.unknown');
 }
 
 function rowMatchesBranch(row, branchId, branchName = '') {
@@ -371,7 +383,20 @@ export default function WorkshopApprovals({
     /** When set, user is locked to one branch — supplier invoices are scoped to it. */
     branchLockedId = null,
     workshopId = null,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => waT(locale, key, vars), [locale]);
+    const money = useCallback(
+        (amount) =>
+            t('money.sar', {
+                amount: Number(amount || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2,
+                }),
+            }),
+        [t],
+    );
     const expenseScope = workshopId ? { workshopId: String(workshopId) } : {};
     const { hasPermission } = useAuth();
     /** Per-type approval helpers — fall back to parent codes for backward compat. */
@@ -486,7 +511,7 @@ export default function WorkshopApprovals({
             ]);
 
             if (!(response?.success && Array.isArray(response.requests))) {
-                throw new Error('Invalid approvals response.');
+                throw new Error(t('err.invalidResponse'));
             }
             let list = response.requests;
             if (selectedBranchId && selectedBranchId !== 'all') {
@@ -523,7 +548,7 @@ export default function WorkshopApprovals({
                 supplier: inv.supplier ? { name: inv.supplier.name, id: inv.supplier.id } : null,
                 branch: inv.branch || null,
                 branchId: inv.branch?.id,
-                reason: inv.productLabel ? `Lines: ${inv.productLabel}` : null,
+                reason: inv.productLabel ? t('reason.lines', { label: inv.productLabel }) : null,
             }));
 
             const srList = Array.isArray(srRes?.salesReturns) ? srRes.salesReturns : [];
@@ -566,7 +591,7 @@ export default function WorkshopApprovals({
                 supplierSalesReturnNo: pr.supplierSalesReturnNo,
                 requestedAt: pr.issueDate,
                 reason: pr.supplierSalesReturnNo
-                    ? `Linked supplier return ${pr.supplierSalesReturnNo}`
+                    ? t('reason.linkedSupplierReturn', { no: pr.supplierSalesReturnNo })
                     : null,
             }));
 
@@ -577,7 +602,7 @@ export default function WorkshopApprovals({
                     amount: Number(r.amount ?? 0),
                     status: r.status,
                     requestedAt: r.requestedAt,
-                    cashier: { name: r.requestedBy ?? r.adminUserName ?? 'Platform admin' },
+                    cashier: { name: r.requestedBy ?? r.adminUserName ?? t('fallback.platformAdmin') },
                     description: r.description,
                     requestNumber: r.requestNumber,
                     adminWalletRequestId: r.id,
@@ -622,11 +647,11 @@ export default function WorkshopApprovals({
             setCurrency(siCurrency || response.currency || 'SAR');
         } catch (error) {
             setApprovals([]);
-            setLoadError(error.message || 'Failed to load approvals queue.');
+            setLoadError(error.message || t('err.load'));
         } finally {
             setIsLoading(false);
         }
-    }, [queueFilter, selectedBranchId, scopeBranchName, branchLockedId]);
+    }, [queueFilter, selectedBranchId, scopeBranchName, branchLockedId, t]);
 
     useEffect(() => {
         loadApprovals();
@@ -750,7 +775,7 @@ export default function WorkshopApprovals({
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
                 window.dispatchEvent(new CustomEvent('workshop-inventory-updated', { detail: { branchId: row.branchId, source: 'approve_sales_return' } }));
             } catch (error) {
-                setLoadError(error.message || 'Failed to approve sales return.');
+                setLoadError(error.message || t('err.approveSalesReturn'));
             } finally {
                 setActionLoadingId(null);
             }
@@ -761,9 +786,7 @@ export default function WorkshopApprovals({
             if (row.initiationMode === 'workshop_initiated') return;
             const rid = row.purchaseReturnId;
             const ok = window.confirm(
-                `Approve purchase return ${row.returnNumber || ''}?\n\n` +
-                    `Branch stock will decrease and the linked supplier return will be finalized.\n\n` +
-                    `This action cannot be undone.`,
+                t('confirm.approvePurchaseReturn', { no: row.returnNumber || '' }),
             );
             if (!ok) return;
             setActionLoadingId(`approve-apr-${rid}`);
@@ -777,7 +800,7 @@ export default function WorkshopApprovals({
                     }),
                 );
             } catch (error) {
-                setLoadError(error.message || 'Failed to approve purchase return.');
+                setLoadError(error.message || t('err.approvePurchaseReturn'));
             } finally {
                 setActionLoadingId(null);
             }
@@ -799,7 +822,7 @@ export default function WorkshopApprovals({
                 setSiReceivedQty({});
                 setSiApproveModal({ row, preview });
             } catch (error) {
-                setLoadError(error.message || 'Failed to approve supplier invoice.');
+                setLoadError(error.message || t('err.approveSupplierInvoice'));
             } finally {
                 setActionLoadingId(null);
             }
@@ -847,7 +870,7 @@ export default function WorkshopApprovals({
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
-            setLoadError(error.message || 'Failed to approve request.');
+            setLoadError(error.message || t('err.approveRequest'));
         } finally {
             setActionLoadingId(null);
         }
@@ -867,7 +890,7 @@ export default function WorkshopApprovals({
                 await loadApprovals();
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
             } catch (error) {
-                setLoadError(error.message || 'Failed to reject sales return.');
+                setLoadError(error.message || t('err.rejectSalesReturn'));
             } finally {
                 setActionLoadingId(null);
             }
@@ -887,7 +910,7 @@ export default function WorkshopApprovals({
                 await loadApprovals();
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
             } catch (error) {
-                setLoadError(error.message || 'Failed to reject supplier invoice.');
+                setLoadError(error.message || t('err.rejectSupplierInvoice'));
             } finally {
                 setActionLoadingId(null);
             }
@@ -910,7 +933,7 @@ export default function WorkshopApprovals({
                 await loadApprovals();
                 window.dispatchEvent(new Event('workshop-approvals-updated'));
             } catch (error) {
-                setLoadError(error.message || 'Failed to reject platform admin wallet request.');
+                setLoadError(error.message || t('err.rejectAdminWallet'));
             } finally {
                 setActionLoadingId(null);
             }
@@ -956,7 +979,7 @@ export default function WorkshopApprovals({
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
-            setLoadError(error.message || 'Failed to reject request.');
+            setLoadError(error.message || t('err.rejectRequest'));
         } finally {
             setActionLoadingId(null);
         }
@@ -980,7 +1003,7 @@ export default function WorkshopApprovals({
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
-            setFundApproveError(error.message || 'Failed to approve fund request.');
+            setFundApproveError(error.message || t('err.approveFund'));
         } finally {
             setActionLoadingId(null);
         }
@@ -1004,7 +1027,7 @@ export default function WorkshopApprovals({
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
         } catch (error) {
-            setFundApproveError(error.message || 'Failed to approve expense request.');
+            setFundApproveError(error.message || t('err.approveExpense'));
         } finally {
             setActionLoadingId(null);
         }
@@ -1057,22 +1080,28 @@ export default function WorkshopApprovals({
                 }),
             );
         } catch (error) {
-            setLoadError(error.message || 'Failed to approve supplier invoice.');
+            setLoadError(error.message || t('err.approveSupplierInvoice'));
         } finally {
             setActionLoadingId(null);
         }
     };
 
-    const formatDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '—');
+    const dateLocale = locale === 'ar' ? 'ar-SA' : 'en-GB';
+    const formatDate = (d) =>
+        d
+            ? new Date(d).toLocaleDateString(dateLocale, { day: '2-digit', month: 'short' })
+            : t('emdash');
     const formatDateFull = (d) =>
-        d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+        d
+            ? new Date(d).toLocaleDateString(dateLocale, { day: '2-digit', month: 'short', year: 'numeric' })
+            : t('emdash');
 
     if (rejectDialog) {
     return (
             <WorkshopSubScreen
-                title={isSupplierSalesInvoiceRow(rejectDialog) ? 'Reject supplier invoice' : 'Reject approval'}
-                subtitle="Provide a reason — this is stored on the request."
-                backLabel="Back to Approvals"
+                title={isSupplierSalesInvoiceRow(rejectDialog) ? t('reject.titleSupplier') : t('reject.title')}
+                subtitle={t('reject.subtitle')}
+                backLabel={t('reject.back')}
                 onBack={closeRejectDialog}
                 backDisabled={actionLoadingId !== null}
                 size="narrow"
@@ -1083,7 +1112,7 @@ export default function WorkshopApprovals({
                             onClick={closeRejectDialog}
                                     disabled={actionLoadingId !== null}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     className="btn-submit"
@@ -1092,15 +1121,15 @@ export default function WorkshopApprovals({
                                     onClick={handleRejectSubmit}
                                 >
                                     {actionLoadingId != null && String(actionLoadingId).startsWith('reject-')
-                                        ? 'Rejecting...'
-                                        : 'Reject'}
+                                        ? t('btn.rejecting')
+                                        : t('btn.reject')}
                                 </button>
                             </div>
                 )}
                     >
                 <div className="ws-section" style={{ padding: 20 }}>
                         <textarea
-                            placeholder="Reason for rejection..."
+                            placeholder={t('reject.placeholder')}
                             value={rejectReason}
                             onChange={(e) => setRejectReason(e.target.value)}
                             rows={3}
@@ -1121,9 +1150,9 @@ export default function WorkshopApprovals({
     if (siApproveModal) {
         return (
             <WorkshopSubScreen
-                title="Approve supplier invoice & receive stock"
-                subtitle="Confirm received quantities, set critical stock for new branch products, then approve."
-                backLabel="Back to Approvals"
+                title={t('siApprove.title')}
+                subtitle={t('siApprove.subtitle')}
+                backLabel={t('siApprove.back')}
                 onBack={closeSiApproveScreen}
                 backDisabled={actionLoadingId !== null}
                 size="wide"
@@ -1135,7 +1164,7 @@ export default function WorkshopApprovals({
                             onClick={closeSiApproveScreen}
                             disabled={actionLoadingId !== null}
                         >
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button
                             type="button"
@@ -1144,8 +1173,8 @@ export default function WorkshopApprovals({
                             disabled={actionLoadingId !== null}
                         >
                             {actionLoadingId != null && String(actionLoadingId).startsWith('approve-si-')
-                                ? 'Approving…'
-                                : 'OK — approve & update inventory'}
+                                ? t('btn.approving')
+                                : t('btn.okApproveInventory')}
                         </button>
                     </div>
                 )}
@@ -1159,32 +1188,24 @@ export default function WorkshopApprovals({
                             const unresolved = Array.isArray(siApproveModal.preview?.unresolvedLineNames)
                                 ? siApproveModal.preview.unresolvedLineNames
                                 : [];
-                            const branchNm = siApproveModal.preview?.branchName || 'this branch';
+                            const branchNm = siApproveModal.preview?.branchName || t('fallback.thisBranch');
                             if (newProds.length > 0) {
                                 return (
                                     <p style={{ margin: '0 0 10px' }}>
-                                        The following products are <strong>not on {branchNm}&apos;s inventory</strong>{' '}
-                                        yet. If you approve, the system will <strong>add them to this branch</strong>{' '}
-                                        and set <strong>opening stock</strong> to the <strong>quantities on this sales invoice</strong>{' '}
-                                        (per product, summed across lines). Set <strong>critical stock</strong> (low-stock
-                                        alert level) for each new branch product below, then confirm.
+                                        {t('siApprove.newProductsIntro', { branch: branchNm })}
                                     </p>
                                 );
                             }
                             if (unresolved.length > 0) {
                                 return (
                                     <p style={{ margin: '0 0 10px' }}>
-                                        Some invoice lines could not be matched to a product in your workshop catalog.
-                                        You can still approve the invoice for accounting, but{' '}
-                                        <strong>inventory may not update</strong> for those lines until they are linked
-                                        to master products.
+                                        {t('siApprove.unresolvedIntro')}
                                     </p>
                                 );
                             }
                             return (
                                 <p style={{ margin: '0 0 10px' }}>
-                                    Review the details below before approving. Inventory will be updated for this branch
-                                    according to the invoice lines.
+                                    {t('siApprove.reviewIntro')}
                                 </p>
                             );
                         })()}
@@ -1201,9 +1222,9 @@ export default function WorkshopApprovals({
                                     fontSize: '0.8125rem',
                                 }}
                             >
-                                <strong>Could not match to catalog:</strong>{' '}
-                                {siApproveModal.preview.unresolvedLineNames.join(', ')}. Stock may not apply for
-                                these lines until they are linked to a master product.
+                                {t('siApprove.unmatched', {
+                                    names: siApproveModal.preview.unresolvedLineNames.join(', '),
+                                })}
                             </div>
                         ) : null}
                         {Array.isArray(siApproveModal.preview?.newProducts) &&
@@ -1218,10 +1239,10 @@ export default function WorkshopApprovals({
                                 >
                                     <thead>
                                         <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
-                                            <th style={{ padding: '8px 6px' }}>Product</th>
-                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Qty (opening)</th>
+                                            <th style={{ padding: '8px 6px' }}>{t('siApprove.th.product')}</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>{t('siApprove.th.qtyOpening')}</th>
                                             <th style={{ padding: '8px 6px', textAlign: 'right' }}>
-                                                Critical stock
+                                                {t('siApprove.th.criticalStock')}
                                             </th>
                                         </tr>
                                     </thead>
@@ -1269,8 +1290,8 @@ export default function WorkshopApprovals({
                             <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
                                 {Array.isArray(siApproveModal.preview?.unresolvedLineNames) &&
                                 siApproveModal.preview.unresolvedLineNames.length > 0
-                                    ? 'No new branch catalog products will be created from this invoice; only matched lines can receive stock.'
-                                    : 'No new branch products; approving will increase stock only for products you already carry on this branch.'}
+                                    ? t('siApprove.noNewUnresolved')
+                                    : t('siApprove.noNewMatched')}
                             </p>
                         )}
                         {Array.isArray(siApproveModal.preview?.receiveLines) &&
@@ -1284,11 +1305,10 @@ export default function WorkshopApprovals({
                                         color: '#0f172a',
                                     }}
                                 >
-                                    Invoice lines — received quantity
+                                    {t('siApprove.receiveTitle')}
                                 </p>
                                 <p style={{ margin: '0 0 10px', fontSize: '0.75rem', color: '#64748b' }}>
-                                    Leave <strong>Received qty</strong> empty when the physical count matches
-                                    the invoiced branch amount. Enter a value in workshop UOM only when different.
+                                    {t('siApprove.receiveHint')}
                                 </p>
                                 <table
                                     style={{
@@ -1299,21 +1319,21 @@ export default function WorkshopApprovals({
                                 >
                                     <thead>
                                         <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
-                                            <th style={{ padding: '8px 6px' }}>Product</th>
-                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Supplier shipped</th>
-                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Branch stock +</th>
-                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>Received qty</th>
+                                            <th style={{ padding: '8px 6px' }}>{t('siApprove.th.product')}</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>{t('siApprove.th.supplierShipped')}</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>{t('siApprove.th.branchStock')}</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>{t('siApprove.th.receivedQty')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {siApproveModal.preview.receiveLines.map((ln) => {
                                             const itemId = String(ln.invoiceItemId ?? '');
-                                            const wsUnit = ln.workshopReceiveUnit ?? 'Liter';
+                                            const wsUnit = ln.workshopReceiveUnit ?? t('unit.liter');
                                             return (
                                                 <tr key={itemId || ln.itemName} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                                     <td style={{ padding: '8px 6px' }}>{ln.itemName}</td>
                                                     <td style={{ padding: '8px 6px', textAlign: 'right' }}>
-                                                        {ln.supplierQty} {ln.supplierUnit ?? 'Box'}
+                                                        {ln.supplierQty} {ln.supplierUnit ?? t('unit.box')}
                                                     </td>
                                                     <td style={{ padding: '8px 6px', textAlign: 'right', color: '#047857', fontWeight: 600 }}>
                                                         +{ln.workshopReceiveQty} {wsUnit}
@@ -1338,10 +1358,10 @@ export default function WorkshopApprovals({
                                                                     border: '1px solid #cbd5e1',
                                                                     textAlign: 'right',
                                                                 }}
-                                                                aria-label={`Received qty for ${ln.itemName}`}
+                                                                aria-label={t('siApprove.receivedAria', { name: ln.itemName })}
                                                             />
                                                         ) : (
-                                                            '—'
+                                                            t('emdash')
                                                         )}
                                                     </td>
                                                 </tr>
@@ -1364,19 +1384,21 @@ export default function WorkshopApprovals({
             <WorkshopSubScreen
                 title={
                     isSupplierView
-                        ? `Supplier Invoice ${viewDialog.invoiceNo || ''}`.trim()
+                        ? t('view.titleSupplierInvoice', { no: viewDialog.invoiceNo || '' }).trim()
                         : isPurchaseReturnView
-                          ? `Purchase Return ${viewDialog.returnNumber || viewPurchaseReturnDetail?.returnNumber || ''}`.trim()
-                          : 'Approval Details'
+                          ? t('view.titlePurchaseReturn', {
+                                no: viewDialog.returnNumber || viewPurchaseReturnDetail?.returnNumber || '',
+                            }).trim()
+                          : t('view.titleDetails')
                 }
                 subtitle={
                     isSupplierView
-                        ? (viewDialog.supplier?.name || 'Supplier invoice')
+                        ? (viewDialog.supplier?.name || t('view.subtitleSupplierInvoice'))
                         : isPurchaseReturnView
-                          ? (viewPurchaseReturnDetail?.supplier?.name || viewDialog.supplierName || 'Affiliated supplier return')
-                          : formatRequestKindLabel(viewDialog)
+                          ? (viewPurchaseReturnDetail?.supplier?.name || viewDialog.supplierName || t('view.subtitleAffiliatedReturn'))
+                          : formatRequestKindLabel(viewDialog, t)
                 }
-                backLabel="Back to Approvals"
+                backLabel={t('view.back')}
                 onBack={closeViewDialog}
                 size={isSupplierView || isPurchaseReturnView ? 'xl' : 'form'}
                 maxWidth={isSupplierView || isPurchaseReturnView ? '1100px' : undefined}
@@ -1398,7 +1420,7 @@ export default function WorkshopApprovals({
                                         onClick={() => printableInvoiceRef.current?.downloadPdf?.()}
                                         disabled={viewInvoiceLoading || !viewInvoiceDetail}
                                     >
-                                        Download PDF
+                                        {t('btn.downloadPdf')}
                                     </button>
                                 </div>
                                 {viewInvoiceLoading ? (
@@ -1421,7 +1443,7 @@ export default function WorkshopApprovals({
                                         }}
                                     />
                                 ) : (
-                                    <p style={{ color: 'var(--color-text-muted)' }}>Could not load invoice details.</p>
+                                    <p style={{ color: 'var(--color-text-muted)' }}>{t('err.loadInvoice')}</p>
                                 )}
                             </div>
                         ) : isAffiliatedPurchaseReturnRow(viewDialog) ? (
@@ -1436,66 +1458,64 @@ export default function WorkshopApprovals({
                                         compact
                                     />
                                 ) : (
-                                    <p style={{ color: 'var(--color-text-muted)' }}>Could not load purchase return details.</p>
+                                    <p style={{ color: 'var(--color-text-muted)' }}>{t('err.loadPurchaseReturn')}</p>
                                 )}
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Type</span>
-                                    <span className="capitalize">{formatRequestKindLabel(viewDialog)}</span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{t('view.type')}</span>
+                                    <span className="capitalize">{formatRequestKindLabel(viewDialog, t)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Amount</span>
-                                    <strong>
-                                        {currency} {(viewDialog.amount || 0).toLocaleString()}
-                                    </strong>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{t('view.amount')}</span>
+                                    <strong>{money(viewDialog.amount || 0)}</strong>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Requested by</span>
-                                    <span>{viewDialog.cashier?.name || viewDialog.employee?.name || '—'}</span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{t('view.requestedBy')}</span>
+                                    <span>{viewDialog.cashier?.name || viewDialog.employee?.name || t('emdash')}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Category</span>
-                                    <span>{viewDialog.category?.name || '—'}</span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{t('view.category')}</span>
+                                    <span>{viewDialog.category?.name || t('emdash')}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Branch</span>
-                                    <span>{viewDialog.branch?.name || viewDialog.branchName || '—'}</span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{t('view.branch')}</span>
+                                    <span>{viewDialog.branch?.name || viewDialog.branchName || t('emdash')}</span>
                                 </div>
                                 {(isAdminWalletFundRow(viewDialog) || isAdminWalletExpenseRow(viewDialog)) && viewDialog.description ? (
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>Details</span>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>{t('view.details')}</span>
                                         <span style={{ textAlign: 'right', maxWidth: 260 }}>{viewDialog.description}</span>
                                     </div>
                                 ) : null}
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: 'var(--color-text-muted)' }}>Reason</span>
-                                    <span style={{ textAlign: 'right', maxWidth: 220 }}>{viewDialog.reason || '—'}</span>
+                                    <span style={{ color: 'var(--color-text-muted)' }}>{t('view.reason')}</span>
+                                    <span style={{ textAlign: 'right', maxWidth: 220 }}>{viewDialog.reason || t('emdash')}</span>
                                 </div>
-                                {formatAdminWalletApproverSummary(viewDialog) ? (
+                                {formatAdminWalletApproverSummary(viewDialog, t) ? (
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>Approved by</span>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>{t('view.approvedBy')}</span>
                                         <span style={{ textAlign: 'right', maxWidth: 260, fontWeight: 600 }}>
-                                            {formatAdminWalletApproverSummary(viewDialog)}
+                                            {formatAdminWalletApproverSummary(viewDialog, t)}
                                         </span>
                                     </div>
                                 ) : null}
                                 {viewDialog.requestedAt && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>Requested at</span>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>{t('view.requestedAt')}</span>
                                         <span>{formatDateFull(viewDialog.requestedAt)}</span>
                                     </div>
                                 )}
                                 {viewDialog.approvedAt && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>Approved at</span>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>{t('view.approvedAt')}</span>
                                         <span>{formatDateFull(viewDialog.approvedAt)}</span>
                                     </div>
                                 )}
                                 {viewDialog.rejectionReason && (
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: 'var(--color-text-muted)' }}>Rejection Reason</span>
+                                        <span style={{ color: 'var(--color-text-muted)' }}>{t('view.rejectionReason')}</span>
                                         <span style={{ textAlign: 'right', maxWidth: 220 }}>{viewDialog.rejectionReason}</span>
                                     </div>
                                 )}
@@ -1510,19 +1530,19 @@ export default function WorkshopApprovals({
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Approvals Queue</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Review and act on pending requests
+                        {t('page.subtitle')}
                         {selectedBranchId && selectedBranchId !== 'all' ? (
                             <>
                                 {' · '}
                                 <strong>
                                     {branches.find((b) => String(b.id) === String(selectedBranchId))?.name ||
-                                        `Branch ${selectedBranchId}`}
+                                        t('page.branchNamed', { id: selectedBranchId })}
                                 </strong>
                             </>
                         ) : (
-                            ' · All branches'
+                            <> · {t('page.branchAll')}</>
                         )}
                     </p>
                 </div>
@@ -1555,10 +1575,10 @@ export default function WorkshopApprovals({
                             minWidth: 160,
                         }}
                     >
-                        <option value="all">All Queue</option>
-                        <option value="pending">Pending</option>
-                        <option value="approved">Approved</option>
-                        <option value="rejected">Rejected</option>
+                        <option value="all">{t('filter.allQueue')}</option>
+                        <option value="pending">{t('filter.pending')}</option>
+                        <option value="approved">{t('filter.approved')}</option>
+                        <option value="rejected">{t('filter.rejected')}</option>
                     </select>
                     <select
                         value={requestTypeFilter}
@@ -1570,28 +1590,28 @@ export default function WorkshopApprovals({
                             fontSize: '0.875rem',
                             minWidth: 180,
                         }}
-                        aria-label="Request type"
+                        aria-label={t('filter.requestType')}
                     >
-                        <option value="all">All types</option>
+                        <option value="all">{t('filter.allTypes')}</option>
                         {hasPermission('workshop.approvals.top-up.view') && (
-                            <option value="topup">Top up</option>
+                            <option value="topup">{t('filter.topUp')}</option>
                         )}
                         {hasPermission('workshop.approvals.expense.view') && (
-                            <option value="expenses">Expenses</option>
+                            <option value="expenses">{t('filter.expenses')}</option>
                         )}
                         {hasPermission('workshop.approvals.supplier-invoice.view') ||
                         hasPermission('workshop.approvals.view') ? (
-                            <option value="supplier_invoices">Supplier invoices</option>
+                            <option value="supplier_invoices">{t('filter.supplierInvoices')}</option>
                         ) : null}
                         {(hasPermission('workshop.approvals.supplier-invoice.view') || hasPermission('workshop.approvals.view')) && (
-                            <option value="purchase_returns">Purchase returns</option>
+                            <option value="purchase_returns">{t('filter.purchaseReturns')}</option>
                         )}
                         {(hasPermission('workshop.approvals.sales-return.view') || hasPermission('workshop.approvals.view')) && (
-                            <option value="sales_returns">Sales returns</option>
+                            <option value="sales_returns">{t('filter.salesReturns')}</option>
                         )}
                     </select>
                     <button className="btn-portal" onClick={loadApprovals} disabled={isLoading}>
-                        <RefreshCw size={14} /> {isLoading ? 'Refreshing...' : 'Refresh'}
+                        <RefreshCw size={14} /> {isLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
                     <div
                         style={{
@@ -1604,7 +1624,7 @@ export default function WorkshopApprovals({
                         }}
                     >
                         <Clock size={16} />
-                        {filtered.length} requests
+                        {t('filter.requestsCount', { count: filtered.length })}
                     </div>
                 </div>
             </div>
@@ -1613,12 +1633,12 @@ export default function WorkshopApprovals({
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Type</th>
-                            <th>Amount</th>
-                            <th>Requested By</th>
-                            <th>Date</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th>{t('th.type')}</th>
+                            <th>{t('th.amount')}</th>
+                            <th>{t('th.requestedBy')}</th>
+                            <th>{t('th.date')}</th>
+                            <th>{t('th.status')}</th>
+                            <th>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1627,7 +1647,7 @@ export default function WorkshopApprovals({
                         ) : filtered.length === 0 ? (
                             <tr>
                                 <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                    No approvals found
+                                    {t('empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -1665,7 +1685,7 @@ export default function WorkshopApprovals({
                                     <tr key={a.id}>
                                         <td>
                                             <span className={`ws-badge ${typeColors[kindKey] || 'ws-badge--gray'}`}>
-                                                {formatRequestKindLabel(a)}
+                                                {formatRequestKindLabel(a, t)}
                                             </span>
                                             {isSupplier && a.invoiceNo ? (
                                                 <div
@@ -1681,19 +1701,17 @@ export default function WorkshopApprovals({
                                             {isPurchaseReturn && a.returnNumber ? (
                                                 <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
                                                     {a.returnNumber}
-                                                    {a.invoiceNo ? ` · PI ${a.invoiceNo}` : ''}
+                                                    {a.invoiceNo ? t('label.pi', { no: a.invoiceNo }) : ''}
                                                 </div>
                                             ) : null}
                                             {isSalesReturn && a.invoiceNo ? (
                                                 <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
-                                                    Inv {a.invoiceNo}{a.returnScope ? ` · ${a.returnScope}` : ''}
+                                                    {t('label.inv', { no: a.invoiceNo })}{a.returnScope ? ` · ${a.returnScope}` : ''}
                                                 </div>
                                             ) : null}
                                         </td>
                                         <td>
-                                            <strong>
-                                                {currency} {(a.amount || 0).toLocaleString()}
-                                            </strong>
+                                            <strong>{money(a.amount || 0)}</strong>
                                             {isSupplier && a.outstanding != null && a.grandTotal != null ? (
                                                 <div
                                                     style={{
@@ -1702,30 +1720,32 @@ export default function WorkshopApprovals({
                                                         marginTop: 2,
                                                     }}
                                                 >
-                                                    Outstanding · {currency} {Number(a.outstanding).toLocaleString()} of{' '}
-                                                    {Number(a.grandTotal).toLocaleString()}
+                                                    {t('label.outstanding', {
+                                                        amount: money(a.outstanding),
+                                                        total: Number(a.grandTotal).toLocaleString(),
+                                                    })}
                                                 </div>
                                             ) : null}
                                         </td>
                                         <td>
                                             {isSupplier
-                                                ? a.supplier?.name || 'Supplier'
+                                                ? a.supplier?.name || t('fallback.supplier')
                                                 : isPurchaseReturn
-                                                  ? a.supplierName || 'Supplier'
+                                                  ? a.supplierName || t('fallback.supplier')
                                                   : isSalesReturn
-                                                    ? a.cashierName || 'Cashier'
-                                                    : a.cashier?.name || a.employee?.name || '—'}
+                                                    ? a.cashierName || t('fallback.cashier')
+                                                    : a.cashier?.name || a.employee?.name || t('emdash')}
                                         </td>
                                         <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                             {formatDate(a.requestedAt)}
                                         </td>
                                         <td>
                                             <span className={`ws-badge ${statusColors[a.status] || 'ws-badge--gray'}`}>
-                                                {a.status || 'unknown'}
+                                                {statusLabel(a.status, t)}
                                             </span>
-                                            {formatAdminWalletApproverSummary(a) ? (
+                                            {formatAdminWalletApproverSummary(a, t) ? (
                                                 <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 4, maxWidth: 180 }}>
-                                                    {formatAdminWalletApproverSummary(a)}
+                                                    {formatAdminWalletApproverSummary(a, t)}
                                                 </div>
                                             ) : null}
                                         </td>
@@ -1745,7 +1765,7 @@ export default function WorkshopApprovals({
                                                         cursor: actionLoadingId === null ? 'pointer' : 'not-allowed',
                                                         opacity: actionLoadingId === null ? 1 : 0.45,
                                                     }}
-                                                    title={isSupplier ? 'Accept invoice (workshop)' : 'Approve'}
+                                                    title={isSupplier ? t('title.acceptInvoice') : t('title.approve')}
                                                 >
                                                     <CheckCircle size={14} />
                                                 </button>
@@ -1767,7 +1787,7 @@ export default function WorkshopApprovals({
                                                         cursor: actionLoadingId === null ? 'pointer' : 'not-allowed',
                                                         opacity: actionLoadingId === null ? 1 : 0.45,
                                                     }}
-                                                    title={isSupplier ? 'Reject supplier invoice' : 'Reject'}
+                                                    title={isSupplier ? t('title.rejectSupplier') : t('title.reject')}
                                                 >
                                                     <X size={14} />
                                                 </button>
@@ -1789,17 +1809,17 @@ export default function WorkshopApprovals({
                                                     }}
                                                     title={
                                                         isSupplier
-                                                            ? 'Open the printable supplier invoice'
-                                                            : 'View request details'
+                                                            ? t('title.viewInvoice')
+                                                            : t('title.viewDetails')
                                                     }
                                                 >
                                                     {isSupplier ? (
                                                         <>
-                                                            <FileText size={14} /> View Invoice
+                                                            <FileText size={14} /> {t('btn.viewInvoice')}
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <Eye size={14} /> Details
+                                                            <Eye size={14} /> {t('btn.details')}
                                                         </>
                                                     )}
                                                 </button>
@@ -1820,6 +1840,7 @@ export default function WorkshopApprovals({
                     mode="fund"
                     busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
                     error={fundApproveError}
+                    t={t}
                     onCancel={() => {
                         if (actionLoadingId !== null) return;
                         setFundApproveModal(null);
@@ -1835,6 +1856,7 @@ export default function WorkshopApprovals({
                     mode="expense"
                     busy={actionLoadingId != null && String(actionLoadingId).startsWith('approve-aw-')}
                     error={fundApproveError}
+                    t={t}
                     onCancel={() => {
                         if (actionLoadingId !== null) return;
                         setExpenseApproveModal(null);

@@ -22,15 +22,18 @@ import {
     previewServiceDeps,
 } from '../../services/workshopCatalogApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
+import { wcnT } from '../../utils/workshopCatalogNewI18n';
+import { catalogDisplayName } from '../../utils/catalogDisplayName';
 
 const PAGE_SIZE = 50;
 
 /** ISO-8601 from catalog list APIs → short local label for card meta. */
-function formatCatalogListCreatedAt(iso) {
+function formatCatalogListCreatedAt(iso, locale) {
     if (iso == null || iso === '') return '';
     const d = new Date(typeof iso === 'string' || typeof iso === 'number' ? iso : String(iso));
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString(undefined, {
+    const loc = locale === 'ar' ? 'ar-SA' : undefined;
+    return d.toLocaleString(loc, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -40,15 +43,15 @@ function formatCatalogListCreatedAt(iso) {
 }
 
 const TABS = [
-    { id: 'departments', label: 'Departments', Icon: Layers,  permission: 'workshop.catalog.departments.view' },
-    { id: 'categories',  label: 'Categories',  Icon: Tags,    permission: 'workshop.catalog.categories.view' },
-    { id: 'products',    label: 'Products',    Icon: Package, permission: 'workshop.catalog.products.view' },
-    { id: 'services',    label: 'Services',    Icon: Wrench,  permission: 'workshop.catalog.services.view' },
+    { id: 'departments', labelKey: 'tab.departments', Icon: Layers,  permission: 'workshop.catalog.departments.view' },
+    { id: 'categories',  labelKey: 'tab.categories',  Icon: Tags,    permission: 'workshop.catalog.categories.view' },
+    { id: 'products',    labelKey: 'tab.products',    Icon: Package, permission: 'workshop.catalog.products.view' },
+    { id: 'services',    labelKey: 'tab.services',    Icon: Wrench,  permission: 'workshop.catalog.services.view' },
 ];
 
 const SUB_TABS = [
-    { id: 'not_added', label: 'Not added' },
-    { id: 'added', label: 'Already added' },
+    { id: 'not_added', labelKey: 'subTab.not_added' },
+    { id: 'added', labelKey: 'subTab.added' },
 ];
 
 /** Pull an array out of a backend response, trying a few common shapes. */
@@ -322,10 +325,10 @@ async function resolveCatalogRowsForSelectedIds({
 }
 
 /** Group an array of `{ branchName, itemName }` adoption rows by branch. */
-function groupByBranch(entries) {
+function groupByBranch(entries, t) {
     const map = new Map();
     for (const e of entries) {
-        const key = e.branchName || (e.branchId != null ? `Branch ${e.branchId}` : 'Branch');
+        const key = e.branchName || (e.branchId != null ? t('branch.withId', { id: e.branchId }) : t('branch.fallback'));
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(e.itemName || e.name || e.itemId || '');
     }
@@ -337,7 +340,7 @@ function groupByBranch(entries) {
  *   added: { departments: [{branchId, branchName, itemId, itemName, kind}], categories, products, services }
  *   skipped: [{ kind, branchId, itemId, reason }]
  */
-function summarizeAdoptResponse(res, primaryKind) {
+function summarizeAdoptResponse(res, primaryKind, t) {
     const payload = res?.data && typeof res.data === 'object' ? res.data : res || {};
     const added = payload.added || {};
     const skipped = Array.isArray(payload.skipped) ? payload.skipped : [];
@@ -349,30 +352,40 @@ function summarizeAdoptResponse(res, primaryKind) {
 
     const extras = [];
     if (primaryCount > 0) {
-        const groups = groupByBranch(added[primaryKind]);
+        const groups = groupByBranch(added[primaryKind], t);
         for (const [branch, names] of groups) {
             extras.push(
-                `${branch}: ${names.length} ${primaryKind} (${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''})`,
+                t('result.branchItems', {
+                    branch,
+                    count: names.length,
+                    kind: t(`kind.${primaryKind}`),
+                    names: names.slice(0, 4).join(', '),
+                    ellipsis: names.length > 4 ? '…' : '',
+                }),
             );
         }
     }
     for (const b of extraBuckets) {
-        const groups = groupByBranch(added[b]);
+        const groups = groupByBranch(added[b], t);
         const total = counts[b];
-        const noun = total === 1 ? b.replace(/s$/, '') : b;
+        const nounKey = total === 1 ? `kind.${b.replace(/s$/, '')}` : `kind.${b}`;
         const branchSummary = groups.map(([branch, names]) => `${branch} (${names.length})`).join(', ');
-        extras.push(`Also added ${total} ${noun} → ${branchSummary}`);
+        extras.push(t('result.alsoAdded', { total, noun: t(nounKey), branchSummary }));
     }
 
     return {
         kind: 'success',
-        summary: `Added: ${primaryCount} · Skipped: ${skipped.length}${skipped.length ? ' (already in branch)' : ''}`,
+        summary: t('result.summary', {
+            added: primaryCount,
+            skipped: skipped.length,
+            suffix: skipped.length ? t('result.alreadyInBranch') : '',
+        }),
         addedExtras: extras,
     };
 }
 
 /** Top-of-tab dismissable banner showing the latest adopt result. */
-function ResultBanner({ banner, onClose }) {
+function ResultBanner({ banner, onClose, t }) {
     if (!banner) return null;
     const isError = banner.kind === 'error';
     const Icon = isError ? AlertCircle : CheckCircle2;
@@ -408,7 +421,7 @@ function ResultBanner({ banner, onClose }) {
             <button
                 type="button"
                 onClick={onClose}
-                aria-label="Dismiss"
+                aria-label={t('aria.dismiss')}
                 style={{
                     background: 'transparent',
                     border: 'none',
@@ -425,11 +438,12 @@ function ResultBanner({ banner, onClose }) {
 }
 
 /** Card used in every grid: checkbox + title + meta + adoption badge. */
-function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledLabel, hint, onToggle, noAdd = false }) {
+function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledLabel, hint, onToggle, noAdd = false, t, locale = 'en' }) {
     // `disabled` = already in workshop's inventory (can't re-add).
     // `noAdd` = user lacks the `.add` permission for this tab (read-only mode).
     const inert = disabled || noAdd;
     const showInactive = row.isActive === false;
+    const title = catalogDisplayName(row, locale) || row.name;
     return (
         <div
             className={`mc-product-card ${inert ? '' : 'clickable'} ${selected ? 'selected' : ''}`}
@@ -438,7 +452,7 @@ function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledL
         >
             <div className="mc-card-type-label">{label}</div>
             <div className="mc-card-info-main">
-                <h4 className="mc-card-title">{row.name}</h4>
+                <h4 className="mc-card-title">{title}</h4>
                 {subtitle && <span className="mc-card-subtitle">{subtitle}</span>}
                 {meta?.length > 0 && (
                     <div className="mc-card-meta-list">
@@ -459,18 +473,18 @@ function CatalogCard({ row, label, subtitle, meta, selected, disabled, disabledL
             <div className="mc-card-footer-actions">
                 {showInactive ? (
                     <span className="ws-badge ws-badge--gray" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        Inactive
+                        {t('status.inactive')}
                     </span>
                 ) : disabled ? (
                     <span className="ws-badge ws-badge--green" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <ShieldCheck size={14} /> {disabledLabel || 'In your workshop'}
+                        <ShieldCheck size={14} /> {disabledLabel || t('badge.inWorkshop')}
                     </span>
                 ) : noAdd ? (
                     // Read-only mode — no add permission. Show a muted lock-like
                     // indicator instead of the clickable plus so users don't
                     // wonder why the card doesn't respond.
                     <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
-                        Read only
+                        {t('badge.readOnly')}
                     </span>
                 ) : (
                     <div className={`mc-card-selection-btn ${selected ? 'selected' : ''}`}>
@@ -527,15 +541,16 @@ function CatalogBranchFilter({
     locked,
     labelId,
     allowAllBranches = false,
+    t,
 }) {
     const selectedName =
         value === 'all'
-            ? 'All branches'
-            : branchList.find((b) => String(b.id) === String(value))?.name ?? 'Branch';
+            ? t('branch.all')
+            : branchList.find((b) => String(b.id) === String(value))?.name ?? t('branch.label');
     if (locked || (branchList.length <= 1 && !allowAllBranches)) {
         return (
             <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                Branch: <strong>{selectedName}</strong>
+                {t('branch.prefix')} <strong>{selectedName}</strong>
             </div>
         );
     }
@@ -554,7 +569,7 @@ function CatalogBranchFilter({
                     minWidth: 200,
                 }}
             >
-                {allowAllBranches ? <option value="all">All branches</option> : null}
+                {allowAllBranches ? <option value="all">{t('branch.all')}</option> : null}
                 {branchList.map((b) => (
                     <option key={String(b.id)} value={String(b.id)}>
                         {b.name}
@@ -580,7 +595,7 @@ function matchesCatalogSearch(row, q) {
     return fields.some((f) => f.includes(query));
 }
 
-function SubTabToggle({ value, counts, onChange }) {
+function SubTabToggle({ value, counts, onChange, t }) {
     return (
         <div
             style={{
@@ -592,11 +607,11 @@ function SubTabToggle({ value, counts, onChange }) {
                 gap: 4,
             }}
         >
-            {SUB_TABS.map((t) => (
+            {SUB_TABS.map((tab) => (
                 <button
-                    key={t.id}
+                    key={tab.id}
                     type="button"
-                    onClick={() => onChange(t.id)}
+                    onClick={() => onChange(tab.id)}
                     style={{
                         border: 'none',
                         cursor: 'pointer',
@@ -604,15 +619,15 @@ function SubTabToggle({ value, counts, onChange }) {
                         borderRadius: 8,
                         fontSize: '0.8125rem',
                         fontWeight: 800,
-                        background: value === t.id ? '#23262D' : 'transparent',
-                        color: value === t.id ? '#FCC247' : 'var(--color-text-muted)',
+                        background: value === tab.id ? '#23262D' : 'transparent',
+                        color: value === tab.id ? '#FCC247' : 'var(--color-text-muted)',
                     }}
                 >
-                    {t.label}
-                    {counts && Number.isFinite(Number(counts[t.id])) ? (
-                        <span style={{ opacity: value === t.id ? 1 : 0.7 }}>
+                    {t(tab.labelKey)}
+                    {counts && Number.isFinite(Number(counts[tab.id])) ? (
+                        <span style={{ opacity: value === tab.id ? 1 : 0.7 }}>
                             {' '}
-                            ({Number(counts[t.id]).toLocaleString()})
+                            ({Number(counts[tab.id]).toLocaleString()})
                         </span>
                     ) : null}
                 </button>
@@ -627,9 +642,12 @@ export default function WorkshopCatalogNew({
     branchLockedId = null,
     /** Workshop owner / admin with every branch — may browse catalog workshop-wide. */
     allowAllBranches = false,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wcnT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
-    const visibleTabs = TABS.filter((t) => hasPermission(t.permission));
+    const visibleTabs = TABS.filter((tab) => hasPermission(tab.permission));
     // Per-tab "add" permission gates the + icon on each card AND the
     // "Add Selected to branches…" bulk button. Users with only `.view` see
     // the catalog read-only; cards aren't clickable and Add buttons are hidden.
@@ -761,10 +779,10 @@ export default function WorkshopCatalogNew({
                 setDeptRows(mode === 'added' ? addedRows : masterNotAdded);
             })
             .catch((err) => {
-                if (err.name !== 'AbortError') setDeptError(err.message || 'Failed to load departments.');
+                if (err.name !== 'AbortError') setDeptError(err.message || t('err.loadDepts'));
             })
             .finally(() => setDeptLoading(false));
-    }, [catalogBranchId, effectiveBranchScopeId, subTab.departments]);
+    }, [catalogBranchId, effectiveBranchScopeId, subTab.departments, t]);
 
     // ─── Categories tab ─────────────────────────────────────────────────────
     const [catRows, setCatRows] = useState([]);
@@ -804,10 +822,10 @@ export default function WorkshopCatalogNew({
                 setCatRows(mode === 'added' ? addedRows : masterNotAdded);
             })
             .catch((err) => {
-                if (err.name !== 'AbortError') setCatError(err.message || 'Failed to load categories.');
+                if (err.name !== 'AbortError') setCatError(err.message || t('err.loadCats'));
             })
             .finally(() => setCatLoading(false));
-    }, [catFilter.departmentId, catFilter.type, catalogBranchId, effectiveBranchScopeId, subTab.categories]);
+    }, [catFilter.departmentId, catFilter.type, catalogBranchId, effectiveBranchScopeId, subTab.categories, t]);
 
     // ─── Products tab ───────────────────────────────────────────────────────
     const [prodRows, setProdRows] = useState([]);
@@ -889,10 +907,10 @@ export default function WorkshopCatalogNew({
                 setProdHasNext(meta.hasNext);
             })
             .catch((err) => {
-                if (err.name !== 'AbortError') setProdError(err.message || 'Failed to load products.');
+                if (err.name !== 'AbortError') setProdError(err.message || t('err.loadProducts'));
             })
             .finally(() => setProdLoading(false));
-    }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q, prodPage, catalogBranchId, effectiveBranchScopeId, subTab.products]);
+    }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q, prodPage, catalogBranchId, effectiveBranchScopeId, subTab.products, t]);
 
     // ─── Services tab ───────────────────────────────────────────────────────
     const [svcRows, setSvcRows] = useState([]);
@@ -970,10 +988,10 @@ export default function WorkshopCatalogNew({
                 setSvcHasNext(meta.hasNext);
             })
             .catch((err) => {
-                if (err.name !== 'AbortError') setSvcError(err.message || 'Failed to load services.');
+                if (err.name !== 'AbortError') setSvcError(err.message || t('err.loadServices'));
             })
             .finally(() => setSvcLoading(false));
-    }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, catalogBranchId, effectiveBranchScopeId, subTab.services]);
+    }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, catalogBranchId, effectiveBranchScopeId, subTab.services, t]);
 
     const handleSelectAllProducts = useCallback(async () => {
         setProdSelectAllBusy(true);
@@ -989,12 +1007,12 @@ export default function WorkshopCatalogNew({
             setProdSelected(idSet);
         } catch (e) {
             if (e.name !== 'AbortError') {
-                setProdError(e?.message || 'Failed to load all matching products.');
+                setProdError(e?.message || t('err.loadAllProducts'));
             }
         } finally {
             setProdSelectAllBusy(false);
         }
-    }, [prodFilter, catalogBranchId]);
+    }, [prodFilter, catalogBranchId, t]);
 
     const handleSelectAllServices = useCallback(async () => {
         setSvcSelectAllBusy(true);
@@ -1010,12 +1028,12 @@ export default function WorkshopCatalogNew({
             setSvcSelected(idSet);
         } catch (e) {
             if (e.name !== 'AbortError') {
-                setSvcError(e?.message || 'Failed to load all matching services.');
+                setSvcError(e?.message || t('err.loadAllServices'));
             }
         } finally {
             setSvcSelectAllBusy(false);
         }
-    }, [svcFilter, catalogBranchId]);
+    }, [svcFilter, catalogBranchId, t]);
 
     // ─── Effects: load when tab/filters change ──────────────────────────────
     useEffect(() => {
@@ -1162,13 +1180,13 @@ export default function WorkshopCatalogNew({
                 ),
             };
             const res = await adoptDepartmentsToBranches(body);
-            setBanner(summarizeAdoptResponse(res, 'departments'));
+            setBanner(summarizeAdoptResponse(res, 'departments', t));
             setDeptSelected(new Set());
             setDeptCatModal(null);
             const ctrl = new AbortController();
             loadDepartments(ctrl.signal);
         } catch (err) {
-            setDeptCatModal((prev) => prev && { ...prev, loading: false, error: err.message || 'Failed to add.' });
+            setDeptCatModal((prev) => prev && { ...prev, loading: false, error: err.message || t('err.failedAdd') });
         }
     };
 
@@ -1199,13 +1217,13 @@ export default function WorkshopCatalogNew({
                 ),
             };
             const res = await adoptCategoriesToBranches(body);
-            setBanner(summarizeAdoptResponse(res, 'categories'));
+            setBanner(summarizeAdoptResponse(res, 'categories', t));
             setCatSelected(new Set());
             setCategoryAdopt(null);
             const ctrl = new AbortController();
             loadCategories(ctrl.signal);
         } catch (err) {
-            setCategoryAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Failed to add categories.' });
+            setCategoryAdopt((prev) => prev && { ...prev, loading: false, error: err.message || t('err.failedAddCats') });
         }
     };
 
@@ -1225,18 +1243,18 @@ export default function WorkshopCatalogNew({
             });
         } catch (err) {
             if (err.name !== 'AbortError') {
-                setProdError(err?.message || 'Failed to load selected products for adoption.');
+                setProdError(err?.message || t('err.loadSelectedProducts'));
             }
             return;
         }
         if (selectedRows.length === 0) {
-            setProdError('Could not load details for the selected products. Try refreshing the list.');
+            setProdError(t('err.couldNotLoadProducts'));
             return;
         }
         setProdError('');
         const resolveNote =
             selectedRows.length < prodSelected.size
-                ? `Showing ${selectedRows.length} of ${prodSelected.size} selected products. The rest were not found with the current filters (or were removed from the catalog).`
+                ? t('resolveNote.products', { shown: selectedRows.length, total: prodSelected.size })
                 : '';
         setProductAdopt({
             rows: selectedRows,
@@ -1265,9 +1283,9 @@ export default function WorkshopCatalogNew({
                 loading: false,
             });
         } catch (err) {
-            setProductAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Could not check dependencies.' });
+            setProductAdopt((prev) => prev && { ...prev, loading: false, error: err.message || t('err.checkDeps') });
         }
-    }, [prodSelected, prodRows, prodFilter, catalogBranchId, defaultAdoptBranchIds]);
+    }, [prodSelected, prodRows, prodFilter, catalogBranchId, defaultAdoptBranchIds, t]);
 
     const submitProductsAdopt = async () => {
         if (!productAdopt) return;
@@ -1287,13 +1305,13 @@ export default function WorkshopCatalogNew({
                 ),
             };
             const res = await adoptProductsToBranches(body);
-            setBanner(summarizeAdoptResponse(res, 'products'));
+            setBanner(summarizeAdoptResponse(res, 'products', t));
             setProdSelected(new Set());
             setProductAdopt(null);
             const ctrl = new AbortController();
             loadProducts(ctrl.signal);
         } catch (err) {
-            setProductAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Failed to add products.' });
+            setProductAdopt((prev) => prev && { ...prev, loading: false, error: err.message || t('err.failedAddProducts') });
         }
     };
 
@@ -1313,18 +1331,18 @@ export default function WorkshopCatalogNew({
             });
         } catch (err) {
             if (err.name !== 'AbortError') {
-                setSvcError(err?.message || 'Failed to load selected services for adoption.');
+                setSvcError(err?.message || t('err.loadSelectedServices'));
             }
             return;
         }
         if (selectedRows.length === 0) {
-            setSvcError('Could not load details for the selected services. Try refreshing the list.');
+            setSvcError(t('err.couldNotLoadServices'));
             return;
         }
         setSvcError('');
         const resolveNote =
             selectedRows.length < svcSelected.size
-                ? `Showing ${selectedRows.length} of ${svcSelected.size} selected services. The rest were not found with the current filters (or were removed from the catalog).`
+                ? t('resolveNote.services', { shown: selectedRows.length, total: svcSelected.size })
                 : '';
         setServiceAdopt({
             rows: selectedRows,
@@ -1347,9 +1365,9 @@ export default function WorkshopCatalogNew({
                 loading: false,
             });
         } catch (err) {
-            setServiceAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Could not check dependencies.' });
+            setServiceAdopt((prev) => prev && { ...prev, loading: false, error: err.message || t('err.checkDeps') });
         }
-    }, [svcSelected, svcRows, svcFilter, catalogBranchId, defaultAdoptBranchIds]);
+    }, [svcSelected, svcRows, svcFilter, catalogBranchId, defaultAdoptBranchIds, t]);
 
     const submitServicesAdopt = async () => {
         if (!serviceAdopt) return;
@@ -1365,13 +1383,13 @@ export default function WorkshopCatalogNew({
                 ),
             };
             const res = await adoptServicesToBranches(body);
-            setBanner(summarizeAdoptResponse(res, 'services'));
+            setBanner(summarizeAdoptResponse(res, 'services', t));
             setSvcSelected(new Set());
             setServiceAdopt(null);
             const ctrl = new AbortController();
             loadServices(ctrl.signal);
         } catch (err) {
-            setServiceAdopt((prev) => prev && { ...prev, loading: false, error: err.message || 'Failed to add services.' });
+            setServiceAdopt((prev) => prev && { ...prev, loading: false, error: err.message || t('err.failedAddServices') });
         }
     };
 
@@ -1416,10 +1434,10 @@ export default function WorkshopCatalogNew({
             }}
         >
             <div style={{ fontWeight: 700, fontSize: '0.875rem' }}>
-                Selected: <span style={{ color: count > 0 ? '#2563EB' : 'inherit' }}>{count}</span>
+                {t('selected')} <span style={{ color: count > 0 ? '#2563EB' : 'inherit' }}>{count}</span>
                 {!canAdd && (
                     <span style={{ marginLeft: 10, color: '#94a3b8', fontWeight: 400, fontSize: '0.75rem' }}>
-                        (read-only — no add permission)
+                        {t('readOnlyHint')}
                     </span>
                 )}
             </div>
@@ -1430,14 +1448,14 @@ export default function WorkshopCatalogNew({
                         className="mc-btn-ghost"
                         disabled={selectAllDisabled || selectAllBusy}
                         onClick={onSelectAll}
-                        title="Select every row matching the current filters (all pages). Replaces the current selection for this tab."
+                        title={t('tip.selectAll')}
                     >
-                        {selectAllBusy ? 'Selecting…' : 'Select all'}
+                        {selectAllBusy ? t('btn.selecting') : t('btn.selectAll')}
                     </button>
                 )}
                 {canAdd && (
                     <button type="button" className="mc-btn-ghost" disabled={count === 0} onClick={onClear}>
-                        Clear
+                        {t('btn.clear')}
                     </button>
                 )}
                 {canAdd && (
@@ -1469,7 +1487,7 @@ export default function WorkshopCatalogNew({
             <AlertCircle size={48} />
             <p>{msg}</p>
             <button type="button" className="mc-btn-primary blue-btn" onClick={refreshActive} style={{ marginTop: 8 }}>
-                <RefreshCw size={14} /> Retry
+                <RefreshCw size={14} /> {t('btn.retry')}
             </button>
         </div>
     );
@@ -1481,6 +1499,7 @@ export default function WorkshopCatalogNew({
                     value={subTab.departments}
                     counts={deptCounts}
                     onChange={(v) => setSubTab((prev) => ({ ...prev, departments: v }))}
+                    t={t}
                 />
                 <CatalogBranchFilter
                     branchList={branchList}
@@ -1489,21 +1508,22 @@ export default function WorkshopCatalogNew({
                     locked={branchPickerLocked}
                     allowAllBranches={allowAllBranches}
                     labelId="mc-catalog-branch-departments"
+                    t={t}
                 />
             </div>
             {subTab.departments === 'not_added' &&
                 renderToolbar(
                     deptSelected.size,
                     openDeptCategoryModal,
-                    'Add Selected to branches…',
+                    t('btn.addSelected'),
                     () => setDeptSelected(new Set()),
                     undefined,
                     canAddDept,
                 )}
             <div className="mc-product-grid">
                 {deptError ? renderError(deptError)
-                    : deptLoading ? renderLoading('Loading departments…')
-                    : deptRows.length === 0 ? renderEmpty(Layers, subTab.departments === 'added' ? 'No departments added for this branch.' : 'No departments match (not added).')
+                    : deptLoading ? renderLoading(t('loading.departments'))
+                    : deptRows.length === 0 ? renderEmpty(Layers, subTab.departments === 'added' ? t('empty.noDeptsAdded') : t('empty.noDeptsMatch'))
                     : deptRows.map((d) => {
                         const id = String(d.id);
                         const adoptedLabel = subTab.departments === 'added';
@@ -1511,15 +1531,17 @@ export default function WorkshopCatalogNew({
                             <CatalogCard
                                 key={id}
                                 row={d}
-                                label="Department"
-                                subtitle={d.description || 'Master Department'}
-                                meta={typeof d.categoriesCount === 'number' ? [{ Icon: Tags, text: `${d.categoriesCount} categories` }] : []}
+                                label={t('label.department')}
+                                subtitle={d.description || t('subtitle.masterDept')}
+                                meta={typeof d.categoriesCount === 'number' ? [{ Icon: Tags, text: t('meta.categoriesCount', { count: d.categoriesCount }) }] : []}
                                 selected={deptSelected.has(id)}
                                 disabled={adoptedLabel}
-                                disabledLabel="Already added"
+                                disabledLabel={t('badge.alreadyAdded')}
                                 hint={null}
                                 noAdd={!canAddDept}
                                 onToggle={() => toggleId(deptSelected, setDeptSelected, id)}
+                                t={t}
+                                locale={locale}
                             />
                         );
                     })}
@@ -1534,6 +1556,7 @@ export default function WorkshopCatalogNew({
                     value={subTab.categories}
                     counts={catCounts}
                     onChange={(v) => setSubTab((prev) => ({ ...prev, categories: v }))}
+                    t={t}
                 />
                 <CatalogBranchFilter
                     branchList={branchList}
@@ -1542,6 +1565,7 @@ export default function WorkshopCatalogNew({
                     locked={branchPickerLocked}
                     allowAllBranches={allowAllBranches}
                     labelId="mc-catalog-branch-categories"
+                    t={t}
                 />
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -1552,7 +1576,7 @@ export default function WorkshopCatalogNew({
                         onChange={(e) => setCatFilter((f) => ({ ...f, departmentId: e.target.value }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
                     >
-                        <option value="all">All departments</option>
+                        <option value="all">{t('filter.allDepartments')}</option>
                         {departmentOptions.map((d) => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
@@ -1563,24 +1587,24 @@ export default function WorkshopCatalogNew({
                     onChange={(e) => setCatFilter((f) => ({ ...f, type: e.target.value }))}
                     style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
                 >
-                    <option value="all">All types</option>
-                    <option value="product">Product</option>
-                    <option value="service">Service</option>
+                    <option value="all">{t('filter.allTypes')}</option>
+                    <option value="product">{t('type.product')}</option>
+                    <option value="service">{t('type.service')}</option>
                 </select>
             </div>
             {subTab.categories === 'not_added' &&
                 renderToolbar(
                     catSelected.size,
                     openCategoryAdopt,
-                    'Add Selected to branches…',
+                    t('btn.addSelected'),
                     () => setCatSelected(new Set()),
                     undefined,
                     canAddCat,
                 )}
             <div className="mc-product-grid">
                 {catError ? renderError(catError)
-                    : catLoading ? renderLoading('Loading categories…')
-                    : catRows.length === 0 ? renderEmpty(Tags, subTab.categories === 'added' ? 'No categories added for this branch.' : 'No categories match (not added).')
+                    : catLoading ? renderLoading(t('loading.categories'))
+                    : catRows.length === 0 ? renderEmpty(Tags, subTab.categories === 'added' ? t('empty.noCatsAdded') : t('empty.noCatsMatch'))
                     : catRows.map((c) => {
                         const id = String(c.id);
                         const deptName = c.departmentName || c.department?.name || departmentOptions.find((d) => d.id === String(c.departmentId))?.name;
@@ -1589,15 +1613,21 @@ export default function WorkshopCatalogNew({
                             <CatalogCard
                                 key={id}
                                 row={c}
-                                label={(c.type || 'category').toString().toUpperCase()}
-                                subtitle={deptName ? `${deptName} department` : 'Category'}
+                                label={
+                                    String(c.type || '').toLowerCase() === 'product' ? t('label.typeProduct')
+                                    : String(c.type || '').toLowerCase() === 'service' ? t('label.typeService')
+                                    : t('label.typeCategory')
+                                }
+                                subtitle={deptName ? t('subtitle.deptNamed', { name: deptName }) : t('label.category')}
                                 meta={[]}
                                 selected={catSelected.has(id)}
                                 disabled={adoptedLabel}
-                                disabledLabel="Already added"
+                                disabledLabel={t('badge.alreadyAdded')}
                                 hint={null}
                                 noAdd={!canAddCat}
                                 onToggle={() => toggleId(catSelected, setCatSelected, id)}
+                                t={t}
+                                locale={locale}
                             />
                         );
                     })}
@@ -1631,7 +1661,7 @@ export default function WorkshopCatalogNew({
         const subtitleFn = (row) => {
             const dept = row.departmentName || row.department?.name;
             const cat = row.categoryName || row.category?.name;
-            return [dept, cat].filter(Boolean).join(' · ') || 'Master Catalog';
+            return [dept, cat].filter(Boolean).join(' · ') || t('subtitle.masterCatalog');
         };
         const metaFn = (row) => {
             const list = [];
@@ -1642,7 +1672,7 @@ export default function WorkshopCatalogNew({
                 if (kmRaw != null && String(kmRaw).trim() !== '') {
                     const kmNum = Number(kmRaw);
                     if (Number.isFinite(kmNum)) {
-                        list.push({ Icon: Gauge, text: `KM type: ${kmNum}` });
+                        list.push({ Icon: Gauge, text: t('meta.kmType', { value: kmNum }) });
                     }
                 }
             }
@@ -1657,17 +1687,17 @@ export default function WorkshopCatalogNew({
                     : Number(row.sellingPrice ?? 0);
             const priceLabel =
                 exNum > 0
-                    ? `SAR ${exNum.toLocaleString()} · ex VAT`
+                    ? t('money.sarExVat', { amount: exNum.toLocaleString() })
                     : fallback > 0
-                      ? `SAR ${fallback.toLocaleString()}`
+                      ? t('money.sar', { amount: fallback.toLocaleString() })
                       : null;
             if (priceLabel) list.push({ Icon: undefined, text: priceLabel });
             const createdRaw = row.createdAt ?? row.created_at;
-            const createdFmt = formatCatalogListCreatedAt(createdRaw);
-            if (createdFmt) list.push({ Icon: Calendar, text: `Created ${createdFmt}` });
+            const createdFmt = formatCatalogListCreatedAt(createdRaw, locale);
+            if (createdFmt) list.push({ Icon: Calendar, text: t('meta.created', { date: createdFmt }) });
             const vatRaw = row.vatMode ?? row.vat_mode;
             if (vatRaw != null && String(vatRaw).trim() !== '') {
-                list.push({ Icon: Percent, text: `VAT mode: ${vatRaw}` });
+                list.push({ Icon: Percent, text: t('meta.vatMode', { mode: vatRaw }) });
             }
             return list;
         };
@@ -1678,6 +1708,7 @@ export default function WorkshopCatalogNew({
                         value={kind === 'product' ? subTab.products : subTab.services}
                         counts={kind === 'product' ? prodCounts : svcCounts}
                         onChange={(v) => setSubTab((prev) => ({ ...prev, [kind === 'product' ? 'products' : 'services']: v }))}
+                        t={t}
                     />
                     <CatalogBranchFilter
                         branchList={branchList}
@@ -1686,6 +1717,7 @@ export default function WorkshopCatalogNew({
                         locked={branchPickerLocked}
                         allowAllBranches={allowAllBranches}
                         labelId={`mc-catalog-branch-${kind}`}
+                        t={t}
                     />
                 </div>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
@@ -1693,7 +1725,7 @@ export default function WorkshopCatalogNew({
                         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.6 }} />
                         <input
                             type="text"
-                            placeholder={`Search ${kind === 'product' ? 'products' : 'services'}…`}
+                            placeholder={kind === 'product' ? t('search.products') : t('search.services')}
                             value={qInput}
                             onChange={(e) => setQInput(e.target.value)}
                             style={{ width: '100%', padding: '8px 12px 8px 30px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
@@ -1704,7 +1736,7 @@ export default function WorkshopCatalogNew({
                         onChange={(e) => setFilter((f) => ({ ...f, departmentId: e.target.value, categoryId: 'all' }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
                     >
-                        <option value="all">All departments</option>
+                        <option value="all">{t('filter.allDepartments')}</option>
                         {departmentOptions.map((d) => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
@@ -1714,7 +1746,7 @@ export default function WorkshopCatalogNew({
                     renderToolbar(
                         selected.size,
                         kind === 'product' ? openProductAdopt : openServiceAdopt,
-                        'Add Selected to branches…',
+                        t('btn.addSelected'),
                         () => setSelected(new Set()),
                         typeof onSelectAllAllPages === 'function'
                             ? {
@@ -1727,12 +1759,12 @@ export default function WorkshopCatalogNew({
                     )}
                 <div className="mc-product-grid">
                     {error ? renderError(error)
-                        : loading ? renderLoading(`Loading ${kind === 'product' ? 'products' : 'services'}…`)
+                        : loading ? renderLoading(kind === 'product' ? t('loading.products') : t('loading.services'))
                         : rows.length === 0 ? renderEmpty(
                             Icon,
                             (kind === 'product' ? subTab.products : subTab.services) === 'added'
-                                ? `No ${kind === 'product' ? 'products' : 'services'} added for this branch.`
-                                : `No ${kind === 'product' ? 'products' : 'services'} match (not added).`,
+                                ? (kind === 'product' ? t('empty.noProductsAdded') : t('empty.noServicesAdded'))
+                                : (kind === 'product' ? t('empty.noProductsMatch') : t('empty.noServicesMatch')),
                         )
                         : rows.map((row) => {
                             const id = String(row.id);
@@ -1743,15 +1775,17 @@ export default function WorkshopCatalogNew({
                                 <CatalogCard
                                     key={id}
                                     row={row}
-                                    label={kind === 'product' ? 'Product' : 'Service'}
+                                    label={kind === 'product' ? t('label.product') : t('label.service')}
                                     subtitle={subtitleFn(row)}
                                     meta={metaFn(row)}
                                     selected={selected.has(id)}
                                     disabled={adoptedLabel || masterInactive}
-                                    disabledLabel={masterInactive ? 'Inactive' : 'Already added'}
+                                    disabledLabel={masterInactive ? t('status.inactive') : t('badge.alreadyAdded')}
                                     hint={null}
                                     noAdd={!canAdd}
                                     onToggle={() => toggleId(selected, setSelected, id)}
+                                    t={t}
+                                    locale={locale}
                                 />
                             );
                         })}
@@ -1759,21 +1793,22 @@ export default function WorkshopCatalogNew({
                 {!loading && (rows.length > 0 || page > 1) && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 16 }}>
                         <button type="button" className="mc-btn-ghost" disabled={!canGoPrev} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                            <ChevronLeft size={14} /> Previous
+                            <ChevronLeft size={14} /> {t('btn.previous')}
                         </button>
                         <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                             {totalPagesKnown != null ? (
-                                <>Page {page} of {totalPagesKnown} · {total} total</>
+                                <>{t('page.of', { page, totalPages: totalPagesKnown, total })}</>
                             ) : (
                                 <>
-                                    Page {page}
-                                    {rows.length === PAGE_SIZE ? ' · full page' : ''} · {(page - 1) * PAGE_SIZE + rows.length}
-                                    {rows.length === PAGE_SIZE ? ' loaded — Next if more exist' : ' loaded'}
+                                    {t('page.simple', { page })}
+                                    {rows.length === PAGE_SIZE ? t('page.fullPage') : ''}
+                                    {t('page.mid', { loaded: (page - 1) * PAGE_SIZE + rows.length })}
+                                    {rows.length === PAGE_SIZE ? t('page.loadedMore') : t('page.loaded')}
                                 </>
                             )}
                         </span>
                         <button type="button" className="mc-btn-ghost" disabled={!canGoNext} onClick={() => setPage((p) => p + 1)}>
-                            Next <ChevronRight size={14} />
+                            {t('btn.next')} <ChevronRight size={14} />
                         </button>
                     </div>
                 )}
@@ -1789,7 +1824,8 @@ export default function WorkshopCatalogNew({
                 onClose={() => setDeptCatModal(null)}
                 onSubmit={submitDepartmentsAdopt}
                 branches={branchList}
-                backLabel="Back to Departments"
+                backLabel={t('back.departments')}
+                t={t}
             />
         );
     }
@@ -1802,7 +1838,8 @@ export default function WorkshopCatalogNew({
                 onClose={() => setCategoryAdopt(null)}
                 onSubmit={submitCategoriesAdopt}
                 branches={branchList}
-                backLabel="Back to Categories"
+                backLabel={t('back.categories')}
+                t={t}
             />
         );
     }
@@ -1815,7 +1852,8 @@ export default function WorkshopCatalogNew({
                 onClose={() => setProductAdopt(null)}
                 onSubmit={submitProductsAdopt}
                 branches={branchList}
-                backLabel="Back to Products"
+                backLabel={t('back.products')}
+                t={t}
             />
         );
     }
@@ -1828,7 +1866,8 @@ export default function WorkshopCatalogNew({
                 onClose={() => setServiceAdopt(null)}
                 onSubmit={submitServicesAdopt}
                 branches={branchList}
-                backLabel="Back to Services"
+                backLabel={t('back.services')}
+                t={t}
             />
         );
     }
@@ -1837,14 +1876,14 @@ export default function WorkshopCatalogNew({
         <div className="mc-container">
             <div className="mc-header">
                 <div className="mc-title-group">
-                    <h1>Master Catalog</h1>
+                    <h1>{t('page.title')}</h1>
                     <p style={{ marginBottom: 0 }}>
-                        Browse items and add them to workshop branches.
+                        {t('page.subtitle')}
                     </p>
                 </div>
                 <div className="mc-header-actions">
                     <button type="button" className="mc-btn-ghost" onClick={refreshActive}>
-                        <RefreshCw size={16} /> Refresh
+                        <RefreshCw size={16} /> {t('btn.refresh')}
                     </button>
                 </div>
             </div>
@@ -1858,20 +1897,20 @@ export default function WorkshopCatalogNew({
                         onClick={() => setActiveTab(tab.id)}
                     >
                         <tab.Icon size={16} />
-                        {tab.label}
+                        {t(tab.labelKey)}
                     </button>
                 ))}
                 {visibleTabs.length === 0 && (
                     <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.875rem' }}>
-                        You don't have permission to view any Master Catalog tabs.
+                        {t('page.noPermission')}
                     </div>
                 )}
             </div>
 
-            <ResultBanner banner={banner} onClose={() => setBanner(null)} />
+            <ResultBanner banner={banner} onClose={() => setBanner(null)} t={t} />
 
             <div key={activeTab}>
-                {!isCatalogBranchReady ? renderLoading('Loading master catalog…') : null}
+                {!isCatalogBranchReady ? renderLoading(t('loading.catalog')) : null}
                 {isCatalogBranchReady && activeTab === 'departments' && renderDepartmentsTab()}
                 {isCatalogBranchReady && activeTab === 'categories' && renderCategoriesTab()}
                 {isCatalogBranchReady && activeTab === 'products' && renderListTab({
@@ -1910,7 +1949,7 @@ export default function WorkshopCatalogNew({
  * `scopeOnly` — only branches passed in `branches` (role / sidebar scope).
  * Empty value with scopeOnly=false lets the BE adopt to every workshop branch.
  */
-function BranchTargetPicker({ branches, value, onChange, scopeOnly = false }) {
+function BranchTargetPicker({ branches, value, onChange, scopeOnly = false, t }) {
     const scopedIds = branches.map((b) => String(b.id));
     const allSelected = scopeOnly
         ? scopedIds.length > 0 && scopedIds.every((id) => value.includes(id))
@@ -1928,11 +1967,11 @@ function BranchTargetPicker({ branches, value, onChange, scopeOnly = false }) {
     return (
         <div style={{ padding: 12, border: '1px solid var(--color-border-light, #E5E7EB)', borderRadius: 8 }}>
             <div style={{ fontWeight: 700, marginBottom: 8, fontSize: '0.875rem' }}>
-                Add to which branches?
+                {t('branchTarget.title')}
             </div>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.875rem', fontWeight: allSelected ? 700 : 500 }}>
                 <input type="radio" checked={allSelected} onChange={setAll} />
-                {scopeOnly ? 'All branches you can access' : 'All branches in this workshop'}
+                {scopeOnly ? t('branchTarget.allAccessible') : t('branchTarget.allWorkshop')}
             </label>
             <div style={{ marginTop: 8 }}>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.875rem', fontWeight: !allSelected ? 700 : 500 }}>
@@ -1941,14 +1980,14 @@ function BranchTargetPicker({ branches, value, onChange, scopeOnly = false }) {
                         checked={!allSelected}
                         onChange={() => onChange(branches.length > 0 ? [String(branches[0].id)] : [])}
                     />
-                    Specific branches
+                    {t('branchTarget.specific')}
                 </label>
             </div>
             {!allSelected && (
                 <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6, paddingLeft: 24 }}>
                     {branches.length === 0 ? (
                         <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                            No branches found. The backend will resolve to all active branches.
+                            {t('branchTarget.noneFound')}
                         </p>
                     ) : (
                         branches.map((b) => {
@@ -1967,11 +2006,12 @@ function BranchTargetPicker({ branches, value, onChange, scopeOnly = false }) {
     );
 }
 
-function CategoryAdoptScreen({ state, onChange, onClose, onSubmit, branches, backLabel }) {
+function CategoryAdoptScreen({ state, onChange, onClose, onSubmit, branches, backLabel, t }) {
+    const count = state.ids.length;
     return (
         <WorkshopSubScreen
-            title={`Add ${state.ids.length} categor${state.ids.length === 1 ? 'y' : 'ies'} to branches`}
-            subtitle="Parent departments will be auto-adopted to the same branches if needed."
+            title={count === 1 ? t('catAdopt.titleOne', { count }) : t('catAdopt.titleMany', { count })}
+            subtitle={t('catAdopt.subtitle')}
             backLabel={backLabel}
             onBack={onClose}
             backDisabled={state.loading}
@@ -1979,10 +2019,10 @@ function CategoryAdoptScreen({ state, onChange, onClose, onSubmit, branches, bac
             footer={(
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
                     <button type="button" className="mc-btn-ghost mc-btn-large" onClick={onClose} disabled={state.loading}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button type="button" className="mc-btn-primary blue-btn mc-btn-large" onClick={onSubmit} disabled={state.loading}>
-                        {state.loading ? 'Adding…' : 'Add'}
+                        {state.loading ? t('btn.adding') : t('btn.add')}
                     </button>
                 </div>
             )}
@@ -1998,17 +2038,18 @@ function CategoryAdoptScreen({ state, onChange, onClose, onSubmit, branches, bac
                     value={state.targetBranchIds}
                     onChange={(v) => onChange((prev) => prev && { ...prev, targetBranchIds: v })}
                     scopeOnly
+                    t={t}
                 />
             </div>
         </WorkshopSubScreen>
     );
 }
 
-function CategorySelectionScreen({ state, onChange, onClose, onSubmit, branches, backLabel }) {
+function CategorySelectionScreen({ state, onChange, onClose, onSubmit, branches, backLabel, t }) {
     return (
         <WorkshopSubScreen
-            title="Pick categories for each department"
-            subtitle="For each department you selected, choose which categories should be added. Each chosen branch gets the same selection."
+            title={t('catSel.title')}
+            subtitle={t('catSel.subtitle')}
             backLabel={backLabel}
             onBack={onClose}
             backDisabled={state.loading}
@@ -2016,10 +2057,10 @@ function CategorySelectionScreen({ state, onChange, onClose, onSubmit, branches,
             footer={(
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
                     <button type="button" className="mc-btn-ghost mc-btn-large" onClick={onClose} disabled={state.loading}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button type="button" className="mc-btn-primary blue-btn mc-btn-large" onClick={onSubmit} disabled={state.loading}>
-                        {state.loading ? 'Adding…' : 'Add to my workshop'}
+                        {state.loading ? t('btn.adding') : t('btn.addToWorkshop')}
                     </button>
                 </div>
             )}
@@ -2036,6 +2077,7 @@ function CategorySelectionScreen({ state, onChange, onClose, onSubmit, branches,
                         value={state.targetBranchIds}
                         onChange={(v) => onChange((prev) => prev && { ...prev, targetBranchIds: v })}
                         scopeOnly
+                        t={t}
                     />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -2077,14 +2119,14 @@ function CategorySelectionScreen({ state, onChange, onClose, onSubmit, branches,
                                                 checked={sel.mode === m}
                                                 onChange={() => setMode(m)}
                                             />
-                                            {m === 'all' ? 'All categories' : m === 'pick' ? 'Pick categories' : 'No categories (department only)'}
+                                            {m === 'all' ? t('catSel.allCats') : m === 'pick' ? t('catSel.pickCats') : t('catSel.noCats')}
                                         </label>
                                     ))}
                                 </div>
                                 {sel.mode === 'pick' && (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6 }}>
                                         {(sel.categories || []).length === 0 ? (
-                                            <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: 0 }}>No categories available for this department.</p>
+                                            <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: 0 }}>{t('catSel.noCatsAvailable')}</p>
                                         ) : (
                                             sel.categories.map((c) => (
                                                 <label key={String(c.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
@@ -2108,27 +2150,27 @@ function CategorySelectionScreen({ state, onChange, onClose, onSubmit, branches,
     );
 }
 
-function MissingDependenciesList({ missing }) {
+function MissingDependenciesList({ missing, t }) {
     const hasAny = (missing.departments?.length || 0) + (missing.categories?.length || 0) > 0;
     if (!hasAny) {
         return (
             <div style={{ padding: 10, background: '#ECFDF5', color: '#047857', borderRadius: 8, fontSize: '0.875rem' }}>
-                Parent department/category already exists. Selected items will be added only to branches where they are missing.
+                {t('deps.ok')}
             </div>
         );
     }
     return (
         <div style={{ padding: 12, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: '0.875rem' }}>
-            <strong>We will also add the following so the items fit in your workshop:</strong>
+            <strong>{t('deps.willAlso')}</strong>
             {missing.departments?.length > 0 && (
                 <div style={{ marginTop: 6 }}>
-                    <div style={{ fontWeight: 700 }}>Departments ({missing.departments.length})</div>
+                    <div style={{ fontWeight: 700 }}>{t('deps.departments', { count: missing.departments.length })}</div>
                     <div>{missing.departments.map((d) => d.name).join(', ')}</div>
                 </div>
             )}
             {missing.categories?.length > 0 && (
                 <div style={{ marginTop: 6 }}>
-                    <div style={{ fontWeight: 700 }}>Categories ({missing.categories.length})</div>
+                    <div style={{ fontWeight: 700 }}>{t('deps.categories', { count: missing.categories.length })}</div>
                     <div>{missing.categories.map((c) => c.name).join(', ')}</div>
                 </div>
             )}
@@ -2136,11 +2178,12 @@ function MissingDependenciesList({ missing }) {
     );
 }
 
-function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, backLabel }) {
+function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, backLabel, t }) {
+    const count = state.rows.length;
     return (
         <WorkshopSubScreen
-            title={`Add ${state.rows.length} product${state.rows.length === 1 ? '' : 's'} to your workshop`}
-            subtitle="Review dependencies, target branches, and optional critical stock thresholds."
+            title={count === 1 ? t('prodAdopt.titleOne', { count }) : t('prodAdopt.titleMany', { count })}
+            subtitle={t('prodAdopt.subtitle')}
             backLabel={backLabel}
             onBack={onClose}
             backDisabled={state.loading}
@@ -2148,10 +2191,10 @@ function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
             footer={(
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
                     <button type="button" className="mc-btn-ghost mc-btn-large" onClick={onClose} disabled={state.loading}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button type="button" className="mc-btn-primary blue-btn mc-btn-large" onClick={onSubmit} disabled={state.loading}>
-                        {state.loading ? 'Adding…' : 'Add to my workshop'}
+                        {state.loading ? t('btn.adding') : t('btn.addToWorkshop')}
                     </button>
                 </div>
             )}
@@ -2170,10 +2213,10 @@ function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
                 ) : null}
 
                 {state.loading && (state.missing.departments.length === 0 && state.missing.categories.length === 0) ? (
-                    <div className="mc-grid-loading"><RefreshCw className="spin" size={24} /> <p>Checking dependencies…</p></div>
+                    <div className="mc-grid-loading"><RefreshCw className="spin" size={24} /> <p>{t('loading.deps')}</p></div>
                 ) : (
                     <>
-                        <MissingDependenciesList missing={state.missing} />
+                        <MissingDependenciesList missing={state.missing} t={t} />
 
                         <div style={{ marginTop: 14 }}>
                             <BranchTargetPicker
@@ -2181,23 +2224,24 @@ function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
                                 value={state.targetBranchIds}
                                 onChange={(v) => onChange((prev) => prev && { ...prev, targetBranchIds: v })}
                                 scopeOnly
+                                t={t}
                             />
                         </div>
 
                         <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--color-border-light, #E5E7EB)', borderRadius: 8 }}>
                             <div style={{ fontWeight: 700, marginBottom: 4, fontSize: '0.875rem' }}>
-                                Critical stock (per product, per branch)
+                                {t('prodAdopt.criticalTitle')}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 10 }}>
-                                Optional alert threshold when each branch adopts. Leave blank for 0.
+                                {t('prodAdopt.criticalHint')}
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'end', padding: '8px 10px', background: 'var(--color-bg-muted, #F9FAFB)', borderRadius: 6, marginBottom: 10 }}>
-                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>Apply to all rows</div>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)' }}>{t('prodAdopt.applyAll')}</div>
                                 <input
                                     type="number"
                                     min="0"
-                                    placeholder="Critical"
+                                    placeholder={t('prodAdopt.criticalPh')}
                                     value={state.bulkCriticalStockPoint ?? ''}
                                     onChange={(e) => onChange((prev) => prev && { ...prev, bulkCriticalStockPoint: e.target.value })}
                                     style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--color-border)', width: 90, fontSize: '0.8125rem' }}
@@ -2213,7 +2257,7 @@ function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
                                     })}
                                     style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: '#fff', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}
                                 >
-                                    Apply
+                                    {t('btn.apply')}
                                 </button>
                             </div>
 
@@ -2221,8 +2265,8 @@ function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                     <thead>
                                         <tr style={{ background: 'var(--color-bg-muted, #F9FAFB)', textAlign: 'left' }}>
-                                            <th style={{ padding: '8px 10px', fontWeight: 700 }}>Product</th>
-                                            <th style={{ padding: '8px 10px', fontWeight: 700, width: 130 }}>Critical Stock</th>
+                                            <th style={{ padding: '8px 10px', fontWeight: 700 }}>{t('th.product')}</th>
+                                            <th style={{ padding: '8px 10px', fontWeight: 700, width: 130 }}>{t('th.criticalStock')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2258,11 +2302,14 @@ function ProductAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
     );
 }
 
-function ServiceAdoptScreen({ state, onChange, onClose, onSubmit, branches, backLabel }) {
+function ServiceAdoptScreen({ state, onChange, onClose, onSubmit, branches, backLabel, t }) {
+    const count = state.rows.length;
+    const names = state.rows.map((r) => r.name).slice(0, 5).join(', ');
+    const more = state.rows.length > 5 ? t('svcAdopt.andMore', { n: state.rows.length - 5 }) : '';
     return (
         <WorkshopSubScreen
-            title={`Add ${state.rows.length} service${state.rows.length === 1 ? '' : 's'} to your workshop`}
-            subtitle="Review auto-adopted dependencies and choose target branches."
+            title={count === 1 ? t('svcAdopt.titleOne', { count }) : t('svcAdopt.titleMany', { count })}
+            subtitle={t('svcAdopt.subtitle')}
             backLabel={backLabel}
             onBack={onClose}
             backDisabled={state.loading}
@@ -2270,10 +2317,10 @@ function ServiceAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
             footer={(
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', width: '100%' }}>
                     <button type="button" className="mc-btn-ghost mc-btn-large" onClick={onClose} disabled={state.loading}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button type="button" className="mc-btn-primary blue-btn mc-btn-large" onClick={onSubmit} disabled={state.loading}>
-                        {state.loading ? 'Adding…' : 'Add to my workshop'}
+                        {state.loading ? t('btn.adding') : t('btn.addToWorkshop')}
                     </button>
                 </div>
             )}
@@ -2292,20 +2339,21 @@ function ServiceAdoptScreen({ state, onChange, onClose, onSubmit, branches, back
                 ) : null}
 
                 {state.loading && (state.missing.departments.length === 0 && state.missing.categories.length === 0) ? (
-                    <div className="mc-grid-loading"><RefreshCw className="spin" size={24} /> <p>Checking dependencies…</p></div>
+                    <div className="mc-grid-loading"><RefreshCw className="spin" size={24} /> <p>{t('loading.deps')}</p></div>
                 ) : (
                     <>
-                        <MissingDependenciesList missing={state.missing} />
+                        <MissingDependenciesList missing={state.missing} t={t} />
                         <div style={{ marginTop: 14 }}>
                             <BranchTargetPicker
                                 branches={branches}
                                 value={state.targetBranchIds}
                                 onChange={(v) => onChange((prev) => prev && { ...prev, targetBranchIds: v })}
                                 scopeOnly
+                                t={t}
                             />
                         </div>
                         <div style={{ marginTop: 14, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            Services being added: {state.rows.map((r) => r.name).slice(0, 5).join(', ')}{state.rows.length > 5 ? `, and ${state.rows.length - 5} more` : ''}.
+                            {t('svcAdopt.beingAdded', { names, more })}
                         </div>
                     </>
                 )}

@@ -9,6 +9,7 @@ import {
     updateAffiliatedSupplier,
 } from '../../services/workshopSuppliersApi';
 import { useAuth } from '../../context/AuthContext';
+import { wasT } from '../../utils/workshopAffiliatedSuppliersI18n';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const fmtMoney = (v) =>
@@ -17,7 +18,7 @@ const fmtMoney = (v) =>
         maximumFractionDigits: 2,
     });
 
-function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving, selectedBranchId = 'all' }) {
+function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving, selectedBranchId = 'all', t }) {
     // If a specific branch is scoped from the sidebar → pre-fill it and limit
     // the dropdown to that branch (admin can't accidentally link to another).
     const isAll = !selectedBranchId || selectedBranchId === 'all';
@@ -42,19 +43,19 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
             setError('');
         } catch (e) {
             console.error(e);
-            setError(e?.message || 'Failed to load registered suppliers');
+            setError(e?.message || t('err.loadRegistered'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         reload('');
     }, [reload]);
 
     useEffect(() => {
-        const t = setTimeout(() => reload(search), 250);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => reload(search), 250);
+        return () => clearTimeout(timer);
     }, [search, reload]);
 
     const visibleRows = useMemo(() => {
@@ -124,10 +125,11 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
     };
 
     const pickedIds = Object.keys(picked);
+    const dash = t('emdash');
 
     const handleSave = async () => {
         if (!pickedIds.length) {
-            setError('Pick at least one supplier from the list');
+            setError(t('err.pickOne'));
             return;
         }
         const items = pickedIds.map((id) => ({
@@ -138,20 +140,20 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
         try {
             await onSubmit({ branchId: branchId || undefined, items });
         } catch (e) {
-            setError(e?.message || 'Failed to add suppliers');
+            setError(e?.message || t('err.add'));
         }
     };
 
     return (
         <Modal
-            title="Add Affiliated Supplier(s)"
+            title={t('modal.title')}
             onClose={isSaving ? () => {} : onClose}
             width="min(880px, 96vw)"
             contentClassName="ws-aff-modal"
             footer={
                 <div className="ws-aff-modal-footer">
                     <button className="btn-portal-outline" type="button" onClick={onClose} disabled={isSaving}>
-                        Cancel
+                        {t('btn.cancel')}
                     </button>
                     <button
                         className="btn-portal"
@@ -159,7 +161,7 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                         disabled={isSaving || pickedIds.length === 0}
                         onClick={handleSave}
                     >
-                        {isSaving ? 'Adding...' : `Add ${pickedIds.length || ''} supplier(s)`}
+                        {isSaving ? t('btn.adding') : t('btn.addCount', { count: pickedIds.length || '' })}
                     </button>
                 </div>
             }
@@ -187,14 +189,14 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
 
                 <div className="ws-aff-modal-toolbar">
                     <div className="ws-aff-modal-field">
-                        <label>Default branch</label>
+                        <label>{t('modal.defaultBranch')}</label>
                         <select
                             value={branchId}
                             onChange={(e) => setBranchId(e.target.value)}
                             disabled={!isAll}
                             className="ws-aff-modal-input"
                         >
-                            {isAll && <option value="">— None (workshop-wide) —</option>}
+                            {isAll && <option value="">{t('modal.branchNone')}</option>}
                             {visibleBranches.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.name}
@@ -203,7 +205,7 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                         </select>
                     </div>
                     <div className="ws-aff-modal-field ws-aff-modal-field--search">
-                        <label>Search registered suppliers</label>
+                        <label>{t('modal.searchLabel')}</label>
                         <div className="ws-aff-modal-search">
                             <Search size={14} className="ws-aff-modal-search-icon" />
                             <input
@@ -211,7 +213,7 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                 name="affiliatedSupplierSearch"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Name, phone, email, VAT, CR..."
+                                placeholder={t('modal.searchPlaceholder')}
                                 autoComplete="off"
                                 autoCorrect="off"
                                 spellCheck={false}
@@ -223,9 +225,9 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
 
                 <div className="ws-aff-modal-meta">
                     <span>
-                        Showing <strong>{visibleRows.length}</strong> of {available.length} registered
-                        {linkedCount > 0 && ` • ${linkedCount} already linked`}
-                        {pickedIds.length > 0 && ` • ${pickedIds.length} selected`}
+                        {t('modal.showingPrefix')} <strong>{visibleRows.length}</strong> {t('modal.showingOf', { total: available.length })}
+                        {linkedCount > 0 && ` ${t('modal.bulletLinked', { count: linkedCount })}`}
+                        {pickedIds.length > 0 && ` ${t('modal.bulletSelected', { count: pickedIds.length })}`}
                     </span>
                     {linkedCount > 0 && (
                         <label className="ws-aff-modal-hide-linked">
@@ -234,19 +236,19 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                 checked={hideLinked}
                                 onChange={(e) => setHideLinked(e.target.checked)}
                             />
-                            Hide already linked
+                            {t('modal.hideLinked')}
                         </label>
                     )}
                 </div>
 
                 <div className="ws-aff-modal-table-wrap">
                     {loading ? (
-                        <div className="ws-aff-modal-empty">Loading registered suppliers...</div>
+                        <div className="ws-aff-modal-empty">{t('modal.loading')}</div>
                     ) : visibleRows.length === 0 ? (
                         <div className="ws-aff-modal-empty">
                             {available.length === 0
-                                ? 'No suppliers are registered with the platform yet. Ask the super-admin to register suppliers first.'
-                                : 'No registered suppliers match your filter.'}
+                                ? t('modal.emptyNone')
+                                : t('modal.emptyFilter')}
                         </div>
                     ) : (
                         <WsTableScroll bodyClassName="ws-aff-modal-table-scroll">
@@ -259,14 +261,14 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                             checked={allVisibleSelected}
                                             onChange={toggleSelectAllVisible}
                                             disabled={allSelectableIds.length === 0}
-                                            title="Select all visible"
+                                            title={t('modal.selectAllTitle')}
                                         />
                                     </th>
-                                    <th style={{ padding: 10 }}>Supplier</th>
-                                    <th style={{ padding: 10 }}>Mobile</th>
-                                    <th style={{ padding: 10 }}>VAT ID</th>
-                                    <th style={{ padding: 10, width: 180 }}>Opening balance (SAR)</th>
-                                    <th style={{ padding: 10, width: 150 }}>As of date</th>
+                                    <th style={{ padding: 10 }}>{t('modal.th.supplier')}</th>
+                                    <th style={{ padding: 10 }}>{t('modal.th.mobile')}</th>
+                                    <th style={{ padding: 10 }}>{t('modal.th.vatId')}</th>
+                                    <th style={{ padding: 10, width: 180 }}>{t('modal.th.openingBalance')}</th>
+                                    <th style={{ padding: 10, width: 150 }}>{t('modal.th.asOfDate')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -309,7 +311,7 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                                                 textTransform: 'uppercase',
                                                             }}
                                                         >
-                                                            Already linked
+                                                            {t('modal.badge.linked')}
                                                         </span>
                                                     )}
                                                     {s.isActive === false && (
@@ -324,16 +326,16 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                                                 textTransform: 'uppercase',
                                                             }}
                                                         >
-                                                            Inactive
+                                                            {t('modal.badge.inactive')}
                                                         </span>
                                                     )}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: '#64748B' }}>
-                                                    {s.email || '—'} {s.contactPerson ? `• ${s.contactPerson}` : ''}
+                                                    {s.email || dash} {s.contactPerson ? `• ${s.contactPerson}` : ''}
                                                 </div>
                                             </td>
-                                            <td style={{ padding: 10 }}>{s.mobile || '—'}</td>
-                                            <td style={{ padding: 10 }}>{s.vatId || '—'}</td>
+                                            <td style={{ padding: 10 }}>{s.mobile || dash}</td>
+                                            <td style={{ padding: 10 }}>{s.vatId || dash}</td>
                                             <td style={{ padding: 10 }}>
                                                 <input
                                                     type="number"
@@ -342,7 +344,7 @@ function AddAffiliatedSupplierModal({ branches = [], onClose, onSubmit, isSaving
                                                     value={sel?.openingBalance ?? ''}
                                                     onChange={(e) => setPickedField(s.id, 'openingBalance', e.target.value)}
                                                     disabled={!sel}
-                                                    placeholder="0.00"
+                                                    placeholder={t('modal.placeholder.balance')}
                                                     style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                                                 />
                                             </td>
@@ -376,7 +378,10 @@ export default function WorkshopAffiliatedSuppliers({
     selectedBranchId = 'all',
     branches = [],
     onTabChange,
+    locale: localeProp,
 }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wasT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
     const canCreate = hasPermission('workshop.affiliated-suppliers.create');
     const canEdit   = hasPermission('workshop.affiliated-suppliers.edit');
@@ -385,6 +390,7 @@ export default function WorkshopAffiliatedSuppliers({
     const [showAdd, setShowAdd] = useState(false);
     const [savingAdd, setSavingAdd] = useState(false);
     const [error, setError] = useState('');
+    const dash = t('emdash');
 
     const loadList = useCallback(async () => {
         setLoading(true);
@@ -398,11 +404,11 @@ export default function WorkshopAffiliatedSuppliers({
             setError('');
         } catch (e) {
             console.error(e);
-            setError(e?.message || 'Failed to load suppliers');
+            setError(e?.message || t('err.loadList'));
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId]);
+    }, [selectedBranchId, t]);
 
     useEffect(() => {
         loadList();
@@ -426,7 +432,7 @@ export default function WorkshopAffiliatedSuppliers({
                 rs.map((r) => (r.id === row.id ? { ...r, isActive: !r.isActive } : r)),
             );
         } catch (e) {
-            alert(e?.message || 'Failed to update supplier');
+            alert(e?.message || t('err.update'));
         }
     };
 
@@ -438,16 +444,16 @@ export default function WorkshopAffiliatedSuppliers({
     return (
         <div className="ws-suppliers-page">
             <div className="ws-suppliers-header">
-                <h2 className="ws-suppliers-title">Filter Affiliated Suppliers</h2>
+                <h2 className="ws-suppliers-title">{t('page.title')}</h2>
                 <div className="ws-suppliers-header-actions">
                     <button type="button" className="btn-portal-outline" onClick={loadList} disabled={loading}>
                         <RefreshCw size={14} />
-                        Refresh
+                        {t('btn.refresh')}
                     </button>
                     {canCreate && (
                         <button type="button" className="btn-portal" onClick={() => setShowAdd(true)}>
                             <Plus size={14} />
-                            Add new supplier
+                            {t('btn.addNew')}
                         </button>
                     )}
                 </div>
@@ -455,10 +461,11 @@ export default function WorkshopAffiliatedSuppliers({
 
             <div className="ws-suppliers-stats">
                 <div className="ws-suppliers-stat ws-suppliers-stat--neutral">
-                    Total suppliers: <strong>{rows.length}</strong>
+                    {t('stat.totalSuppliers')} <strong>{rows.length}</strong>
                 </div>
                 <div className="ws-suppliers-stat ws-suppliers-stat--balance">
-                    Aggregate payable balance: <strong>{fmtMoney(totalBalance)} SAR</strong>
+                    {t('stat.aggregateBalance')}{' '}
+                    <strong>{t('money.sar', { amount: fmtMoney(totalBalance) })}</strong>
                 </div>
             </div>
 
@@ -467,26 +474,26 @@ export default function WorkshopAffiliatedSuppliers({
                 <table className="ws-suppliers-table">
                     <thead>
                         <tr style={{ background: '#F8FAFC', textAlign: 'left' }}>
-                            <th style={{ padding: 12, width: 60 }}>S.No.</th>
-                            <th style={{ padding: 12 }}>Supplier name</th>
-                            <th style={{ padding: 12 }}>Branch</th>
-                            <th style={{ padding: 12 }}>Opening</th>
-                            <th style={{ padding: 12 }}>Final balance (SAR)</th>
-                            <th style={{ padding: 12, width: 110, textAlign: 'center' }}>Active</th>
-                            <th style={{ padding: 12, width: 130 }}>Statement</th>
+                            <th style={{ padding: 12, width: 60 }}>{t('th.sno')}</th>
+                            <th style={{ padding: 12 }}>{t('th.supplierName')}</th>
+                            <th style={{ padding: 12 }}>{t('th.branch')}</th>
+                            <th style={{ padding: 12 }}>{t('th.opening')}</th>
+                            <th style={{ padding: 12 }}>{t('th.finalBalance')}</th>
+                            <th style={{ padding: 12, width: 110, textAlign: 'center' }}>{t('th.active')}</th>
+                            <th style={{ padding: 12, width: 130 }}>{t('th.statement')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
                                 <td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#64748B' }}>
-                                    Loading suppliers...
+                                    {t('loading.list')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#64748B' }}>
-                                    No affiliated suppliers yet. Click "Add new supplier" to link one.
+                                    {t('empty.list')}
                                 </td>
                             </tr>
                         ) : (
@@ -505,11 +512,11 @@ export default function WorkshopAffiliatedSuppliers({
                                     >
                                         {r.supplierName}
                                     </td>
-                                    <td style={{ padding: 12 }}>{r.branchName || '—'}</td>
-                                    <td style={{ padding: 12 }}>{fmtMoney(r.openingBalance)}</td>
-                                    <td style={{ padding: 12 }}>{fmtMoney(r.finalBalance)}</td>
+                                    <td style={{ padding: 12 }}>{r.branchName || dash}</td>
+                                    <td style={{ padding: 12 }}>{t('money.sar', { amount: fmtMoney(r.openingBalance) })}</td>
+                                    <td style={{ padding: 12 }}>{t('money.sar', { amount: fmtMoney(r.finalBalance) })}</td>
                                     <td style={{ padding: 12, textAlign: 'center' }}>
-                                        <label className="ws-suppliers-toggle" title={canEdit ? undefined : 'No edit permission'} style={{ opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
+                                        <label className="ws-suppliers-toggle" title={canEdit ? undefined : t('err.noEditPerm')} style={{ opacity: canEdit ? 1 : 0.55, cursor: canEdit ? 'pointer' : 'not-allowed' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={Boolean(r.isActive)}
@@ -533,7 +540,7 @@ export default function WorkshopAffiliatedSuppliers({
                                             }
                                         >
                                             <FileText size={12} />
-                                            Open ledger
+                                            {t('btn.openLedger')}
                                         </button>
                                     </td>
                                 </tr>
@@ -555,6 +562,7 @@ export default function WorkshopAffiliatedSuppliers({
                     onClose={() => setShowAdd(false)}
                     onSubmit={onAdd}
                     isSaving={savingAdd}
+                    t={t}
                 />
             )}
         </div>

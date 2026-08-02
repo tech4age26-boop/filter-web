@@ -1,5 +1,13 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
+import { wiT } from '../../utils/workshopInventoryI18n';
+
+
+function resolveExportT(labels) {
+    if (labels?.t) return labels.t;
+    const locale = labels?.locale || 'en';
+    return (key, vars) => wiT(locale, key, vars);
+}
 
 function safeFileSlug(s) {
     const t = String(s || 'export')
@@ -13,8 +21,8 @@ function stamp() {
     return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 }
 
-function fmtQtyPlain(value, isInfiniteQty = false) {
-    if (isInfiniteQty) return 'Unlimited';
+function fmtQtyPlain(value, isInfiniteQty = false, t) {
+    if (isInfiniteQty) return t ? t('export.unlimited') : 'Unlimited';
     if (value == null || value === '') return '';
     const n = Number(value);
     if (!Number.isFinite(n)) return '';
@@ -29,22 +37,31 @@ function inventoryUomLabel(item) {
     return String(item?.workshopUnit || item?.unit || 'pcs');
 }
 
-function inventoryStockQty(item) {
-    if (item?.isInfiniteQty) return 'Unlimited';
-    const qty = fmtQtyPlain(item?.qty, false);
+function inventoryStockQty(item, t) {
+    if (item?.isInfiniteQty) return t ? t('export.unlimited') : 'Unlimited';
+    const qty = fmtQtyPlain(item?.qty, false, t);
     if (!qty) return '0';
     const unit = String(item?.workshopUnit || item?.unit || '').trim();
     return unit ? `${qty} ${unit}` : qty;
 }
 
-function inventoryStatusLabel(item) {
-    if (item?.status === 'Requested') return 'Requested';
-    if (item?.isInfiniteQty) return 'Unlimited';
+function inventoryStatusLabel(item, t) {
+    if (!t) {
+        if (item?.status === 'Requested') return 'Requested';
+        if (item?.isInfiniteQty) return 'Unlimited';
+        const qty = Number(item?.qty) || 0;
+        const crit = Number(item?.critical_level) || 0;
+        if (qty <= 0) return 'Out of Stock';
+        if (crit > 0 && qty <= crit) return 'Low Stock';
+        return 'In Stock';
+    }
+    if (item?.status === 'Requested') return t('status.requested');
+    if (item?.isInfiniteQty) return t('status.unlimited');
     const qty = Number(item?.qty) || 0;
     const crit = Number(item?.critical_level) || 0;
-    if (qty <= 0) return 'Out of Stock';
-    if (crit > 0 && qty <= crit) return 'Low Stock';
-    return 'In Stock';
+    if (qty <= 0) return t('status.outOfStock');
+    if (crit > 0 && qty <= crit) return t('status.lowStock');
+    return t('status.inStock');
 }
 
 /** jsPDF default Helvetica cannot render Arabic — keep Latin text only for PDF cells. */
@@ -72,36 +89,38 @@ export function workshopInventoryLineValueSar(item) {
     return qty * price;
 }
 
-const EXCEL_HEADERS = [
-    'Product',
-    'SKU',
-    'Department',
-    'Category',
-    'Opening (adoption)',
-    'Current stock',
-    'Critical level',
-    'UOM',
-    'Purchase price (SAR)',
-    'Status',
-    'Line value (SAR)',
-    'Branch',
-];
+function excelHeaders(t) {
+    return [
+        t('export.excelProduct'),
+        t('export.excelSku'),
+        t('export.excelDepartment'),
+        t('export.excelCategory'),
+        t('export.excelOpening'),
+        t('export.excelCurrent'),
+        t('export.excelCritical'),
+        t('export.excelUom'),
+        t('export.excelPurchase'),
+        t('export.excelStatus'),
+        t('export.excelLineValue'),
+        t('export.excelBranch'),
+    ];
+}
 
 /** Full row set for Excel export. */
-function inventoryRowsForExcel(items) {
+function inventoryRowsForExcel(items, t) {
     return (items || []).map((item) => {
         const opening =
             item.openingQty != null && item.openingQty !== ''
-                ? fmtQtyPlain(item.openingQty)
+                ? fmtQtyPlain(item.openingQty, false, t)
                 : '';
         const critical =
-            Number(item.critical_level) > 0 ? fmtQtyPlain(item.critical_level) : '';
+            Number(item.critical_level) > 0 ? fmtQtyPlain(item.critical_level, false, t) : '';
         const purchasePrice = Number(item.purchasePrice) || 0;
         const lineValue = workshopInventoryLineValueSar(item);
         const stock =
             item?.stockDisplayPrimary && item.stockDisplaySecondary != null
                 ? `${item.stockDisplayPrimary} (${item.stockDisplaySecondary})`
-                : inventoryStockQty(item);
+                : inventoryStockQty(item, t);
         return [
             item.name || '',
             item.sku || '',
@@ -112,7 +131,7 @@ function inventoryRowsForExcel(items) {
             critical,
             inventoryUomLabel(item),
             purchasePrice,
-            inventoryStatusLabel(item),
+            inventoryStatusLabel(item, t),
             lineValue,
             item.branchName || '',
         ];
@@ -120,43 +139,45 @@ function inventoryRowsForExcel(items) {
 }
 
 /** Compact row set for PDF — fewer columns, clearer labels. */
-function inventoryRowsForPdf(items) {
+function inventoryRowsForPdf(items, t) {
     return (items || []).map((item) => {
         const opening =
             item.openingQty != null && item.openingQty !== ''
-                ? fmtQtyPlain(item.openingQty)
+                ? fmtQtyPlain(item.openingQty, false, t)
                 : '—';
         const critical =
-            Number(item.critical_level) > 0 ? fmtQtyPlain(item.critical_level) : '—';
+            Number(item.critical_level) > 0 ? fmtQtyPlain(item.critical_level, false, t) : '—';
         return {
             product: pdfSafeText(item.name),
             sku: pdfSafeText(item.sku, '—'),
             department: pdfSafeText(item.departmentName, '—'),
             category: pdfSafeText(item.categoryName, '—'),
             opening,
-            stock: pdfSafeText(inventoryStockQty(item), '0'),
+            stock: pdfSafeText(inventoryStockQty(item, t), '0'),
             critical,
             cost: fmtMoney(item.purchasePrice),
-            status: inventoryStatusLabel(item),
+            status: inventoryStatusLabel(item, t),
             value: fmtMoney(workshopInventoryLineValueSar(item)),
         };
     });
 }
 
-const PDF_COLUMNS = [
-    { key: 'product', label: 'Product', width: 198, align: 'left' },
-    { key: 'sku', label: 'SKU', width: 52, align: 'left' },
-    { key: 'department', label: 'Department', width: 82, align: 'left' },
-    { key: 'category', label: 'Category', width: 72, align: 'left' },
-    { key: 'opening', label: 'Opening', width: 44, align: 'right' },
-    { key: 'stock', label: 'On hand', width: 58, align: 'right' },
-    { key: 'critical', label: 'Critical', width: 44, align: 'right' },
-    { key: 'cost', label: 'Cost (SAR)', width: 54, align: 'right' },
-    { key: 'status', label: 'Status', width: 56, align: 'left' },
-    { key: 'value', label: 'Value (SAR)', width: 54, align: 'right' },
-];
+function pdfColumns(t) {
+    return [
+        { key: 'product', label: t('export.excelProduct'), width: 198, align: 'left' },
+        { key: 'sku', label: t('export.excelSku'), width: 52, align: 'left' },
+        { key: 'department', label: t('export.excelDepartment'), width: 82, align: 'left' },
+        { key: 'category', label: t('export.excelCategory'), width: 72, align: 'left' },
+        { key: 'opening', label: t('export.pdfOpening'), width: 44, align: 'right' },
+        { key: 'stock', label: t('export.pdfOnHand'), width: 58, align: 'right' },
+        { key: 'critical', label: t('export.pdfCritical'), width: 44, align: 'right' },
+        { key: 'cost', label: t('export.pdfCost'), width: 54, align: 'right' },
+        { key: 'status', label: t('export.pdfStatus'), width: 56, align: 'left' },
+        { key: 'value', label: t('export.pdfValue'), width: 54, align: 'right' },
+    ];
+}
 
-function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameBase }) {
+function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameBase, t }) {
     const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
     const marginX = 32;
     const marginTop = 28;
@@ -171,6 +192,7 @@ function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameB
     const zebraBg = [248, 250, 252];
     const borderColor = [203, 213, 225];
     const mutedColor = [100, 116, 139];
+    const PDF_COLUMNS = pdfColumns(t);
 
     const sumColW = PDF_COLUMNS.reduce((s, c) => s + c.width, 0);
     const scale = sumColW > contentW ? contentW / sumColW : 1;
@@ -182,8 +204,8 @@ function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameB
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(7.5);
         pdf.setTextColor(...mutedColor);
-        pdf.text(`Page ${pageNum}`, pageW - marginX, pageH - 14, { align: 'right' });
-        pdf.text('Filter POS · Workshop inventory', marginX, pageH - 14);
+        pdf.text(t('export.page', { n: pageNum }), pageW - marginX, pageH - 14, { align: 'right' });
+        pdf.text(t('export.footerBrand'), marginX, pageH - 14);
         pdf.setTextColor(0, 0, 0);
     };
 
@@ -191,7 +213,7 @@ function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameB
         let y = marginTop;
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(continued ? 11 : 15);
-        pdf.text(continued ? `${title} (continued)` : title, marginX, y);
+        pdf.text(continued ? t('export.continued', { title }) : title, marginX, y);
         y += continued ? 16 : 18;
 
         if (!continued) {
@@ -200,9 +222,9 @@ function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameB
             pdf.setTextColor(...mutedColor);
             const branch = meta.branchName || '—';
             const exported = new Date().toLocaleString();
-            pdf.text(`Branch: ${branch}`, marginX, y);
+            pdf.text(t('export.branchLine', { branch }), marginX, y);
             y += 12;
-            pdf.text(`Exported: ${exported}  ·  ${rows.length} product(s)`, marginX, y);
+            pdf.text(t('export.exportedLine', { when: exported, count: rows.length }), marginX, y);
             y += 14;
             pdf.setTextColor(0, 0, 0);
         }
@@ -310,12 +332,12 @@ function downloadWorkshopInventoryPdf({ title, meta, rows, totalValue, filenameB
     y += 10;
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(9);
-    pdf.text(`Total line value: SAR ${fmtMoney(totalValue)}`, marginX, y);
+    pdf.text(t('export.totalLineValue', { amount: fmtMoney(totalValue) }), marginX, y);
     y += 12;
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(7.5);
     pdf.setTextColor(...mutedColor);
-    pdf.text('Line value = on-hand qty × purchase price (per workshop unit).', marginX, y);
+    pdf.text(t('export.lineValueNote'), marginX, y);
     pdf.setTextColor(0, 0, 0);
 
     drawPageFooter();
@@ -332,16 +354,17 @@ export function exportWorkshopInventoryExcel(
     meta = {},
     filenameBase = 'workshop-inventory',
 ) {
-    const rows = inventoryRowsForExcel(items);
+    const t = resolveExportT(meta.labels);
+    const rows = inventoryRowsForExcel(items, t);
     const metaRows = [
-        ['Branch', meta.branchName || '—'],
-        ['Exported', new Date().toLocaleString()],
-        ['Products', String(rows.length)],
+        [t('export.metaBranch'), meta.branchName || '—'],
+        [t('export.metaExported'), new Date().toLocaleString()],
+        [t('export.metaProducts'), String(rows.length)],
         [],
     ];
-    const ws = XLSX.utils.aoa_to_sheet([...metaRows, EXCEL_HEADERS, ...rows]);
+    const ws = XLSX.utils.aoa_to_sheet([...metaRows, excelHeaders(t), ...rows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+    XLSX.utils.book_append_sheet(wb, ws, t('export.sheetInventory'));
     XLSX.writeFile(wb, `${safeFileSlug(filenameBase)}-${stamp()}.xlsx`);
 }
 
@@ -355,17 +378,19 @@ export function exportWorkshopInventoryPdf(
     meta = {},
     filenameBase = 'workshop-inventory',
 ) {
-    const rows = inventoryRowsForPdf(items);
+    const t = resolveExportT(meta.labels);
+    const rows = inventoryRowsForPdf(items, t);
     const totalValue = (items || []).reduce(
         (sum, item) => sum + workshopInventoryLineValueSar(item),
         0,
     );
     downloadWorkshopInventoryPdf({
-        title: 'Workshop Inventory',
+        title: t('export.titleInventory'),
         meta,
         rows,
         totalValue,
         filenameBase,
+        t,
     });
 }
 

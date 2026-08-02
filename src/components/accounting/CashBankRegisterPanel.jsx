@@ -14,6 +14,7 @@ import {
     exportCashBankRegisterExcel,
     exportCashBankRegisterPdf,
 } from '../../utils/cashBankRegisterExport';
+import { accT } from '../../utils/accountingI18n';
 
 function startOfMonthISO() {
     const d = new Date();
@@ -30,17 +31,28 @@ function fmt(n) {
     return x.toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const REGISTER_LABELS = {
-    CASH: 'Cash Register',
-    BANK: 'Bank Register',
-    PETTY_CASH: 'Petty Cash Register',
+const REGISTER_TITLE_KEYS = {
+    CASH: 'register.cash',
+    BANK: 'register.bank',
+    PETTY_CASH: 'register.petty',
 };
 
 /**
  * Drill-down register for one register type (Cash / Bank / Petty Cash).
  * KPI cards filter the movement ledger; COA combobox narrows to one linked account.
  */
-export default function CashBankRegisterPanel({ registerType, initialCoaAccountId = '', onClose }) {
+export default function CashBankRegisterPanel({
+    registerType,
+    initialCoaAccountId = '',
+    onClose,
+    locale: localeProp,
+}) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => accT(locale, key, vars), [locale]);
+
     const [dateFrom, setDateFrom] = useState(startOfMonthISO);
     const [dateTo, setDateTo] = useState(todayISO);
     const [coaAccountId, setCoaAccountId] = useState(initialCoaAccountId || '');
@@ -63,27 +75,29 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
             setData(res);
         } catch (e) {
             setData(null);
-            setError(e?.message || 'Could not load register.');
+            setError(e?.message || t('register.loadFailed'));
         } finally {
             setLoading(false);
         }
-    }, [registerType, coaAccountId, dateFrom, dateTo]);
+    }, [registerType, coaAccountId, dateFrom, dateTo, t]);
 
     useEffect(() => {
         load();
     }, [load]);
 
+    const allAccountsLabel = t('register.allAccounts');
+
     const coaOptions = useMemo(() => {
         const opts = data?.coaOptions ?? [];
         return [
-            { id: '', label: 'All accounts in this register' },
+            { id: '', label: allAccountsLabel },
             ...opts.map((o) => ({
                 id: o.coaAccountId,
                 label: o.label,
                 searchText: `${o.code} ${o.name} ${o.registerName}`,
             })),
         ];
-    }, [data?.coaOptions]);
+    }, [data?.coaOptions, allAccountsLabel]);
 
     const selectedCoaLabel = useMemo(() => {
         if (!coaAccountId) return '';
@@ -105,14 +119,14 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
         return lines;
     }, [data?.lines, ledgerFilter]);
 
-    const title = REGISTER_LABELS[registerType] || 'Register';
+    const title = t(REGISTER_TITLE_KEYS[registerType] || 'register.register');
 
     const exportHeader = useMemo(() => {
         const registerSlug = registerType || 'register';
-        const accountLabel = selectedCoaLabel || 'All accounts in this register';
+        const accountLabel = selectedCoaLabel || allAccountsLabel;
         let filterNote = '';
-        if (ledgerFilter === 'receipts') filterNote = 'Receipts (IN) only';
-        else if (ledgerFilter === 'payments') filterNote = 'Payments (OUT) only';
+        if (ledgerFilter === 'receipts') filterNote = t('register.filter.receipts');
+        else if (ledgerFilter === 'payments') filterNote = t('register.filter.payments');
         return {
             companyName: 'FILTER ERP',
             registerTitle: title,
@@ -124,7 +138,7 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
             currencyCode: 'SAR',
             filterNote: filterNote || undefined,
         };
-    }, [title, registerType, selectedCoaLabel, coaAccountId, dateFrom, dateTo, ledgerFilter]);
+    }, [title, registerType, selectedCoaLabel, allAccountsLabel, coaAccountId, dateFrom, dateTo, ledgerFilter, t]);
 
     const handleExportPdf = () => {
         exportCashBankRegisterPdf({
@@ -144,74 +158,81 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
 
     const exportDisabled = loading || !!error;
 
+    const emptyMessage =
+        ledgerFilter !== 'all'
+            ? t('register.emptyFiltered', {
+                filter: t(`register.filterKey.${ledgerFilter}`),
+            })
+            : t('register.empty');
+
     return (
         <div className="cash-bank-register-panel">
             <header className="cash-bank-register-header">
                 <button type="button" className="cash-bank-register-back" onClick={onClose}>
-                    <ArrowLeft size={18} /> Back to Cash &amp; Bank
+                    <ArrowLeft size={18} /> {t('register.back')}
                 </button>
                 <div>
                     <h3 className="cash-bank-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Wallet size={22} /> {title}
                     </h3>
                     <p className="cash-bank-desc" style={{ margin: '4px 0 0' }}>
-                        Track IN (receipts) and OUT (payments) per linked Chart of Accounts account.
+                        {t('register.desc')}
                     </p>
                 </div>
             </header>
 
             <div className="cash-bank-register-filters">
                 <label className="cash-bank-register-field">
-                    <span>From</span>
+                    <span>{t('register.from')}</span>
                     <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                 </label>
                 <label className="cash-bank-register-field">
-                    <span>To</span>
+                    <span>{t('register.to')}</span>
                     <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </label>
                 <label className="cash-bank-register-field cash-bank-register-coa">
-                    <span>Chart of Accounts</span>
+                    <span>{t('register.coa')}</span>
                     <SearchableEntityCombobox
                         className="ws-filter-combobox"
                         options={coaOptions}
                         value={coaAccountId}
                         displayText={coaSearch || selectedCoaLabel}
-                        onDisplayTextChange={(t) => {
-                            setCoaSearch(t);
-                            if (!t.trim()) setCoaAccountId('');
+                        onDisplayTextChange={(txt) => {
+                            setCoaSearch(txt);
+                            if (!txt.trim()) setCoaAccountId('');
                         }}
                         onSelect={(opt) => {
                             setCoaAccountId(opt?.id != null ? String(opt.id) : '');
                             setCoaSearch(opt?.label ?? '');
                         }}
-                        placeholder="Type code or name — ↑↓ Enter to select"
-                        entityLabel="account"
-                        emptyHint="No matching COA accounts"
+                        placeholder={t('register.coaPh')}
+                        entityLabel={t('register.entityAccount')}
+                        emptyHint={t('register.coaEmpty')}
                     />
                 </label>
                 <button type="button" className="btn-portal-outline" onClick={load} disabled={loading}>
                     <RefreshCw size={16} style={{ marginRight: 6, opacity: loading ? 0.5 : 1 }} />
-                    Apply
+                    {t('register.apply')}
                 </button>
                 <button
                     type="button"
                     className="btn-portal-outline cash-bank-register-export-btn"
                     onClick={handleExportPdf}
                     disabled={exportDisabled}
-                    title="Download register statement as PDF"
+                    title={t('register.pdfTitle')}
                 >
                     <FileText size={16} style={{ marginRight: 6 }} />
-                    Download PDF
+                    {t('register.pdf')}
                 </button>
                 <button
                     type="button"
                     className="btn-portal-outline cash-bank-register-export-btn"
                     onClick={handleExportExcel}
                     disabled={exportDisabled}
-                    title="Download register statement as Excel"
+                    title={t('register.excelTitle')}
                 >
                     <FileSpreadsheet size={16} style={{ marginRight: 6 }} />
-                    Download Excel
+                    {t('register.excel')}
                 </button>
             </div>
 
@@ -223,52 +244,52 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
                 <div className="cash-bank-stat-card cash-bank-stat-card--muted">
                     <div className="cash-bank-stat-icon"><Wallet size={22} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Opening Balance</p>
+                        <p className="cash-bank-stat-label">{t('register.opening')}</p>
                         <p className="cash-bank-stat-value">SAR {fmt(summary.openingBalance)}</p>
-                        <p className="cash-bank-stat-meta">As of day before From date</p>
+                        <p className="cash-bank-stat-meta">{t('register.openingMeta')}</p>
                     </div>
                 </div>
                 <button
                     type="button"
                     className={`cash-bank-stat-card cash-bank-stat-card--clickable ${ledgerFilter === 'receipts' ? 'active' : ''}`}
                     onClick={() => setLedgerFilter((f) => (f === 'receipts' ? 'all' : 'receipts'))}
-                    title="Show receipt (IN) lines only"
+                    title={t('register.title.receipts')}
                 >
                     <div className="cash-bank-stat-icon" style={{ background: '#ECFDF5', color: '#059669' }}>
                         <ArrowDownCircle size={22} />
                     </div>
                     <div>
-                        <p className="cash-bank-stat-label">Total Receipts</p>
+                        <p className="cash-bank-stat-label">{t('register.receipts')}</p>
                         <p className="cash-bank-stat-value">SAR {fmt(summary.totalReceipts)}</p>
-                        <p className="cash-bank-stat-meta">Click to verify IN lines</p>
+                        <p className="cash-bank-stat-meta">{t('register.receiptsMeta')}</p>
                     </div>
                 </button>
                 <button
                     type="button"
                     className={`cash-bank-stat-card cash-bank-stat-card--clickable ${ledgerFilter === 'payments' ? 'active' : ''}`}
                     onClick={() => setLedgerFilter((f) => (f === 'payments' ? 'all' : 'payments'))}
-                    title="Show payment (OUT) lines only"
+                    title={t('register.title.payments')}
                 >
                     <div className="cash-bank-stat-icon" style={{ background: '#FEF2F2', color: '#DC2626' }}>
                         <ArrowUpCircle size={22} />
                     </div>
                     <div>
-                        <p className="cash-bank-stat-label">Total Payments</p>
+                        <p className="cash-bank-stat-label">{t('register.payments')}</p>
                         <p className="cash-bank-stat-value">SAR {fmt(summary.totalPayments)}</p>
-                        <p className="cash-bank-stat-meta">Click to verify OUT lines</p>
+                        <p className="cash-bank-stat-meta">{t('register.paymentsMeta')}</p>
                     </div>
                 </button>
                 <button
                     type="button"
                     className={`cash-bank-stat-card cash-bank-stat-card--clickable ${ledgerFilter === 'all' ? 'active' : ''}`}
                     onClick={() => setLedgerFilter('all')}
-                    title="Show full ledger with closing balance"
+                    title={t('register.title.all')}
                 >
                     <div className="cash-bank-stat-icon"><Wallet size={22} /></div>
                     <div>
-                        <p className="cash-bank-stat-label">Closing Balance</p>
+                        <p className="cash-bank-stat-label">{t('register.closing')}</p>
                         <p className="cash-bank-stat-value">SAR {fmt(summary.closingBalance)}</p>
-                        <p className="cash-bank-stat-meta">GL balance as of To date</p>
+                        <p className="cash-bank-stat-meta">{t('register.closingMeta')}</p>
                     </div>
                 </button>
             </div>
@@ -277,29 +298,28 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
                 <table className="ws-table" style={{ width: '100%' }}>
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>COA / Register</th>
-                            <th>Description</th>
-                            <th>Reference</th>
-                            <th style={{ textAlign: 'right' }}>IN</th>
-                            <th style={{ textAlign: 'right' }}>OUT</th>
-                            <th style={{ textAlign: 'right' }}>Balance</th>
+                            <th>{t('register.th.date')}</th>
+                            <th>{t('register.th.coaReg')}</th>
+                            <th>{t('register.th.desc')}</th>
+                            <th>{t('register.th.ref')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('register.th.in')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('register.th.out')}</th>
+                            <th style={{ textAlign: 'right' }}>{t('register.th.balance')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={7} className="table-cell table-empty">Loading register…</td></tr>
+                            <tr><td colSpan={7} className="table-cell table-empty">{t('register.loading')}</td></tr>
                         ) : (
                             <>
                                 <tr className="cash-bank-register-opening-row">
-                                    <td colSpan={6}><strong>Opening balance</strong></td>
+                                    <td colSpan={6}><strong>{t('register.openingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.openingBalance)}</td>
                                 </tr>
                                 {filteredLines.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="table-cell table-empty">
-                                            No movements in this period
-                                            {ledgerFilter !== 'all' ? ` (${ledgerFilter})` : ''}.
+                                            {emptyMessage}
                                         </td>
                                     </tr>
                                 ) : (
@@ -325,7 +345,7 @@ export default function CashBankRegisterPanel({ registerType, initialCoaAccountI
                                     ))
                                 )}
                                 <tr className="cash-bank-register-closing-row">
-                                    <td colSpan={6}><strong>Closing balance</strong></td>
+                                    <td colSpan={6}><strong>{t('register.closingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.closingBalance)}</td>
                                 </tr>
                             </>

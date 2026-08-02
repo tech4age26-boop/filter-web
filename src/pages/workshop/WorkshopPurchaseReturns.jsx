@@ -35,6 +35,7 @@ import {
     normUomLabel,
 } from './workshopPurchaseUomUtils';
 import '../../styles/admin/AccountingPage.css';
+import { wprT } from '../../utils/workshopPurchaseReturnsI18n';
 
 const SUPPLIERS_PAGE_LIMIT = 50;
 
@@ -82,7 +83,7 @@ function normalizeSupplierRow(s) {
     return { id, name: name || '—', raw: s, __supplierType: 'affiliated' };
 }
 
-async function fetchNonAffiliatedSupplierPickerRows(scopeBranchId) {
+async function fetchNonAffiliatedSupplierPickerRows(scopeBranchId, t) {
     const localParams = {};
     if (scopeBranchId && scopeBranchId !== 'all') {
         localParams.branchId = scopeBranchId;
@@ -92,7 +93,7 @@ async function fetchNonAffiliatedSupplierPickerRows(scopeBranchId) {
         .filter((s) => s.isActive !== false)
         .map((s) => ({
             id: String(s.id),
-            name: `${s.name} (Non-affiliated)`,
+            name: t('supplier.nameLocal', { name: s.name }),
             raw: { ...s, __supplierType: 'local' },
             __supplierType: 'local',
         }));
@@ -112,7 +113,7 @@ function pickBranchCatalogItemId(row) {
     return String(raw);
 }
 
-function pickBranchCatalogItemName(row) {
+function pickBranchCatalogItemName(row, productFallback = 'Product') {
     const nested = row?.product ?? row?.service;
     return (
         String(
@@ -123,7 +124,7 @@ function pickBranchCatalogItemName(row) {
                 nested?.productName ??
                 row?.sku ??
                 '',
-        ).trim() || 'Product'
+        ).trim() || productFallback
     );
 }
 
@@ -169,7 +170,7 @@ function flattenWorkshopStaffBranchProductsResponse(res) {
     return unwrapWorkshopBranchListResponse(res, 'products');
 }
 
-function normalizeBranchProductOption(row) {
+function normalizeBranchProductOption(row, productFallback = 'Product') {
     if (!row || typeof row !== 'object') return null;
     const nested = row?.product ?? row?.service;
     const id = pickBranchCatalogItemId(row);
@@ -179,7 +180,7 @@ function normalizeBranchProductOption(row) {
         row?.itemType === 'service' ||
         String(nested?.type || row?.type || '').toLowerCase() === 'service';
     if (isService) return null;
-    const name = pickBranchCatalogItemName(row);
+    const name = pickBranchCatalogItemName(row, productFallback);
     const unit = pickBranchCatalogItemUnit(row);
     const nestedObj = nested != null && typeof nested === 'object' ? nested : null;
     return {
@@ -297,60 +298,66 @@ function invoiceLineAmounts(item) {
     return { ex, tax, incl: incl > 0 ? incl : ex + tax };
 }
 
-function formatInvoiceInvQtyDisplay(item) {
+function formatInvoiceInvQtyDisplay(item, t) {
     const basis = invoiceLineReturnBasis(item);
     const received = invoiceLineWorkshopReceive(item);
     const conversionNote =
         received.qty > 0 &&
         received.uom &&
         normUomLabel(received.uom) !== normUomLabel(basis.uom)
-            ? `= ${received.qty} ${received.uom} received in stock`
+            ? t('conversion.received', { qty: received.qty, uom: received.uom })
             : '';
     return { qty: basis.qty, uom: basis.uom, conversionNote };
 }
 
-function mapPurchaseInvoicesFromResponse(res, invoiceKind = 'affiliated') {
+function mapPurchaseInvoicesFromResponse(res, invoiceKind = 'affiliated', t) {
+    const supplierFallback = t ? t('fallback.supplier') : 'Supplier';
+    const em = t ? t('emdash') : '—';
     if (!res || !Array.isArray(res.invoices)) return [];
     return res.invoices.map((inv) => ({
         id: inv.id,
         invoiceKind,
         invoiceNo: pickPurchaseInvoiceNo(inv),
-        supplierName: inv.supplier?.name || inv.supplierName || inv.supplier_name || inv.vendor_name || inv.localSupplier?.name || 'Supplier',
+        supplierName: inv.supplier?.name || inv.supplierName || inv.supplier_name || inv.vendor_name || inv.localSupplier?.name || supplierFallback,
         supplierId: inv.supplier?.id ?? inv.supplierId ?? inv.localSupplierId ?? inv.local_supplier_id,
-        branchName: inv.branch?.name || inv.branchName || inv.branch_name || '—',
+        branchName: inv.branch?.name || inv.branchName || inv.branch_name || em,
         branchId: inv.branch?.id ?? inv.branchId ?? inv.branch_id,
         date: inv.issueDate || inv.issue_date || inv.invoiceDate || inv.date,
         amount: Number(inv.grandTotal || inv.grand_total || 0),
-        productLabel: inv.productLabel || inv.product_label || inv.items?.[0]?.itemName || inv.items?.[0]?.product_name || '—',
+        productLabel: inv.productLabel || inv.product_label || inv.items?.[0]?.itemName || inv.items?.[0]?.product_name || em,
     }));
 }
 
-function piComboboxSubtitle(inv) {
-    const lines = [inv.supplierName, inv.branchName !== '—' ? inv.branchName : null].filter(Boolean);
+function piComboboxSubtitle(inv, t) {
+    const em = t('emdash');
+    const lines = [inv.supplierName, inv.branchName !== em && inv.branchName !== '—' ? inv.branchName : null].filter(Boolean);
     const detail = [];
-    if (inv.productLabel && inv.productLabel !== '—') detail.push(inv.productLabel);
-    if (inv.date) detail.push(`Issued ${formatMgrDate(inv.date)}`);
+    if (inv.productLabel && inv.productLabel !== em && inv.productLabel !== '—') detail.push(inv.productLabel);
+    if (inv.date) detail.push(t('invoice.issued', { date: formatMgrDate(inv.date) }));
     if (detail.length) lines.push(detail.join(' · '));
     return lines.join('\n');
 }
 
-function piSelectedDisplay(inv) {
+function piSelectedDisplay(inv, t) {
     if (!inv) return '';
-    return `${pickPurchaseInvoiceNo(inv)} · ${inv.supplierName || 'Supplier'}`;
+    return `${pickPurchaseInvoiceNo(inv)} · ${inv.supplierName || t('fallback.supplier')}`;
 }
 
-function returnStatusBadge(row) {
+function returnStatusBadge(row, t) {
     const st = String(row?.status || 'pending').toLowerCase();
     if (st === 'approved' || row?.returnKind === 'local' || row?.mode === 'local_direct') {
-        return { label: 'Approved', cls: 'mgr-si-status mgr-si-status--paid' };
+        return { label: t('status.approved'), cls: 'mgr-si-status mgr-si-status--paid' };
     }
     if (row?.mode === 'workshop_initiated') {
-        return { label: 'Pending supplier', cls: 'mgr-si-status mgr-si-status--pending' };
+        return { label: t('status.pendingSupplier'), cls: 'mgr-si-status mgr-si-status--pending' };
     }
-    return { label: 'Pending workshop', cls: 'mgr-si-status mgr-si-status--pending' };
+    return { label: t('status.pendingWorkshop'), cls: 'mgr-si-status mgr-si-status--pending' };
 }
 
-export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', branches = [] }) {
+export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', branches = [], locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wprT(locale, key, vars), [locale]);
+    const money = useCallback((amount) => t('money.sar', { amount }), [t]);
     const location = useLocation();
     const [formOpen, setFormOpen] = useState(Boolean(location.state?.prefillInvoiceId));
     const [loading, setLoading] = useState(true);
@@ -435,11 +442,11 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
             const res = await listAffiliatedPurchaseReturns(branchParams);
             setRows(Array.isArray(res?.items) ? res.items : []);
         } catch (err) {
-            setError(err.message || 'Failed to load debit notes.');
+            setError(err.message || t('err.loadList'));
         } finally {
             setLoading(false);
         }
-    }, [branchParams]);
+    }, [branchParams, t]);
 
     const loadSuppliers = useCallback(async () => {
         setSuppliersLoading(true);
@@ -462,7 +469,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 offset += SUPPLIERS_PAGE_LIMIT;
             }
             try {
-                const localRows = await fetchNonAffiliatedSupplierPickerRows(scopeBranchId);
+                const localRows = await fetchNonAffiliatedSupplierPickerRows(scopeBranchId, t);
                 merged.push(...localRows);
             } catch (e) {
                 console.warn('[debit-notes] failed to load local suppliers', e);
@@ -471,16 +478,16 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         } catch (e) {
             let localRows = [];
             try {
-                localRows = await fetchNonAffiliatedSupplierPickerRows(scopeBranchId);
+                localRows = await fetchNonAffiliatedSupplierPickerRows(scopeBranchId, t);
             } catch {
                 /* ignore */
             }
             setSuppliers(localRows);
-            setSuppliersError(e.message || 'Could not load workshop suppliers.');
+            setSuppliersError(e.message || t('err.loadSuppliers'));
         } finally {
             setSuppliersLoading(false);
         }
-    }, [scopeBranchId]);
+    }, [scopeBranchId, t]);
 
     const loadPurchaseInvoices = useCallback(async () => {
         setInvoicesLoading(true);
@@ -497,7 +504,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                         ...extra,
                         offset,
                     });
-                    rows.push(...mapPurchaseInvoicesFromResponse(res, 'affiliated'));
+                    rows.push(...mapPurchaseInvoicesFromResponse(res, 'affiliated', t));
                     const total = res?.total != null ? Number(res.total) : null;
                     const batchLen = Array.isArray(res?.invoices) ? res.invoices.length : 0;
                     if (total != null && rows.length >= total) break;
@@ -516,7 +523,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
             ]);
 
             const byKey = new Map();
-            for (const inv of [...workshopCreated, ...affiliatedMirrors, ...mapPurchaseInvoicesFromResponse(localRes, 'local')]) {
+            for (const inv of [...workshopCreated, ...affiliatedMirrors, ...mapPurchaseInvoicesFromResponse(localRes, 'local', t)]) {
                 const key = `${inv.invoiceKind}:${inv.id}`;
                 if (!byKey.has(key)) byKey.set(key, inv);
             }
@@ -525,12 +532,12 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
             );
             setPurchaseInvoices(merged);
         } catch (err) {
-            setFormError(err.message || 'Failed to load purchase invoices.');
+            setFormError(err.message || t('err.loadInvoices'));
             setPurchaseInvoices([]);
         } finally {
             setInvoicesLoading(false);
         }
-    }, [branchParams]);
+    }, [branchParams, t]);
 
     const loadBranchProducts = useCallback(async () => {
         if (!effectiveBranchId) {
@@ -565,24 +572,23 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 }
             }
 
+            const productFallback = t('fallback.product');
             const opts = prodRows
-                .map(normalizeBranchProductOption)
+                .map((row) => normalizeBranchProductOption(row, productFallback))
                 .filter(Boolean)
                 .sort((a, b) => a.name.localeCompare(b.name));
             setBranchProductOptions(opts);
             if (opts.length === 0) {
-                setProductsLoadError(
-                    'No branch products found. Adopt products in Inventory or select a specific branch.',
-                );
+                setProductsLoadError(t('err.noProducts'));
             }
         } catch (err) {
             console.warn('[debit-notes] branch products', err);
-            setProductsLoadError(err.message || 'Could not load branch products.');
+            setProductsLoadError(err.message || t('err.loadProducts'));
             setBranchProductOptions([]);
         } finally {
             setProductsLoading(false);
         }
-    }, [effectiveBranchId, selectedSupplier, isLocalSupplier]);
+    }, [effectiveBranchId, selectedSupplier, isLocalSupplier, t]);
 
     useEffect(() => {
         load();
@@ -601,19 +607,19 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 if (supplierId) {
                     const key = `affiliated:${supplierId}`;
                     setSelectedSupplierKey(key);
-                    setSupplierSearchDraft(supplierName || 'Supplier');
+                    setSupplierSearchDraft(supplierName || t('fallback.supplier'));
                 }
                 setSelectedInvoiceId(prefillId);
                 setSelectedInvoiceKind('affiliated');
                 setInvoiceSearchDraft(
-                    `${pickPurchaseInvoiceNo(invoice)} · ${supplierName || 'Supplier'}`,
+                    `${pickPurchaseInvoiceNo(invoice)} · ${supplierName || t('fallback.supplier')}`,
                 );
             })
             .catch(() => undefined);
         return () => {
             active = false;
         };
-    }, [formOpen, location.state?.prefillInvoiceId, selectedSupplierKey]);
+    }, [formOpen, location.state?.prefillInvoiceId, selectedSupplierKey, t]);
 
     useEffect(() => {
         if (!formOpen) return;
@@ -717,7 +723,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 }
             })
             .catch((err) => {
-                if (active) setFormError(err.message || 'Failed to load purchase invoice.');
+                if (active) setFormError(err.message || t('err.loadInvoice'));
             })
             .finally(() => {
                 if (active) setInvoiceLoading(false);
@@ -725,7 +731,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         return () => {
             active = false;
         };
-    }, [formOpen, selectedInvoiceId, selectedInvoiceKind, referenceAuto]);
+    }, [formOpen, selectedInvoiceId, selectedInvoiceKind, referenceAuto, t]);
 
     const filteredRows = useMemo(() => {
         const q = listSearch.trim().toLowerCase();
@@ -789,11 +795,11 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 label: s.name,
                 subtitle:
                     s.__supplierType === 'local'
-                        ? 'Non-affiliated supplier'
-                        : 'Affiliated supplier',
+                        ? t('supplier.subtitleLocal')
+                        : t('supplier.subtitleAffiliated'),
                 searchTokens: [s.name, s.__supplierType === 'local' ? 'non-affiliated' : 'affiliated'],
             })),
-        [suppliers],
+        [suppliers, t],
     );
 
     const piComboboxOptions = useMemo(
@@ -801,8 +807,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
             purchaseInvoices.map((inv) => ({
                 id: String(inv.id),
                 label: pickPurchaseInvoiceNo(inv),
-                subtitle: piComboboxSubtitle(inv),
-                trailing: `SAR ${sarFmt(inv.amount)}`,
+                subtitle: piComboboxSubtitle(inv, t),
+                trailing: money(sarFmt(inv.amount)),
                 searchTokens: [
                     inv.invoiceNo,
                     inv.supplierName,
@@ -811,7 +817,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                     inv.date,
                 ].filter(Boolean),
             })),
-        [purchaseInvoices],
+        [purchaseInvoices, t, money],
     );
 
     const productComboboxOptions = useMemo(
@@ -819,13 +825,13 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
             branchProductOptions.map((opt) => ({
                 id: opt.id,
                 label: opt.name,
-                subtitle: opt.sku ? `SKU ${opt.sku}` : undefined,
-                trailing: opt.priceExcl > 0 ? `SAR ${sarFmt(opt.priceExcl)}` : undefined,
+                subtitle: opt.sku ? t('product.sku', { sku: opt.sku }) : undefined,
+                trailing: opt.priceExcl > 0 ? money(sarFmt(opt.priceExcl)) : undefined,
                 unitPrice: opt.priceExcl,
                 productOption: opt,
                 searchTokens: [opt.name, opt.sku].filter(Boolean),
             })),
-        [branchProductOptions],
+        [branchProductOptions, t, money],
     );
 
     const resetFormFields = () => {
@@ -875,7 +881,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         setSelectedInvoiceId(String(opt.id));
         setSelectedInvoiceKind(inv?.invoiceKind || 'affiliated');
         setInvoiceSearchDraft(
-            inv ? piSelectedDisplay(inv) : String(opt.label || opt.id || '').trim(),
+            inv ? piSelectedDisplay(inv, t) : String(opt.label || opt.id || '').trim(),
         );
         setManualLines([createEmptyManualLine()]);
         if (inv?.supplierId) {
@@ -1037,11 +1043,11 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
     const handleSubmit = async (event) => {
         event?.preventDefault?.();
         if (!selectedSupplier) {
-            setFormError('Select a supplier.');
+            setFormError(t('err.selectSupplier'));
             return;
         }
         if (!effectiveBranchId) {
-            setFormError('Select a branch from the sidebar before creating a debit note.');
+            setFormError(t('err.selectBranch'));
             return;
         }
 
@@ -1072,9 +1078,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
 
         if (!lines.length) {
             setFormError(
-                selectedInvoiceId
-                    ? 'Enter at least one return quantity.'
-                    : 'Add at least one product line with quantity.',
+                selectedInvoiceId ? t('err.needReturnQty') : t('err.needProductLine'),
             );
             return;
         }
@@ -1085,9 +1089,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 const typedQty = Number(lineQty[String(item.id)] || 0);
                 if (!(typedQty > 0)) continue;
                 if (typedQty > basis.qty + 1e-9) {
-                    const label = item.itemName || item.productName || 'line';
+                    const label = item.itemName || item.productName || t('fallback.line');
                     setFormError(
-                        `Return qty for "${label}" exceeds invoice qty (max ${basis.qty} ${basis.uom}).`,
+                        t('err.qtyExceeds', { label, qty: basis.qty, uom: basis.uom }),
                     );
                     return;
                 }
@@ -1117,14 +1121,14 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
             const res = await createAffiliatedPurchaseReturn(payload);
             setSuccess(
                 isLocalSupplier
-                    ? `Debit note completed: ${res?.purchaseReturnNo || ''}. Stock and payables updated immediately.`
-                    : `Debit note created: ${res?.purchaseReturnNo || ''}. Sent to supplier for approval.`,
+                    ? t('success.local', { no: res?.purchaseReturnNo || '' })
+                    : t('success.affiliated', { no: res?.purchaseReturnNo || '' }),
             );
             setFormOpen(false);
             resetFormFields();
             await load();
         } catch (err) {
-            setFormError(err.message || 'Failed to create debit note.');
+            setFormError(err.message || t('err.create'));
         } finally {
             setSaving(false);
         }
@@ -1158,33 +1162,33 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 <>
                     <header className="mgr-si-header">
                         <div className="mgr-si-header-top">
-                            <div className="mgr-si-breadcrumb">Purchases › Debit Notes</div>
+                            <div className="mgr-si-breadcrumb">{t('page.breadcrumb')}</div>
                             <div className="mgr-si-toolbar-actions">
                                 <button type="button" className="mgr-si-btn-new" onClick={openForm}>
-                                    <Plus size={16} /> New Debit Note
+                                    <Plus size={16} /> {t('btn.new')}
                                 </button>
                             </div>
                         </div>
-                        <h2 className="mgr-si-title">Debit Notes</h2>
+                        <h2 className="mgr-si-title">{t('page.title')}</h2>
                         <p className="mgr-si-subtitle">
-                            Purchase returns against affiliated supplier invoices. Each debit note is
-                            sent to the supplier as a <strong>sales return</strong> for approval or QR
-                            confirmation before stock updates on both sides.
+                            {t('page.subtitle.before')}
+                            <strong>{t('page.subtitle.strong')}</strong>
+                            {t('page.subtitle.after')}
                         </p>
                     </header>
 
                     <div className="mgr-si-toolbar">
                         <div className="mgr-si-filter-bar">
-                            <span className="mgr-si-filter-label">Status</span>
+                            <span className="mgr-si-filter-label">{t('filter.status')}</span>
                             <select
                                 className="mgr-si-filter-select"
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
-                                aria-label="Filter by status"
+                                aria-label={t('filter.ariaStatus')}
                             >
-                                <option value="all">All</option>
-                                <option value="pending">Pending</option>
-                                <option value="approved">Approved</option>
+                                <option value="all">{t('filter.all')}</option>
+                                <option value="pending">{t('filter.pending')}</option>
+                                <option value="approved">{t('filter.approved')}</option>
                             </select>
                         </div>
                         <div className="mgr-si-search-wrap">
@@ -1193,14 +1197,14 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 <input
                                     type="search"
                                     className="mgr-si-search-input"
-                                    placeholder="Search debit note #, supplier, invoice…"
+                                    placeholder={t('search.placeholder')}
                                     value={listSearch}
                                     onChange={(e) => setListSearch(e.target.value)}
-                                    aria-label="Search debit notes"
+                                    aria-label={t('search.aria')}
                                 />
                             </div>
                             <button type="button" className="mgr-si-search-btn">
-                                Search
+                                {t('btn.search')}
                             </button>
                         </div>
                     </div>
@@ -1232,12 +1236,12 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 <table className="mgr-si-table">
                                     <thead>
                                         <tr className="table-header-row">
-                                            <th className="table-th">Date</th>
-                                            <th className="table-th">Debit note #</th>
-                                            <th className="table-th">Supplier</th>
-                                            <th className="table-th">Description</th>
-                                            <th className="table-th">Amount</th>
-                                            <th className="table-th">Status</th>
+                                            <th className="table-th">{t('th.date')}</th>
+                                            <th className="table-th">{t('th.debitNote')}</th>
+                                            <th className="table-th">{t('th.supplier')}</th>
+                                            <th className="table-th">{t('th.description')}</th>
+                                            <th className="table-th">{t('th.amount')}</th>
+                                            <th className="table-th">{t('th.status')}</th>
                                             <th className="table-th" style={{ width: 72 }} />
                                         </tr>
                                     </thead>
@@ -1254,7 +1258,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         }}
                                                     />
                                                     <div style={{ fontWeight: 700, marginBottom: 8 }}>
-                                                        No debit notes yet
+                                                        {t('empty.title')}
                                                     </div>
                                                     <p
                                                         style={{
@@ -1263,9 +1267,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                             fontSize: '0.875rem',
                                                         }}
                                                     >
-                                                        Create a debit note from an affiliated purchase
-                                                        invoice — the linked supplier receives it as a
-                                                        sales return for approval.
+                                                        {t('empty.text')}
                                                     </p>
                                                     <button
                                                         type="button"
@@ -1273,13 +1275,13 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         style={{ marginTop: 16 }}
                                                         onClick={openForm}
                                                     >
-                                                        <Plus size={16} /> New Debit Note
+                                                        <Plus size={16} /> {t('btn.new')}
                                                     </button>
                                                 </td>
                                             </tr>
                                         ) : (
                                             filteredRows.map((row) => {
-                                                const badge = returnStatusBadge(row);
+                                                const badge = returnStatusBadge(row, t);
                                                 return (
                                                     <tr key={row.id} className="table-row">
                                                         <td className="table-cell">
@@ -1292,15 +1294,15 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                             {row.returnNumber}
                                                         </td>
                                                         <td className="table-cell">
-                                                            {row.supplierName || '—'}
+                                                            {row.supplierName || t('emdash')}
                                                         </td>
                                                         <td className="table-cell">
                                                             {row.description ||
                                                                 row.sourcePurchaseInvoiceNumber ||
-                                                                'Purchase Return'}
+                                                                t('fallback.purchaseReturn')}
                                                         </td>
                                                         <td className="table-cell mgr-si-cell-amount">
-                                                            SAR {sarFmt(row.grandTotal)}
+                                                            {money(sarFmt(row.grandTotal))}
                                                         </td>
                                                         <td className="table-cell">
                                                             <span className={badge.cls}>{badge.label}</span>
@@ -1311,7 +1313,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                 className="btn-portal-outline"
                                                                 style={{ padding: '6px 10px' }}
                                                                 onClick={() => handleViewReturn(row)}
-                                                                title="View debit note"
+                                                                title={t('view.title')}
                                                             >
                                                                 <Eye size={15} />
                                                             </button>
@@ -1329,7 +1331,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     className="table-cell mgr-si-cell-amount"
                                                     style={{ fontWeight: 700 }}
                                                 >
-                                                    SAR {sarFmt(listTotal)}
+                                                    {money(sarFmt(listTotal))}
                                                 </td>
                                                 <td colSpan={2} />
                                             </tr>
@@ -1347,16 +1349,17 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                     title={
                         <div className="pi-modal-title">
                             <span className="pi-breadcrumb">
-                                Debit Notes › <span className="pi-b-active">New</span>
+                                {t('form.breadcrumb')}
+                                <span className="pi-b-active">{t('form.breadcrumbNew')}</span>
                             </span>
                             <div className="pi-title-main">
                                 <RotateCcw size={24} />
-                                <span>Debit Note</span>
+                                <span>{t('form.title')}</span>
                             </div>
                         </div>
                     }
                     onBack={closeForm}
-                    backLabel="Back to list"
+                    backLabel={t('btn.back')}
                     bodyClassName="supplier-affiliated-return-form-body"
                     footer={
                         <div className="pi-modal-footer">
@@ -1367,7 +1370,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                     onClick={closeForm}
                                     disabled={saving}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                             </div>
                             <div className="pi-footer-right">
@@ -1376,9 +1379,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 ) : null}
                                 {estimatedTotal > 0 ? (
                                     <div className="dn-footer-total" aria-live="polite">
-                                        <span className="dn-footer-total__label">Total</span>
+                                        <span className="dn-footer-total__label">{t('form.total')}</span>
                                         <span className="dn-footer-total__value">
-                                            SAR {sarFmt(estimatedTotal)}
+                                            {money(sarFmt(estimatedTotal))}
                                         </span>
                                     </div>
                                 ) : null}
@@ -1401,10 +1404,10 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 className="supplier-sales-last-sale-spinner"
                                                 aria-hidden
                                             />
-                                            Creating…
+                                            {t('btn.creating')}
                                         </span>
                                     ) : (
-                                        'Create debit note'
+                                        t('btn.create')
                                     )}
                                 </button>
                             </div>
@@ -1430,23 +1433,25 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                     <div className="dn-callout__body">
                                         <p className="dn-callout__title">
                                             {isLocalSupplier
-                                                ? 'Instant return — no supplier approval'
-                                                : 'Supplier approval required'}
+                                                ? t('callout.instant.title')
+                                                : t('callout.approval.title')}
                                         </p>
                                         <p className="dn-callout__text">
                                             {isLocalSupplier ? (
                                                 <>
-                                                    Stock and accounts payable update{' '}
-                                                    <strong>immediately</strong> when you create this
-                                                    debit note. Nothing is sent to a supplier portal.
+                                                    {t('callout.instant.before')}
+                                                    <strong>{t('callout.instant.strong')}</strong>
+                                                    {t('callout.instant.after')}
                                                 </>
                                             ) : (
                                                 <>
-                                                    This debit note is sent to the supplier as a{' '}
-                                                    <strong>sales return</strong>. Stock and GL update on
-                                                    both sides only after the supplier{' '}
-                                                    <strong>approves</strong> or{' '}
-                                                    <strong>scans the QR once</strong> with their password.
+                                                    {t('callout.approval.before')}
+                                                    <strong>{t('callout.approval.strong1')}</strong>
+                                                    {t('callout.approval.mid')}
+                                                    <strong>{t('callout.approval.strong2')}</strong>
+                                                    {t('callout.approval.or')}
+                                                    <strong>{t('callout.approval.strong3')}</strong>
+                                                    {t('callout.approval.after')}
                                                 </>
                                             )}
                                         </p>
@@ -1460,13 +1465,13 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 <Calendar size={18} />
                                             </span>
                                             <div>
-                                                <h3 className="dn-panel__title">Document details</h3>
-                                                <p className="dn-panel__subtitle">Date, reference & description</p>
+                                                <h3 className="dn-panel__title">{t('panel.doc.title')}</h3>
+                                                <p className="dn-panel__subtitle">{t('panel.doc.subtitle')}</p>
                                             </div>
                                         </header>
                                         <div className="dn-doc-grid">
                                             <div className="dn-field">
-                                                <label htmlFor="dn-issue-date">Issue date</label>
+                                                <label htmlFor="dn-issue-date">{t('label.issueDate')}</label>
                                                 <input
                                                     id="dn-issue-date"
                                                     type="date"
@@ -1477,7 +1482,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 />
                                             </div>
                                             <div className="dn-field dn-field--ref">
-                                                <label htmlFor="dn-reference">Reference</label>
+                                                <label htmlFor="dn-reference">{t('label.reference')}</label>
                                                 <input
                                                     id="dn-reference"
                                                     type="text"
@@ -1485,7 +1490,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     value={reference}
                                                     onChange={(e) => setReference(e.target.value)}
                                                     disabled={saving || referenceAuto}
-                                                    placeholder="Auto or custom reference"
+                                                    placeholder={t('ref.placeholder')}
                                                 />
                                                 <label className="dn-switch">
                                                     <input
@@ -1497,14 +1502,14 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     <span className="dn-switch__track" aria-hidden />
                                                     <span className="dn-switch__label">
                                                         <Hash size={14} aria-hidden />
-                                                        Automatic from invoice
+                                                        {t('label.referenceAuto')}
                                                     </span>
                                                 </label>
                                             </div>
                                             <div className="dn-field dn-field--full">
                                                 <label htmlFor="dn-description">
-                                                    Description{' '}
-                                                    <span className="dn-optional">optional</span>
+                                                    {t('label.description')}{' '}
+                                                    <span className="dn-optional">{t('label.optional')}</span>
                                                 </label>
                                                 <input
                                                     id="dn-description"
@@ -1512,7 +1517,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     className="dn-input"
                                                     value={description}
                                                     onChange={(e) => setDescription(e.target.value)}
-                                                    placeholder="e.g. Purchase Return, damaged goods…"
+                                                    placeholder={t('desc.placeholder')}
                                                     disabled={saving}
                                                 />
                                             </div>
@@ -1525,16 +1530,16 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 <Building2 size={18} />
                                             </span>
                                             <div>
-                                                <h3 className="dn-panel__title">Supplier & invoice</h3>
+                                                <h3 className="dn-panel__title">{t('panel.supplier.title')}</h3>
                                                 <p className="dn-panel__subtitle">
-                                                    Pick a supplier, then optionally link a purchase invoice
+                                                    {t('panel.supplier.subtitle')}
                                                 </p>
                                             </div>
                                         </header>
                                         <div className="dn-supplier-grid">
                                             <div className="dn-field">
                                                 <label>
-                                                    Supplier{' '}
+                                                    {t('label.supplier')}{' '}
                                                     <span className="dn-required">*</span>
                                                 </label>
                                                 <SearchableEntityCombobox
@@ -1543,15 +1548,15 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     options={supplierComboboxOptions}
                                                     value={selectedSupplierKey}
                                                     displayText={supplierSearchDraft}
-                                                    entityLabel="supplier"
+                                                    entityLabel={t('entity.supplier')}
                                                     loading={suppliersLoading}
-                                                    placeholder="Type to search supplier…"
+                                                    placeholder={t('supplier.placeholder')}
                                                     emptyHint={
                                                         suppliersLoading
-                                                            ? 'Loading suppliers…'
+                                                            ? t('supplier.loading')
                                                             : suppliers.length === 0
-                                                              ? 'No suppliers found'
-                                                              : 'No matches — try another name'
+                                                              ? t('supplier.empty')
+                                                              : t('supplier.noMatch')
                                                     }
                                                     disabled={saving}
                                                     onDisplayTextChange={(text) => {
@@ -1578,8 +1583,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         className={`dn-supplier-badge ${isLocalSupplier ? 'dn-supplier-badge--local' : 'dn-supplier-badge--affiliated'}`}
                                                     >
                                                         {isLocalSupplier
-                                                            ? 'Non-affiliated'
-                                                            : 'Affiliated'}
+                                                            ? t('supplier.badgeLocal')
+                                                            : t('supplier.badgeAffiliated')}
                                                     </span>
                                                 ) : null}
                                                 {suppliersError ? (
@@ -1590,8 +1595,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                             </div>
                                             <div className="dn-field">
                                                 <label>
-                                                    Purchase invoice{' '}
-                                                    <span className="dn-optional">optional</span>
+                                                    {t('label.purchaseInvoice')}{' '}
+                                                    <span className="dn-optional">{t('label.optional')}</span>
                                                 </label>
                                                 <SearchableEntityCombobox
                                                     className="dn-combobox"
@@ -1599,15 +1604,15 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     options={piComboboxOptions}
                                                     value={selectedInvoiceId}
                                                     displayText={invoiceSearchDraft}
-                                                    entityLabel="invoice"
+                                                    entityLabel={t('entity.invoice')}
                                                     loading={invoicesLoading}
-                                                    placeholder="Type to search purchase invoice…"
+                                                    placeholder={t('invoice.placeholder')}
                                                     emptyHint={
                                                         invoicesLoading
-                                                            ? 'Loading invoices…'
+                                                            ? t('invoice.loading')
                                                             : purchaseInvoices.length === 0
-                                                              ? 'No purchase invoices found'
-                                                              : 'No matches — try invoice # or supplier'
+                                                              ? t('invoice.empty')
+                                                              : t('invoice.noMatch')
                                                     }
                                                     disabled={saving}
                                                     onDisplayTextChange={(text) => {
@@ -1618,7 +1623,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         }
                                                         if (selectedInvoiceId && selectedInvoiceMeta) {
                                                             const label =
-                                                                piSelectedDisplay(selectedInvoiceMeta);
+                                                                piSelectedDisplay(selectedInvoiceMeta, t);
                                                             if (text.trim() !== label.trim()) {
                                                                 clearInvoiceSelection();
                                                             }
@@ -1629,13 +1634,11 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 {selectedInvoiceId ? (
                                                     <p className="dn-field-hint">
                                                         <Link2 size={13} aria-hidden />
-                                                        Lines prefilled from invoice — adjust return
-                                                        quantities below
+                                                        {t('invoice.prefilled')}
                                                     </p>
                                                 ) : (
                                                     <p className="dn-field-hint">
-                                                        Pick any invoice to prefill lines, or skip and add
-                                                        products manually
+                                                        {t('invoice.hint')}
                                                     </p>
                                                 )}
                                             </div>
@@ -1648,17 +1651,18 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 <Package size={18} />
                                             </span>
                                             <div className="dn-panel__head-main">
-                                                <h3 className="dn-panel__title">Return lines</h3>
+                                                <h3 className="dn-panel__title">{t('panel.lines.title')}</h3>
                                                 <p className="dn-panel__subtitle">
                                                     {selectedInvoiceId
-                                                        ? 'Enter quantities to return from the linked invoice'
-                                                        : 'Add products and quantities to return'}
+                                                        ? t('panel.lines.subtitleInvoice')
+                                                        : t('panel.lines.subtitleManual')}
                                                 </p>
                                             </div>
                                             {filledLineCount > 0 ? (
                                                 <span className="dn-lines-badge">
-                                                    {filledLineCount} line
-                                                    {filledLineCount === 1 ? '' : 's'} with qty
+                                                    {filledLineCount === 1
+                                                        ? t('lines.badgeOne', { count: filledLineCount })
+                                                        : t('lines.badgeMany', { count: filledLineCount })}
                                                 </span>
                                             ) : null}
                                         </header>
@@ -1671,27 +1675,27 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                             size={28}
                                                             className="supplier-sales-last-sale-spinner"
                                                         />
-                                                        <p>Loading invoice lines…</p>
+                                                        <p>{t('lines.loading')}</p>
                                                     </div>
                                                 ) : (
                                                     <div className="dn-lines-scroll">
                                                         <table className="dn-lines-table">
                                                             <thead>
                                                                 <tr>
-                                                                    <th className="dn-th-item">Item</th>
-                                                                    <th className="dn-th-inv-qty">Inv. qty</th>
-                                                                    <th className="dn-th-uom">UOM</th>
-                                                                    <th className="dn-th-return-qty">Return qty</th>
-                                                                    <th className="dn-th-price">Unit price</th>
-                                                                    <th className="dn-th-total">Total</th>
-                                                                    <th className="dn-th-reason">Reason</th>
+                                                                    <th className="dn-th-item">{t('th.item')}</th>
+                                                                    <th className="dn-th-inv-qty">{t('th.invQty')}</th>
+                                                                    <th className="dn-th-uom">{t('th.uom')}</th>
+                                                                    <th className="dn-th-return-qty">{t('th.returnQty')}</th>
+                                                                    <th className="dn-th-price">{t('th.unitPrice')}</th>
+                                                                    <th className="dn-th-total">{t('th.total')}</th>
+                                                                    <th className="dn-th-reason">{t('th.reason')}</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
                                                                 {(invoiceDetail?.items || []).map(
                                                                     (item, idx) => {
                                                                         const basis = invoiceLineReturnBasis(item);
-                                                                        const invQtyDisplay = formatInvoiceInvQtyDisplay(item);
+                                                                        const invQtyDisplay = formatInvoiceInvQtyDisplay(item, t);
                                                                         const typedQty = Number(
                                                                             lineQty[String(item.id)] || 0,
                                                                         );
@@ -1773,11 +1777,14 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                             }
                                                                                             placeholder={
                                                                                                 maxReturnQty != null
-                                                                                                    ? `Max ${maxReturnQty}`
+                                                                                                    ? t('qty.max', { n: maxReturnQty })
                                                                                                     : undefined
                                                                                             }
                                                                                             disabled={saving}
-                                                                                            aria-label={`Return qty (${basis.uom}) for ${item.itemName || item.productName}`}
+                                                                                            aria-label={t('qty.ariaNamed', {
+                                                                                                uom: basis.uom,
+                                                                                                name: item.itemName || item.productName,
+                                                                                            })}
                                                                                         />
                                                                                         <span className="dn-qty-uom">
                                                                                             {basis.uom}
@@ -1790,7 +1797,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                 <td className="dn-td-num dn-td-total">
                                                                                     {hasQty
                                                                                         ? sarFmt(lineTotal)
-                                                                                        : '—'}
+                                                                                        : t('emdash')}
                                                                                 </td>
                                                                                 <td className="dn-td-reason">
                                                                                     <input
@@ -1816,7 +1823,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                                 }),
                                                                                             )
                                                                                         }
-                                                                                        placeholder="Optional reason"
+                                                                                        placeholder={t('reason.placeholder')}
                                                                                         disabled={saving}
                                                                                     />
                                                                                 </td>
@@ -1831,10 +1838,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                             ) : !selectedSupplier ? (
                                                 <div className="dn-empty">
                                                     <Building2 size={36} strokeWidth={1.25} />
-                                                    <p className="dn-empty__title">Select a supplier</p>
+                                                    <p className="dn-empty__title">{t('lines.selectSupplierTitle')}</p>
                                                     <p className="dn-empty__text">
-                                                        Choose a supplier above, then link an invoice or
-                                                        add return lines manually.
+                                                        {t('lines.selectSupplierText')}
                                                     </p>
                                                 </div>
                                             ) : (
@@ -1843,13 +1849,13 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         <table className="dn-lines-table">
                                                             <thead>
                                                                 <tr>
-                                                                    <th className="dn-th-item">Product</th>
-                                                                    <th className="dn-th-uom">UOM</th>
-                                                                    <th className="dn-th-return-qty">Return qty</th>
-                                                                    <th className="dn-th-price">Unit price</th>
-                                                                    <th className="dn-th-total">Total</th>
-                                                                    <th className="dn-th-reason">Reason</th>
-                                                                    <th className="dn-th-action" aria-label="Remove" />
+                                                                    <th className="dn-th-item">{t('th.product')}</th>
+                                                                    <th className="dn-th-uom">{t('th.uom')}</th>
+                                                                    <th className="dn-th-return-qty">{t('th.returnQty')}</th>
+                                                                    <th className="dn-th-price">{t('th.unitPrice')}</th>
+                                                                    <th className="dn-th-total">{t('th.total')}</th>
+                                                                    <th className="dn-th-reason">{t('th.reason')}</th>
+                                                                    <th className="dn-th-action" aria-label={t('th.remove')} />
                                                                 </tr>
                                                             </thead>
                                                             <tbody>
@@ -1892,23 +1898,23 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                     displayText={
                                                                                         line.productSearch
                                                                                     }
-                                                                                    entityLabel="product"
+                                                                                    entityLabel={t('entity.product')}
                                                                                     loading={
                                                                                         productsLoading
                                                                                     }
                                                                                     placeholder={
                                                                                         effectiveBranchId
-                                                                                            ? 'Search product…'
-                                                                                            : 'Select branch first'
+                                                                                            ? t('product.placeholder')
+                                                                                            : t('product.selectBranch')
                                                                                     }
                                                                                     emptyHint={
                                                                                         productsLoading
-                                                                                            ? 'Loading products…'
+                                                                                            ? t('product.loading')
                                                                                             : productsLoadError ||
                                                                                               (productComboboxOptions.length ===
                                                                                               0
-                                                                                                  ? 'No products in branch catalog'
-                                                                                                  : 'No matches')
+                                                                                                  ? t('product.empty')
+                                                                                                  : t('product.noMatch'))
                                                                                     }
                                                                                     disabled={
                                                                                         saving ||
@@ -1991,7 +1997,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                     </>
                                                                                 ) : (
                                                                                     <span className="dn-td-muted">
-                                                                                        {line.uom || '—'}
+                                                                                        {line.uom || t('emdash')}
                                                                                     </span>
                                                                                 )}
                                                                                 </div>
@@ -2014,10 +2020,12 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                             )
                                                                                         }
                                                                                         disabled={saving}
-                                                                                        aria-label={`Return qty (${line.uom || 'unit'})`}
+                                                                                        aria-label={t('qty.ariaUnit', {
+                                                                                            uom: line.uom || t('unit'),
+                                                                                        })}
                                                                                     />
                                                                                     <span className="dn-qty-uom">
-                                                                                        {line.uom || 'unit'}
+                                                                                        {line.uom || t('unit')}
                                                                                     </span>
                                                                                 </div>
                                                                             </td>
@@ -2045,14 +2053,14 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                         disabled={saving}
                                                                                     />
                                                                                     <span className="dn-currency">
-                                                                                        SAR
+                                                                                        {t('currency.sar')}
                                                                                     </span>
                                                                                 </div>
                                                                             </td>
                                                                             <td className="dn-td-num dn-td-total">
                                                                                 {hasQty
                                                                                     ? sarFmt(lineTotal)
-                                                                                    : '—'}
+                                                                                    : t('emdash')}
                                                                             </td>
                                                                             <td className="dn-td-reason">
                                                                                 <input
@@ -2069,7 +2077,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                             },
                                                                                         )
                                                                                     }
-                                                                                    placeholder="Optional"
+                                                                                    placeholder={t('reason.optional')}
                                                                                     disabled={saving}
                                                                                 />
                                                                             </td>
@@ -2083,7 +2091,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                         )
                                                                                     }
                                                                                     disabled={saving}
-                                                                                    aria-label="Remove line"
+                                                                                    aria-label={t('remove.line')}
                                                                                 >
                                                                                     <Trash2 size={16} />
                                                                                 </button>
@@ -2102,7 +2110,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                             disabled={saving || !selectedSupplier}
                                                         >
                                                             <Plus size={16} />
-                                                            Add another line
+                                                            {t('btn.addLine')}
                                                         </button>
                                                     </div>
                                                 </>
@@ -2110,9 +2118,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                         </div>
 
                                         <div className="dn-summary">
-                                            <span className="dn-summary__label">Estimated return total</span>
+                                            <span className="dn-summary__label">{t('lines.summary')}</span>
                                             <span className="dn-summary__amount">
-                                                SAR {sarFmt(estimatedTotal)}
+                                                {money(sarFmt(estimatedTotal))}
                                             </span>
                                         </div>
                                     </section>
@@ -2128,19 +2136,19 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                     title={
                         <div className="pi-modal-title">
                             <span className="pi-breadcrumb">
-                                Debit Notes ›{' '}
+                                {t('form.breadcrumb')}
                                 <span className="pi-b-active">
-                                    {viewReturnDetail?.returnNumber || 'View'}
+                                    {viewReturnDetail?.returnNumber || t('fallback.view')}
                                 </span>
                             </span>
                             <div className="pi-title-main">
                                 <RotateCcw size={24} />
-                                <span>Debit Note</span>
+                                <span>{t('form.title')}</span>
                             </div>
                         </div>
                     }
                     onBack={closeView}
-                    backLabel="Back to list"
+                    backLabel={t('btn.back')}
                     bodyClassName="supplier-affiliated-return-form-body"
                 >
                     {viewReturnLoading ? (
@@ -2153,7 +2161,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                             compact
                         />
                     ) : (
-                        <p style={{ color: '#64748B' }}>Could not load debit note.</p>
+                        <p style={{ color: '#64748B' }}>{t('view.loadError')}</p>
                     )}
                 </InlineFormScreen>
             ) : null}

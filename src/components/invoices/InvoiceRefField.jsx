@@ -6,6 +6,8 @@ import React, { useCallback, useState } from 'react';
 export default function InvoiceRefField({
     label = 'Ref # (Optional)',
     placeholder = 'Vendor inv #',
+    autoGenerateLabel = 'Auto-generate',
+    generatingLabel = 'Generating…',
     value,
     onChange,
     autoGenerate = false,
@@ -80,7 +82,7 @@ export default function InvoiceRefField({
                             disabled={loading}
                             onChange={(e) => void handleAutoToggle(e.target.checked)}
                         />
-                        {loading ? 'Generating…' : 'Auto-generate'}
+                        {loading ? generatingLabel : autoGenerateLabel}
                     </label>
                 ) : null}
             </div>

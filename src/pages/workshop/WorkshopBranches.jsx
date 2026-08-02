@@ -5,10 +5,11 @@ import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { wbrT } from '../../utils/workshopBranchesI18n';
 
 const BRANCH_TABS = [
-    { id: 'branches', label: 'Branch Portals',     permission: 'workshop.branches.branch-portals.view' },
-    { id: 'access',   label: 'Access Permissions', permission: 'workshop.branches.access-permissions.view' },
+    { id: 'branches', labelKey: 'tab.branches', permission: 'workshop.branches.branch-portals.view' },
+    { id: 'access',   labelKey: 'tab.access',   permission: 'workshop.branches.access-permissions.view' },
 ];
 import {
     loadWorkshopEmployeesCombined,
@@ -20,7 +21,7 @@ import {
     MOCK_ROLE_PERMISSIONS,
 } from './constants';
 
-function BranchFormModal({ branch, onClose, onSave, isSaving }) {
+function BranchFormModal({ branch, onClose, onSave, isSaving, t }) {
     // Prefer BE-canonical field names (branchCode/vatId/crNumber/contactPerson)
     // and fall back to the legacy snake_case keys for any older callers.
     const [form, setForm] = useState({
@@ -40,54 +41,56 @@ function BranchFormModal({ branch, onClose, onSave, isSaving }) {
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     const handleSave = () => { onSave?.({ ...form, id: branch?.id }); };
     return (
-        <Modal title={branch?.id ? 'Edit Branch' : 'New Branch Portal'} onClose={isSaving ? () => {} : onClose} width="560px"
+        <Modal title={branch?.id ? t('form.editTitle') : t('form.newTitle')} onClose={isSaving ? () => {} : onClose} width="560px"
             footer={<>
-                <button className="btn-portal-outline" onClick={onClose} disabled={isSaving}>Cancel</button>
+                <button className="btn-portal-outline" onClick={onClose} disabled={isSaving}>{t('btn.cancel')}</button>
                 <button className="btn-portal" disabled={!form.name.trim() || isSaving} onClick={handleSave}>
-                    {isSaving ? (branch?.id ? 'Updating...' : 'Creating...') : (branch?.id ? 'Update Branch' : 'Create Branch')}
+                    {isSaving
+                        ? (branch?.id ? t('btn.updating') : t('btn.creating'))
+                        : (branch?.id ? t('btn.updateBranch') : t('btn.createBranch'))}
                 </button>
             </>}>
             <div style={{ fontSize: '0.875rem' }}>
                 <p style={{ padding: '12px 14px', background: '#EFF6FF', borderRadius: 10, color: '#1E40AF', margin: '0 0 16px', fontSize: '0.75rem' }}>
-                    Each branch gets its own <strong>Branch Portal</strong> and <strong>POS</strong>. ZATCA seller identity (VAT, CR, address, EGS) is stored on the branch.
+                    {t('form.intro.before')}<strong>{t('form.intro.portal')}</strong>{t('form.intro.mid')}<strong>{t('form.intro.pos')}</strong>{t('form.intro.after')}
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                     <div style={{ gridColumn: '1/-1' }}>
-                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch Name *</label>
-                        <input type="text" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Riyadh Main Branch" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/>
+                        <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.branchName')}</label>
+                        <input type="text" value={form.name} onChange={e => set('name', e.target.value)} placeholder={t('form.branchNamePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/>
                     </div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch Code</label><input type="text" value={form.code} onChange={e => set('code', e.target.value)} placeholder="e.g. RYD-001" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Status</label><select value={form.status} onChange={e => set('status', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Phone</label><input type="text" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+966..." style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Email</label><input type="email" value={form.email} onChange={e => set('email', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Latitude</label><input type="number" value={form.gpsLat} onChange={e => set('gpsLat', e.target.value)} placeholder="e.g. 24.7136" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>GPS Longitude</label><input type="number" value={form.gpsLng} onChange={e => set('gpsLng', e.target.value)} placeholder="e.g. 46.6753" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Contact Person</label><input type="text" value={form.contact_person} onChange={e => set('contact_person', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.branchCode')}</label><input type="text" value={form.code} onChange={e => set('code', e.target.value)} placeholder={t('form.branchCodePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.status')}</label><select value={form.status} onChange={e => set('status', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}><option value="active">{t('status.active')}</option><option value="inactive">{t('status.inactive')}</option></select></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.phone')}</label><input type="text" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder={t('form.phonePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.email')}</label><input type="email" value={form.email} onChange={e => set('email', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.gpsLat')}</label><input type="number" value={form.gpsLat} onChange={e => set('gpsLat', e.target.value)} placeholder={t('form.gpsLatPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.gpsLng')}</label><input type="number" value={form.gpsLng} onChange={e => set('gpsLng', e.target.value)} placeholder={t('form.gpsLngPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.contactPerson')}</label><input type="text" value={form.contact_person} onChange={e => set('contact_person', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                 </div>
 
                 <div style={{ marginTop: 18, padding: 14, borderRadius: 10, border: '1px solid #BFDBFE', background: '#F8FAFC' }}>
                     <p style={{ margin: '0 0 12px', fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#1E40AF' }}>
-                        ZATCA / tax identity
+                        {t('form.zatcaSection')}
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                         <div>
-                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>VAT ID *</label>
-                            <input type="text" value={form.vat_id} onChange={e => set('vat_id', e.target.value)} placeholder="15-digit VAT (3…3)" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.vatId')}</label>
+                            <input type="text" value={form.vat_id} onChange={e => set('vat_id', e.target.value)} placeholder={t('form.vatIdPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
                         </div>
                         <div>
-                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>CR Number *</label>
-                            <input type="text" value={form.cr_no} onChange={e => set('cr_no', e.target.value)} placeholder="Commercial registration" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.crNumber')}</label>
+                            <input type="text" value={form.cr_no} onChange={e => set('cr_no', e.target.value)} placeholder={t('form.crNumberPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
                         </div>
                         <div style={{ gridColumn: '1/-1' }}>
-                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>EGS Serial *</label>
-                            <input type="text" value={form.egs_serial} onChange={e => set('egs_serial', e.target.value)} placeholder="1-Filter|2-EGS|3-device-id" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.egsSerial')}</label>
+                            <input type="text" value={form.egs_serial} onChange={e => set('egs_serial', e.target.value)} placeholder={t('form.egsSerialPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}/>
                             <p style={{ margin: '6px 0 0', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
-                                Device serial for ZATCA CSR. Example: <code>1-Filter|2-EGS|3-branch-01</code>
+                                {t('form.egsHelp.before')}<code>1-Filter|2-EGS|3-branch-01</code>
                             </p>
                         </div>
                         <div style={{ gridColumn: '1/-1' }}>
-                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Address *</label>
-                            <textarea value={form.address} onChange={e => set('address', e.target.value)} rows={2} placeholder="Street, district, city" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical', background: '#fff' }}/>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.address')}</label>
+                            <textarea value={form.address} onChange={e => set('address', e.target.value)} rows={2} placeholder={t('form.addressPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', resize: 'vertical', background: '#fff' }}/>
                         </div>
                     </div>
                 </div>
@@ -108,7 +111,7 @@ function branchOperationalActive(branch) {
     return branch?.isActive !== false;
 }
 
-function AccessPermissionFormModal({ branches, onClose, onSave }) {
+function AccessPermissionFormModal({ branches, onClose, onSave, t }) {
     const [form, setForm] = useState({ branch_id: '', admin_name: '', admin_email: '', permissions: [] });
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     const selectableBranches = useMemo(
@@ -125,30 +128,30 @@ function AccessPermissionFormModal({ branches, onClose, onSave }) {
         onClose();
     };
     return (
-        <Modal title="Grant Branch Admin Access" onClose={onClose} width="420px"
+        <Modal title={t('access.title')} onClose={onClose} width="420px"
             footer={<>
-                <button className="btn-portal-outline" onClick={onClose}>Cancel</button>
-                <button className="btn-portal" disabled={!form.branch_id || form.permissions.length === 0} onClick={handleSave}>Grant Access</button>
+                <button className="btn-portal-outline" onClick={onClose}>{t('btn.cancel')}</button>
+                <button className="btn-portal" disabled={!form.branch_id || form.permissions.length === 0} onClick={handleSave}>{t('btn.grantAccess')}</button>
             </>}>
             <div style={{ fontSize: '0.875rem' }}>
                 <div style={{ marginBottom: 14 }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Branch *</label>
+                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('access.branch')}</label>
                     <select value={form.branch_id} onChange={e => set('branch_id', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}>
-                        <option value="">Select branch</option>
+                        <option value="">{t('access.selectBranch')}</option>
                         {selectableBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                     {selectableBranches.length === 0 && (branches || []).length > 0 && (
                         <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#B45309' }}>
-                            No approved branches yet. Super admin must approve a branch before you can assign branch admin access here.
+                            {t('access.noApproved')}
                         </p>
                     )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Admin Name</label><input type="text" value={form.admin_name} onChange={e => set('admin_name', e.target.value)} placeholder="Full name" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Admin Email</label><input type="email" value={form.admin_email} onChange={e => set('admin_email', e.target.value)} placeholder="admin@branch.com" style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('access.adminName')}</label><input type="text" value={form.admin_name} onChange={e => set('admin_name', e.target.value)} placeholder={t('access.adminNamePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('access.adminEmail')}</label><input type="email" value={form.admin_email} onChange={e => set('admin_email', e.target.value)} placeholder={t('access.adminEmailPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                 </div>
                 <div>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 8, fontSize: '0.6875rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>Permitted Sections</label>
+                    <label style={{ display: 'block', fontWeight: 600, marginBottom: 8, fontSize: '0.6875rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-text-muted)' }}>{t('access.permittedSections')}</label>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                         {BRANCH_PERMISSIONS.map(p => {
                             const Icon = p.icon;
@@ -157,7 +160,7 @@ function AccessPermissionFormModal({ branches, onClose, onSave }) {
                                 <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${checked ? '#3B82F6' : 'var(--color-border)'}`, background: checked ? '#EFF6FF' : '#fff', cursor: 'pointer', transition: 'all 0.2s' }}>
                                     <input type="checkbox" checked={checked} onChange={() => togglePerm(p.key)}/>
                                     <Icon size={16} style={{ color: checked ? '#2563EB' : 'var(--color-text-muted)' }}/>
-                                    <span style={{ fontSize: '0.8125rem', fontWeight: checked ? 600 : 500, color: checked ? '#1E40AF' : 'var(--color-text-body)' }}>{p.label}</span>
+                                    <span style={{ fontSize: '0.8125rem', fontWeight: checked ? 600 : 500, color: checked ? '#1E40AF' : 'var(--color-text-body)' }}>{t(`perm.${p.key}`)}</span>
                                 </label>
                             );
                         })}
@@ -168,16 +171,18 @@ function AccessPermissionFormModal({ branches, onClose, onSave }) {
     );
 }
 
-export default function WorkshopBranches({ selectedBranchId = 'all' }) {
+export default function WorkshopBranches({ selectedBranchId = 'all', locale: localeProp }) {
+    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const t = useCallback((key, vars) => wbrT(locale, key, vars), [locale]);
     const { hasPermission } = useAuth();
-    const visibleBranchTabs = BRANCH_TABS.filter((t) => hasPermission(t.permission));
+    const visibleBranchTabs = BRANCH_TABS.filter((tab) => hasPermission(tab.permission));
     const [branches, setBranches] = useState([]);
     const [rolePermissions, setRolePermissions] = useState(MOCK_ROLE_PERMISSIONS);
     const [activeTab, setActiveTab] = useState(() => visibleBranchTabs[0]?.id ?? 'branches');
 
     useEffect(() => {
         if (visibleBranchTabs.length === 0) return;
-        if (!visibleBranchTabs.some((t) => t.id === activeTab)) {
+        if (!visibleBranchTabs.some((tab) => tab.id === activeTab)) {
             setActiveTab(visibleBranchTabs[0].id);
         }
     }, [visibleBranchTabs, activeTab]);
@@ -224,7 +229,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             const response = await apiFetch('/workshop-staff/branches');
             const rawList = unwrapWorkshopBranchesResponse(response);
             if (response?.success === false && rawList.length === 0) {
-                throw new Error(response.message || 'Invalid branches response.');
+                throw new Error(response.message || t('err.invalidResponse'));
             }
             // Mirror the BE-canonical keys onto a few legacy aliases the rest
             // of the page already reads (status, code) so we don't have to
@@ -233,7 +238,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 rawList.map((branch) => ({
                     ...branch,
                     id: branch.id ?? branch._id,
-                    name: branch.name ?? branch.branchName ?? 'Branch',
+                    name: branch.name ?? branch.branchName ?? t('fallback.branch'),
                     status: branch.status || (branch.isActive ? 'active' : 'inactive'),
                     code: branch.branchCode ?? branch.code ?? '',
                     approvalStatus: branch.approvalStatus ?? branch.approval_status ?? null,
@@ -241,11 +246,11 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 })),
             );
         } catch (error) {
-            setLoadError(error.message || 'Failed to load branches.');
+            setLoadError(error.message || t('err.loadFailed'));
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadBranches();
@@ -330,7 +335,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             }
         } catch (error) {
             setBranches(prev);
-            setLoadError(error.message || 'Failed to update branch status.');
+            setLoadError(error.message || t('err.updateStatus'));
         } finally {
             setTogglingBranchId(null);
         }
@@ -338,7 +343,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
 
     const handleBranchSave = async (data) => {
         if (!data.name?.trim()) {
-            setLoadError('Branch name is required.');
+            setLoadError(t('err.nameRequired'));
             return;
         }
 
@@ -364,7 +369,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
             setShowBranchForm(false);
             setEditBranch(null);
         } catch (error) {
-            setLoadError(error.message || (data.id ? 'Failed to update branch.' : 'Failed to create branch.'));
+            setLoadError(error.message || (data.id ? t('err.updateFailed') : t('err.createFailed')));
         } finally {
             setIsSavingBranch(false);
         }
@@ -373,18 +378,27 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
         setRolePermissions(prev => [...prev, {
             id: Date.now(), role_name: `branch_admin_${data.branch_id}`,
             permissions: data.permissions,
-            description: `Branch Admin: ${data.admin_name || '—'} (${data.admin_email || '—'}) — ${data.branchName || '—'}`,
+            description: t('access.desc', {
+                name: data.admin_name || t('emdash'),
+                email: data.admin_email || t('emdash'),
+                branch: data.branchName || t('emdash'),
+            }),
         }]);
+    };
+
+    const permLabel = (key) => {
+        const translated = t(`perm.${key}`);
+        return translated === `perm.${key}` ? key : translated;
     };
 
     return (
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Branches & Access Control</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Manage branch portals and grant Branch Admin permissions
-                        {selectedBranchId && selectedBranchId !== 'all' ? ' · filtered to one branch' : ''}
+                        {t('page.subtitle')}
+                        {selectedBranchId && selectedBranchId !== 'all' ? t('page.subtitleFiltered') : ''}
                     </p>
                 </div>
                 <div className="ws-page-header-actions">
@@ -395,12 +409,12 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                         disabled={isLoading}
                     >
                         <RefreshCw size={15} />
-                        {isLoading ? 'Refreshing...' : 'Refresh'}
+                        {isLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
                     {hasPermission('workshop.branches.access-permissions.edit') && (
                         <button type="button" className="btn-portal-outline" onClick={() => setShowAccessForm(true)}>
                             <Key size={15} />
-                            Grant Access
+                            {t('btn.grantAccess')}
                         </button>
                     )}
                     {hasPermission('workshop.branches.branch-portals.view') && hasPermission('workshop.branches.access-permissions.edit') && (
@@ -411,7 +425,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                             disabled={isSavingBranch}
                         >
                             <Plus size={15} />
-                            {isSavingBranch ? 'Creating...' : 'New Branch'}
+                            {isSavingBranch ? t('btn.creating') : t('btn.newBranch')}
                         </button>
                     )}
                 </div>
@@ -422,13 +436,13 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 </div>
             )}
             <div className="ws-branches-tabs">
-                {visibleBranchTabs.map((t) => (
+                {visibleBranchTabs.map((tab) => (
                     <button
-                        key={t.id}
-                        className={`ws-branches-tab ${activeTab === t.id ? 'active' : ''}`}
-                        onClick={() => setActiveTab(t.id)}
+                        key={tab.id}
+                        className={`ws-branches-tab ${activeTab === tab.id ? 'active' : ''}`}
+                        onClick={() => setActiveTab(tab.id)}
                     >
-                        {t.label}
+                        {t(tab.labelKey)}
                     </button>
                 ))}
             </div>
@@ -439,12 +453,12 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 ) : branches.length === 0 ? (
                     <div className="ws-empty">
                         <Building2 size={48} className="ws-empty-icon"/>
-                        <p className="ws-empty-text" style={{ fontWeight: 600 }}>No branches yet. Create your first branch portal.</p>
+                        <p className="ws-empty-text" style={{ fontWeight: 600 }}>{t('empty.noBranches')}</p>
                     </div>
                 ) : visibleBranches.length === 0 ? (
                     <div className="ws-empty">
                         <Building2 size={48} className="ws-empty-icon"/>
-                        <p className="ws-empty-text" style={{ fontWeight: 600 }}>No branch matches the current sidebar filter.</p>
+                        <p className="ws-empty-text" style={{ fontWeight: 600 }}>{t('empty.noMatch')}</p>
                     </div>
                 ) : (
                     <div className="ws-branches-grid">
@@ -467,19 +481,19 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                             {pendingSuperAdmin ? (
                                                 <span
                                                     className="ws-branch-badge-active ws-branch-badge--pending-approval"
-                                                    title="Super admin must approve this branch before it is fully active."
+                                                    title={t('tip.pendingApproval')}
                                                 >
-                                                    Pending approval
+                                                    {t('badge.pendingApproval')}
                                                 </span>
                                             ) : (
                                                 <div
                                                     className="ws-branch-active-toggle"
-                                                    title={branchOperationalActive(branch) ? 'Branch portal is active' : 'Branch portal is inactive'}
+                                                    title={branchOperationalActive(branch) ? t('tip.portalActive') : t('tip.portalInactive')}
                                                 >
                                                     <span
                                                         className={`ws-branch-active-toggle-label ${!branchOperationalActive(branch) ? 'is-on' : ''}`}
                                                     >
-                                                        Inactive
+                                                        {t('status.inactive')}
                                                     </span>
                                                     <label
                                                         className={`ws-duty-toggle ${togglingBranchId != null ? 'ws-duty-toggle--disabled' : ''}`}
@@ -497,14 +511,14 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                                     <span
                                                         className={`ws-branch-active-toggle-label ${branchOperationalActive(branch) ? 'is-on' : ''}`}
                                                     >
-                                                        Active
+                                                        {t('status.active')}
                                                     </span>
                                                 </div>
                                             )}
                                         </div>
                                         {pendingSuperAdmin && (
                                             <p className="ws-branch-pending-note">
-                                                Awaiting super admin approval. Cashiers and technicians require an approved branch.
+                                                {t('note.pending')}
                                             </p>
                                         )}
                                         <div className="ws-branch-contact">
@@ -514,17 +528,17 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                         </div>
                                         <div className="ws-branch-emp-row">
                                             <Users size={16}/>
-                                            <span>{empCount} employees</span>
-                                            <span className={`ws-branch-admin-badge ${perm ? 'set' : 'none'}`}>{perm ? 'Admin set' : 'No admin'}</span>
+                                            <span>{t('employees.count', { count: empCount })}</span>
+                                            <span className={`ws-branch-admin-badge ${perm ? 'set' : 'none'}`}>{perm ? t('admin.set') : t('admin.none')}</span>
                                         </div>
                                         {perm && (perm.permissions || []).length > 0 && (
                                             <div className="ws-branch-perms">
-                                                {(perm.permissions || []).map(p => <span key={p} className="ws-branch-perm-tag">{p}</span>)}
+                                                {(perm.permissions || []).map(p => <span key={p} className="ws-branch-perm-tag">{permLabel(p)}</span>)}
                                             </div>
                                         )}
                                         <div className="ws-branch-actions">
-                                            <button type="button" className="ws-branch-btn-edit" onClick={() => { setEditBranch(branch); setShowBranchForm(true); }}><Edit size={14}/> Edit</button>
-                                            <button type="button" className="ws-branch-btn-access" onClick={() => setShowAccessForm(true)}><Key size={14}/> Set Access</button>
+                                            <button type="button" className="ws-branch-btn-edit" onClick={() => { setEditBranch(branch); setShowBranchForm(true); }}><Edit size={14}/> {t('btn.edit')}</button>
+                                            <button type="button" className="ws-branch-btn-access" onClick={() => setShowAccessForm(true)}><Key size={14}/> {t('btn.setAccess')}</button>
                                         </div>
                                     </div>
                                 </div>
@@ -545,13 +559,13 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                         }).length === 0 ? (
                         <div style={{ textAlign: 'center', padding: 48, color: 'var(--color-text-muted)' }}>
                             <Key size={48} style={{ opacity: 0.3, margin: '0 auto 12px', display: 'block' }}/>
-                            <p style={{ margin: '0 0 16px', fontWeight: 600 }}>No branch admin access configured yet.</p>
-                            <button className="btn-portal" style={{ background: '#D97706', color: '#fff' }} onClick={() => setShowAccessForm(true)}><Key size={15}/> Grant Branch Access</button>
+                            <p style={{ margin: '0 0 16px', fontWeight: 600 }}>{t('empty.noAccess')}</p>
+                            <button className="btn-portal" style={{ background: '#D97706', color: '#fff' }} onClick={() => setShowAccessForm(true)}><Key size={15}/> {t('btn.grantBranchAccess')}</button>
                         </div>
                     ) : (
                         <WsTableScroll>
                         <table className="ws-table">
-                            <thead><tr><th>Branch</th><th>Permitted Sections</th><th>Description</th></tr></thead>
+                            <thead><tr><th>{t('th.branch')}</th><th>{t('th.permittedSections')}</th><th>{t('th.description')}</th></tr></thead>
                             <tbody>
                                 {rolePermissions
                                     .filter(r => r.role_name?.startsWith('branch_admin_'))
@@ -565,7 +579,7 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                                     const branch = branches.find(b => b.id === branchId);
                                     return (
                                         <tr key={rp.id}><td style={{ fontWeight: 700 }}>{branch?.name || branchId}</td>
-                                            <td><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{(rp.permissions || []).map(p => <span key={p} className="ws-badge ws-badge--blue">{p}</span>)}</div></td>
+                                            <td><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{(rp.permissions || []).map(p => <span key={p} className="ws-badge ws-badge--blue">{permLabel(p)}</span>)}</div></td>
                                             <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>{rp.description}</td></tr>
                                     );
                                 })}
@@ -576,8 +590,8 @@ export default function WorkshopBranches({ selectedBranchId = 'all' }) {
                 </div>
             )}
 
-            {showBranchForm && <BranchFormModal branch={editBranch} isSaving={isSavingBranch} onClose={() => { setShowBranchForm(false); setEditBranch(null); }} onSave={handleBranchSave}/>}
-            {showAccessForm && <AccessPermissionFormModal branches={branches} onClose={() => setShowAccessForm(false)} onSave={handleAccessSave}/>}
+            {showBranchForm && <BranchFormModal branch={editBranch} isSaving={isSavingBranch} onClose={() => { setShowBranchForm(false); setEditBranch(null); }} onSave={handleBranchSave} t={t}/>}
+            {showAccessForm && <AccessPermissionFormModal branches={branches} onClose={() => setShowAccessForm(false)} onSave={handleAccessSave} t={t}/>}
         </div>
     );
 }
