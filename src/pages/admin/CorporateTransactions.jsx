@@ -78,7 +78,7 @@ function orderTypeLabel(source, t) {
 /** Build {headers, rows} mirroring the on-screen table — used for PDF/Excel export. */
 function buildCorporateExportRows(list, t) {
     const headers = [
-        t('th.invoiceDate'), t('th.invoiceNo'), t('th.customer'), t('th.orderType'),
+        t('th.invoiceDate'), t('th.invoiceNo'), t('th.customer'), t('th.vehicle'), t('th.orderType'),
         t('filter.workshop'), t('filter.branch'), t('th.status'), t('th.invoiceAmount'), t('th.receiptAmount'), t('th.balance'),
     ];
     const rows = (list || []).map((r) => {
@@ -99,6 +99,7 @@ function buildCorporateExportRows(list, t) {
             formatDate(r.invoiceDate ?? r.invoice_date ?? r.createdAt),
             r.invoiceNo ?? r.invoice_no ?? '—',
             r.corporateAccountName ?? r.corporate?.companyName ?? '—',
+            r.plateNo ?? r.vehicle?.plateNo ?? r.vehicleNumber ?? '—',
             orderType,
             r.workshopName ?? r.workshop?.name ?? '—',
             r.branchName ?? r.branch?.name ?? '—',
@@ -728,6 +729,7 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onO
                     <th style={cellTh}>{t('th.invoiceDate')}</th>
                     <th style={cellTh}>{t('th.invoiceNo')}</th>
                     <th style={cellTh}>{t('th.customer')}</th>
+                    <th style={cellTh}>{t('th.vehicle')}</th>
                     <th style={cellTh}>{t('th.orderType')}</th>
                     <th style={cellTh}>{t('th.workshopBranch')}</th>
                     <th style={cellTh}>{t('th.status')}</th>
@@ -739,11 +741,11 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onO
             </thead>
             <tbody>
                 {loading ? (
-                    <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
                         <Loader2 size={18} className="spin" /> {t('loading')}
                     </td></tr>
                 ) : filtered.length === 0 ? (
-                    <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
+                    <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>
                         {t('empty')}
                     </td></tr>
                 ) : filtered.map((r) => {
@@ -767,6 +769,9 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onO
                                         ?? r.corporate?.companyName
                                         ?? '—'}
                                 </div>
+                            </td>
+                            <td style={{ ...cellTd, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+                                {r.plateNo ?? r.vehicle?.plateNo ?? r.vehicleNumber ?? '—'}
                             </td>
                             <td style={cellTd}><OrderTypeBadge row={r} t={t} /></td>
                             <td style={cellTd}>

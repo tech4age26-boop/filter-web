@@ -10,7 +10,6 @@ import {
     Search,
     Users,
 } from 'lucide-react';
-import Modal from '../Modal';
 import ClickableInvoiceNo from '../accounting/ClickableInvoiceNo';
 import InvoiceDetailsModal from '../pos/modern/InvoiceDetailsModal';
 import { getCorporateArLedger, listCorporateArCustomers, listCorporateGeneratedBills, getCorporateGeneratedBill } from '../../services/accountsApi';
@@ -22,8 +21,9 @@ import {
     exportCorporateGeneratedBillPdf,
     formatLedgerTypeShort,
 } from '../../utils/corporateArLedgerExport';
-import { startOfMonthISO, todayISO } from '../../pages/admin/saAccountingDateRange';
+import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingDateRange } from '../../pages/admin/saAccountingDateRange';
 import { cbT } from '../../utils/corporateBillingI18n';
+import CorporateGenerateBillModal from './CorporateGenerateBillModal';
 import '../../styles/admin/AccountingPage.css';
 
 function fmt(n) {
@@ -66,6 +66,46 @@ function BilingualTh({ primaryKey, secondaryKey, t, style }) {
     );
 }
 
+/** Shared From / To date range control for list + statement views. */
+function BillingDateRange({ dateFrom, dateTo, onFrom, onTo, onClear, t }) {
+    return (
+        <div className="corporate-billing-date-range" role="group" aria-label={t('label.dateRange')}>
+            <span className="corporate-billing-date-range__label">{t('label.dateRange')}</span>
+            <div className="corporate-billing-date-range__inputs">
+                <label className="billing-date-field">
+                    <span>{t('label.from')}</span>
+                    <input
+                        type="date"
+                        value={dateFrom || ''}
+                        max={dateTo || undefined}
+                        onChange={(e) => onFrom(e.target.value)}
+                    />
+                </label>
+                <span className="corporate-billing-date-range__sep" aria-hidden="true">→</span>
+                <label className="billing-date-field">
+                    <span>{t('label.to')}</span>
+                    <input
+                        type="date"
+                        value={dateTo || ''}
+                        min={dateFrom || undefined}
+                        onChange={(e) => onTo(e.target.value)}
+                    />
+                </label>
+                {(dateFrom || dateTo) ? (
+                    <button
+                        type="button"
+                        className="btn-portal-outline corporate-billing-date-range__clear"
+                        onClick={onClear}
+                        title={t('btn.clearDates')}
+                    >
+                        {t('btn.clearDates')}
+                    </button>
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
 export default function CorporateBillingSection() {
     const outletCtx = useOutletContext() || {};
     const locale =
@@ -82,9 +122,38 @@ export default function CorporateBillingSection() {
     const [listSummary, setListSummary] = useState(null);
 
     const [selectedAccountId, setSelectedAccountId] = useState('');
-    const [dateFrom, setDateFrom] = useState(startOfMonthISO());
-    const [dateTo, setDateTo] = useState(todayISO());
+    const [dateFrom, setDateFrom] = useState(
+        () => loadSaAccountingDateRange().dateFrom || startOfMonthISO(),
+    );
+    const [dateTo, setDateTo] = useState(
+        () => loadSaAccountingDateRange().dateTo || todayISO(),
+    );
     const [dueDate, setDueDate] = useState('');
+
+    const persistDates = useCallback((from, to) => {
+        saveSaAccountingDateRange({
+            dateFrom: from || startOfMonthISO(),
+            dateTo: to || todayISO(),
+        });
+    }, []);
+
+    const onDateFrom = useCallback((v) => {
+        setDateFrom(v);
+        persistDates(v, dateTo);
+    }, [dateTo, persistDates]);
+
+    const onDateTo = useCallback((v) => {
+        setDateTo(v);
+        persistDates(dateFrom, v);
+    }, [dateFrom, persistDates]);
+
+    const clearDates = useCallback(() => {
+        const from = startOfMonthISO();
+        const to = todayISO();
+        setDateFrom(from);
+        setDateTo(to);
+        persistDates(from, to);
+    }, [persistDates]);
 
     const [ledger, setLedger] = useState(null);
     const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -287,7 +356,14 @@ export default function CorporateBillingSection() {
         }
     };
 
-    const handleGenerateBill = async () => {
+    const handleGenerateBill = async (opts = {}) => {
+        const lineOverrides = Array.isArray(opts?.lineOverrides)
+            ? opts.lineOverrides
+            : Array.isArray(opts)
+              ? opts
+              : [];
+        const includeOpeningBalance = opts?.includeOpeningBalance !== false;
+
         if (!selectedAccountId || !generateDueDate.trim()) return;
         if (!dateFrom || !dateTo) {
             setError(t('err.selectDates'));
@@ -301,6 +377,8 @@ export default function CorporateBillingSection() {
                 startDate: dateToIsoStart(dateFrom),
                 endDate: dateToIsoEnd(dateTo),
                 dueDate: generateDueDate.trim(),
+                lineOverrides,
+                includeOpeningBalance,
             });
             setDueDate(generateDueDate.trim());
             setGenerateOpen(false);
@@ -362,7 +440,15 @@ export default function CorporateBillingSection() {
                     </div>
                 </header>
 
-                <div className="corporate-ar-toolbar">
+                <div className="corporate-ar-toolbar corporate-billing-list-toolbar">
+                    <BillingDateRange
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onFrom={onDateFrom}
+                        onTo={onDateTo}
+                        onClear={clearDates}
+                        t={t}
+                    />
                     <div className="pi-search-box-wrapper" style={{ flex: 1, maxWidth: 360 }}>
                         <div className="pi-search-box">
                             <Search size={16} />
@@ -495,24 +581,14 @@ export default function CorporateBillingSection() {
             </header>
 
             <div className="cash-bank-register-filters corporate-billing-detail-actions">
-                <label className="cash-bank-register-field billing-date-field">
-                    <span>{t('label.from')}</span>
-                    <input
-                        type="date"
-                        value={dateFrom}
-                        max={dateTo || undefined}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                    />
-                </label>
-                <label className="cash-bank-register-field billing-date-field">
-                    <span>{t('label.to')}</span>
-                    <input
-                        type="date"
-                        value={dateTo}
-                        min={dateFrom || undefined}
-                        onChange={(e) => setDateTo(e.target.value)}
-                    />
-                </label>
+                <BillingDateRange
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    onFrom={onDateFrom}
+                    onTo={onDateTo}
+                    onClear={clearDates}
+                    t={t}
+                />
                 <button type="button" className="btn-portal-outline" onClick={loadLedger} disabled={ledgerLoading}>
                     <RefreshCw size={16} style={{ marginRight: 6 }} /> {t('btn.apply')}
                 </button>
@@ -949,47 +1025,19 @@ export default function CorporateBillingSection() {
             )}
 
             {generateOpen && (
-                <Modal
-                    title={t('modal.title')}
-                    onClose={() => setGenerateOpen(false)}
-                    footer={
-                        <>
-                            <button type="button" className="btn-secondary" onClick={() => setGenerateOpen(false)}>
-                                {t('btn.cancel')}
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-submit"
-                                onClick={handleGenerateBill}
-                                disabled={generating || !generateDueDate.trim()}
-                            >
-                                {generating ? (
-                                    <>
-                                        <Loader size={14} className="spin" /> {t('btn.generating')}
-                                    </>
-                                ) : (
-                                    t('btn.generateBill')
-                                )}
-                            </button>
-                        </>
-                    }
-                >
-                    <p style={{ marginTop: 0, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                        {t('modal.period')} <strong>{dateFrom} — {dateTo}</strong>
-                        <br />
-                        {t('modal.company')} <strong>{displayName}</strong>
-                    </p>
-                    <div className="form-group">
-                        <label className="form-label">{t('modal.dueDate')}</label>
-                        <input
-                            type="date"
-                            className="form-input-field"
-                            value={generateDueDate}
-                            onChange={(e) => setGenerateDueDate(e.target.value)}
-                            required
-                        />
-                    </div>
-                </Modal>
+                <CorporateGenerateBillModal
+                    open={generateOpen}
+                    onClose={() => !generating && setGenerateOpen(false)}
+                    t={t}
+                    companyName={displayName}
+                    dateFrom={dateFrom}
+                    dateTo={dateTo}
+                    dueDate={generateDueDate}
+                    onDueDateChange={setGenerateDueDate}
+                    ledger={ledger}
+                    generating={generating}
+                    onGenerate={handleGenerateBill}
+                />
             )}
 
             <InvoiceDetailsModal
