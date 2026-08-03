@@ -71,11 +71,11 @@ export const getBalanceSheet = (params = {}) =>
 
 /** HQ corporate AR control account — customer list with due balances. */
 export const listCorporateArCustomers = (params = {}) =>
-    apiFetch(withQuery('/accounts/corporate-ar/customers', params));
+    apiFetch(withQuery('/accounts/corporate-ar/customers', { ...params, _t: Date.now() }));
 
 /** Corporate customer AR ledger statement (dateFrom/dateTo + corporateAccountId). */
 export const getCorporateArLedger = (params = {}) =>
-    apiFetch(withQuery('/accounts/corporate-ar/ledger', params));
+    apiFetch(withQuery('/accounts/corporate-ar/ledger', { ...params, _t: Date.now() }));
 
 export const listCorporateGeneratedBills = (corporateAccountId) =>
     apiFetch(
