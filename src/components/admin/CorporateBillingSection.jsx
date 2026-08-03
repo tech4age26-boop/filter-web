@@ -67,9 +67,13 @@ function BilingualTh({ primaryKey, secondaryKey, t, style }) {
 }
 
 /** Shared From / To date range control for list + statement views. */
-function BillingDateRange({ dateFrom, dateTo, onFrom, onTo, onClear, t }) {
+function BillingDateRange({ dateFrom, dateTo, onFrom, onTo, onClear, t, compact = false }) {
     return (
-        <div className="corporate-billing-date-range" role="group" aria-label={t('label.dateRange')}>
+        <div
+            className={`corporate-billing-date-range${compact ? ' corporate-billing-date-range--compact' : ''}`}
+            role="group"
+            aria-label={t('label.dateRange')}
+        >
             <span className="corporate-billing-date-range__label">{t('label.dateRange')}</span>
             <div className="corporate-billing-date-range__inputs">
                 <label className="billing-date-field">
@@ -440,7 +444,7 @@ export default function CorporateBillingSection() {
                     </div>
                 </header>
 
-                <div className="corporate-ar-toolbar corporate-billing-list-toolbar">
+                <div className="corporate-billing-list-toolbar">
                     <BillingDateRange
                         dateFrom={dateFrom}
                         dateTo={dateTo}
@@ -448,8 +452,9 @@ export default function CorporateBillingSection() {
                         onTo={onDateTo}
                         onClear={clearDates}
                         t={t}
+                        compact
                     />
-                    <div className="pi-search-box-wrapper" style={{ flex: 1, maxWidth: 360 }}>
+                    <div className="corporate-billing-list-toolbar__search">
                         <div className="pi-search-box">
                             <Search size={16} />
                             <input
@@ -463,16 +468,16 @@ export default function CorporateBillingSection() {
                     </div>
                     <button
                         type="button"
-                        className="btn-portal-outline"
+                        className="btn-portal-outline corporate-billing-list-toolbar__refresh"
                         onClick={loadCustomers}
                         disabled={customersLoading}
                     >
-                        <RefreshCw size={16} style={{ marginRight: 6 }} /> {t('btn.refresh')}
+                        <RefreshCw size={16} /> {t('btn.refresh')}
                     </button>
                 </div>
 
                 {listSummary ? (
-                    <div className="cash-bank-stats" style={{ marginBottom: 16 }}>
+                    <div className="cash-bank-stats corporate-billing-list-stats">
                         <div className="cash-bank-stat-card cash-bank-stat-card--muted">
                             <div className="cash-bank-stat-icon"><Building2 size={22} /></div>
                             <div>

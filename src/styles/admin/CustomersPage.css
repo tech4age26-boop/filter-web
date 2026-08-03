@@ -696,21 +696,66 @@
 }
 
 .corporate-billing-list-toolbar {
+    display: grid;
+    grid-template-columns: minmax(280px, auto) minmax(220px, 1fr) auto;
+    align-items: end;
+    gap: 12px 16px;
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .corporate-billing-list-toolbar {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+    }
+}
+
+.corporate-billing-list-toolbar__search {
+    min-width: 0;
     display: flex;
-    flex-wrap: wrap;
     align-items: flex-end;
-    gap: 12px;
-    margin-bottom: 16px;
+}
+
+.corporate-billing-list-toolbar__search .pi-search-box {
+    width: 100%;
+}
+
+.corporate-billing-list-toolbar__search .pi-search-box input {
+    height: 40px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    padding: 0 14px 0 42px;
+}
+
+.corporate-billing-list-toolbar__refresh {
+    height: 40px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 14px;
+    white-space: nowrap;
+    border-radius: 10px;
+}
+
+.corporate-billing-list-stats {
+    margin-bottom: 20px;
 }
 
 .corporate-billing-date-range {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    background: #f8fafc;
+    gap: 6px;
+    min-width: 0;
+}
+
+.corporate-billing-date-range--compact {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    border-radius: 0;
 }
 
 .corporate-billing-date-range__label {
@@ -719,47 +764,97 @@
     color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    line-height: 1;
 }
 
 .corporate-billing-date-range__inputs {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: end;
     gap: 8px;
 }
 
 .corporate-billing-date-range__sep {
     color: #94a3b8;
     font-size: 0.875rem;
-    padding-bottom: 10px;
+    line-height: 40px;
+    padding: 0;
+    flex-shrink: 0;
 }
 
 .corporate-billing-date-range__clear {
-    align-self: flex-end;
-    padding: 8px 10px !important;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 12px !important;
     font-size: 0.75rem !important;
+    border-radius: 10px !important;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .billing-date-field {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--color-text-muted);
+    min-width: 0;
 }
 
 .billing-date-field input {
-    padding: 8px 10px;
-    border: 1px solid #E5E7EB;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
     border-radius: 10px;
     font-size: 0.875rem;
     background: #fff;
-    min-width: 150px;
+    min-width: 138px;
+    width: 100%;
 }
 
 .billing-date-field--datetime input {
     min-width: 210px;
+}
+
+.corporate-billing-accounts-table {
+    margin-top: 0;
+}
+
+.corporate-billing-accounts-table .ws-table {
+    table-layout: fixed;
+}
+
+.corporate-billing-accounts-table .ws-table th,
+.corporate-billing-accounts-table .ws-table td {
+    padding: 12px 14px;
+    vertical-align: middle;
+}
+
+.corporate-billing-accounts-table .ws-table th:nth-child(1),
+.corporate-billing-accounts-table .ws-table td:nth-child(1) {
+    width: 28%;
+}
+
+.corporate-billing-accounts-table .ws-table th:nth-child(2),
+.corporate-billing-accounts-table .ws-table td:nth-child(2) {
+    width: 16%;
+}
+
+.corporate-billing-accounts-table .ws-table th:nth-child(3),
+.corporate-billing-accounts-table .ws-table td:nth-child(3) {
+    width: 22%;
+}
+
+.corporate-billing-accounts-table .ws-table th:nth-child(4),
+.corporate-billing-accounts-table .ws-table td:nth-child(4) {
+    width: 18%;
+}
+
+.corporate-billing-accounts-table .ws-table th:nth-child(5),
+.corporate-billing-accounts-table .ws-table td:nth-child(5) {
+    width: 16%;
 }
 
 .billing-stat-balance .billing-stat-val {
