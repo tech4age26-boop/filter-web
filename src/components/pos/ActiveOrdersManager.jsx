@@ -28,11 +28,24 @@ export default function ActiveOrdersManager() {
         if (showRefresh) setRefreshing(true);
         else setLoading(true);
         try {
-            const d = await apiFetch(
-                `/cashier/orders?status=active&utcOffsetMinutes=${clientUtcOffsetMinutes()}`,
-            );
-            const raw = d.orders || d.data || [];
-            const mapped = raw.map(o => ({
+            const pageSize = 50;
+            const utc = clientUtcOffsetMinutes();
+            const all = [];
+            let offset = 0;
+            let total = Infinity;
+            while (offset < total && offset < 2000) {
+                const d = await apiFetch(
+                    `/cashier/orders?status=pending&limit=${pageSize}&offset=${offset}&utcOffsetMinutes=${utc}`,
+                );
+                total = Number(d.total ?? 0);
+                const batch = d.orders || d.data || [];
+                if (!Array.isArray(batch) || batch.length === 0) break;
+                all.push(...batch);
+                offset += batch.length;
+                if (d.hasMore === false) break;
+                if (batch.length < pageSize) break;
+            }
+            const mapped = all.map(o => ({
                 id: o.id,
                 orderNumber: o.orderNumber || o.order_number || o.id?.slice?.(-6) || o.id,
                 customerName: o.customerName || o.customer?.name || o.guestName || 'Walk-in',

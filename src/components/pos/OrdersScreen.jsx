@@ -29,11 +29,12 @@ const PAYMENT_METHODS = ['Cash', 'Card', 'Bank Transfer', 'Tamara', 'Tabby', 'Mo
 
 export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSelectConsumed }) {
     const { user } = useAuth();
-    const { orders, refreshOrders, socket, loading: contextLoading, catalog, refreshCatalog, catalogLoading } = usePOS();
+    const { orders, refreshOrders, selectOrderWithDetail, socket, loading: contextLoading, catalog, refreshCatalog, catalogLoading } = usePOS();
     const [refreshing, setRefreshing] = useState(false);
     const [tab, setTab] = useState('All');
     const [search, setSearch] = useState('');
     const [selectedId, setSelectedId] = useState(null);
+    const [hydratedById, setHydratedById] = useState({});
     const [actionLoading, setActionLoading] = useState(null);
     const [activeModal, setActiveModal] = useState(null); // 'product' | 'technician' | 'department'
     const [editingJob, setEditingJob] = useState(null);
@@ -84,6 +85,34 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
         };
         fetchMeta();
     }, [refreshOrders, refreshCatalog, orders.length, catalog.length, user?.branchId, user?.branch_id]);
+
+    // Slim GET /cashier/orders omits line items — hydrate selected order for job/product UI.
+    useEffect(() => {
+        if (!selectedId || !selectOrderWithDetail) return;
+        const raw = orders.find((o) => String(o?.id) === String(selectedId));
+        const already = hydratedById[selectedId];
+        if (already?.jobs?.some((j) => (j.items || []).length > 0)) {
+            return;
+        }
+        if (raw?.linesIncluded !== false && (raw?.jobs || []).some((j) => (j.items || []).length > 0)) {
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            const detail = await selectOrderWithDetail(selectedId);
+            if (!cancelled && detail) {
+                setHydratedById((prev) => ({
+                    ...prev,
+                    [selectedId]: { ...detail, linesIncluded: true },
+                }));
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // intentionally omit hydratedById from deps to avoid re-fetch loops
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedId, orders, selectOrderWithDetail]);
 
     // Match Flutter reference pattern (PosOrder.draftPosOrderTotalDisplay + _parseJobTotalAmount):
     // prefer backend's authoritative VAT-inclusive totals; recompute locally ONLY when the user
@@ -424,23 +453,28 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
     };
 
     const mappedOrders = useMemo(() => {
-        return orders.map(o => ({
-            id: o.id,
-            orderNumber: o.orderNumber || o.order_number || o.id?.slice?.(-6) || o.id,
-            customerName: o.customerName || o.customer?.name || o.guestName || 'Walk-in Customer',
-            plateNumber: resolvePlateDisplay(o) || o.vehiclePlate || '',
-            status: o.status || 'active',
-            total: parseFloat(o.grandTotal ?? o.totalAmount ?? o.total ?? 0) || 0,
-            jobs: o.jobs || [],
-            pendingDepartments: o.pendingDepartments || [],
-            jobsCount: o.jobsCount || (o.jobs || []).length || 1,
-            createdAt: o.createdAt,
-            odometer: o.odometerReading || o.odometer || '',
-            vehicleInfo: o.vehicle ? `${o.vehicle.make || ''} ${o.vehicle.model || ''} ${o.vehicle.year || ''}`.trim() : '',
-            customerMobile: o.customer?.mobile || '',
-            customerTaxId: o.customer?.taxId || '',
-        }));
-    }, [orders]);
+        return orders.map(o => {
+            const hydrated = hydratedById[o.id] || hydratedById[String(o.id)];
+            const src = hydrated || o;
+            return {
+            id: src.id,
+            orderNumber: src.orderNumber || src.order_number || src.id?.slice?.(-6) || src.id,
+            customerName: src.customerName || src.customer?.name || src.guestName || 'Walk-in Customer',
+            plateNumber: resolvePlateDisplay(src) || src.vehiclePlate || '',
+            status: src.status || 'active',
+            total: parseFloat(src.grandTotal ?? src.totalAmount ?? src.total ?? 0) || 0,
+            jobs: src.jobs || [],
+            pendingDepartments: src.pendingDepartments || [],
+            jobsCount: src.jobsCount || (src.jobs || []).length || 1,
+            createdAt: src.createdAt,
+            odometer: src.odometerReading || src.odometer || '',
+            vehicleInfo: src.vehicle ? `${src.vehicle.make || ''} ${src.vehicle.model || ''} ${src.vehicle.year || ''}`.trim() : '',
+            customerMobile: src.customer?.mobile || '',
+            customerTaxId: src.customer?.taxId || '',
+            linesIncluded: src.linesIncluded !== false,
+        };
+        });
+    }, [orders, hydratedById]);
 
     // Match reference PosOrder.jsobsAggregateBadgeLabel — completion is derived from the aggregate
     // state of non-cancelled jobs, NOT the order-level status field. 'edited' counts as COMPLETED

@@ -7,6 +7,7 @@ import {
     adminLogin,
     corporateLogin,
     workshopLogin,
+    lockerLogin,
     cashierLogin,
     supplierLogin,
     technicianLogin,
@@ -14,7 +15,7 @@ import {
 } from '../services/authApi';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
-import { firstVisibleAdminPath, isLockerOnlyPortalUser, workshopLandingPath } from '../utils/permissions';
+import { firstVisibleAdminPath, isLockerOnlyPortalUser, isWorkshopPortalUser, workshopLandingPath } from '../utils/permissions';
 
 /**
  * Unified sign-in hub.
@@ -83,9 +84,9 @@ export default function PortalHubPage() {
             case 'pos':
                 return cashierLogin(mail, pass);
             case 'workshop':
-            case 'locker':
-                // Locker users are workshop_user rows; reuse the workshop login endpoint.
                 return workshopLogin(mail, pass);
+            case 'locker':
+                return lockerLogin(mail, pass);
             case 'technician':
                 return technicianLogin(mail, pass);
             case 'supplier':
@@ -142,20 +143,30 @@ export default function PortalHubPage() {
                 PORTAL_USER_TYPES[portalId] ||
                 'admin';
 
-            // Locker portal needs a supervisor/collector role (or workshop owner).
+            // Locker portal: supervisor/collector only (not workshop owner).
             if (portalId === 'locker') {
                 const role = userData.lockerPortalRole;
-                const isOwner = effectiveUserType === 'workshop_owner';
-                if (!isOwner && role !== 'supervisor' && role !== 'collector') {
+                const isLockerUser =
+                    effectiveUserType === 'workshop_user' &&
+                    (role === 'supervisor' || role === 'collector');
+                if (!isLockerUser) {
                     throw new Error(
                         'This account does not have locker portal access. Ask your workshop admin to create a locker user.',
                     );
                 }
             }
 
-            if (portalId === 'workshop' && isLockerOnlyPortalUser({ ...userData, userType: effectiveUserType })) {
+            if (
+                portalId === 'workshop' &&
+                !isWorkshopPortalUser({ ...userData, userType: effectiveUserType })
+            ) {
+                if (isLockerOnlyPortalUser({ ...userData, userType: effectiveUserType })) {
+                    throw new Error(
+                        'This account is for the locker portal only. Sign in at Locker Portal instead of Workshop.',
+                    );
+                }
                 throw new Error(
-                    'This account is for the locker portal only. Sign in at Locker Portal instead of Workshop.',
+                    'This account does not have workshop portal access. Use the correct portal for your role.',
                 );
             }
 

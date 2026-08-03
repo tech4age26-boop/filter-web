@@ -305,6 +305,14 @@ export function isLockerPortalRole(user) {
     return role === 'supervisor' || role === 'collector';
 }
 
+/** Workshop portal staff roles (manager / supervisor / team_leader). */
+const WORKSHOP_PORTAL_STAFF_ROLES = new Set([
+    'manager',
+    'supervisor',
+    'team_leader',
+    'workshop_manager',
+]);
+
 /**
  * Locker-only account: workshop_user with lockerPortalRole and no workshopStaffRole.
  * These users sign in at /locker/login only (see backend createWorkshopPortalStaff).
@@ -323,7 +331,9 @@ export function isWorkshopPortalUser(user) {
     const t = String(user?.userType || user?.type || '').trim().toLowerCase();
     if (t === 'workshop_owner') return true;
     if (t !== 'workshop_user') return false;
-    return !isLockerOnlyPortalUser(user);
+    if (isLockerOnlyPortalUser(user)) return false;
+    const staff = String(user?.workshopStaffRole || '').trim().toLowerCase();
+    return WORKSHOP_PORTAL_STAFF_ROLES.has(staff);
 }
 
 /** True when the session belongs on the super-admin `/admin/*` shell. */

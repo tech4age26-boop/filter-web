@@ -57,6 +57,18 @@ export async function workshopLogin(email, password) {
 }
 
 /**
+ * POST /auth/locker/login — supervisor / collector locker users only.
+ * Workshop owners and other workshop staff are rejected by the API.
+ */
+export async function lockerLogin(email, password) {
+    return authRequest('/auth/locker/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify({ email, password }),
+    });
+}
+
+/**
  * POST /auth/workshop/logout — workshop JWT; backend uses JwtAuthGuard (workshop_user | workshop_owner).
  * Tokens remain stateless (no server revoke list); callers must still clear localStorage / auth context after success.
  */
@@ -77,7 +89,7 @@ export async function workshopLogout(token) {
 }
 
 /**
- * POST /auth/locker/logout — workshop JWT for locker supervisor / collector (or workshop owner).
+ * POST /auth/locker/logout — workshop JWT for locker supervisor / collector.
  * Tokens remain stateless; callers must clear localStorage / auth context after success.
  */
 export async function lockerLogout(token) {

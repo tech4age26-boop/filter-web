@@ -20,6 +20,30 @@ function sortCashierOrdersOldestFirst(list) {
     });
 }
 
+const CASHIER_ORDERS_PAGE_SIZE = 50;
+
+/** Paginated pending hub list (backend default limit 50; slim rows). */
+async function fetchAllPendingCashierOrders() {
+    const utc = clientUtcOffsetMinutes();
+    const all = [];
+    let offset = 0;
+    let total = Infinity;
+    // Hard cap avoids runaway loops if total is wrong.
+    while (offset < total && offset < 2000) {
+        const d = await apiFetch(
+            `/cashier/orders?status=pending&limit=${CASHIER_ORDERS_PAGE_SIZE}&offset=${offset}&utcOffsetMinutes=${utc}`,
+        );
+        total = Number(d.total ?? 0);
+        const batch = d.orders || d.data || [];
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        all.push(...batch);
+        offset += batch.length;
+        if (d.hasMore === false) break;
+        if (batch.length < CASHIER_ORDERS_PAGE_SIZE) break;
+    }
+    return sortCashierOrdersOldestFirst(all);
+}
+
 export const POSProvider = ({ children }) => {
     const { token, user } = useAuth();
     const [socket, setSocket] = useState(null);
@@ -31,15 +55,46 @@ export const POSProvider = ({ children }) => {
     const [loading, setLoading] = useState(false);
     const [catalogLoading, setCatalogLoading] = useState(false);
 
-    // Fetch initial orders
+    // Fetch initial orders (all pages; each page is slim + capped)
     const refreshOrders = useCallback(async () => {
         try {
-            const d = await apiFetch(
-                `/cashier/orders?utcOffsetMinutes=${clientUtcOffsetMinutes()}`,
-            );
-            setOrders(sortCashierOrdersOldestFirst(d.orders || d.data || []));
+            const list = await fetchAllPendingCashierOrders();
+            setOrders(list);
         } catch (err) {
             console.error('Failed to fetch orders:', err);
+        }
+    }, []);
+
+    const selectOrderWithDetail = useCallback(async (orderOrId) => {
+        const id = String(orderOrId?.id ?? orderOrId ?? '').trim();
+        if (!id) {
+            setActiveOrder(null);
+            return null;
+        }
+        try {
+            const utc = clientUtcOffsetMinutes();
+            const d = await apiFetch(
+                `/cashier/order/${encodeURIComponent(id)}?utcOffsetMinutes=${utc}`,
+            );
+            const detail = d.order || d.data || d;
+            const withFlag = { ...detail, linesIncluded: true };
+            setActiveOrder(withFlag);
+            setOrders((prev) => {
+                const next = prev.map((o) =>
+                    String(o?.id) === id ? { ...o, ...withFlag } : o,
+                );
+                if (!next.some((o) => String(o?.id) === id)) {
+                    next.push(withFlag);
+                }
+                return sortCashierOrdersOldestFirst(next);
+            });
+            return withFlag;
+        } catch (err) {
+            console.error('Failed to load order detail:', err);
+            const fallback =
+                typeof orderOrId === 'object' && orderOrId ? orderOrId : null;
+            if (fallback) setActiveOrder(fallback);
+            return fallback;
         }
     }, []);
 
@@ -152,6 +207,7 @@ export const POSProvider = ({ children }) => {
             dismissBroadcast,
             activeOrder,
             setActiveOrder,
+            selectOrderWithDetail,
             cart,
             setCart,
             addToCart,
