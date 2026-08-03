@@ -689,10 +689,27 @@ export const getCorporateBillingStatement = ({ corporateAccountId, startDate, en
         })}`,
     );
 
-export const generateCorporateBill = ({ corporateAccountId, startDate, endDate, dueDate }) =>
+export const generateCorporateBill = ({
+    corporateAccountId,
+    startDate,
+    endDate,
+    dueDate,
+    lineOverrides,
+    includeOpeningBalance,
+}) =>
     apiFetch('/super-admin/corporate-billing/generate', {
         method: 'POST',
-        body: JSON.stringify({ corporateAccountId, startDate, endDate, dueDate }),
+        body: JSON.stringify({
+            corporateAccountId,
+            startDate,
+            endDate,
+            dueDate,
+            includeOpeningBalance:
+                includeOpeningBalance === false ? false : true,
+            ...(Array.isArray(lineOverrides) && lineOverrides.length
+                ? { lineOverrides }
+                : {}),
+        }),
     });
 
 export const listCorporateGeneratedBills = (corporateAccountId) =>
