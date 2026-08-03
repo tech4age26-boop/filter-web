@@ -152,9 +152,6 @@ export default function CorporateBillingSection() {
     const [dateTo, setDateTo] = useState(
         () => loadSaAccountingDateRange().dateTo || todayISO(),
     );
-    // Applied range drives the list API — draft pickers only update on Apply.
-    const [appliedFrom, setAppliedFrom] = useState(dateFrom);
-    const [appliedTo, setAppliedTo] = useState(dateTo);
     const [dueDate, setDueDate] = useState('');
 
     const persistDates = useCallback((from, to) => {
@@ -177,21 +174,8 @@ export default function CorporateBillingSection() {
         const to = todayISO();
         setDateFrom(from);
         setDateTo(to);
-        setAppliedFrom(from);
-        setAppliedTo(to);
         persistDates(from, to);
     }, [persistDates]);
-
-    const applyDateRange = useCallback(() => {
-        if (dateFrom && dateTo && dateFrom > dateTo) {
-            setCustomersError(t('err.dateOrder'));
-            return;
-        }
-        setCustomersError('');
-        setAppliedFrom(dateFrom);
-        setAppliedTo(dateTo);
-        persistDates(dateFrom, dateTo);
-    }, [dateFrom, dateTo, persistDates, t]);
 
     const [ledger, setLedger] = useState(null);
     const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -216,8 +200,10 @@ export default function CorporateBillingSection() {
     const [invoiceModalData, setInvoiceModalData] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState('');
 
-    const loadCustomers = useCallback(async () => {
-        if (appliedFrom && appliedTo && appliedFrom > appliedTo) {
+    const loadCustomers = useCallback(async (range) => {
+        const from = range?.dateFrom !== undefined ? range.dateFrom : dateFrom;
+        const to = range?.dateTo !== undefined ? range.dateTo : dateTo;
+        if (from && to && from > to) {
             setCustomers([]);
             setListSummary(null);
             setCustomersError(t('err.dateOrder'));
@@ -226,11 +212,12 @@ export default function CorporateBillingSection() {
         }
         setCustomersLoading(true);
         setCustomersError('');
+        persistDates(from, to);
         try {
             const res = await listCorporateArCustomers({
                 q: search.trim() || undefined,
-                dateFrom: appliedFrom || undefined,
-                dateTo: appliedTo || undefined,
+                dateFrom: from || undefined,
+                dateTo: to || undefined,
             });
             setCustomers(res?.customers ?? []);
             setListSummary(res?.summary ?? null);
@@ -241,7 +228,11 @@ export default function CorporateBillingSection() {
         } finally {
             setCustomersLoading(false);
         }
-    }, [search, appliedFrom, appliedTo, t]);
+    }, [search, dateFrom, dateTo, persistDates, t]);
+
+    const applyDateRange = useCallback(() => {
+        void loadCustomers({ dateFrom, dateTo });
+    }, [loadCustomers, dateFrom, dateTo]);
 
     const loadLedger = useCallback(async () => {
         if (!selectedAccountId) return;
@@ -536,12 +527,12 @@ export default function CorporateBillingSection() {
                             <div className="cash-bank-stat-icon"><Users size={22} /></div>
                             <div>
                                 <p className="cash-bank-stat-label">
-                                    {appliedFrom && appliedTo ? t('stat.periodDue') : t('stat.totalDue')}
+                                    {dateFrom && dateTo ? t('stat.periodDue') : t('stat.totalDue')}
                                 </p>
                                 <p className="cash-bank-stat-value">{t('money.sar', { amount: fmt(listSummary.totalDue) })}</p>
-                                {appliedFrom && appliedTo ? (
+                                {dateFrom && dateTo ? (
                                     <p className="corporate-billing-list-stats__period">
-                                        {t('label.period', { from: appliedFrom, to: appliedTo })}
+                                        {t('label.period', { from: dateFrom, to: dateTo })}
                                     </p>
                                 ) : null}
                             </div>
@@ -562,7 +553,7 @@ export default function CorporateBillingSection() {
                                 <th>{t('th.contact')}</th>
                                 <th>{t('th.workshop')}</th>
                                 <th style={{ textAlign: 'right' }}>
-                                    {appliedFrom && appliedTo ? t('th.periodDue') : t('th.dueBalance')}
+                                    {dateFrom && dateTo ? t('th.periodDue') : t('th.dueBalance')}
                                 </th>
                             </tr>
                         </thead>
