@@ -40,6 +40,16 @@ import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimme
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { formatAffiliatedBranchCustomerLabel } from '../../utils/affiliatedCustomerLabels';
 import { resolveInvoiceLineProductName } from '../../utils/invoiceLineLabel';
+import { ssiT, SSI_MARK_PAID_METHOD_KEYS } from '../../utils/supplierSalesInvoicesI18n';
+
+function localizeCustomerGroup(group, t) {
+    const g = String(group || '').trim();
+    if (!g) return t('group.customers');
+    const lower = g.toLowerCase();
+    if (lower === 'customers') return t('group.customers');
+    if (lower === 'affiliated workshops') return t('group.affiliated');
+    return g;
+}
 
 /** Session key: JSON line preset (legacy / fallback). Primary path is router state `salesInvoiceFromAlert`. */
 const SI_PRESET_LINE_KEY = 'supplier_sales_invoice_preset_line';
@@ -57,7 +67,7 @@ function normalizeSalesInvoiceCustomers(branchesRes) {
         return raw.map((c) => ({
             key: String(c.key),
             group: c.group || 'Customers',
-            label: c.label || 'Customer',
+            label: c.label || 'Customer', // display via localizeCustomerGroup in UI
             subtitle: c.subtitle ?? null,
             customerType: c.customerType,
             branchId: c.branchId ?? null,
@@ -221,13 +231,7 @@ function mapSupplierSalesInvoiceToWorkshopListRow(inv) {
 const SALES_INVOICE_PAGE_SIZE = 15;
 
 /** Stored on `supplier_payments.method` when marking invoice paid from portal. */
-const MARK_PAID_METHOD_OPTIONS = [
-    { value: 'cash', label: 'Cash' },
-    { value: 'bank_transfer', label: 'Bank transfer' },
-    { value: 'card', label: 'Card' },
-    { value: 'cheque', label: 'Cheque' },
-    { value: 'other', label: 'Other' },
-];
+const MARK_PAID_METHOD_VALUES = ['cash', 'bank_transfer', 'card', 'cheque', 'other'];
 
 /** Align select value with balance (outstanding). */
 function salesInvoicePaymentSelectValue(balance) {
@@ -235,12 +239,12 @@ function salesInvoicePaymentSelectValue(balance) {
 }
 
 /** Display-only AR settlement state for list rows (no quick unpaid toggle here). */
-function salesInvoiceArSettlementLabel(inv) {
+function salesInvoiceArSettlementLabel(inv, t) {
     const bal = Number(inv?.balance ?? 0);
     const paid = Number(inv?.paid ?? 0);
-    if (bal <= 0.005) return { text: 'Paid', tone: 'green' };
-    if (paid > 0.005) return { text: 'Partial', tone: 'amber' };
-    return { text: 'Unpaid', tone: 'amber' };
+    if (bal <= 0.005) return { text: t('settle.paid'), tone: 'green', code: 'paid' };
+    if (paid > 0.005) return { text: t('settle.partial'), tone: 'amber', code: 'partial' };
+    return { text: t('settle.unpaid'), tone: 'amber', code: 'unpaid' };
 }
 
 function salesInvoiceSarFmt(v) {
@@ -264,28 +268,28 @@ function salesInvoiceCustomerLabel(inv) {
         : inv.branch || '—';
 }
 
-function salesInvoiceMgrStatus(inv) {
+function salesInvoiceMgrStatus(inv, t) {
     const balance = Number(inv?.balance ?? 0);
     const paid = Number(inv?.paid ?? 0);
     const due = String(inv?.dueDate ?? '').slice(0, 10);
     const today = new Date().toISOString().slice(0, 10);
     if (balance <= 0.005) {
-        return { label: 'Paid in full', cls: 'mgr-si-status mgr-si-status--paid' };
+        return { label: t('status.paidInFull'), cls: 'mgr-si-status mgr-si-status--paid' };
     }
     if (due && due < today && balance > 0.005) {
-        return { label: 'Overdue', cls: 'mgr-si-status mgr-si-status--overdue' };
+        return { label: t('status.overdue'), cls: 'mgr-si-status mgr-si-status--overdue' };
     }
     if (paid > 0.005) {
-        return { label: 'Partially paid', cls: 'mgr-si-status mgr-si-status--partial' };
+        return { label: t('status.partiallyPaid'), cls: 'mgr-si-status mgr-si-status--partial' };
     }
     const raw = String(inv?.status || '')
         .replace(/_/g, ' ')
         .trim();
     if (raw === 'draft') {
-        return { label: 'Draft', cls: 'mgr-si-status mgr-si-status--draft' };
+        return { label: t('status.draft'), cls: 'mgr-si-status mgr-si-status--draft' };
     }
     return {
-        label: raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : 'Pending payment',
+        label: raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : t('status.pendingPayment'),
         cls: 'mgr-si-status mgr-si-status--pending',
     };
 }
@@ -301,23 +305,23 @@ function extractSupplierAccountsPayload(res) {
 }
 
 /** Same shaping as SupplierCashBank `mapAccountsFromApi` for stable labels / PATCH text. */
-function mapSupplierCashBankAccountForPickers(raw) {
+function mapSupplierCashBankAccountForPickers(raw, t = (k, v) => ssiT('en', k, v)) {
     if (!raw || typeof raw !== 'object') return null;
     const id = raw.id ?? raw.accountId;
     if (id == null || id === '') return null;
     const rawType = String(raw.accountType ?? raw.type ?? 'bank').toLowerCase();
-    const typeLabel = rawType === 'cash' ? 'Cash' : 'Bank';
+    const typeLabel = rawType === 'cash' ? t('account.cash') : t('account.bank');
     const nameBaseRaw = raw.name ?? raw.accountName;
     const nameBase =
         nameBaseRaw != null && String(nameBaseRaw).trim() !== ''
             ? String(nameBaseRaw).trim()
-            : 'Account';
-    const optionLabel = `${nameBase} (${typeLabel})`;
+            : t('account.fallback');
+    const optionLabel = t('account.option', { name: nameBase, type: typeLabel });
     return { id: String(id), nameBase, typeLabel, optionLabel, cashBankLabel: optionLabel, raw     };
 }
 
 /** Prefill payload for Accounting → Transaction Hub → Receipts tab. */
-function buildTransactionHubReceiptPrefill(inv) {
+function buildTransactionHubReceiptPrefill(inv, t = (k, v) => ssiT('en', k, v)) {
     const today = new Date().toISOString().slice(0, 10);
     const balance = Number(inv?.balance ?? 0);
     let payeeValue = '';
@@ -332,7 +336,7 @@ function buildTransactionHubReceiptPrefill(inv) {
         variant: 'receipt',
         headerDate: today,
         headerRef: invoiceNo,
-        generalNote: invoiceNo ? `Payment received for sales invoice ${invoiceNo}` : '',
+        generalNote: invoiceNo ? t('note.paymentReceived', { no: invoiceNo }) : '',
         cashBankLabel: String(inv?.cashBankAccount || '').trim() || undefined,
         salesInvoiceId: inv?.id != null ? String(inv.id) : undefined,
         lines: [
@@ -610,7 +614,7 @@ function mergeInventoryLists(stockRows, fallback) {
     return Array.from(map.values());
 }
 
-function normalizeStockCatalogRow(item) {
+function normalizeStockCatalogRow(item, t = (k, v) => ssiT('en', k, v)) {
     const qtyWh = Number(item.currentBalanceWarehouse || 0);
     const unitCostWh =
         qtyWh > 0 ? Number(item.valueWarehouseSar || 0) / qtyWh : 0;
@@ -636,13 +640,27 @@ function normalizeStockCatalogRow(item) {
             : 0;
     const costHint =
         qtyWh > 0
-            ? `Warehouse stock: ${qtyWh} ${warehouseUnit} • Unit cost SAR ${unitCostWh.toLocaleString(undefined, { maximumFractionDigits: 4 })} / ${warehouseUnit}`
-            : 'No warehouse stock — you can still sell; you will be asked to confirm before issuing.';
+            ? t('hint.warehouseStock', {
+                  qty: qtyWh,
+                  unit: warehouseUnit,
+                  cost: t('money.sar', {
+                      amount: unitCostWh.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+                  }),
+              })
+            : t('hint.noWarehouseStock');
     const listHint =
         catalogSalePrice > 0
-            ? `Stock sales price SAR ${roundMoney2(catalogSalePrice * conversionFactor).toFixed(2)} / ${warehouseUnit} incl. VAT`
+            ? t('hint.stockSalesPriceAmt', {
+                  amount: t('money.sar', {
+                      amount: roundMoney2(catalogSalePrice * conversionFactor).toFixed(2),
+                  }),
+                  unit: warehouseUnit,
+              })
             : Number.isFinite(suggestedWh) && suggestedWh > 0
-              ? `Suggested list SAR ${suggestedWh.toFixed(2)} / ${warehouseUnit} (invoice default)`
+              ? t('hint.suggestedList', {
+                    amount: t('money.sar', { amount: suggestedWh.toFixed(2) }),
+                    unit: warehouseUnit,
+                })
               : '';
     const stockHint = [listHint, costHint].filter(Boolean).join(' · ');
 
@@ -698,7 +716,7 @@ const lastSaleMeta =
     hasPreviousSale && (saleDateRaw || buyerLabel)
         ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
         : catalogSalePrice > 0
-          ? 'Stock sales price'
+          ? t('hint.stockSalesPrice')
           : '';
 
 /** Workshop-side sellable qty cap (aligned with supplier stock-balances payload). */
@@ -706,7 +724,7 @@ const lastSaleMeta =
 
     return {
     id: catalogId ?? `row-${item.productName}-${item.sku || ''}`,
-    name: item.productName || 'Product',
+    name: item.productName || t('fallback.product'),
     sku: String(item.sku ?? item.barcode ?? '').trim(),
     price,
     unit: uom,
@@ -832,7 +850,7 @@ function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItem
             name:
                 normalizedLines[i]?.productName ||
                 row.item ||
-                'Product',
+                t('fallback.product'),
             requestedQty: qNum,
             availableQty: maxCap,
             unit: normalizedLines[i]?.unit || row.uom || 'pcs',
@@ -853,7 +871,7 @@ function lineUomOptions(line, inv) {
     return opts;
 }
 
-function formatLineUomConversionPreview(line, inv) {
+function formatLineUomConversionPreview(line, inv, t = (k, v) => ssiT('en', k, v)) {
     if (!inv) return '';
     const cf = Number(inv.conversionFactor) || 1;
     if (!(cf > 1)) return '';
@@ -865,18 +883,38 @@ function formatLineUomConversionPreview(line, inv) {
     if (isWarehouseUomLine(line, inv)) {
         const wsQty = roundMoney2(qty * cf);
         const wsPrice = cf > 0 ? roundMoney2(price / cf) : price;
-        return `${qty} ${wu} = ${wsQty} ${wsu} at workshop · SAR ${price.toFixed(2)}/${wu} → SAR ${wsPrice.toFixed(2)}/${wsu}`;
+        return t('hint.uomWhToWs', {
+            qty,
+            wu,
+            wsQty,
+            wsu,
+            price: t('money.sar', { amount: price.toFixed(2) }),
+            wsPrice: t('money.sar', { amount: wsPrice.toFixed(2) }),
+        });
     }
     const whQty = roundMoney2(qty / cf);
     const whPrice = roundMoney2(price * cf);
-    return `${qty} ${wsu} = ${whQty} ${wu} warehouse · SAR ${price.toFixed(2)}/${wsu} → SAR ${whPrice.toFixed(2)}/${wu}`;
+    return t('hint.uomWsToWh', {
+        qty,
+        wsu,
+        whQty,
+        wu,
+        price: t('money.sar', { amount: price.toFixed(2) }),
+        whPrice: t('money.sar', { amount: whPrice.toFixed(2) }),
+    });
 }
 
 function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export default function SupplierSalesInvoices() {
+export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => ssiT(locale, key, vars), [locale]);
+
     const [invoices, setInvoices] = useState([]);
     const [modalOpen, setModalOpen] = useState(false);
     const [invoiceModalMode, setInvoiceModalMode] = useState('create');
@@ -998,13 +1036,13 @@ export default function SupplierSalesInvoices() {
     const draftSaveDisabled = saveDisabledCommon;
     const issueButtonLabel = isEditingDraft
         ? isWalkInCustomer
-            ? 'Create Sale Invoice'
-            : 'Issue Sales Invoice'
+            ? t('btn.createSaleInvoice')
+            : t('btn.issueSalesInvoice')
         : invoiceModalMode === 'edit'
-          ? 'Update Invoice'
+          ? t('btn.updateInvoice')
           : isWalkInCustomer
-            ? 'Create Sale Invoice'
-            : 'Issue Sales Invoice';
+            ? t('btn.createSaleInvoice')
+            : t('btn.issueSalesInvoice');
     const showDraftSaveButton =
         invoiceModalMode === 'create' || isEditingDraft;
 
@@ -1192,8 +1230,8 @@ export default function SupplierSalesInvoices() {
             showInvoiceDiscountRow: invoiceDiscountSar > 0,
             invoiceDiscountSummaryLabel:
                 invoiceDiscountMode === 'percent'
-                    ? `Invoice discount (${invPctDisplayed}%):`
-                    : 'Invoice discount (fixed SAR):',
+                    ? t('summary.invDiscPct', { pct: invPctDisplayed })
+                    : t('summary.invDiscFixed'),
         };
     };
     const summary = getSummary();
@@ -1436,7 +1474,7 @@ export default function SupplierSalesInvoices() {
             }
             setDescription(
                 prefill.workshopPurchaseInvoiceNumber
-                    ? `Workshop order ${prefill.workshopPurchaseInvoiceNumber}`
+                    ? t('note.workshopOrder', { no: prefill.workshopPurchaseInvoiceNumber })
                     : '',
             );
         },
@@ -1491,11 +1529,11 @@ export default function SupplierSalesInvoices() {
         } catch (err) {
             console.error('List supplier invoices failed:', err);
             if (!silent) {
-                setListError(err?.message || 'Failed to load invoices.');
+                setListError(err?.message || t('err.loadInvoices'));
                 setInvoices([]);
                 setInvoiceListTotal(0);
             } else {
-                window.alert(err?.message || 'Failed to refresh invoices.');
+                window.alert(err?.message || t('err.refreshInvoices'));
             }
         } finally {
             if (!silent) setListLoading(false);
@@ -1516,15 +1554,15 @@ export default function SupplierSalesInvoices() {
 
         setSaveError('');
         if (!selectedCustomerKey || !selectedCustomer) {
-            setSaveError('Select a customer.');
+            setSaveError(t('err.selectCustomer'));
             return;
         }
         if (selectedCustomer.disabled) {
-            setSaveError('Selected customer is inactive.');
+            setSaveError(t('err.customerInactive'));
             return;
         }
         if (lineItems.length === 0) {
-            setSaveError('Add at least one line item.');
+            setSaveError(t('err.addLineItem'));
             return;
         }
         const normalizedLines = lineItems.map((line, idx) => {
@@ -1545,7 +1583,7 @@ export default function SupplierSalesInvoices() {
         if (isDraftSave) {
             const namedLine = normalizedLines.find((line) => line.productName);
             if (!namedLine) {
-                setSaveError('Add at least one line with an account or item name to save a draft.');
+                setSaveError(t('err.addLineDraft'));
                 return;
             }
         } else {
@@ -1554,7 +1592,7 @@ export default function SupplierSalesInvoices() {
             );
             if (invalidLine) {
                 setSaveError(
-                    `Line ${invalidLine.index + 1}: select an account (or enter item name), qty must be > 0, and price cannot be negative.`,
+                    t('err.lineInvalid', { n: invalidLine.index + 1 }),
                 );
                 return;
             }
@@ -1567,11 +1605,11 @@ export default function SupplierSalesInvoices() {
                 const detail = insufficientStock
                     .map(
                         (row) =>
-                            `• ${row.name}: ${row.requestedQty} ${row.unit} (available: ${row.availableQty} ${row.unit})`,
+                            t('err.stockLine', { name: row.name, requested: row.requestedQty, available: row.availableQty, unit: row.unit }),
                     )
                     .join('\n');
                 const proceed = window.confirm(
-                    `The following product(s) exceed available supplier stock:\n\n${detail}\n\nContinue anyway? Your stock inventory timeline will show a negative balance for these items.`,
+                    t('err.stockConfirm', { detail }),
                 );
                 if (!proceed) return;
             }
@@ -1719,7 +1757,7 @@ export default function SupplierSalesInvoices() {
             await loadInvoiceList();
         } catch (err) {
             console.error('Save supplier invoice failed:', err);
-            setSaveError(err?.message || 'Failed to save invoice.');
+            setSaveError(err?.message || t('err.saveInvoice'));
         } finally {
             setSavingAction(null);
         }
@@ -1735,7 +1773,7 @@ export default function SupplierSalesInvoices() {
             const res = await getSupplierInvoice(row.id);
             const inv = res?.invoice;
             if (!inv) {
-                setSaveError('Invoice not found.');
+                setSaveError(t('err.invoiceNotFound'));
                 return;
             }
             setEditingInvoiceStatus(inv.status || 'pending_payment');
@@ -1850,7 +1888,7 @@ export default function SupplierSalesInvoices() {
             );
         } catch (err) {
             console.error('Load invoice for edit failed:', err);
-            setSaveError(err?.message || 'Could not load invoice.');
+            setSaveError(err?.message || t('err.loadInvoice'));
         } finally {
             setEditInvoiceLoading(false);
         }
@@ -1865,7 +1903,7 @@ export default function SupplierSalesInvoices() {
             setViewPayload(res);
         } catch (err) {
             console.error('View invoice failed:', err);
-            setViewPayload({ error: err?.message || 'Failed to load invoice.' });
+            setViewPayload({ error: err?.message || t('err.viewInvoice') });
         } finally {
             setViewLoading(false);
         }
@@ -1891,19 +1929,19 @@ export default function SupplierSalesInvoices() {
             const res = await getSupplierInvoice(row.id);
             const inv = res?.invoice;
             if (!inv) {
-                throw new Error('Invoice not found.');
+                throw new Error(t('err.invoiceNotFound'));
             }
             flushSync(() => setSalesInvoicePdfExport(inv));
             await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
             await new Promise((r) => setTimeout(r, 180));
             const api = salesInvoicePdfRef.current;
             if (!api?.downloadPdf) {
-                throw new Error('Could not initialize invoice PDF.');
+                throw new Error(t('err.initPdf'));
             }
             await api.downloadPdf();
         } catch (err) {
             console.error('Download invoice failed:', err);
-            setListError(err?.message || 'Could not download invoice PDF.');
+            setListError(err?.message || t('err.downloadPdf'));
         } finally {
             flushSync(() => setSalesInvoicePdfExport(null));
             setSalesInvoicePdfBusy(false);
@@ -1912,16 +1950,16 @@ export default function SupplierSalesInvoices() {
 
     const handleDeleteInvoice = async (row) => {
         if (row.status !== 'pending_payment') {
-            window.alert('Only invoices with status pending_payment (no payments) can be deleted.');
+            window.alert(t('err.deleteOnlyPending'));
             return;
         }
-        if (!window.confirm(`Delete invoice ${row.invoiceNo}?`)) return;
+        if (!window.confirm(t('err.deleteConfirm', { no: row.invoiceNo }))) return;
         try {
             await deleteSupplierInvoice(row.id);
             await loadInvoiceList();
         } catch (err) {
             console.error('Delete invoice failed:', err);
-            window.alert(err?.message || 'Delete failed.');
+            window.alert(err?.message || t('err.deleteFailed'));
         }
     };
 
@@ -1934,7 +1972,7 @@ export default function SupplierSalesInvoices() {
         } catch (err) {
             console.error('Update payment status failed:', err);
             if (showAlert) {
-                window.alert(err?.message || 'Could not update payment status.');
+                window.alert(err?.message || t('err.updatePayment'));
             }
             throw err;
         } finally {
@@ -1979,7 +2017,7 @@ export default function SupplierSalesInvoices() {
             setReturnNotes('');
         } catch (err) {
             console.error('Open return modal failed:', err);
-            setReturnModalErr(err?.message || 'Could not load invoice for return.');
+            setReturnModalErr(err?.message || t('err.loadReturn'));
         } finally {
             setReturnModalLoading(false);
         }
@@ -1997,7 +2035,7 @@ export default function SupplierSalesInvoices() {
             if (!raw) continue;
             const q = Number(raw);
             if (!Number.isFinite(q) || q <= 0) {
-                setReturnModalErr(`Invalid qty for ${it.productName || 'line'}.`);
+                setReturnModalErr(t('err.invalidQty', { name: it.productName || t('fallback.line') }));
                 return;
             }
             const orig = Number(it.qty);
@@ -2005,9 +2043,11 @@ export default function SupplierSalesInvoices() {
             const remaining = Math.max(0, orig - already);
             if (q > remaining + 1e-6) {
                 setReturnModalErr(
-                    `Cannot return ${q} of "${it.productName}" — only ${remaining.toFixed(
-                        4,
-                    )} left on this invoice line.`,
+                    t('err.cannotReturn', {
+                        q,
+                        name: it.productName,
+                        left: remaining.toFixed(4),
+                    }),
                 );
                 return;
             }
@@ -2019,7 +2059,7 @@ export default function SupplierSalesInvoices() {
             });
         }
         if (!lines.length) {
-            setReturnModalErr('Enter a return quantity on at least one line.');
+            setReturnModalErr(t('err.enterReturnQty'));
             return;
         }
         setReturnSubmitting(true);
@@ -2034,14 +2074,14 @@ export default function SupplierSalesInvoices() {
             closeReturnModal();
         } catch (err) {
             console.error('Create return failed:', err);
-            setReturnModalErr(err?.message || 'Could not save return.');
+            setReturnModalErr(err?.message || t('err.saveReturn'));
         } finally {
             setReturnSubmitting(false);
         }
     };
 
     const goRecordPaymentInHub = (inv) => {
-        const prefill = buildTransactionHubReceiptPrefill(inv);
+        const prefill = buildTransactionHubReceiptPrefill(inv, t);
         try {
             sessionStorage.setItem(
                 TRANSACTION_HUB_RECEIPT_PREFILL_KEY,
@@ -2066,7 +2106,7 @@ export default function SupplierSalesInvoices() {
         try {
             const res = await listSupplierCashBankAccounts();
             const list = extractSupplierAccountsPayload(res)
-                .map(mapSupplierCashBankAccountForPickers)
+                .map((raw) => mapSupplierCashBankAccountForPickers(raw, t))
                 .filter(Boolean);
             setMarkPaidAccounts(list);
             if (invoiceAcc) {
@@ -2123,11 +2163,11 @@ export default function SupplierSalesInvoices() {
             accountLabel = String(ac?.cashBankLabel || ac?.optionLabel || ac?.nameBase || '').trim();
         }
         if (!methodTrim) {
-            setMarkPaidModalErr('Select a payment method.');
+            setMarkPaidModalErr(t('err.selectPaymentMethod'));
             return;
         }
         if (!accountLabel) {
-            setMarkPaidModalErr('Select receiving account or enter a custom account name.');
+            setMarkPaidModalErr(t('err.selectReceivingAccount'));
             return;
         }
         setMarkPaidModalBusy(true);
@@ -2144,7 +2184,7 @@ export default function SupplierSalesInvoices() {
             );
             setMarkPaidModalRow(null);
         } catch (err) {
-            setMarkPaidModalErr(err?.message || 'Could not record payment.');
+            setMarkPaidModalErr(err?.message || t('err.recordPayment'));
         } finally {
             setMarkPaidModalBusy(false);
         }
@@ -2475,8 +2515,7 @@ export default function SupplierSalesInvoices() {
 
     useEffect(() => {
         let cancelled = false;
-        const branchesErrDefault =
-            'Could not load workshop branches. Check that the app points at your backend (see api.js BASE_URL) and you are logged in as a supplier user.';
+        const branchesErrDefault = t('err.customerBranches');
 
         const load = async () => {
             setListLoading(true);
@@ -2500,7 +2539,7 @@ export default function SupplierSalesInvoices() {
                 if (cancelled) return;
 
                 const stockItems = Array.isArray(stockRes?.items)
-                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw, t))
                     : [];
 
                 let branchesErr = '';
@@ -2526,7 +2565,7 @@ export default function SupplierSalesInvoices() {
                 setCustomerOptions(customers);
 
                 if (invRes && invRes.__error) {
-                    setListError(invRes.__error?.message || 'Failed to load invoices.');
+                    setListError(invRes.__error?.message || t('err.loadInvoices'));
                     setInvoices([]);
                     setInvoiceListTotal(0);
                     setInvoiceListPage(1);
@@ -2539,7 +2578,7 @@ export default function SupplierSalesInvoices() {
             } catch (err) {
                 console.error('Supplier sales invoices bootstrap failed:', err);
                 if (!cancelled) {
-                    setListError(err?.message || 'Failed to load.');
+                    setListError(err?.message || t('err.loadFailed'));
                     setInvoices([]);
                     setInvoiceListTotal(0);
                     setInvoiceListPage(1);
@@ -2572,7 +2611,7 @@ export default function SupplierSalesInvoices() {
                 const stockRes = await getSupplierInventoryStockBalances(params);
                 if (cancelled) return;
                 const normalized = Array.isArray(stockRes?.items)
-                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw, t))
                     : [];
                 setInventoryItems((prev) => mergeInventoryLists(normalized, INVENTORY_ITEMS));
                 setLineItems((prev) =>
@@ -2650,7 +2689,7 @@ export default function SupplierSalesInvoices() {
                 const stockRes = await getSupplierInventoryStockBalances(params);
                 if (cancelled) return;
                 const rows = Array.isArray(stockRes?.items)
-                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw))
+                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw, t))
                     : [];
                 setCatalogSearchRemote(rows);
             } catch (err) {
@@ -2902,38 +2941,38 @@ export default function SupplierSalesInvoices() {
             <>
             <header className="mgr-si-header">
                 <div className="mgr-si-header-top">
-                    <div className="mgr-si-breadcrumb">Sales Invoices (AR)</div>
+                    <div className="mgr-si-breadcrumb">{t('page.breadcrumb')}</div>
                     <div className="mgr-si-toolbar-actions">
                         <button
                             type="button"
                             className="mgr-si-btn-new"
                             onClick={openNewInvoiceModal}
                         >
-                            <Plus size={16} /> New Invoice
+                            <Plus size={16} /> {t('btn.newInvoice')}
                         </button>
                     </div>
                 </div>
-                <h2 className="mgr-si-title">Sales Invoices (AR)</h2>
+                <h2 className="mgr-si-title">{t('page.title')}</h2>
                 <p className="mgr-si-subtitle">
-                    Warehouse → workshop invoices. Creates <strong>Accounts Receivable</strong> for you and a{' '}
-                    <strong>Purchase Invoice</strong> on the workshop side. Auto-posted to GL on save
-                    (AR/Sales/VAT/COGS).
+                    {t('page.subtitle.before')}{' '}
+                    <strong>{t('page.subtitle.ar')}</strong> {t('page.subtitle.mid')}{' '}
+                    <strong>{t('page.subtitle.pi')}</strong> {t('page.subtitle.after')}
                 </p>
             </header>
 
             <div className="mgr-si-toolbar">
                 <div className="mgr-si-filter-bar">
-                    <span className="mgr-si-filter-label">Where</span>
+                    <span className="mgr-si-filter-label">{t('filter.where')}</span>
                     <select
                         className="mgr-si-filter-select"
                         value={invoiceListFilter}
                         onChange={(e) => setInvoiceListFilter(e.target.value)}
-                        aria-label="Filter invoices"
+                        aria-label={t('filter.aria')}
                     >
-                        <option value="all">All invoices</option>
-                        <option value="unpaid">Balance due is greater than 0</option>
-                        <option value="overdue">Balance due is overdue</option>
-                        <option value="paid">Balance due is 0 (paid in full)</option>
+                        <option value="all">{t('filter.all')}</option>
+                        <option value="unpaid">{t('filter.unpaid')}</option>
+                        <option value="overdue">{t('filter.overdue')}</option>
+                        <option value="paid">{t('filter.paid')}</option>
                     </select>
                 </div>
                 <div className="mgr-si-search-wrap">
@@ -2942,10 +2981,10 @@ export default function SupplierSalesInvoices() {
                         <input
                             type="search"
                             className="mgr-si-search-input"
-                            placeholder="Search reference, customer, description…"
+                            placeholder={t('search.placeholder')}
                             value={invoiceListSearch}
                             onChange={(e) => setInvoiceListSearch(e.target.value)}
-                            aria-label="Search sales invoices"
+                            aria-label={t('search.aria')}
                         />
                     </div>
                     <button
@@ -2953,7 +2992,7 @@ export default function SupplierSalesInvoices() {
                         className="mgr-si-search-btn"
                         onClick={() => void loadInvoiceList()}
                     >
-                        Search
+                        {t('btn.search')}
                     </button>
                 </div>
             </div>
@@ -2973,15 +3012,15 @@ export default function SupplierSalesInvoices() {
                             <table className="mgr-si-table">
                                 <thead>
                                     <tr className="table-header-row">
-                                        <th className="table-th">Issue date</th>
-                                        <th className="table-th">Due date</th>
-                                        <th className="table-th">Reference</th>
-                                        <th className="table-th">Customer</th>
-                                        <th className="table-th">Description</th>
-                                        <th className="table-th">Invoice Amount</th>
-                                        <th className="table-th">Balance due</th>
-                                        <th className="table-th">Status</th>
-                                        <th className="table-th mgr-si-th-actions">Actions</th>
+                                        <th className="table-th">{t('th.issueDate')}</th>
+                                        <th className="table-th">{t('th.dueDate')}</th>
+                                        <th className="table-th">{t('th.reference')}</th>
+                                        <th className="table-th">{t('th.customer')}</th>
+                                        <th className="table-th">{t('th.description')}</th>
+                                        <th className="table-th">{t('th.invoiceAmount')}</th>
+                                        <th className="table-th">{t('th.balanceDue')}</th>
+                                        <th className="table-th">{t('th.status')}</th>
+                                        <th className="table-th mgr-si-th-actions">{t('th.actions')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -2998,8 +3037,8 @@ export default function SupplierSalesInvoices() {
                                                 />
                                                 <div style={{ fontWeight: 700, marginBottom: 8 }}>
                                                     {list.length === 0
-                                                        ? 'No sales invoices yet'
-                                                        : 'No invoices match your search or filter'}
+                                                        ? t('empty.noneYet')
+                                                        : t('empty.noMatch')}
                                                 </div>
                                                 {list.length === 0 ? (
                                                     <>
@@ -3009,14 +3048,14 @@ export default function SupplierSalesInvoices() {
                                                                 marginBottom: 16,
                                                             }}
                                                         >
-                                                            Issue a warehouse → workshop invoice; it will appear here.
+                                                            {t('empty.hint')}
                                                         </div>
                                                         <button
                                                             type="button"
                                                             className="mgr-si-btn-new"
                                                             onClick={openNewInvoiceModal}
                                                         >
-                                                            <Plus size={15} /> Create first invoice
+                                                            <Plus size={15} /> {t('btn.createFirst')}
                                                         </button>
                                                     </>
                                                 ) : null}
@@ -3027,8 +3066,8 @@ export default function SupplierSalesInvoices() {
                                             const isDraft = inv.status === 'draft';
                                             const canMutate = inv.status === 'pending_payment';
                                             const canEdit = isDraft || canMutate;
-                                            const mgrStatus = salesInvoiceMgrStatus(inv);
-                                            const arSettle = salesInvoiceArSettlementLabel(inv);
+                                            const mgrStatus = salesInvoiceMgrStatus(inv, t);
+                                            const arSettle = salesInvoiceArSettlementLabel(inv, t);
                                             const refLabel = inv.invoiceNo || inv.id;
                                             return (
                                                 <tr key={inv.id} className="table-row">
@@ -3043,7 +3082,7 @@ export default function SupplierSalesInvoices() {
                                                             type="button"
                                                             className="mgr-si-ref-link"
                                                             onClick={() => handleViewInvoice(inv)}
-                                                            title="View invoice"
+                                                            title={t('title.viewInvoice')}
                                                         >
                                                             {refLabel}
                                                         </button>
@@ -3063,23 +3102,26 @@ export default function SupplierSalesInvoices() {
                                                             : '—'}
                                                     </td>
                                                     <td className="table-cell mgr-si-cell-amount">
-                                                        SAR {salesInvoiceSarFmt(inv.amount)}
+                                                        {t('money.sar', { amount: salesInvoiceSarFmt(inv.amount) })}
                                                     </td>
                                                     <td className="table-cell mgr-si-cell-balance">
-                                                        <span>SAR {salesInvoiceSarFmt(inv.balance)}</span>
+                                                        <span>{t('money.sar', { amount: salesInvoiceSarFmt(inv.balance) })}</span>
                                                         {Number(inv.returnsTotal || 0) > 0 ? (
                                                             <div className="mgr-si-returns-note">
-                                                                − SAR{' '}
-                                                                {salesInvoiceSarFmt(inv.returnsTotal)} returns
+                                                                {t('returns.note', {
+                                                                    amount: t('money.sar', {
+                                                                        amount: salesInvoiceSarFmt(inv.returnsTotal),
+                                                                    }),
+                                                                })}
                                                             </div>
                                                         ) : null}
-                                                        {arSettle.text !== 'Paid' && canMutate ? (
+                                                        {arSettle.code !== 'paid' && canMutate ? (
                                                             <button
                                                                 type="button"
                                                                 className="mgr-si-record-pay"
                                                                 onClick={() => goRecordPaymentInHub(inv)}
                                                             >
-                                                                Record payment
+                                                                {t('btn.recordPayment')}
                                                             </button>
                                                         ) : null}
                                                     </td>
@@ -3088,23 +3130,23 @@ export default function SupplierSalesInvoices() {
                                                     </td>
                                                     <td className="table-cell mgr-si-cell-actions">
                                                         <RowActionsMenu
-                                                            ariaLabel={`Actions for invoice ${inv.invoiceNo || inv.id}`}
+                                                            ariaLabel={t('actions.aria', { no: inv.invoiceNo || inv.id })}
                                                             items={[
                                                                 {
-                                                                    label: 'View',
+                                                                    label: t('action.view'),
                                                                     onClick: () => handleViewInvoice(inv),
                                                                 },
                                                                 {
-                                                                    label: 'Download PDF',
+                                                                    label: t('action.downloadPdf'),
                                                                     onClick: () => handleDownloadInvoice(inv),
                                                                     disabled: salesInvoicePdfBusy,
                                                                 },
                                                                 {
-                                                                    label: 'Record return / credit',
+                                                                    label: t('action.recordReturn'),
                                                                     onClick: () => openReturnModal(inv),
                                                                 },
                                                                 {
-                                                                    label: isDraft ? 'Edit draft' : 'Edit',
+                                                                    label: isDraft ? t('action.editDraft') : t('action.edit'),
                                                                     onClick: () => openEditInvoice(inv),
                                                                     disabled: !canEdit,
                                                                 },
@@ -3127,12 +3169,19 @@ export default function SupplierSalesInvoices() {
                                             loadInvoiceList({ page: invoiceListPage - 1 })
                                         }
                                     >
-                                        Previous
+                                        {t('btn.previous')}
                                     </button>
                                     <span className="mgr-si-pagination-meta">
-                                        Page {invoiceListPage} of {invoiceListTotalPages}
+                                        {t('page.meta', {
+                                            page: invoiceListPage,
+                                            pages: invoiceListTotalPages,
+                                        })}
                                         {invoiceListTotal > 0
-                                            ? ` · ${invoiceRangeStart}–${invoiceRangeEnd} of ${invoiceListTotal}`
+                                            ? t('page.range', {
+                                                  start: invoiceRangeStart,
+                                                  end: invoiceRangeEnd,
+                                                  total: invoiceListTotal,
+                                              })
                                             : ''}
                                     </span>
                                     <button
@@ -3146,7 +3195,7 @@ export default function SupplierSalesInvoices() {
                                             loadInvoiceList({ page: invoiceListPage + 1 })
                                         }
                                     >
-                                        Next
+                                        {t('btn.next')}
                                     </button>
                                 </div>
                             ) : null}
@@ -3162,23 +3211,23 @@ export default function SupplierSalesInvoices() {
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Sales Invoices ›{' '}
+                                    {t('form.crumb.sales')}{' '}
                                     <span className="pi-b-active">
                                         {invoiceModalMode === 'edit'
                                             ? editingInvoiceStatus === 'draft'
-                                                ? 'Draft'
-                                                : 'Edit'
-                                            : 'New'}
+                                                ? t('form.crumb.draft')
+                                                : t('form.crumb.edit')
+                                            : t('form.crumb.new')}
                                     </span>
                                 </span>
                                 <div className="pi-title-main">
                                     <FileText size={24} />
-                                    <span>Sales Invoice (Warehouse — Workshop)</span>
+                                    <span>{t('form.title')}</span>
                                 </div>
                             </div>
                         }
                         onBack={closeInvoiceModal}
-                        backLabel="Back to Sales Invoices"
+                        backLabel={t('form.back')}
                         footer={
                             <div className="pi-modal-footer">
                                 <div className="pi-footer-left">
@@ -3187,7 +3236,7 @@ export default function SupplierSalesInvoices() {
                                         className="btn-pi-cancel"
                                         onClick={closeInvoiceModal}
                                     >
-                                        Cancel
+                                        {t('btn.cancel')}
                                     </button>
                                 </div>
                                 <div className="pi-footer-right">
@@ -3215,7 +3264,7 @@ export default function SupplierSalesInvoices() {
                                             onClick={() => void handleSaveInvoice('draft')}
                                             disabled={draftSaveDisabled || savingAction === 'issue'}
                                         >
-                                            {savingAction === 'draft' ? 'Saving…' : 'Save as Draft'}
+                                            {savingAction === 'draft' ? t('btn.saving') : t('btn.saveDraft')}
                                         </button>
                                     ) : null}
                                     <button
@@ -3224,7 +3273,7 @@ export default function SupplierSalesInvoices() {
                                         onClick={() => void handleSaveInvoice('issue')}
                                         disabled={issueSaveDisabled || savingAction === 'draft'}
                                     >
-                                        {savingAction === 'issue' ? 'Saving…' : issueButtonLabel}
+                                        {savingAction === 'issue' ? t('btn.saving') : issueButtonLabel}
                                     </button>
                                 </div>
                             </div>
@@ -3247,8 +3296,8 @@ export default function SupplierSalesInvoices() {
                                         }}
                                     >
                                         {invoiceModalMode === 'edit'
-                                            ? 'Loading invoice…'
-                                            : 'Loading warehouse catalog and branches…'}
+                                            ? t('form.loadingInvoice')
+                                            : t('form.loadingCatalog')}
                                     </p>
                                 </div>
                             ) : (
@@ -3283,25 +3332,26 @@ export default function SupplierSalesInvoices() {
                             >
                                 {isWalkInCustomer ? (
                                     <>
-                                        Walk-in / off-platform customer — this invoice stays in{' '}
-                                        <strong>your supplier portal only</strong> (no workshop portal
-                                        or purchase invoice on the customer side). AR posts to the{' '}
-                                        <strong>Non-Affiliated Customers</strong> control account in
-                                        Chart of Accounts.
+                                        {t('banner.walkIn.before')}{' '}
+                                        <strong>{t('banner.walkIn.strong')}</strong>{' '}
+                                        {t('banner.walkIn.mid')}{' '}
+                                        <strong>{t('banner.walkIn.ar')}</strong>{' '}
+                                        {t('banner.walkIn.after')}
                                     </>
                                 ) : (
                                     <>
-                                        This creates an <strong>Accounts Receivable</strong> for you
-                                        (supplier). It will also create a matching{' '}
-                                        <strong>Purchase Invoice</strong> on the workshop side and
-                                        update stock levels on both ends.
+                                        {t('banner.affiliated.before')}{' '}
+                                        <strong>{t('banner.affiliated.ar')}</strong>{' '}
+                                        {t('banner.affiliated.mid')}{' '}
+                                        <strong>{t('banner.affiliated.pi')}</strong>{' '}
+                                        {t('banner.affiliated.after')}
                                     </>
                                 )}
                             </div>
 
                             <div className="pi-header-grid">
                                 <div className="pi-field">
-                                    <label>Issue date</label>
+                                    <label>{t('label.issueDate')}</label>
                                     <div className="pi-input-with-icon">
                                         <input
                                             type="date"
@@ -3312,7 +3362,7 @@ export default function SupplierSalesInvoices() {
                                     </div>
                                 </div>
                                 <div className="pi-field">
-                                    <label>Due date</label>
+                                    <label>{t('label.dueDate')}</label>
                                     <div
                                         className={`pi-due-grid ${
                                             dueDateType === 'EOM' ? 'pi-due-eom' : ''
@@ -3322,9 +3372,9 @@ export default function SupplierSalesInvoices() {
                                             value={dueDateType}
                                             onChange={(e) => setDueDateType(e.target.value)}
                                         >
-                                            <option value="Net">Net</option>
-                                            <option value="Custom">Custom</option>
-                                            <option value="EOM">EOM</option>
+                                            <option value="Net">{t('opt.net')}</option>
+                                            <option value="Custom">{t('opt.custom')}</option>
+                                            <option value="EOM">{t('opt.eom')}</option>
                                         </select>
                                         {dueDateType === 'Net' && (
                                             <div className="pi-days-input">
@@ -3333,7 +3383,7 @@ export default function SupplierSalesInvoices() {
                                                     value={netDays}
                                                     onChange={(e) => setNetDays(e.target.value)}
                                                 />
-                                                <span>days</span>
+                                                <span>{t('label.days')}</span>
                                             </div>
                                         )}
                                         {dueDateType === 'Custom' && (
@@ -3346,13 +3396,13 @@ export default function SupplierSalesInvoices() {
                                             </div>
                                         )}
                                     </div>
-                                    <span className="pi-sub-label">Due: {calculatedDueDate}</span>
+                                    <span className="pi-sub-label">{t('label.duePrefix')} {calculatedDueDate}</span>
                                 </div>
                                 <InvoiceRefField
                                     label={
-                                        invoiceModalMode === 'edit' ? 'Invoice #' : 'Ref # (Optional)'
+                                        invoiceModalMode === 'edit' ? t('label.invoiceNo') : t('label.refOptional')
                                     }
-                                    placeholder="Ref #"
+                                    placeholder={t('label.refPlaceholder')}
                                     value={refNo}
                                     onChange={setRefNo}
                                     readOnly={invoiceModalMode === 'edit'}
@@ -3364,7 +3414,7 @@ export default function SupplierSalesInvoices() {
 
                             <div className="pi-header-grid">
                                 <div className="pi-field">
-                                    <label>Customer *</label>
+                                    <label>{t('label.customerReq')}</label>
                                     <div
                                         ref={customerSearchWrapRef}
                                         className="pi-search-box-wrapper"
@@ -3374,7 +3424,7 @@ export default function SupplierSalesInvoices() {
                                             <Search size={16} />
                                             <input
                                                 type="text"
-                                                placeholder="Search affiliated or non-affiliated customer…"
+                                                placeholder={t('ph.customerSearch')}
                                                 value={
                                                     customerPickerOpen
                                                         ? customerSearchQuery
@@ -3423,7 +3473,7 @@ export default function SupplierSalesInvoices() {
                                                                                     '#f8fafc',
                                                                             }}
                                                                         >
-                                                                            {customer.group}
+                                                                            {localizeCustomerGroup(customer.group, t)}
                                                                         </div>
                                                                     ) : null}
                                                                     <div
@@ -3476,8 +3526,8 @@ export default function SupplierSalesInvoices() {
                                                         }}
                                                     >
                                                         {customerOptions.length === 0
-                                                            ? 'No customers loaded. Add affiliated workshops or non-affiliated customers first.'
-                                                            : 'No matching customers.'}
+                                                            ? t('empty.noCustomersLoaded')
+                                                            : t('empty.noMatchingCustomers')}
                                                     </div>
                                                 )}
                                             </div>
@@ -3498,19 +3548,17 @@ export default function SupplierSalesInvoices() {
                                             className="pi-sub-label"
                                             style={{ color: '#B45309', marginTop: 6, display: 'block' }}
                                         >
-                                            No customers found. Add workshops under Affiliated Filter
-                                            workshops or customers under Non-affiliated customers /
-                                            workshops.
+                                            {t('empty.noCustomersFound')}
                                         </span>
                                     ) : null}
                                 </div>
                                 <div className="pi-field">
-                                    <label>Cash / Bank Account</label>
+                                    <label>{t('label.cashBank')}</label>
                                     <select
                                         value={cashAccount}
                                         onChange={(e) => setCashAccount(e.target.value)}
                                     >
-                                        <option value="">Select account</option>
+                                        <option value="">{t('opt.selectAccount')}</option>
                                         {CASH_ACCOUNTS.map((a) => (
                                             <option key={a} value={a}>
                                                 {a}
@@ -3521,10 +3569,10 @@ export default function SupplierSalesInvoices() {
                             </div>
 
                             <div className="pi-field pi-full-width">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <input
                                     type="text"
-                                    placeholder="Invoice description (optional)"
+                                    placeholder={t('ph.invoiceDesc')}
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
                                 />
@@ -3536,13 +3584,13 @@ export default function SupplierSalesInvoices() {
                                     style={{ gridTemplateColumns: getGridColumns() }}
                                 >
                                     {showLineNum && <div className="pi-col-hash">#</div>}
-                                    <div className="pi-col-item">Item</div>
-                                    <div className="pi-col-acc">Account</div>
-                                    {showDesc && <div className="pi-col-desc">Description</div>}
-                                    <div className="pi-col-uom">UOM</div>
-                                    <div className="pi-col-qty">Qty</div>
+                                    <div className="pi-col-item">{t('label.item')}</div>
+                                    <div className="pi-col-acc">{t('label.account')}</div>
+                                    {showDesc && <div className="pi-col-desc">{t('label.description')}</div>}
+                                    <div className="pi-col-uom">{t('label.uom')}</div>
+                                    <div className="pi-col-qty">{t('label.qty')}</div>
                                     <div className="pi-col-price">
-                                        Unit price
+                                        {t('label.unitPrice')}
                                         {amountsTaxInclusive ? (
                                             <span
                                                 style={{
@@ -3552,16 +3600,16 @@ export default function SupplierSalesInvoices() {
                                                     color: '#64748b',
                                                 }}
                                             >
-                                                (incl. VAT)
+                                                {t('label.inclVat')}
                                             </span>
                                         ) : null}
                                     </div>
-                                    {showDiscount && <div className="pi-col-disc">Discount</div>}
-                                    <div className="pi-col-total">Total</div>
-                                    <div className="pi-col-tax">Tax Code</div>
-                                    <div className="pi-col-tamt">Tax Amt</div>
-                                    <div className="pi-col-total">Grand Total</div>
-                                    <div className="pi-col-total">Last Sale Price</div>
+                                    {showDiscount && <div className="pi-col-disc">{t('label.discount')}</div>}
+                                    <div className="pi-col-total">{t('label.total')}</div>
+                                    <div className="pi-col-tax">{t('label.taxCode')}</div>
+                                    <div className="pi-col-tamt">{t('label.taxAmt')}</div>
+                                    <div className="pi-col-total">{t('label.grandTotalCol')}</div>
+                                    <div className="pi-col-total">{t('label.lastSalePrice')}</div>
                                     <div aria-hidden />
                                 </div>
 
@@ -3578,6 +3626,7 @@ export default function SupplierSalesInvoices() {
                                     const conversionPreview = formatLineUomConversionPreview(
                                         line,
                                         capsRow,
+                                        t,
                                     );
                                     const lineQtyNum =
                                         parseFloat(String(line.qty).replace(',', '.')) || 0;
@@ -3641,7 +3690,7 @@ export default function SupplierSalesInvoices() {
                                                                 : (line.item ??
                                                                   '')
                                                         }
-                                                        placeholder="Item (optional)…"
+                                                        placeholder={t('ph.itemOptional')}
                                                         onFocus={() => {
                                                             activateLineItemField(line);
                                                         }}
@@ -3676,8 +3725,8 @@ export default function SupplierSalesInvoices() {
                                                     />
                                                     <button
                                                         type="button"
-                                                        title="Show item list"
-                                                        aria-label="Open item list"
+                                                        title={t('title.showItemList')}
+                                                        aria-label={t('aria.openItemList')}
                                                         onMouseDown={(e) =>
                                                             e.preventDefault()
                                                         }
@@ -3783,7 +3832,7 @@ export default function SupplierSalesInvoices() {
                                                                                     >
                                                                                         <span className="pi-item-type">
                                                                                             {invItem.itemType ||
-                                                                                                'Product'}
+                                                                                                t('fallback.product')}
                                                                                         </span>
                                                                                         {invItem.unit ? (
                                                                                             <span>
@@ -3831,10 +3880,10 @@ export default function SupplierSalesInvoices() {
                                                                 >
                                                                     {inventoryItems.length ===
                                                                     0
-                                                                        ? 'No products loaded.'
+                                                                        ? t('empty.noProductsLoaded')
                                                                         : itemPickerFilter.trim()
-                                                                          ? 'No matching products. Try SKU or more of the product name.'
-                                                                          : 'No matching products.'}
+                                                                          ? t('empty.noMatchingProductsSku')
+                                                                          : t('empty.noMatchingProducts')}
                                                                 </div>
                                                             );
                                                         })()}
@@ -3883,7 +3932,7 @@ export default function SupplierSalesInvoices() {
                                                     type="text"
                                                     value={line.description ?? ''}
                                                     className="pi-row-input"
-                                                    placeholder="Description"
+                                                    placeholder={t('ph.description')}
                                                     ref={(el) => {
                                                         lineFieldRefs.current[
                                                             `${line.id}:description`
@@ -3941,7 +3990,7 @@ export default function SupplierSalesInvoices() {
                                                 <input
                                                     type="text"
                                                     className="pi-row-input"
-                                                    placeholder="UOM"
+                                                    placeholder={t('ph.uom')}
                                                     value={line.uom ?? ''}
                                                     ref={(el) => {
                                                         lineFieldRefs.current[`${line.id}:uom`] = el;
@@ -3970,16 +4019,22 @@ export default function SupplierSalesInvoices() {
                                                 aria-label={
                                                     maxQtyCap != null &&
                                                     Number.isFinite(maxQtyCap)
-                                                        ? `Quantity. Available ${maxQtyCap} ${line.uom || 'pcs'} (supplier stock balance).`
-                                                        : 'Quantity'
+                                                        ? t('qty.ariaAvailable', {
+                                                              cap: maxQtyCap,
+                                                              uom: line.uom || 'pcs',
+                                                          })
+                                                        : t('qty.ariaDefault')
                                                 }
                                                 value={line.qty}
                                                 title={
                                                     maxQtyCap != null &&
                                                     Number.isFinite(maxQtyCap)
                                                         ? exceedsStock
-                                                            ? `Exceeds stock (${maxQtyCap} ${line.uom || 'pcs'} available) — confirm on save`
-                                                            : `${maxQtyCap} ${line.uom || 'pcs'} available — supplier stock`
+                                                            ? t('qty.exceedsTitle', {
+                                                                  cap: maxQtyCap,
+                                                                  uom: line.uom || 'pcs',
+                                                              })
+                                                            : t('qty.availableStock', { cap: maxQtyCap, uom: line.uom || 'pcs' })
                                                         : undefined
                                                 }
                                                 className="pi-row-input-num pi-math-input"
@@ -4207,10 +4262,10 @@ export default function SupplierSalesInvoices() {
                                             </select>
                                         </div>
                                         <div className="pi-col-tamt">
-                                            SAR {line.taxAmt}
+                                            {t('money.sar', { amount: line.taxAmt })}
                                         </div>
                                         <div className="pi-col-total">
-                                            SAR {line.totalFinal}
+                                            {t('money.sar', { amount: line.totalFinal })}
                                         </div>
                                         <div
                                             className="pi-col-total"
@@ -4249,7 +4304,7 @@ export default function SupplierSalesInvoices() {
                                                                     fontWeight: 500,
                                                                 }}
                                                             >
-                                                                Loading…
+                                                                {t('loading')}
                                                             </span>
                                                         </div>
                                                     );
@@ -4269,10 +4324,11 @@ export default function SupplierSalesInvoices() {
                                                         }}
                                                     >
                                                         <span>
-                                                            SAR{' '}
-                                                            {Number(ls.price).toLocaleString(undefined, {
-                                                                minimumFractionDigits: 2,
-                                                                maximumFractionDigits: 4,
+                                                            {t('money.sar', {
+                                                                amount: Number(ls.price).toLocaleString(undefined, {
+                                                                    minimumFractionDigits: 2,
+                                                                    maximumFractionDigits: 4,
+                                                                }),
                                                             })}
                                                         </span>
                                                         {ls.meta ? (
@@ -4296,7 +4352,7 @@ export default function SupplierSalesInvoices() {
                                                             fontWeight: 500,
                                                         }}
                                                     >
-                                                        No previous sale or stock sales price set
+                                                        {t('empty.noPreviousSale')}
                                                     </span>
                                                 );
                                             })()}
@@ -4310,8 +4366,8 @@ export default function SupplierSalesInvoices() {
                                         >
                                             <button
                                                 type="button"
-                                                title="Remove line"
-                                                aria-label="Remove line"
+                                                title={t('title.removeLine')}
+                                                aria-label={t('aria.removeLine')}
                                                 onClick={() =>
                                                     removeLineItem(line.id)
                                                 }
@@ -4342,7 +4398,7 @@ export default function SupplierSalesInvoices() {
                                             <Search size={16} />
                                             <input
                                                 type="text"
-                                                placeholder="Search product to add"
+                                                placeholder={t('ph.searchProduct')}
                                                 value={searchQuery}
                                                 onChange={(e) =>
                                                     applySearchQuery(e.target.value)
@@ -4424,7 +4480,7 @@ export default function SupplierSalesInvoices() {
                                                                 </div>
                                                                 <div className="pi-price-unit">
                                                                     {item.unit
-                                                                        ? `per ${item.unit}`
+                                                                        ? t('perUnit', { unit: item.unit })
                                                                         : ' '}
                                                                 </div>
                                                             </div>
@@ -4439,10 +4495,10 @@ export default function SupplierSalesInvoices() {
                                                         }}
                                                     >
                                                         {inventoryItems.length === 0
-                                                            ? 'No products loaded. Try again later or use “Add line” and type manually.'
+                                                            ? t('empty.noProductsTryAddLine')
                                                             : searchQuery.trim()
-                                                              ? 'No matching products. Try SKU, more letters, or check the product is active in your catalog.'
-                                                              : 'No products available.'}
+                                                              ? t('empty.noMatchingProductsActive')
+                                                              : t('empty.noProductsAvailable')}
                                                     </div>
                                                 )}
                                             </div>
@@ -4453,13 +4509,11 @@ export default function SupplierSalesInvoices() {
                                         className="btn-add-line"
                                         onClick={addEmptyLine}
                                     >
-                                        <Plus size={16} /> Add line
+                                        <Plus size={16} /> {t('btn.addLine')}
                                     </button>
                                 </div>
                                 <div className="pi-hint">
-                                    <Zap size={14} /> Tip: ↑ ↓ arrows, Enter to select product on the
-                                    same line. Tab moves across fields; Tab on the last field adds a
-                                    new line. Price fields support math (e.g. 120*2).
+                                    <Zap size={14} /> {t('tip.keyboard')}
                                 </div>
                             </div>
 
@@ -4472,7 +4526,7 @@ export default function SupplierSalesInvoices() {
                                             setShowLineNum(e.target.checked)
                                         }
                                     />{' '}
-                                    <span>Column — Line number</span>
+                                    <span>{t('col.lineNumber')}</span>
                                 </label>
                                 <label className="pi-checkbox">
                                     <input
@@ -4482,7 +4536,7 @@ export default function SupplierSalesInvoices() {
                                             setShowDesc(e.target.checked)
                                         }
                                     />{' '}
-                                    <span>Column — Description</span>
+                                    <span>{t('col.description')}</span>
                                 </label>
                                 <label className="pi-checkbox">
                                     <input
@@ -4492,7 +4546,7 @@ export default function SupplierSalesInvoices() {
                                             setShowDiscount(e.target.checked)
                                         }
                                     />{' '}
-                                    <span>Column — Discount</span>
+                                    <span>{t('col.discount')}</span>
                                 </label>
                                 <label className="pi-checkbox">
                                     <input
@@ -4504,14 +4558,14 @@ export default function SupplierSalesInvoices() {
                                             )
                                         }
                                     />{' '}
-                                    <span>Amounts are tax inclusive</span>
+                                    <span>{t('amounts.taxInclusive')}</span>
                                 </label>
                             </div>
 
                             <div className="pi-footer-grid">
                                 <div className="pi-footer-column">
                                     <div className="pi-field-inline">
-                                        <label>Freight / Other Charges (SAR)</label>
+                                        <label>{t('label.freight')}</label>
                                         <input
                                             type="text"
                                             value={freightCharges}
@@ -4521,7 +4575,7 @@ export default function SupplierSalesInvoices() {
                                         />
                                     </div>
                                     <div className="pi-field-inline">
-                                        <label>Invoice Discount</label>
+                                        <label>{t('label.invoiceDiscount')}</label>
                                         <div className="pi-discount-group">
                                             <input
                                                 type="text"
@@ -4541,7 +4595,7 @@ export default function SupplierSalesInvoices() {
                                                 }
                                             >
                                                 <option value="fixed_sar">
-                                                    Fixed (SAR)
+                                                    {t('opt.fixedSar')}
                                                 </option>
                                                 <option value="percent">
                                                     %
@@ -4550,9 +4604,9 @@ export default function SupplierSalesInvoices() {
                                         </div>
                                     </div>
                                     <div className="pi-field pi-full-width">
-                                        <label>Notes</label>
+                                        <label>{t('label.notes')}</label>
                                         <textarea
-                                            placeholder="Internal notes (optional, printed on invoice)"
+                                            placeholder={t('ph.internalNotes')}
                                             rows={4}
                                             value={internalNotes}
                                             onChange={(e) => setInternalNotes(e.target.value)}
@@ -4562,36 +4616,36 @@ export default function SupplierSalesInvoices() {
                                 <div className="pi-footer-column pi-summary-column">
                                     <div className="pi-summary-card">
                                         <div className="pi-summary-row">
-                                            <span>Subtotal:</span>
-                                            <span>SAR {summary.subtotal}</span>
+                                            <span>{t('summary.subtotal')}</span>
+                                            <span>{t('money.sar', { amount: summary.subtotal })}</span>
                                         </div>
                                         {summary.showFreightRow ? (
                                             <div className="pi-summary-row">
-                                                <span>Freight / Other charges:</span>
-                                                <span>SAR {summary.freightInFormatted}</span>
+                                                <span>{t('summary.freight')}</span>
+                                                <span>{t('money.sar', { amount: summary.freightInFormatted })}</span>
                                             </div>
                                         ) : null}
                                         {summary.showInvoiceDiscountRow ? (
                                             <div className="pi-summary-row">
                                                 <span>{summary.invoiceDiscountSummaryLabel}</span>
                                                 <span style={{ color: '#B91C1C' }}>
-                                                    − SAR {summary.invoiceDiscountFormatted}
+                                                    − {t('money.sar', { amount: summary.invoiceDiscountFormatted })}
                                                 </span>
                                             </div>
                                         ) : null}
                                         {summary.showInvoiceDiscountRow ? (
                                             <div className="pi-summary-row">
-                                                <span>Amount after invoice discount:</span>
-                                                <span>SAR {summary.amountAfterDiscount}</span>
+                                                <span>{t('summary.afterDisc')}</span>
+                                                <span>{t('money.sar', { amount: summary.amountAfterDiscount })}</span>
                                             </div>
                                         ) : null}
                                         <div className="pi-summary-row">
-                                            <span>Total Tax (VAT):</span>
-                                            <span>SAR {summary.totalTax}</span>
+                                            <span>{t('summary.totalTax')}</span>
+                                            <span>{t('money.sar', { amount: summary.totalTax })}</span>
                                         </div>
                                         <div className="pi-summary-row pi-grand-total">
-                                            <span>Grand Total:</span>
-                                            <span>SAR {summary.grandTotal}</span>
+                                            <span>{t('summary.grandTotal')}</span>
+                                            <span>{t('money.sar', { amount: summary.grandTotal })}</span>
                                         </div>
                                     </div>
                                     <div
@@ -4601,18 +4655,19 @@ export default function SupplierSalesInvoices() {
                                         <span>
                                             {isWalkInCustomer ? (
                                                 <>
-                                                    Creates <strong>Accounts Receivable</strong> for
-                                                    this walk-in customer and links the journal to{' '}
-                                                    <strong>AR — Non-Affiliated Customers</strong> in
-                                                    Chart of Accounts. Stock is reduced from your
-                                                    warehouse; nothing is sent to a customer portal.
+                                                    {t('alert.walkIn.before')}{' '}
+                                                    <strong>{t('alert.walkIn.ar')}</strong>{' '}
+                                                    {t('alert.walkIn.mid')}{' '}
+                                                    <strong>{t('alert.walkIn.coa')}</strong>{' '}
+                                                    {t('alert.walkIn.after')}
                                                 </>
                                             ) : (
                                                 <>
-                                                    Creates <strong>Accounts Receivable</strong> for
-                                                    this workshop branch. A linked{' '}
-                                                    <strong>Purchase Invoice</strong> will appear in
-                                                    the workshop&apos;s Accounting module.
+                                                    {t('alert.affiliated.before')}{' '}
+                                                    <strong>{t('alert.affiliated.ar')}</strong>{' '}
+                                                    {t('alert.affiliated.mid')}{' '}
+                                                    <strong>{t('alert.affiliated.pi')}</strong>{' '}
+                                                    {t('alert.affiliated.after')}
                                                 </>
                                             )}
                                         </span>
@@ -4628,7 +4683,7 @@ export default function SupplierSalesInvoices() {
             <AnimatePresence>
                 {markPaidModalRow && (
                     <Modal
-                        title="Record payment"
+                        title={t('modal.recordPayment')}
                         width="min(440px, 96vw)"
                         disableClose={markPaidModalBusy}
                         onClose={closeMarkPaidModal}
@@ -4641,7 +4696,7 @@ export default function SupplierSalesInvoices() {
                                         onClick={closeMarkPaidModal}
                                         disabled={markPaidModalBusy}
                                     >
-                                        Cancel
+                                        {t('btn.cancel')}
                                     </button>
                                 </div>
                                 <div className="pi-footer-right">
@@ -4654,37 +4709,41 @@ export default function SupplierSalesInvoices() {
                                             paymentStatusSavingId === markPaidModalRow?.id
                                         }
                                     >
-                                        {markPaidModalBusy ? 'Recording…' : 'Confirm paid'}
+                                        {markPaidModalBusy ? t('btn.recording') : t('btn.confirmPaid')}
                                     </button>
                                 </div>
                             </div>
                         }
                     >
                         <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: '#475569' }}>
-                            Invoice <strong>{markPaidModalRow.invoiceNo}</strong>
-                            {' — '}
-                            balance SAR{' '}
-                            <strong>{Number(markPaidModalRow.balance || 0).toFixed(2)}</strong>
+                            {t('modal.invoiceBalance.before')}{' '}
+                            <strong>{markPaidModalRow.invoiceNo}</strong>{' '}
+                            {t('modal.invoiceBalance.mid')}{' '}
+                            <strong>
+                                {t('money.sar', {
+                                    amount: Number(markPaidModalRow.balance || 0).toFixed(2),
+                                })}
+                            </strong>
                         </p>
                         <div className="ws-form-grid">
                             <div className="ws-field">
-                                <label htmlFor="mark-paid-method">Payment method *</label>
+                                <label htmlFor="mark-paid-method">{t('label.paymentMethodReq')}</label>
                                 <select
                                     id="mark-paid-method"
                                     value={markPaidMethod}
                                     onChange={(e) => setMarkPaidMethod(e.target.value)}
                                     disabled={markPaidModalBusy}
                                 >
-                                    {MARK_PAID_METHOD_OPTIONS.map((o) => (
-                                        <option key={o.value} value={o.value}>
-                                            {o.label}
+                                    {MARK_PAID_METHOD_VALUES.map((value) => (
+                                        <option key={value} value={value}>
+                                            {t(SSI_MARK_PAID_METHOD_KEYS[value])}
                                         </option>
                                     ))}
                                 </select>
                             </div>
                             <div className="ws-field">
                                 <label htmlFor="mark-paid-account">
-                                    Receiving cash / bank account *
+                                    {t('label.receivingAccountReq')}
                                 </label>
                                 <select
                                     id="mark-paid-account"
@@ -4696,19 +4755,19 @@ export default function SupplierSalesInvoices() {
                                 >
                                     {markPaidAccounts.length > 0 ? (
                                         <>
-                                            <option value="">Select account</option>
+                                            <option value="">{t('opt.selectAccount')}</option>
                                             {markPaidAccounts.map((acc) => (
                                                 <option key={acc.id} value={acc.id}>
                                                     {acc.optionLabel}
                                                 </option>
                                             ))}
                                             <option value="__custom__">
-                                                Other (enter name)…
+                                                {t('opt.otherEnter')}
                                             </option>
                                         </>
                                     ) : (
                                         <option value="__custom__">
-                                            Enter account manually
+                                            {t('opt.enterManually')}
                                         </option>
                                     )}
                                 </select>
@@ -4716,7 +4775,7 @@ export default function SupplierSalesInvoices() {
                             {markPaidAccountChoice === '__custom__' && (
                                 <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
                                     <label htmlFor="mark-paid-account-custom">
-                                        Account name / details *
+                                        {t('label.accountNameReq')}
                                     </label>
                                     <input
                                         id="mark-paid-account-custom"
@@ -4725,7 +4784,7 @@ export default function SupplierSalesInvoices() {
                                         onChange={(e) =>
                                             setMarkPaidCustomAccount(e.target.value)
                                         }
-                                        placeholder="e.g. Bank — Al Rajhi (current)"
+                                        placeholder={t('ph.accountExample')}
                                         disabled={markPaidModalBusy}
                                         autoComplete="off"
                                     />
@@ -4752,12 +4811,12 @@ export default function SupplierSalesInvoices() {
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Sales Invoices ›{' '}
-                                    <span className="pi-b-active">Return</span>
+                                    {t('form.crumb.sales')}{' '}
+                                    <span className="pi-b-active">{t('form.crumb.return')}</span>
                                 </span>
                                 <div className="pi-title-main">
                                     <RotateCcw size={24} />
-                                    <span>Sales Invoice Return</span>
+                                    <span>{t('form.returnTitle')}</span>
                                 </div>
                                 <span className="pi-sub-label" style={{ display: 'block', marginTop: 6 }}>
                                     {returnModalRow.invoiceNo || returnModalRow.id}
@@ -4777,7 +4836,7 @@ export default function SupplierSalesInvoices() {
                                         onClick={closeReturnModal}
                                         disabled={returnSubmitting || returnModalLoading}
                                     >
-                                        Cancel
+                                        {t('btn.cancel')}
                                     </button>
                                 </div>
                                 <div className="pi-footer-right">
@@ -4800,10 +4859,10 @@ export default function SupplierSalesInvoices() {
                                                     className="supplier-sales-last-sale-spinner"
                                                     aria-hidden
                                                 />
-                                                Saving…
+                                                {t('btn.saving')}
                                             </span>
                                         ) : (
-                                            'Submit return'
+                                            t('btn.submitReturn')
                                         )}
                                     </button>
                                 </div>
@@ -4825,7 +4884,7 @@ export default function SupplierSalesInvoices() {
                                             textAlign: 'center',
                                         }}
                                     >
-                                        Loading invoice &amp; return history…
+                                        {t('form.loadingReturn')}
                                     </p>
                                 </div>
                             ) : (
@@ -4841,48 +4900,45 @@ export default function SupplierSalesInvoices() {
                                             marginBottom: 16,
                                         }}
                                     >
-                                        Credits reduce the workshop&apos;s outstanding balance on this invoice (AR).
-                                        Each return is saved with a reference number and logged in supplier
-                                        transaction history — same as issuing an invoice, list totals update
-                                        immediately after you submit.
+                                        {t('return.banner')}
                                     </div>
 
                                     {returnInvoiceDetail?.invoice ? (
                                         <>
                                             <div className="pi-header-grid">
                                                 <div className="pi-field">
-                                                    <label>Invoice #</label>
+                                                    <label>{t('label.invoiceNo')}</label>
                                                     <input
                                                         readOnly
-                                                        value={returnInvoiceDetail.invoice.invoiceNo || '—'}
+                                                        value={returnInvoiceDetail.invoice.invoiceNo || t('emdash')}
                                                     />
                                                 </div>
                                                 <div className="pi-field">
-                                                    <label>Issue date</label>
+                                                    <label>{t('label.issueDate')}</label>
                                                     <input
                                                         readOnly
                                                         value={
                                                             returnInvoiceDetail.invoice.invoiceDate?.slice(
                                                                 0,
                                                                 10,
-                                                            ) || '—'
+                                                            ) || t('emdash')
                                                         }
                                                     />
                                                 </div>
                                                 <div className="pi-field">
-                                                    <label>Due date</label>
+                                                    <label>{t('label.dueDate')}</label>
                                                     <input
                                                         readOnly
                                                         value={
                                                             returnInvoiceDetail.invoice.dueDate?.slice(0, 10) ||
-                                                            '—'
+                                                            t('emdash')
                                                         }
                                                     />
                                                 </div>
                                             </div>
                                             <div className="pi-header-grid">
                                                 <div className="pi-field pi-full-width">
-                                                    <label>Workshop / Branch (customer)</label>
+                                                    <label>{t('label.workshopBranch')}</label>
                                                     <input
                                                         readOnly
                                                         value={
@@ -4897,54 +4953,62 @@ export default function SupplierSalesInvoices() {
                                             </div>
                                             <div className="pi-header-grid">
                                                 <div className="pi-field">
-                                                    <label>Grand total</label>
+                                                    <label>{t('label.grandTotal')}</label>
                                                     <input
                                                         readOnly
-                                                        value={`SAR ${Number(
-                                                            returnInvoiceDetail.invoice.grandTotal ?? 0,
-                                                        ).toLocaleString(undefined, {
-                                                            minimumFractionDigits: 2,
-                                                            maximumFractionDigits: 2,
-                                                        })}`}
+                                                        value={t('money.sar', {
+                                                            amount: Number(
+                                                                returnInvoiceDetail.invoice.grandTotal ?? 0,
+                                                            ).toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            }),
+                                                        })}
                                                     />
                                                 </div>
                                                 <div className="pi-field">
-                                                    <label>Paid</label>
+                                                    <label>{t('label.paid')}</label>
                                                     <input
                                                         readOnly
-                                                        value={`SAR ${Number(
-                                                            returnInvoiceDetail.invoice.paid ?? 0,
-                                                        ).toLocaleString(undefined, {
-                                                            minimumFractionDigits: 2,
-                                                            maximumFractionDigits: 2,
-                                                        })}`}
+                                                        value={t('money.sar', {
+                                                            amount: Number(
+                                                                returnInvoiceDetail.invoice.paid ?? 0,
+                                                            ).toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            }),
+                                                        })}
                                                     />
                                                 </div>
                                                 <div className="pi-field">
-                                                    <label>Returns credited</label>
+                                                    <label>{t('label.returnsCredited')}</label>
                                                     <input
                                                         readOnly
-                                                        value={`SAR ${Number(
-                                                            returnInvoiceDetail.invoice.returnsTotal ?? 0,
-                                                        ).toLocaleString(undefined, {
-                                                            minimumFractionDigits: 2,
-                                                            maximumFractionDigits: 2,
-                                                        })}`}
+                                                        value={t('money.sar', {
+                                                            amount: Number(
+                                                                returnInvoiceDetail.invoice.returnsTotal ?? 0,
+                                                            ).toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            }),
+                                                        })}
                                                     />
                                                 </div>
                                             </div>
                                             <div className="pi-header-grid">
                                                 <div className="pi-field">
-                                                    <label>Balance due (after returns)</label>
+                                                    <label>{t('label.balanceAfterReturns')}</label>
                                                     <input
                                                         readOnly
                                                         style={{ fontWeight: 700, color: '#b91c1c' }}
-                                                        value={`SAR ${Number(
-                                                            returnInvoiceDetail.invoice.outstanding ?? 0,
-                                                        ).toLocaleString(undefined, {
-                                                            minimumFractionDigits: 2,
-                                                            maximumFractionDigits: 2,
-                                                        })}`}
+                                                        value={t('money.sar', {
+                                                            amount: Number(
+                                                                returnInvoiceDetail.invoice.outstanding ?? 0,
+                                                            ).toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            }),
+                                                        })}
                                                     />
                                                 </div>
                                             </div>
@@ -4966,7 +5030,7 @@ export default function SupplierSalesInvoices() {
                                                     letterSpacing: '0.04em',
                                                 }}
                                             >
-                                                Previous returns ({returnHistory.length})
+                                                {t('return.prevReturns', { n: returnHistory.length })}
                                             </div>
                                             <div
                                                 style={{
@@ -4983,10 +5047,12 @@ export default function SupplierSalesInvoices() {
                                                     {returnHistory.map((r) => (
                                                         <li key={r.id} style={{ marginBottom: 6 }}>
                                                             <strong>{r.returnNo}</strong> ·{' '}
-                                                            {r.returnDate?.slice(0, 10) || '—'} · SAR{' '}
-                                                            {Number(r.grandTotal || 0).toLocaleString(undefined, {
-                                                                minimumFractionDigits: 2,
-                                                                maximumFractionDigits: 2,
+                                                            {r.returnDate?.slice(0, 10) || t('emdash')} ·{' '}
+                                                            {t('money.sar', {
+                                                                amount: Number(r.grandTotal || 0).toLocaleString(undefined, {
+                                                                    minimumFractionDigits: 2,
+                                                                    maximumFractionDigits: 2,
+                                                                }),
                                                             })}
                                                         </li>
                                                     ))}
@@ -5006,7 +5072,7 @@ export default function SupplierSalesInvoices() {
                                                 letterSpacing: '0.04em',
                                             }}
                                         >
-                                            Lines to return
+                                            {t('return.linesToReturn')}
                                         </div>
                                         <div
                                             className="pi-lines-header"
@@ -5016,12 +5082,12 @@ export default function SupplierSalesInvoices() {
                                                 marginBottom: 8,
                                             }}
                                         >
-                                            <div className="pi-col-item">Item</div>
-                                            <div className="pi-col-qty">Invoiced</div>
-                                            <div className="pi-col-qty">Returned</div>
-                                            <div className="pi-col-qty">Left</div>
-                                            <div className="pi-col-qty">Return qty</div>
-                                            <div className="pi-col-item">Reason</div>
+                                            <div className="pi-col-item">{t('label.item')}</div>
+                                            <div className="pi-col-qty">{t('label.invoiced')}</div>
+                                            <div className="pi-col-qty">{t('label.returned')}</div>
+                                            <div className="pi-col-qty">{t('label.left')}</div>
+                                            <div className="pi-col-qty">{t('label.returnQty')}</div>
+                                            <div className="pi-col-item">{t('label.reason')}</div>
                                         </div>
                                         {(function renderReturnLines() {
                                             const returnedSoFar =
@@ -5093,7 +5159,7 @@ export default function SupplierSalesInvoices() {
                                                                         [id]: e.target.value,
                                                                     }))
                                                                 }
-                                                                placeholder="Optional"
+                                                                placeholder={t('ph.returnReason')}
                                                                 disabled={
                                                                     returnSubmitting || remaining <= 0
                                                                 }
@@ -5112,7 +5178,7 @@ export default function SupplierSalesInvoices() {
                                             value={returnNotes}
                                             onChange={(e) => setReturnNotes(e.target.value)}
                                             disabled={returnSubmitting}
-                                            placeholder="Internal note for this return"
+                                            placeholder={t('ph.returnNotes')}
                                         />
                                     </div>
 
@@ -5144,7 +5210,7 @@ export default function SupplierSalesInvoices() {
                                 <span className="pi-breadcrumb">
                                     Sales Invoices ›{' '}
                                     <span className="pi-b-active">
-                                        {viewPayload?.invoice?.invoiceNo || 'Invoice'}
+                                        {viewPayload?.invoice?.invoiceNo || t('view.fallbackInvoice')}
                                     </span>
                                 </span>
                                 <div className="pi-title-main">
@@ -5154,7 +5220,7 @@ export default function SupplierSalesInvoices() {
                             </div>
                         }
                         onBack={closeViewInvoice}
-                        backLabel="Back to Sales Invoices"
+                        backLabel={t('form.back')}
                         bodyClassName="wpi-invoice-preview-modal"
                     >
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
@@ -5180,7 +5246,7 @@ export default function SupplierSalesInvoices() {
                                 listRow={mapSupplierSalesInvoiceToWorkshopListRow(viewPayload.invoice)}
                             />
                         ) : (
-                            <p style={{ margin: 0 }}>No data.</p>
+                            <p style={{ margin: 0 }}>{t('empty.noData')}</p>
                         )}
                     </InlineFormScreen>
                 ) : null}

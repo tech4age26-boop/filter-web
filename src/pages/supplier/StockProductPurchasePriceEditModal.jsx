@@ -1,12 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Modal from '../../components/Modal';
 import { getSupplierProduct, updateSupplierProduct } from '../../services/supplierApi';
+import { sstockT } from '../../utils/supplierStockI18n';
 
 export default function StockProductPurchasePriceEditModal({
     product,
     onClose,
     onSaved,
+    locale: localeProp,
 }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sstockT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -43,7 +50,7 @@ export default function StockProductPurchasePriceEditModal({
                 setPrice(Number.isFinite(current) && current > 0 ? String(current) : '');
             } catch (ex) {
                 if (!cancelled) {
-                    setError(ex?.message || 'Could not load product');
+                    setError(ex?.message || t('pp.errLoad'));
                     setPrice(
                         product.price != null && Number(product.price) > 0
                             ? String(product.price)
@@ -67,7 +74,7 @@ export default function StockProductPurchasePriceEditModal({
             onSaved?.();
             onClose?.();
         } catch (ex) {
-            setError(ex?.message || 'Failed to reset to catalog price');
+            setError(ex?.message || t('pp.errReset'));
         } finally {
             setSaving(false);
         }
@@ -77,7 +84,7 @@ export default function StockProductPurchasePriceEditModal({
         e.preventDefault();
         const n = Number(price);
         if (!Number.isFinite(n) || n < 0) {
-            setError('Enter a valid purchase price (SAR per warehouse unit).');
+            setError(t('pp.errValid'));
             return;
         }
         setSaving(true);
@@ -89,7 +96,7 @@ export default function StockProductPurchasePriceEditModal({
             onSaved?.();
             onClose?.();
         } catch (ex) {
-            setError(ex?.message || 'Failed to update purchase price');
+            setError(ex?.message || t('pp.errUpdate'));
         } finally {
             setSaving(false);
         }
@@ -99,7 +106,7 @@ export default function StockProductPurchasePriceEditModal({
 
     return (
         <Modal
-            title="Edit purchase price"
+            title={t("pp.title")}
             width="480px"
             onClose={() => !saving && onClose?.()}
             disableClose={saving}
@@ -110,14 +117,12 @@ export default function StockProductPurchasePriceEditModal({
                     {product.sku ? ` · ${product.sku}` : ''}
                 </p>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                    Price is per <strong>{warehouseUnit}</strong> (warehouse unit).
-                    {usesCatalogPrice
-                        ? ' Currently following super-admin catalog price.'
-                        : ' Custom supplier price.'}
+                    {t('pp.hintWh', { unit: warehouseUnit })}
+                    {usesCatalogPrice ? t('pp.hintCatalog') : t('pp.hintCustom')}
                 </p>
 
                 {loading ? (
-                    <p style={{ margin: 0 }}>Loading…</p>
+                    <p style={{ margin: 0 }}>{t("pp.loading")}</p>
                 ) : (
                     <>
                         {catalogPrice != null ? (
@@ -130,14 +135,20 @@ export default function StockProductPurchasePriceEditModal({
                                     fontSize: '0.8125rem',
                                 }}
                             >
-                                Master catalog price:{' '}
-                                <strong>SAR {Number(catalogPrice).toLocaleString()}</strong> per{' '}
-                                {warehouseUnit}
+                                {t('pp.catalogPrice')}{' '}
+                                <strong>
+                                    {t('pp.catalogPriceVal', {
+                                        price: t('money.sar', {
+                                            amount: Number(catalogPrice).toLocaleString(),
+                                        }),
+                                        unit: warehouseUnit,
+                                    })}
+                                </strong>
                             </p>
                         ) : null}
                         <div className="pi-field">
                             <label htmlFor="stock-purchase-price">
-                                Your purchase price (SAR / {warehouseUnit})
+                                {t("pp.label", { unit: warehouseUnit })}
                             </label>
                             <input
                                 id="stock-purchase-price"
@@ -148,8 +159,8 @@ export default function StockProductPurchasePriceEditModal({
                                 onChange={(e) => setPrice(e.target.value)}
                                 placeholder={
                                     catalogPrice != null
-                                        ? `Leave blank to use catalog (${catalogPrice})`
-                                        : 'Enter price'
+                                        ? t('pp.phCatalog', { price: catalogPrice })
+                                        : t('pp.phEnter')
                                 }
                             />
                         </div>
@@ -168,7 +179,7 @@ export default function StockProductPurchasePriceEditModal({
                             disabled={saving || loading}
                             onClick={handleUseCatalog}
                         >
-                            Use catalog price
+                            {t("pp.useCatalog")}
                         </button>
                     ) : (
                         <span />
@@ -180,10 +191,10 @@ export default function StockProductPurchasePriceEditModal({
                             disabled={saving}
                             onClick={onClose}
                         >
-                            Cancel
+                            {t("btn.cancel")}
                         </button>
                         <button type="submit" className="mgr-si-btn-new" disabled={saving || loading}>
-                            {saving ? 'Saving…' : 'Save'}
+                            {saving ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 </div>

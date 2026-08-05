@@ -1,17 +1,24 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, FileText, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getSupplierWorkshopCriticalStockAlerts } from '../../services/supplierApi';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
+import { swaT } from '../../utils/supplierWorkshopAlertsI18n';
 
 function fmtQty(n) {
-    if (n == null || !Number.isFinite(Number(n))) return '—';
+    if (n == null || !Number.isFinite(Number(n))) return null;
     const x = Number(n);
     if (Math.abs(x - Math.round(x)) < 1e-9) return String(Math.round(x));
     return String(x).replace(/\.?0+$/, '');
 }
 
-export default function SupplierWorkshopAlerts() {
+export default function SupplierWorkshopAlerts({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => swaT(locale, key, vars), [locale]);
+
     const navigate = useNavigate();
     const [rows, setRows] = useState([]);
     const [summaryMessage, setSummaryMessage] = useState('');
@@ -39,7 +46,7 @@ export default function SupplierWorkshopAlerts() {
                 if (!cancelled) {
                     setRows([]);
                     setSummaryMessage('');
-                    setApiError(err?.message || 'Failed to load alerts');
+                    setApiError(err?.message || t('error.load'));
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -49,7 +56,7 @@ export default function SupplierWorkshopAlerts() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [t]);
 
     const branchOptions = useMemo(() => {
         const byId = new Map();
@@ -58,7 +65,7 @@ export default function SupplierWorkshopAlerts() {
             if (!id || byId.has(id)) continue;
             byId.set(id, {
                 id,
-                branchName: r.branchName || 'Branch',
+                branchName: r.branchName || t('fallback.branch'),
                 workshopName: r.workshopName || '',
             });
         }
@@ -67,7 +74,7 @@ export default function SupplierWorkshopAlerts() {
             if (ws !== 0) return ws;
             return String(a.branchName).localeCompare(String(b.branchName));
         });
-    }, [rows]);
+    }, [rows, t]);
 
     const filteredRows = useMemo(() => {
         let list = rows;
@@ -77,6 +84,8 @@ export default function SupplierWorkshopAlerts() {
         const q = searchQuery.trim().toLowerCase();
         if (q) {
             const tokens = q.split(/\s+/).filter(Boolean);
+            const branchSetting = t('threshold.branch').toLowerCase();
+            const catalog = t('threshold.catalog').toLowerCase();
             list = list.filter((r) => {
                 const haystack = [
                     r.workshopName,
@@ -84,18 +93,18 @@ export default function SupplierWorkshopAlerts() {
                     r.productName,
                     r.sku,
                     r.unit,
-                    r.thresholdSource === 'workshop_branch' ? 'branch setting' : 'catalog',
+                    r.thresholdSource === 'workshop_branch' ? branchSetting : catalog,
                     fmtQty(r.currentQty),
                     fmtQty(r.criticalStockPoint),
                 ]
                     .filter((x) => x != null && String(x).trim() !== '')
                     .join(' ')
                     .toLowerCase();
-                return tokens.every((t) => haystack.includes(t));
+                return tokens.every((tok) => haystack.includes(tok));
             });
         }
         return list;
-    }, [rows, branchFilter, searchQuery]);
+    }, [rows, branchFilter, searchQuery, t]);
 
     const groupedByWorkshop = useMemo(() => {
         const map = new Map();
@@ -104,7 +113,7 @@ export default function SupplierWorkshopAlerts() {
             if (!map.has(wid)) {
                 map.set(wid, {
                     workshopId: wid,
-                    workshopName: r.workshopName || 'Workshop',
+                    workshopName: r.workshopName || t('fallback.workshop'),
                     items: [],
                 });
             }
@@ -113,7 +122,7 @@ export default function SupplierWorkshopAlerts() {
         return [...map.values()].sort((a, b) =>
             a.workshopName.localeCompare(b.workshopName),
         );
-    }, [filteredRows]);
+    }, [filteredRows, t]);
 
     const filtersActive = Boolean(branchFilter || searchQuery.trim());
     const totalAlertLines = rows.length;
@@ -145,12 +154,14 @@ export default function SupplierWorkshopAlerts() {
         });
     };
 
+    const dash = t('emdash');
+
     return (
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Workshop Alerts</h2>
-                    <p className="ws-page-sub">Low stock alerts from workshop branches</p>
+                    <h2 className="ws-page-title">{t('title')}</h2>
+                    <p className="ws-page-sub">{t('subtitle')}</p>
                 </div>
             </div>
             <div
@@ -164,9 +175,7 @@ export default function SupplierWorkshopAlerts() {
                     color: '#92400E',
                 }}
             >
-                <strong>Workshop Stock Alerts</strong> — when a linked workshop branch’s on-hand
-                quantity is at or below the critical threshold, it appears below. Issue a{' '}
-                <strong>Sales Invoice</strong> to send them stock.
+                <strong>{t('banner.title')}</strong> {t('banner.body')}
             </div>
             {apiError ? (
                 <div
@@ -181,7 +190,7 @@ export default function SupplierWorkshopAlerts() {
                         fontSize: '0.875rem',
                     }}
                 >
-                    <strong>Could not load alerts:</strong> {apiError}
+                    <strong>{t('error.couldNotLoad')}</strong> {apiError}
                 </div>
             ) : null}
             {!loading && summaryMessage ? (
@@ -229,8 +238,8 @@ export default function SupplierWorkshopAlerts() {
                         />
                         <input
                             type="search"
-                            aria-label="Search alerts"
-                            placeholder="Search workshop, branch, product, SKU…"
+                            aria-label={t('search.aria')}
+                            placeholder={t('search.placeholder')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             style={{
@@ -259,7 +268,7 @@ export default function SupplierWorkshopAlerts() {
                             letterSpacing: '0.04em',
                         }}
                     >
-                        Branch
+                        {t('filter.branch')}
                         <select
                             value={branchFilter}
                             onChange={(e) => setBranchFilter(e.target.value)}
@@ -273,7 +282,7 @@ export default function SupplierWorkshopAlerts() {
                                 color: '#1e293b',
                             }}
                         >
-                            <option value="">All branches</option>
+                            <option value="">{t('filter.allBranches')}</option>
                             {branchOptions.map((b) => (
                                 <option key={b.id} value={b.id}>
                                     {b.workshopName
@@ -293,7 +302,7 @@ export default function SupplierWorkshopAlerts() {
                                 setSearchQuery('');
                             }}
                         >
-                            Clear filters
+                            {t('filter.clear')}
                         </button>
                     ) : null}
                     <span
@@ -304,8 +313,12 @@ export default function SupplierWorkshopAlerts() {
                             whiteSpace: 'nowrap',
                         }}
                     >
-                        Showing {filteredCount} of {totalAlertLines} line
-                        {totalAlertLines === 1 ? '' : 's'}
+                        {totalAlertLines === 1
+                            ? t('filter.showing', { filtered: filteredCount, total: totalAlertLines })
+                            : t('filter.showingPlural', {
+                                  filtered: filteredCount,
+                                  total: totalAlertLines,
+                              })}
                     </span>
                 </div>
             ) : null}
@@ -316,12 +329,12 @@ export default function SupplierWorkshopAlerts() {
             ) : rows.length === 0 ? (
                 <div className="ws-empty">
                     <AlertTriangle size={56} className="ws-empty-icon" />
-                    <p className="ws-empty-text">No active alerts</p>
+                    <p className="ws-empty-text">{t('empty.none')}</p>
                 </div>
             ) : filteredCount === 0 ? (
                 <div className="ws-empty">
                     <AlertTriangle size={56} className="ws-empty-icon" />
-                    <p className="ws-empty-text">No alerts match your filters</p>
+                    <p className="ws-empty-text">{t('empty.noMatch')}</p>
                     <p
                         style={{
                             marginTop: 8,
@@ -331,9 +344,9 @@ export default function SupplierWorkshopAlerts() {
                             textAlign: 'center',
                         }}
                     >
-                        Try another branch or clear the search. You still have{' '}
-                        <strong>{totalAlertLines}</strong> active line
-                        {totalAlertLines === 1 ? '' : 's'} in total.
+                        {totalAlertLines === 1
+                            ? t('empty.hint', { count: totalAlertLines })
+                            : t('empty.hintPlural', { count: totalAlertLines })}
                     </p>
                     <button
                         type="button"
@@ -344,7 +357,7 @@ export default function SupplierWorkshopAlerts() {
                             setSearchQuery('');
                         }}
                     >
-                        Clear filters
+                        {t('filter.clear')}
                     </button>
                 </div>
             ) : (
@@ -387,7 +400,9 @@ export default function SupplierWorkshopAlerts() {
                                     paddingLeft: 4,
                                 }}
                             >
-                                {g.items.length} critical line{g.items.length === 1 ? '' : 's'}
+                                {g.items.length === 1
+                                    ? t('group.criticalLine', { count: g.items.length })
+                                    : t('group.criticalLines', { count: g.items.length })}
                             </span>
                         </div>
                         <div style={{ overflowX: 'auto', padding: '0 20px 16px', boxSizing: 'border-box' }}>
@@ -403,13 +418,13 @@ export default function SupplierWorkshopAlerts() {
                                 </colgroup>
                                 <thead>
                                     <tr>
-                                        <th>Branch</th>
-                                        <th>Product</th>
-                                        <th>SKU</th>
-                                        <th style={{ textAlign: 'right' }}>Current</th>
-                                        <th style={{ textAlign: 'right' }}>Critical</th>
-                                        <th>Threshold</th>
-                                        <th style={{ textAlign: 'right' }}>Action</th>
+                                        <th>{t('th.branch')}</th>
+                                        <th>{t('th.product')}</th>
+                                        <th>{t('th.sku')}</th>
+                                        <th style={{ textAlign: 'right' }}>{t('th.current')}</th>
+                                        <th style={{ textAlign: 'right' }}>{t('th.critical')}</th>
+                                        <th>{t('th.threshold')}</th>
+                                        <th style={{ textAlign: 'right' }}>{t('th.action')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -420,21 +435,21 @@ export default function SupplierWorkshopAlerts() {
                                                 <strong>{a.productName}</strong>
                                             </td>
                                             <td style={{ color: 'var(--color-text-muted)' }}>
-                                                {a.sku || '—'}
+                                                {a.sku || dash}
                                             </td>
                                             <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                                                {fmtQty(a.currentQty)} {a.unit}
+                                                {fmtQty(a.currentQty) ?? dash} {a.unit}
                                             </td>
                                             <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                                                {fmtQty(a.criticalStockPoint)} {a.unit}
+                                                {fmtQty(a.criticalStockPoint) ?? dash} {a.unit}
                                             </td>
                                             <td>
                                                 <span
                                                     className={`ws-badge ${a.thresholdSource === 'workshop_branch' ? 'ws-badge--orange' : 'ws-badge--cyan'}`}
                                                 >
                                                     {a.thresholdSource === 'workshop_branch'
-                                                        ? 'Branch setting'
-                                                        : 'Catalog'}
+                                                        ? t('threshold.branch')
+                                                        : t('threshold.catalog')}
                                                 </span>
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
@@ -452,7 +467,7 @@ export default function SupplierWorkshopAlerts() {
                                                     onClick={() => openSalesInvoiceForAlert(a)}
                                                 >
                                                     <FileText size={14} />
-                                                    Sales invoice
+                                                    {t('action.salesInvoice')}
                                                 </button>
                                             </td>
                                         </tr>

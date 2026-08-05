@@ -47,10 +47,11 @@ function readPortalScope(isOwnerFromContext) {
     }
 }
 
-export default function SupplierStorageFacilityBrandHub({ brandId }) {
+export default function SupplierStorageFacilityBrandHub({ brandId, locale: localeProp } = {}) {
     const navigate = useNavigate();
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';

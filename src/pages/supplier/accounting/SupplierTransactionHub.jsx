@@ -34,12 +34,13 @@ import {
     todayISO,
     coaNetBalance,
 } from './SupplierAccountingShared';
+import { saccT } from '../../../utils/supplierAccountingI18n';
 
-const PAY_TYPES = [
-    { value: 'super_supplier', label: 'Super Supplier' },
-    { value: 'employee', label: 'Employee' },
-    { value: 'customer', label: 'Customer' },
-    { value: 'others', label: 'Others' },
+const PAY_TYPE_KEYS = [
+    { value: 'super_supplier', key: 'hub.payType.super_supplier' },
+    { value: 'employee', key: 'hub.payType.employee' },
+    { value: 'customer', key: 'hub.payType.customer' },
+    { value: 'others', key: 'hub.payType.others' },
 ];
 
 const TRANSACTION_HUB_RECEIPT_PREFILL_KEY = 'transactionHubReceiptPrefill';
@@ -105,11 +106,11 @@ function partyPayloadFromRow(row) {
     return { partyType: undefined, partyId: undefined, externalPartyId: undefined };
 }
 
-function cashLabel(a) {
+function cashLabel(a, locale = 'en') {
     const rd = Number(a.closingDebit) || 0;
     const rc = Number(a.closingCredit) || 0;
     const bal = coaNetBalance(a.type, rd, rc);
-    return `[${a.code}] ${a.name} — ${money(bal)}`;
+    return `[${a.code}] ${a.name} — ${money(bal, 'SAR', { locale })}`;
 }
 
 function resolveReceiptCrAccountId(accounts, payeeValue) {
@@ -192,21 +193,22 @@ function PayeeCell({
     staff,
     customerOptions,
     onChange,
+    t,
 }) {
-    const t = row.payType;
-    if (t === 'others') {
+    const payT = row.payType;
+    if (payT === 'others') {
         return (
-            <span style={{ fontSize: 13, color: '#94A3B8' }}>—</span>
+            <span style={{ fontSize: 13, color: '#94A3B8' }}>{t('emdash')}</span>
         );
     }
-    if (t === 'super_supplier') {
+    if (payT === 'super_supplier') {
         return (
             <select
                 style={inputStyle}
                 value={row.payeeValue}
                 onChange={(e) => onChange(idx, { payeeValue: e.target.value })}
             >
-                <option value="">Select super supplier</option>
+                <option value="">{t('hub.select.super')}</option>
                 {superSuppliers.map((s) => (
                     <option key={s.id} value={String(s.id)}>
                         {s.name || s.companyName || s.code || s.id}
@@ -215,14 +217,14 @@ function PayeeCell({
             </select>
         );
     }
-    if (t === 'employee') {
+    if (payT === 'employee') {
         return (
             <select
                 style={inputStyle}
                 value={row.payeeValue}
                 onChange={(e) => onChange(idx, { payeeValue: e.target.value })}
             >
-                <option value="">Select employee</option>
+                <option value="">{t('hub.select.employee')}</option>
                 {staff.map((s) => (
                     <option key={s.id} value={String(s.id)}>
                         {s.name || s.id}
@@ -231,14 +233,14 @@ function PayeeCell({
             </select>
         );
     }
-    if (t === 'customer') {
+    if (payT === 'customer') {
         return (
             <select
                 style={inputStyle}
                 value={row.payeeValue}
                 onChange={(e) => onChange(idx, { payeeValue: e.target.value })}
             >
-                <option value="">Select workshop / customer</option>
+                <option value="">{t('hub.select.customer')}</option>
                 {customerOptions.map((o) => (
                     <option key={o.value} value={o.value}>
                         {o.label}
@@ -258,7 +260,10 @@ function PaymentReceiptGrid({
     customerOptions,
     onPosted,
     initialPrefill,
+    locale = 'en',
+    t,
 }) {
+    const tr = t || ((key, vars) => saccT(locale, key, vars));
     const leafAccounts = useMemo(
         () => (accounts || []).filter((a) => !a.hasChildren),
         [accounts],
@@ -354,7 +359,7 @@ function PaymentReceiptGrid({
         e.preventDefault();
         setErr('');
         if (!cashAccountId) {
-            setErr('Select a paid from / receipt from account.');
+            setErr(tr('hub.err.cash'));
             return;
         }
         const clean = lines.filter(
@@ -364,7 +369,7 @@ function PaymentReceiptGrid({
                 && (l.payType === 'others' || (l.payeeValue && String(l.payeeValue).trim() !== '')),
         );
         if (clean.length === 0) {
-            setErr('Add at least one valid row (type + payee when required, account, amount > 0).');
+            setErr(tr('hub.err.rows'));
             return;
         }
         setSaving(true);
@@ -399,20 +404,18 @@ function PaymentReceiptGrid({
             setGeneralNote('');
             setHeaderRef('');
         } catch (ex) {
-            setErr(ex?.message || 'Save failed');
+            setErr(ex?.message || tr('hub.err.save'));
         } finally {
             setSaving(false);
         }
     }
 
-    const cashLabelText = variant === 'payment' ? 'Paid from / Receipt from account' : 'Paid from / Receipt from account';
+    const cashLabelText = tr('hub.field.cashAccount');
 
     return (
         <form onSubmit={saveAll} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <p style={{ margin: 0, fontSize: 12, color: '#64748B', lineHeight: 1.45 }}>
-                {variant === 'payment'
-                    ? 'Payments — Dr: Payable / Expense | Cr: selected cash/bank. Tab moves across columns; Tab from Notes on the last row adds a new line.'
-                    : 'Receipts — Dr: cash/bank | Cr: revenue / liability / AR. Same keyboard behaviour as payments.'}
+                {variant === 'payment' ? tr('hub.hint.payment') : tr('hub.hint.receipt')}
             </p>
             <div
                 style={{
@@ -421,7 +424,7 @@ function PaymentReceiptGrid({
                     gap: 12,
                 }}
             >
-                <Field label="Date" required>
+                <Field label={tr('hub.field.date')} required>
                     <input
                         type="date"
                         style={inputStyle}
@@ -434,20 +437,20 @@ function PaymentReceiptGrid({
                         required
                     />
                 </Field>
-                <Field label="Reference number">
+                <Field label={tr('hub.field.ref')}>
                     <input
                         style={inputStyle}
                         value={headerRef}
                         onChange={(e) => setHeaderRef(e.target.value)}
-                        placeholder="Document / batch reference"
+                        placeholder={tr('hub.field.refPh')}
                     />
                 </Field>
-                <Field label="General note">
+                <Field label={tr('hub.field.note')}>
                     <input
                         style={inputStyle}
                         value={generalNote}
                         onChange={(e) => setGeneralNote(e.target.value)}
-                        placeholder="Optional note for all entries"
+                        placeholder={tr('hub.field.notePh')}
                     />
                 </Field>
                 <Field label={cashLabelText} required>
@@ -457,10 +460,10 @@ function PaymentReceiptGrid({
                         onChange={(e) => setCashAccountId(e.target.value)}
                         required
                     >
-                        <option value="">— Select —</option>
+                        <option value="">{tr('select.dash')}</option>
                         {cashOptions.map((a) => (
                             <option key={a.id} value={a.id}>
-                                {cashLabel(a)}
+                                {cashLabel(a, locale)}
                             </option>
                         ))}
                     </select>
@@ -471,16 +474,16 @@ function PaymentReceiptGrid({
                 <table className="ws-table" style={{ width: '100%', minWidth: 920 }}>
                     <thead>
                         <tr>
-                            <th style={{ width: 88 }}>Voucher #</th>
-                            <th style={{ width: 130 }}>Date</th>
-                            <th style={{ width: 130 }}>Type</th>
-                            <th style={{ minWidth: 200 }}>Payee (To)</th>
+                            <th style={{ width: 88 }}>{tr('hub.th.voucher')}</th>
+                            <th style={{ width: 130 }}>{tr('hub.th.date')}</th>
+                            <th style={{ width: 130 }}>{tr('hub.th.type')}</th>
+                            <th style={{ minWidth: 200 }}>{tr('hub.th.payee')}</th>
                             <th style={{ minWidth: 220 }}>
-                                {variant === 'payment' ? 'Account Dr — Payable / Expense' : 'Account Cr'}
+                                {variant === 'payment' ? tr('hub.th.accountDr') : tr('hub.th.accountCr')}
                             </th>
-                            <th style={{ width: 120, textAlign: 'right' }}>Amount (SAR)</th>
-                            <th style={{ width: 110 }}>Reference</th>
-                            <th style={{ minWidth: 140 }}>Notes</th>
+                            <th style={{ width: 120, textAlign: 'right' }}>{tr('hub.th.amount')}</th>
+                            <th style={{ width: 110 }}>{tr('hub.th.ref')}</th>
+                            <th style={{ minWidth: 140 }}>{tr('hub.th.notes')}</th>
                             <th style={{ width: 44 }} />
                         </tr>
                     </thead>
@@ -518,9 +521,9 @@ function PaymentReceiptGrid({
                                         value={l.payType}
                                         onChange={(e) => handleTypeChange(idx, e.target.value)}
                                     >
-                                        {PAY_TYPES.map((p) => (
+                                        {PAY_TYPE_KEYS.map((p) => (
                                             <option key={p.value} value={p.value}>
-                                                {p.label}
+                                                {tr(p.key)}
                                             </option>
                                         ))}
                                     </select>
@@ -533,6 +536,7 @@ function PaymentReceiptGrid({
                                         staff={staff}
                                         customerOptions={customerOptions}
                                         onChange={updateLine}
+                                        t={tr}
                                     />
                                 </td>
                                 <td>
@@ -541,7 +545,7 @@ function PaymentReceiptGrid({
                                         value={l.accountId}
                                         onChange={(e) => updateLine(idx, { accountId: e.target.value })}
                                     >
-                                        <option value="">Select account…</option>
+                                        <option value="">{tr('hub.select.account')}</option>
                                         {accountColOptions.map((a) => (
                                             <option key={a.id} value={a.id}>
                                                 [{a.code}] {a.name}
@@ -564,7 +568,7 @@ function PaymentReceiptGrid({
                                         style={inputStyle}
                                         value={l.lineReference}
                                         onChange={(e) => updateLine(idx, { lineReference: e.target.value })}
-                                        placeholder="Ref #"
+                                        placeholder={tr('hub.refPh')}
                                     />
                                 </td>
                                 <td>
@@ -572,7 +576,7 @@ function PaymentReceiptGrid({
                                         style={inputStyle}
                                         value={l.notes}
                                         onChange={(e) => updateLine(idx, { notes: e.target.value })}
-                                        placeholder="Notes"
+                                        placeholder={tr('hub.notesPh')}
                                         onKeyDown={(e) => handleTabFromNotes(e, idx)}
                                     />
                                 </td>
@@ -583,7 +587,7 @@ function PaymentReceiptGrid({
                                         style={{ ...outlineBtnStyle, color: '#B91C1C', borderColor: '#FECACA' }}
                                         onClick={() => setLines((ls) => ls.filter((_, i) => i !== idx))}
                                         disabled={lines.length === 1}
-                                        title="Remove row"
+                                        title={tr('hub.removeRow')}
                                     >
                                         <Trash2 size={14} />
                                     </button>
@@ -596,14 +600,21 @@ function PaymentReceiptGrid({
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>
-                    {validCount} valid row{validCount === 1 ? '' : 's'} — Total: {money(total)}
+                    {tr(validCount === 1 ? 'hub.validRow' : 'hub.validRows', {
+                        count: validCount,
+                        amount: money(total, 'SAR', { locale }),
+                    })}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                     <button type="button" style={outlineBtnStyle} onClick={addLine}>
-                        <Plus size={14} /> Add row
+                        <Plus size={14} /> {tr('hub.btn.addRow')}
                     </button>
                     <button type="submit" style={primaryBtnStyle} disabled={saving || validCount === 0}>
-                        {saving ? 'Saving…' : variant === 'payment' ? 'Save all payments' : 'Save all receipts'}
+                        {saving
+                            ? tr('hub.btn.saving')
+                            : variant === 'payment'
+                              ? tr('hub.btn.savePayments')
+                              : tr('hub.btn.saveReceipts')}
                     </button>
                 </div>
             </div>
@@ -613,7 +624,9 @@ function PaymentReceiptGrid({
     );
 }
 
-function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPosted }) {
+function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPosted, locale = 'en', t }) {
+    const tr = t || ((key, vars) => saccT(locale, key, vars));
+    const m = (v) => money(v, 'SAR', { locale });
     const leafAccounts = useMemo(
         () => (accounts || []).filter((a) => !a.hasChildren),
         [accounts],
@@ -654,7 +667,7 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
         e.preventDefault();
         setErr('');
         if (!totals.balanced) {
-            setErr('Debit total must equal credit total (and be greater than 0).');
+            setErr(tr('hub.err.balance'));
             return;
         }
         const cleanLines = lines
@@ -666,7 +679,7 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
                 description: [l.lineReference?.trim(), l.notes?.trim()].filter(Boolean).join(' | ') || undefined,
             }));
         if (cleanLines.length < 2) {
-            setErr('At least 2 balanced lines are required.');
+            setErr(tr('hub.err.minLines'));
             return;
         }
         setSaving(true);
@@ -680,7 +693,7 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
             onPosted?.([res]);
             setLines([emptyJournalLine(), emptyJournalLine()]);
         } catch (ex) {
-            setErr(ex?.message || 'Failed to post journal');
+            setErr(ex?.message || tr('hub.err.post'));
         } finally {
             setSaving(false);
         }
@@ -689,19 +702,19 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
     return (
         <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <p style={{ margin: 0, fontSize: 12, color: '#64748B' }}>
-                Journal entry — lines must balance. Tab from Notes on the last row adds a line.
+                {tr('hub.journal.lineHint')}
             </p>
             <div style={{ overflowX: 'auto' }}>
                 <table className="ws-table" style={{ width: '100%', minWidth: 800 }}>
                     <thead>
                         <tr>
-                            <th style={{ width: 88 }}>Voucher #</th>
+                            <th style={{ width: 88 }}>{tr('hub.th.voucher')}</th>
                             <th style={{ width: 28 }}> </th>
-                            <th style={{ minWidth: 220 }}>Account</th>
-                            <th style={{ width: 120, textAlign: 'right' }}>Debit</th>
-                            <th style={{ width: 120, textAlign: 'right' }}>Credit</th>
-                            <th style={{ width: 110 }}>Reference</th>
-                            <th style={{ minWidth: 140 }}>Notes</th>
+                            <th style={{ minWidth: 220 }}>{tr('hub.th.account')}</th>
+                            <th style={{ width: 120, textAlign: 'right' }}>{tr('hub.th.debit')}</th>
+                            <th style={{ width: 120, textAlign: 'right' }}>{tr('hub.th.credit')}</th>
+                            <th style={{ width: 110 }}>{tr('hub.th.ref')}</th>
+                            <th style={{ minWidth: 140 }}>{tr('hub.th.notes')}</th>
                             <th style={{ width: 44 }} />
                         </tr>
                     </thead>
@@ -732,7 +745,7 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
                                         value={l.accountId}
                                         onChange={(e) => updateLine(idx, { accountId: e.target.value })}
                                     >
-                                        <option value="">— Select —</option>
+                                        <option value="">{tr('select.dash')}</option>
                                         {leafAccounts.map((a) => (
                                             <option key={a.id} value={a.id}>
                                                 [{a.code}] {a.name}
@@ -782,6 +795,7 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
                                         style={{ ...outlineBtnStyle, color: '#B91C1C', borderColor: '#FECACA' }}
                                         onClick={() => setLines((ls) => ls.filter((_, i) => i !== idx))}
                                         disabled={lines.length <= 2}
+                                        title={tr('hub.removeRow')}
                                     >
                                         <Trash2 size={14} />
                                     </button>
@@ -792,10 +806,10 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
                     <tfoot>
                         <tr>
                             <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>
-                                Totals
+                                {tr('hub.totals')}
                             </td>
-                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(totals.debit)}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(totals.credit)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{m(totals.debit)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{m(totals.credit)}</td>
                             <td colSpan={3} />
                         </tr>
                     </tfoot>
@@ -803,15 +817,15 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
             </div>
             {!totals.balanced ? (
                 <div style={{ fontSize: 12, color: '#B45309', fontWeight: 700 }}>
-                    Out of balance by {money(Math.abs(totals.debit - totals.credit))}
+                    {tr('hub.outOfBalance', { amount: m(Math.abs(totals.debit - totals.credit)) })}
                 </div>
             ) : null}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <button type="button" style={outlineBtnStyle} onClick={addLine}>
-                    <Plus size={14} /> Add row
+                    <Plus size={14} /> {tr('hub.btn.addRow')}
                 </button>
                 <button type="submit" style={primaryBtnStyle} disabled={saving || !totals.balanced}>
-                    {saving ? 'Posting…' : 'Save journal entry'}
+                    {saving ? tr('hub.btn.posting') : tr('hub.btn.saveJournal')}
                 </button>
             </div>
             <AcctError message={err} />
@@ -819,7 +833,13 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
     );
 }
 
-export default function SupplierTransactionHub() {
+export default function SupplierTransactionHub({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
+    const m = useCallback((v) => money(v, 'SAR', { locale }), [locale]);
     const location = useLocation();
     const navigate = useNavigate();
     const [tab, setTab] = useState('payment');
@@ -871,11 +891,11 @@ export default function SupplierTransactionHub() {
             if (!id) continue;
             opts.push({
                 value: `external|${String(id)}`,
-                label: `Non-affiliated · ${p.displayName || p.name || String(id)}`,
+                label: t('hub.nonAffiliated', { name: p.displayName || p.name || String(id) }),
             });
         }
         return opts;
-    }, [affiliatedRows, externalParties]);
+    }, [affiliatedRows, externalParties, t]);
 
     const reload = useCallback(async () => {
         setLoading(true);
@@ -894,11 +914,11 @@ export default function SupplierTransactionHub() {
             setAffiliatedRows(extractArray(aff, ['rows', 'data']));
             setExternalParties(extractArray(ext, ['parties', 'rows', 'data']));
         } catch (e) {
-            setErr(e?.message || 'Failed to load data');
+            setErr(e?.message || t('hub.err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const reloadRecent = useCallback(async () => {
         try {
@@ -977,16 +997,16 @@ export default function SupplierTransactionHub() {
     return (
         <div style={{ padding: 4 }}>
             <div style={{ marginBottom: 10 }}>
-                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0F172A' }}>Transaction entry</h2>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0F172A' }}>{t('hub.title')}</h2>
                 <p style={{ margin: '6px 0 0', fontSize: 14, color: '#64748B' }}>
-                    Record payments, receipts, and journal entries.
+                    {t('hub.sub')}
                 </p>
             </div>
 
-            <AcctCard title="Entry">
+            <AcctCard title={t('hub.card.entry')}>
                 <AcctError message={err} />
                 {loading ? (
-                    <AcctLoading />
+                    <AcctLoading locale={locale} />
                 ) : (
                     <>
                         <div
@@ -1000,9 +1020,9 @@ export default function SupplierTransactionHub() {
                                 flexWrap: 'wrap',
                             }}
                         >
-                            {tabBtn('payment', 'Payments', CreditCard)}
-                            {tabBtn('receipt', 'Receipts', Receipt)}
-                            {tabBtn('journal', 'Journal entry', ArrowLeftRight)}
+                            {tabBtn('payment', t('hub.tab.payments'), CreditCard)}
+                            {tabBtn('receipt', t('hub.tab.receipts'), Receipt)}
+                            {tabBtn('journal', t('hub.tab.journal'), ArrowLeftRight)}
                         </div>
 
                         {tab === 'payment' && (
@@ -1012,6 +1032,8 @@ export default function SupplierTransactionHub() {
                                 superSuppliers={superSuppliers}
                                 staff={staff}
                                 customerOptions={customerOptions}
+                                locale={locale}
+                                t={t}
                                 initialPrefill={
                                     activeGridPrefill?.tab === 'payment' ||
                                     activeGridPrefill?.variant === 'payment'
@@ -1041,6 +1063,8 @@ export default function SupplierTransactionHub() {
                                 superSuppliers={superSuppliers}
                                 staff={staff}
                                 customerOptions={customerOptions}
+                                locale={locale}
+                                t={t}
                                 initialPrefill={
                                     activeGridPrefill?.tab === 'receipt' ||
                                     activeGridPrefill?.variant === 'receipt'
@@ -1062,7 +1086,7 @@ export default function SupplierTransactionHub() {
                                         gap: 12,
                                     }}
                                 >
-                                    <Field label="Date" required>
+                                    <Field label={t('hub.field.date')} required>
                                         <input
                                             type="date"
                                             style={inputStyle}
@@ -1071,10 +1095,10 @@ export default function SupplierTransactionHub() {
                                             required
                                         />
                                     </Field>
-                                    <Field label="Reference number">
+                                    <Field label={t('hub.field.ref')}>
                                         <input style={inputStyle} value={gjRef} onChange={(e) => setGjRef(e.target.value)} />
                                     </Field>
-                                    <Field label="General note">
+                                    <Field label={t('hub.field.note')}>
                                         <input style={inputStyle} value={gjNote} onChange={(e) => setGjNote(e.target.value)} />
                                     </Field>
                                 </div>
@@ -1083,6 +1107,8 @@ export default function SupplierTransactionHub() {
                                     headerDate={gjDate}
                                     headerRef={gjRef}
                                     generalNote={gjNote}
+                                    locale={locale}
+                                    t={t}
                                     onPosted={(journals) => setLastPosted(journals?.[0] ?? null)}
                                 />
                             </div>
@@ -1100,26 +1126,33 @@ export default function SupplierTransactionHub() {
                                     fontSize: 13,
                                 }}
                             >
-                                Last saved: <strong>{lastPosted.entryNumber}</strong> — total {money(lastPosted.totalDebit)}.
+                                {t('hub.lastSaved', {
+                                    entry: lastPosted.entryNumber,
+                                    amount: m(lastPosted.totalDebit),
+                                })}
                                 {lastPosted.storageFacilityMirrors?.length ? (
                                     <>
                                         {' '}
-                                        · Synced to storage facility:{' '}
-                                        {lastPosted.storageFacilityMirrors
-                                            .map(
-                                                (m) =>
-                                                    `${m.brandName} (${m.entryNumber}, ${money(m.amount)})`,
-                                            )
-                                            .join('; ')}
+                                        ·{' '}
+                                        {t('hub.syncedStorage', {
+                                            list: lastPosted.storageFacilityMirrors
+                                                .map(
+                                                    (mir) =>
+                                                        `${mir.brandName} (${mir.entryNumber}, ${m(mir.amount)})`,
+                                                )
+                                                .join('; '),
+                                        })}
                                     </>
                                 ) : null}
                             </div>
                         ) : null}
 
                         <div style={{ marginTop: 24 }}>
-                            <h4 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#0F172A' }}>Recent payments</h4>
+                            <h4 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#0F172A' }}>
+                                {t('hub.recentPayments')}
+                            </h4>
                             {recentPayments.length === 0 ? (
-                                <AcctEmpty message="No recent payments yet." />
+                                <AcctEmpty message={t('hub.emptyPayments')} />
                             ) : (
                                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#334155' }}>
                                     {recentPayments.map((j) => (
@@ -1128,16 +1161,18 @@ export default function SupplierTransactionHub() {
                                             {' · '}
                                             {fmtDate(j.date)}
                                             {' · '}
-                                            {money(j.totalDebit)}
+                                            {m(j.totalDebit)}
                                         </li>
                                     ))}
                                 </ul>
                             )}
                         </div>
                         <div style={{ marginTop: 16 }}>
-                            <h4 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#0F172A' }}>Recent receipts</h4>
+                            <h4 style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: '#0F172A' }}>
+                                {t('hub.recentReceipts')}
+                            </h4>
                             {recentReceipts.length === 0 ? (
-                                <AcctEmpty message="No recent receipts yet." />
+                                <AcctEmpty message={t('hub.emptyReceipts')} />
                             ) : (
                                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#334155' }}>
                                     {recentReceipts.map((j) => (
@@ -1146,7 +1181,7 @@ export default function SupplierTransactionHub() {
                                             {' · '}
                                             {fmtDate(j.date)}
                                             {' · '}
-                                            {money(j.totalCredit ?? j.totalDebit)}
+                                            {m(j.totalCredit ?? j.totalDebit)}
                                         </li>
                                     ))}
                                 </ul>

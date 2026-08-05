@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Users,
     Plus,
-    Pencil,
     Warehouse,
     ClipboardList,
     Truck,
@@ -25,19 +24,57 @@ import {
     formatStaffCreatedAt,
     listRowFromApiStaff,
     mapStaffRow,
-    staffAvailabilityUi,
 } from './supplierEmployeesUtils';
+import { sempT } from '../../../utils/supplierEmployeesI18n';
 import './StaffEmployeesScreen.css';
 
 const KPI_DEF = [
-    { id: 'warehouse', label: 'WAREHOUSE INCHARGE', Icon: Warehouse },
-    { id: 'order', label: 'ORDER PROCESSOR', Icon: ClipboardList },
-    { id: 'driver', label: 'DRIVER', Icon: Truck },
-    { id: 'accountant', label: 'ACCOUNTANT', Icon: Calculator },
-    { id: 'supervisor', label: 'SUPERVISOR', Icon: UsersRound },
+    { id: 'warehouse', labelKey: 'kpi.warehouse', Icon: Warehouse },
+    { id: 'order', labelKey: 'kpi.order', Icon: ClipboardList },
+    { id: 'driver', labelKey: 'kpi.driver', Icon: Truck },
+    { id: 'accountant', labelKey: 'kpi.accountant', Icon: Calculator },
+    { id: 'supervisor', labelKey: 'kpi.supervisor', Icon: UsersRound },
 ];
 
-export default function SupplierEmployeesPage() {
+/** API role values stay English; labels are localized. */
+const ROLE_OPTIONS = [
+    { value: 'Warehouse Incharge', labelKey: 'role.warehouseIncharge' },
+    { value: 'Order Processor', labelKey: 'role.orderProcessor' },
+    { value: 'Driver', labelKey: 'role.driver' },
+    { value: 'Accountant', labelKey: 'role.accountant' },
+    { value: 'Supervisor', labelKey: 'role.supervisor' },
+    { value: 'Finance', labelKey: 'role.finance' },
+    { value: 'Warehouse Manager', labelKey: 'role.warehouseManager' },
+    { value: 'Picker / Packer', labelKey: 'role.pickerPacker' },
+    { value: 'Admin', labelKey: 'role.admin' },
+];
+
+function availabilityLabel(row, t) {
+    if (row.status === 'inactive') return t('emdash');
+    const d = row.dutyStatus || row.duty_status;
+    if (d === 'busy') return t('avail.busy');
+    if (d === 'offline') return t('avail.offline');
+    return t('avail.available');
+}
+
+function roleDisplay(role, t) {
+    const opt = ROLE_OPTIONS.find((o) => o.value === role);
+    return opt ? t(opt.labelKey) : role || t('emdash');
+}
+
+function statusDisplay(status, t) {
+    if (status === 'active') return t('status.active');
+    if (status === 'inactive') return t('status.inactive');
+    return status;
+}
+
+export default function SupplierEmployeesPage({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sempT(locale, key, vars), [locale]);
+
     const [list, setList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [apiError, setApiError] = useState('');
@@ -81,7 +118,7 @@ export default function SupplierEmployeesPage() {
             if (!supplierId) {
                 setResolvedSupplierId('');
                 setList([]);
-                setApiError('Supplier ID not found in login session. Please login again as supplier.');
+                setApiError(t('error.noSupplierId'));
                 return [];
             }
             setResolvedSupplierId(String(supplierId));
@@ -116,14 +153,14 @@ export default function SupplierEmployeesPage() {
             setList([]);
             setApiError(
                 err?.message?.includes('401')
-                    ? 'Unauthorized (401). Please sign in again.'
-                    : err?.message || 'Failed to load staff',
+                    ? t('error.unauthorized')
+                    : err?.message || t('error.load'),
             );
             return [];
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadStaff();
@@ -168,16 +205,16 @@ export default function SupplierEmployeesPage() {
 
     const handleSave = async () => {
         if (!form.name?.trim() || !form.phone?.trim()) {
-            setSaveError('Enter full name and mobile number.');
+            setSaveError(t('error.namePhone'));
             return;
         }
         if (!form.role?.trim()) {
-            setSaveError('Select a role.');
+            setSaveError(t('error.selectRole'));
             return;
         }
         if (!resolvedSupplierId) {
-            setSaveError('Supplier ID missing. Please re-login.');
-            showToast('Supplier ID missing. Please re-login.', 'error');
+            setSaveError(t('error.missingSupplierId'));
+            showToast(t('error.missingSupplierId'), 'error');
             return;
         }
         setSaveError('');
@@ -233,10 +270,10 @@ export default function SupplierEmployeesPage() {
             setModalOpen(false);
             setEditItem(null);
             setForm(emptyStaffForm);
-            showToast(wasEdit ? 'Employee updated.' : 'Employee added.');
+            showToast(wasEdit ? t('toast.updated') : t('toast.added'));
         } catch (err) {
-            setSaveError(err?.message || 'Could not save employee');
-            showToast(err?.message || 'Could not save employee', 'error');
+            setSaveError(err?.message || t('error.save'));
+            showToast(err?.message || t('error.save'), 'error');
         } finally {
             setSaveLoading(false);
         }
@@ -244,7 +281,7 @@ export default function SupplierEmployeesPage() {
 
     const toggleDutyBusy = async (row) => {
         if (row.status === 'inactive') {
-            showToast('Inactive employees cannot change duty status.', 'warning');
+            showToast(t('error.inactiveDuty'), 'warning');
             return;
         }
         const nextStatus = row.dutyStatus === 'busy' ? 'available' : 'busy';
@@ -257,14 +294,14 @@ export default function SupplierEmployeesPage() {
         );
         try {
             await patchSupplierStaffDutyStatus(row.id, { status: nextStatus });
-            showToast(nextStatus === 'busy' ? 'Marked busy.' : 'Marked available.');
+            showToast(nextStatus === 'busy' ? t('toast.busy') : t('toast.available'));
         } catch (err) {
             setList((prev) =>
                 prev.map((x) =>
                     String(x.id) === String(row.id) ? { ...x, dutyStatus: prevDuty } : x,
                 ),
             );
-            showToast(err?.message || 'Could not update duty status', 'error');
+            showToast(err?.message || t('error.duty'), 'error');
         } finally {
             setDutyLoadingId(null);
         }
@@ -297,7 +334,6 @@ export default function SupplierEmployeesPage() {
                         zIndex: 1200,
                         padding: '10px 14px',
                         borderRadius: 10,
-                        color: '#fff',
                         fontSize: '0.8125rem',
                         fontWeight: 700,
                         background:
@@ -315,19 +351,19 @@ export default function SupplierEmployeesPage() {
             ) : null}
             <div className="ws-page-header" style={{ alignItems: 'flex-start' }}>
                 <div>
-                    <h2 className="ws-page-title">Staff & Roles</h2>
-                    <p className="ws-page-sub">Supplier & Warehouse Portal</p>
+                    <h2 className="ws-page-title">{t('title')}</h2>
+                    <p className="ws-page-sub">{t('subtitle')}</p>
                 </div>
                 <button type="button" className="mgr-si-btn-new" onClick={openAdd}>
-                    <Plus size={18} strokeWidth={2.5} /> Add Employee / Worker
+                    <Plus size={18} strokeWidth={2.5} /> {t('btn.add')}
                 </button>
             </div>
 
             {apiError ? (
                 <div className="theme-alert">
-                    <strong>Could not load staff:</strong> {apiError}
+                    <strong>{t('error.couldNotLoad')}</strong> {apiError}
                     <p style={{ margin: '6px 0 0 0', fontSize: '0.75rem' }}>
-                        Supplier scope: <strong>{resolvedSupplierId}</strong>
+                        {t('error.supplierScope')} <strong>{resolvedSupplierId}</strong>
                     </p>
                 </div>
             ) : null}
@@ -342,10 +378,10 @@ export default function SupplierEmployeesPage() {
             ) : (
                 <>
                     <div className="ws-kpi-grid">
-                        {KPI_DEF.map(({ id, label, Icon }) => (
+                        {KPI_DEF.map(({ id, labelKey, Icon }) => (
                             <div key={id} className="ws-kpi-card">
                                 <div>
-                                    <p className="ws-kpi-label">{label}</p>
+                                    <p className="ws-kpi-label">{t(labelKey)}</p>
                                     <p className="ws-kpi-value">{kpiCounts[id] ?? 0}</p>
                                 </div>
                                 <div className="ws-kpi-icon ws-kpi-icon--dark">
@@ -358,12 +394,27 @@ export default function SupplierEmployeesPage() {
                     <div className="ws-section" style={{ padding: 0, overflow: 'hidden' }}>
                         {list.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-                                <Users size={48} style={{ opacity: 0.25, margin: '0 auto 16px', display: 'block' }} />
-                                <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                                    No employees yet
+                                <Users
+                                    size={48}
+                                    style={{ opacity: 0.25, margin: '0 auto 16px', display: 'block' }}
+                                />
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontWeight: 600,
+                                        color: 'var(--color-text-muted)',
+                                    }}
+                                >
+                                    {t('empty.title')}
                                 </p>
-                                <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                    Add your first warehouse or office worker using the button above.
+                                <p
+                                    style={{
+                                        margin: '8px 0 0',
+                                        fontSize: '0.8125rem',
+                                        color: 'var(--color-text-muted)',
+                                    }}
+                                >
+                                    {t('empty.body')}
                                 </p>
                             </div>
                         ) : (
@@ -371,14 +422,14 @@ export default function SupplierEmployeesPage() {
                                 <table className="ws-table">
                                     <thead>
                                         <tr>
-                                            <th>Name</th>
-                                            <th>Role</th>
-                                            <th>Mobile</th>
-                                            <th>Vehicle plate</th>
-                                            <th>Availability</th>
-                                            <th>Status</th>
-                                            <th>Created</th>
-                                            <th>Actions</th>
+                                            <th>{t('th.name')}</th>
+                                            <th>{t('th.role')}</th>
+                                            <th>{t('th.mobile')}</th>
+                                            <th>{t('th.vehicle')}</th>
+                                            <th>{t('th.availability')}</th>
+                                            <th>{t('th.status')}</th>
+                                            <th>{t('th.created')}</th>
+                                            <th>{t('th.actions')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -387,19 +438,28 @@ export default function SupplierEmployeesPage() {
                                                 <td>
                                                     <strong>{s.name}</strong>
                                                 </td>
-                                                <td style={{ fontSize: '0.875rem' }}>{s.role || '—'}</td>
-                                                <td style={{ fontSize: '0.875rem' }}>{s.phone || '—'}</td>
-                                                <td style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
-                                                    {s.vehiclePlate || '—'}
+                                                <td style={{ fontSize: '0.875rem' }}>
+                                                    {roleDisplay(s.role, t)}
                                                 </td>
                                                 <td style={{ fontSize: '0.875rem' }}>
-                                                    {staffAvailabilityUi(s).label}
+                                                    {s.phone || t('emdash')}
+                                                </td>
+                                                <td
+                                                    style={{
+                                                        color: 'var(--color-text-muted)',
+                                                        fontSize: '0.875rem',
+                                                    }}
+                                                >
+                                                    {s.vehiclePlate || t('emdash')}
+                                                </td>
+                                                <td style={{ fontSize: '0.875rem' }}>
+                                                    {availabilityLabel(s, t)}
                                                 </td>
                                                 <td>
                                                     <span
                                                         className={`ws-badge ${s.status === 'active' ? 'ws-badge--green' : 'ws-badge--gray'}`}
                                                     >
-                                                        {s.status}
+                                                        {statusDisplay(s.status, t)}
                                                     </span>
                                                 </td>
                                                 <td
@@ -418,17 +478,19 @@ export default function SupplierEmployeesPage() {
                                                 </td>
                                                 <td>
                                                     <RowActionsMenu
-                                                        ariaLabel={`Actions for ${s.name || 'employee'}`}
+                                                        ariaLabel={t('action.aria', {
+                                                            name: s.name || t('fallback.employee'),
+                                                        })}
                                                         items={[
                                                             {
-                                                                label: 'Edit',
+                                                                label: t('btn.edit'),
                                                                 onClick: () => openEdit(s),
                                                             },
                                                             {
                                                                 label:
                                                                     s.dutyStatus === 'busy'
-                                                                        ? 'Mark available'
-                                                                        : 'Mark busy',
+                                                                        ? t('btn.markAvailable')
+                                                                        : t('btn.markBusy'),
                                                                 onClick: () => toggleDutyBusy(s),
                                                                 disabled:
                                                                     dutyLoadingId === s.id ||
@@ -450,7 +512,7 @@ export default function SupplierEmployeesPage() {
             <AnimatePresence>
                 {modalOpen && (
                     <Modal
-                        title={editItem ? 'Edit Employee / Worker' : 'Add Employee / Worker'}
+                        title={editItem ? t('modal.editTitle') : t('modal.addTitle')}
                         width="min(520px, 94vw)"
                         onClose={() => {
                             if (!saveLoading) {
@@ -475,7 +537,7 @@ export default function SupplierEmployeesPage() {
                                     disabled={saveLoading}
                                     onClick={() => !saveLoading && setModalOpen(false)}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -486,7 +548,11 @@ export default function SupplierEmployeesPage() {
                                         opacity: saveLoading || !canSubmit ? 0.55 : 1,
                                     }}
                                 >
-                                    {saveLoading ? 'Saving…' : editItem ? 'Save changes' : 'Add Employee'}
+                                    {saveLoading
+                                        ? t('btn.saving')
+                                        : editItem
+                                          ? t('btn.saveChanges')
+                                          : t('btn.addEmployee')}
                                 </button>
                             </div>
                         }
@@ -507,50 +573,49 @@ export default function SupplierEmployeesPage() {
                         ) : null}
                         <div className="ws-form-grid" style={{ gap: 14 }}>
                             <div className="ws-field" style={fieldFull}>
-                                <label>Full Name *</label>
+                                <label>{t('field.fullName')}</label>
                                 <input
                                     autoComplete="name"
                                     value={form.name}
                                     onChange={(e) => set('name', e.target.value)}
-                                    placeholder="Full Name"
+                                    placeholder={t('field.fullNamePh')}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Mobile *</label>
+                                <label>{t('field.mobile')}</label>
                                 <input
                                     autoComplete="tel"
                                     value={form.phone}
                                     onChange={(e) => set('phone', e.target.value)}
-                                    placeholder="05XXXXXXXX"
+                                    placeholder={t('field.mobilePh')}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Email</label>
+                                <label>{t('field.email')}</label>
                                 <input
                                     type="email"
                                     autoComplete="email"
                                     value={form.email}
                                     onChange={(e) => set('email', e.target.value)}
-                                    placeholder="Email"
+                                    placeholder={t('field.emailPh')}
                                 />
                             </div>
                             <div className="ws-field" style={fieldFull}>
-                                <label>Role *</label>
-                                <select value={form.role} onChange={(e) => set('role', e.target.value)}>
-                                    <option value="">Select role</option>
-                                    <option value="Warehouse Incharge">Warehouse Incharge</option>
-                                    <option value="Order Processor">Order Processor</option>
-                                    <option value="Driver">Driver</option>
-                                    <option value="Accountant">Accountant</option>
-                                    <option value="Supervisor">Supervisor</option>
-                                    <option value="Finance">Finance</option>
-                                    <option value="Warehouse Manager">Warehouse Manager</option>
-                                    <option value="Picker / Packer">Picker / Packer</option>
-                                    <option value="Admin">Admin</option>
+                                <label>{t('field.role')}</label>
+                                <select
+                                    value={form.role}
+                                    onChange={(e) => set('role', e.target.value)}
+                                >
+                                    <option value="">{t('field.selectRole')}</option>
+                                    {ROLE_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                            {t(opt.labelKey)}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Basic Salary (SAR)</label>
+                                <label>{t('field.salary')}</label>
                                 <input
                                     type="number"
                                     min={0}
@@ -561,10 +626,13 @@ export default function SupplierEmployeesPage() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Status</label>
-                                <select value={form.status} onChange={(e) => set('status', e.target.value)}>
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
+                                <label>{t('field.status')}</label>
+                                <select
+                                    value={form.status}
+                                    onChange={(e) => set('status', e.target.value)}
+                                >
+                                    <option value="active">{t('statusOpt.active')}</option>
+                                    <option value="inactive">{t('statusOpt.inactive')}</option>
                                 </select>
                             </div>
                         </div>

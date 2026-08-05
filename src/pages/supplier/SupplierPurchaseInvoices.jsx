@@ -41,6 +41,7 @@ import {
     unwrapSupplierAccountingList,
 } from '../../services/supplierAccountingApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
+import { spiT } from '../../utils/supplierPurchaseInvoicesI18n';
 
 const ACCOUNT_OPTIONS = [
     { code: '5100', name: 'Cost of Goods Sold' },
@@ -204,7 +205,7 @@ function masterCatalogWarehouseUnit(raw, fallback = 'pcs') {
     return fallback;
 }
 
-function mapMasterCatalogToPurchasePickerRow(raw) {
+function mapMasterCatalogToPurchasePickerRow(raw, t) {
     if (!raw || typeof raw !== 'object') return null;
     const mid =
         raw.id != null && raw.id !== ''
@@ -223,7 +224,7 @@ function mapMasterCatalogToPurchasePickerRow(raw) {
         id: mid,
         masterProductId: mid,
         sku: String(raw.sku ?? raw.barcode ?? '').trim(),
-        name: raw.name || raw.productName || 'Product',
+        name: raw.name || raw.productName || (t ? t('fallback.product') : 'Product'),
         price,
         unit: warehouseUnit,
         warehouseUnit,
@@ -232,8 +233,9 @@ function mapMasterCatalogToPurchasePickerRow(raw) {
         warehouseStockQty: null,
         stockQtyWorkshop: null,
         type: 'Stock',
-        stockHint:
-            'Master catalog product — added to Stock Inventory on save if not already listed.',
+        stockHint: t
+            ? t('hint.masterCatalog')
+            : 'Master catalog product — added to Stock Inventory on save if not already listed.',
         hasPreviousPurchase: false,
         lastPrice: 0,
         lastPurchaseMeta: '',
@@ -241,7 +243,7 @@ function mapMasterCatalogToPurchasePickerRow(raw) {
 }
 
 /** Overlay stock / last-purchase hints onto a master-catalog picker row. */
-function applyStockBalanceHintsToPickerRow(pickerRow, stockRaw) {
+function applyStockBalanceHintsToPickerRow(pickerRow, stockRaw, t) {
     if (!pickerRow || !stockRaw || typeof stockRaw !== 'object') return pickerRow;
 
     const pickerMasterId = String(pickerRow.masterProductId || pickerRow.id || '').trim();
@@ -312,11 +314,20 @@ function applyStockBalanceHintsToPickerRow(pickerRow, stockRaw) {
         stockQtyWorkshop: Number(stockRaw.currentBalanceWorkshop ?? 0),
         stockHint:
             qtyWh >= 0
-                ? `Warehouse stock: ${qtyWh} ${warehouseUnit}${
-                      conversionFactor > 1
-                          ? ` (= ${qtyWh * conversionFactor} ${workshopUnit})`
-                          : ''
-                  }`
+                ? t
+                    ? conversionFactor > 1
+                        ? t('hint.warehouseStockConv', {
+                              qty: qtyWh,
+                              unit: warehouseUnit,
+                              wsQty: qtyWh * conversionFactor,
+                              wsUnit: workshopUnit,
+                          })
+                        : t('hint.warehouseStock', { qty: qtyWh, unit: warehouseUnit })
+                    : `Warehouse stock: ${qtyWh} ${warehouseUnit}${
+                          conversionFactor > 1
+                              ? ` (= ${qtyWh * conversionFactor} ${workshopUnit})`
+                              : ''
+                      }`
                 : pickerRow.stockHint,
         hasPreviousPurchase,
         lastPrice: lastPurchasePriceNum,
@@ -325,7 +336,7 @@ function applyStockBalanceHintsToPickerRow(pickerRow, stockRaw) {
 }
 
 /** Stock Inventory → Adjust via Purchase preset (supplier product rows). */
-function mapStockBalanceToPurchasePickerRow(raw) {
+function mapStockBalanceToPurchasePickerRow(raw, t) {
     if (!raw || typeof raw !== 'object') return null;
     const mid =
         raw.masterProductId != null && String(raw.masterProductId).trim() !== ''
@@ -338,17 +349,20 @@ function mapStockBalanceToPurchasePickerRow(raw) {
               ? String(raw.supplierProductId)
               : '';
     if (!pid && !mid) return null;
-    const base = mapMasterCatalogToPurchasePickerRow({
-        id: mid || pid,
-        masterProductId: mid || pid,
-        name: raw.productName,
-        sku: raw.sku ?? raw.barcode,
-        warehouseUnit: masterCatalogWarehouseUnit(raw, 'pcs'),
-        workshopUnit: raw.workshopUnit,
-        conversionFactor: raw.conversionFactor,
-        purchasePrice: 0,
-    });
-    return applyStockBalanceHintsToPickerRow(base, raw);
+    const base = mapMasterCatalogToPurchasePickerRow(
+        {
+            id: mid || pid,
+            masterProductId: mid || pid,
+            name: raw.productName,
+            sku: raw.sku ?? raw.barcode,
+            warehouseUnit: masterCatalogWarehouseUnit(raw, 'pcs'),
+            workshopUnit: raw.workshopUnit,
+            conversionFactor: raw.conversionFactor,
+            purchasePrice: 0,
+        },
+        t,
+    );
+    return applyStockBalanceHintsToPickerRow(base, raw, t);
 }
 
 function normPiUomLabel(u) {
@@ -394,7 +408,7 @@ function resolvePiLineUnitForApi(line, inv) {
     return String(line?.uom ?? 'pcs').trim() || 'pcs';
 }
 
-function formatPiUomConversionPreview(line, inv) {
+function formatPiUomConversionPreview(line, inv, t, money) {
     if (!inv) return '';
     const cf = Number(inv.conversionFactor) || 1;
     if (!(cf > 1)) return '';
@@ -406,9 +420,22 @@ function formatPiUomConversionPreview(line, inv) {
     if (isPiWarehouseUomLine(line, inv)) {
         const wsQty = roundMoney2(qty * cf);
         const wsPrice = cf > 0 ? roundMoney2(price / cf) : price;
+        if (t && money) {
+            return t('uom.previewWh', {
+                qty,
+                wu,
+                wsQty,
+                wsu,
+                pricePer: money(price.toFixed(2)),
+                wsPricePer: money(wsPrice.toFixed(2)),
+            });
+        }
         return `${qty} ${wu} → +${wsQty} ${wsu} in stock · SAR ${price.toFixed(2)}/${wu} → SAR ${wsPrice.toFixed(2)}/${wsu} cost`;
     }
     const whQty = roundMoney2(qty / cf);
+    if (t) {
+        return t('uom.previewWs', { qty, wsu, whQty, wu });
+    }
     return `${qty} ${wsu} → +${whQty} ${wu} warehouse stock`;
 }
 
@@ -463,18 +490,18 @@ const EMPTY_SS_FORM = {
     openingOffsetAccountId: '',
 };
 
-function formatAccountsPayableDisplay(amount) {
+function formatAccountsPayableDisplay(amount, money) {
     const n = Number(amount ?? 0);
     if (n < -0.005) {
-        return `- SAR ${fmtApMoney(Math.abs(n))}`;
+        return `- ${money(fmtApMoney(Math.abs(n)))}`;
     }
-    return `SAR ${fmtApMoney(n)}`;
+    return money(fmtApMoney(n));
 }
 
-function apStatusLabel(apStatus) {
-    if (apStatus === 'unpaid') return 'Unpaid';
-    if (apStatus === 'overpaid') return 'Overpaid';
-    return 'Paid';
+function apStatusLabel(apStatus, t) {
+    if (apStatus === 'unpaid') return t('ap.unpaid');
+    if (apStatus === 'overpaid') return t('ap.overpaid');
+    return t('ap.paid');
 }
 
 function apStatusBadgeStyle(apStatus) {
@@ -487,7 +514,14 @@ function apStatusBadgeStyle(apStatus) {
     return { background: '#15803D', color: '#ffffff', border: '1px solid #15803D' };
 }
 
-export default function SupplierPurchaseInvoices() {
+export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => spiT(locale, key, vars), [locale]);
+    const money = useCallback((amount) => t('money.sar', { amount }), [t]);
+
     const [modalOpen, setModalOpen] = useState(false);
     const [showLineNum, setShowLineNum] = useState(false);
     const [showDesc, setShowDesc] = useState(false);
@@ -591,7 +625,7 @@ export default function SupplierPurchaseInvoices() {
             setSuperSuppliers(Array.isArray(list) ? list : []);
         } catch (err) {
             setSuperSuppliers([]);
-            setSsListError(err?.message || 'Failed to load suppliers');
+            setSsListError(err?.message || t('err.loadSuppliers'));
         } finally {
             setSsLoading(false);
         }
@@ -670,13 +704,13 @@ export default function SupplierPurchaseInvoices() {
         setSsLedgerOpen(true);
         setSsLedgerLoading(true);
         setSsLedgerError('');
-        setSsLedgerData({ supplier: { name: supplierName || 'Super supplier' } });
+        setSsLedgerData({ supplier: { name: supplierName || t('fallback.superSupplier') } });
         try {
             const res = await getSuperSupplierApLedger(String(superSupplierId));
             const root = res?.data && typeof res.data === 'object' ? res.data : res;
             setSsLedgerData(root);
         } catch (e) {
-            setSsLedgerError(e?.message || 'Could not load account ledger.');
+            setSsLedgerError(e?.message || t('err.loadLedger'));
             setSsLedgerData(null);
         } finally {
             setSsLedgerLoading(false);
@@ -700,7 +734,7 @@ export default function SupplierPurchaseInvoices() {
                 const root = res?.data && typeof res.data === 'object' ? res.data : res;
                 setSsProductsData(root);
             } catch (e) {
-                setSsProductsError(e?.message || 'Could not load purchased products.');
+                setSsProductsError(e?.message || t('err.loadProducts'));
                 setSsProductsData(null);
             } finally {
                 setSsProductsLoading(false);
@@ -716,7 +750,7 @@ export default function SupplierPurchaseInvoices() {
         setSsProductsDateFrom('');
         setSsProductsDateTo('');
         setSsProductsProductFilter('');
-        setSsProductsData({ supplier: { name: supplierName || 'Super supplier' } });
+        setSsProductsData({ supplier: { name: supplierName || t('fallback.superSupplier') } });
         void loadSuperSupplierProducts(id, {});
     };
 
@@ -766,7 +800,7 @@ export default function SupplierPurchaseInvoices() {
 
     const handleSaveSuperSupplier = async () => {
         if (!ssForm.name?.trim()) {
-            setSsErr('Name is required');
+            setSsErr(t('err.nameRequired'));
             return;
         }
         const openingAmt = Number(ssForm.openingBalance);
@@ -777,11 +811,11 @@ export default function SupplierPurchaseInvoices() {
             Math.abs(openingAmt) >= 0.005;
         if (hasOpening) {
             if (!ssForm.openingBalanceDate?.trim()) {
-                setSsErr('As-of date is required when opening balance is set.');
+                setSsErr(t('err.asOfRequired'));
                 return;
             }
             if (!ssForm.openingOffsetAccountId?.trim()) {
-                setSsErr('Select a contra account from your chart of accounts.');
+                setSsErr(t('err.contraRequired'));
                 return;
             }
         }
@@ -813,7 +847,7 @@ export default function SupplierPurchaseInvoices() {
             setSsForm({ ...EMPTY_SS_FORM, openingBalanceDate: todayIsoDate() });
             await loadSuperSuppliers();
         } catch (e) {
-            setSsErr(e?.message || 'Could not save super supplier');
+            setSsErr(e?.message || t('err.saveSs'));
         } finally {
             setSsSaving(false);
         }
@@ -857,7 +891,7 @@ export default function SupplierPurchaseInvoices() {
             await updateSupplierSuperSupplier(id, { isActive: !ss.isActive });
             await loadSuperSuppliers();
         } catch (e) {
-            window.alert(e?.message || 'Could not update status');
+            window.alert(e?.message || t('err.updateStatus'));
         } finally {
             setSsTogglingId(null);
         }
@@ -867,15 +901,11 @@ export default function SupplierPurchaseInvoices() {
         const purchaseCount = Number(ss.purchaseCount ?? 0);
         const apBalance = Number(ss.accountsPayable ?? 0);
         if (purchaseCount > 0 || Math.abs(apBalance) > 0.005) {
-            window.alert(
-                'This super supplier cannot be deleted because purchase or ledger transactions exist.',
-            );
+            window.alert(t('err.cannotDelete'));
             return;
         }
         if (
-            !window.confirm(
-                `Delete super supplier "${ss.name}"? This cannot be undone.`,
-            )
+            !window.confirm(t('err.confirmDelete', { name: ss.name }))
         ) {
             return;
         }
@@ -885,7 +915,7 @@ export default function SupplierPurchaseInvoices() {
             await deleteSupplierSuperSupplier(id);
             await loadSuperSuppliers();
         } catch (e) {
-            window.alert(e?.message || 'Could not delete super supplier');
+            window.alert(e?.message || t('err.deleteSs'));
         } finally {
             setSsDeletingId(null);
         }
@@ -932,7 +962,7 @@ export default function SupplierPurchaseInvoices() {
                         const base = mapMasterCatalogToPurchasePickerRow(row);
                         if (!base) return null;
                         const stock = stockByMasterId.get(String(base.masterProductId));
-                        return stock ? applyStockBalanceHintsToPickerRow(base, stock) : base;
+                        return stock ? applyStockBalanceHintsToPickerRow(base, stock, t) : base;
                     })
                     .filter(Boolean);
                 setCatalogItems(mapped);
@@ -1012,7 +1042,7 @@ export default function SupplierPurchaseInvoices() {
                     // (products.id and supplier_products.id collide in the same number space).
                     const mid = String(row.masterProductId || row.id || '').trim();
                     const stock = mid ? stockByMasterId.get(mid) : null;
-                    return stock ? applyStockBalanceHintsToPickerRow(row, stock) : row;
+                    return stock ? applyStockBalanceHintsToPickerRow(row, stock, t) : row;
                 };
                 setCatalogItems((prev) => prev.map(enrich));
                 setLineItems((prev) =>
@@ -1450,8 +1480,8 @@ export default function SupplierPurchaseInvoices() {
             showInvoiceDiscountRow: invoiceDiscountSar > 0,
             invoiceDiscountSummaryLabel:
                 invoiceDiscountMode === 'percent'
-                    ? `Invoice discount (${invPctDisplayed}%):`
-                    : 'Invoice discount (fixed SAR):',
+                    ? t('summary.invDiscPct', { pct: invPctDisplayed })
+                    : t('summary.invDiscFixed'),
         };
     };
     const summary = getSummary();
@@ -1697,7 +1727,7 @@ export default function SupplierPurchaseInvoices() {
             const res = await getSupplierSuperSupplierPurchase(purchaseId);
             const p = res?.purchase ?? res?.data ?? res;
             if (!p?.id) {
-                setCreateError('Could not load purchase for editing.');
+                setCreateError(t('err.loadEdit'));
                 return;
             }
             setEditingSspPurchaseStatus(
@@ -1795,7 +1825,7 @@ export default function SupplierPurchaseInvoices() {
                 }),
             );
         } catch (e) {
-            setCreateError(e?.message || 'Could not load purchase for editing.');
+            setCreateError(e?.message || t('err.loadEdit'));
         } finally {
             setSspPurchaseEditLoading(false);
         }
@@ -1855,20 +1885,20 @@ export default function SupplierPurchaseInvoices() {
         const isDraftSave = saveMode === 'draft';
         setCreateError('');
         if (!superSupplierId) {
-            setCreateError('Select a super supplier from the list.');
+            setCreateError(t('err.selectSs'));
             return;
         }
         if (lineItems.length === 0) {
-            setCreateError('Add at least one line item.');
+            setCreateError(t('err.needLine'));
             return;
         }
         const supplierRow = superSuppliers.find((s) => String(s.id) === String(superSupplierId));
         if (!supplierRow) {
-            setCreateError('Invalid super supplier selection. Refresh the page.');
+            setCreateError(t('err.invalidSs'));
             return;
         }
         if (supplierRow.isActive === false) {
-            setCreateError('Selected super supplier is inactive.');
+            setCreateError(t('err.inactiveSs'));
             return;
         }
 
@@ -1912,9 +1942,7 @@ export default function SupplierPurchaseInvoices() {
                 (l) => l.productName && !isLikelyGlAccountLabel(l.productName),
             );
             if (!namedLine) {
-                setCreateError(
-                    'Add at least one product line (select from master catalog) to save a draft.',
-                );
+                setCreateError(t('err.draftNeedProduct'));
                 return;
             }
         } else {
@@ -1927,9 +1955,7 @@ export default function SupplierPurchaseInvoices() {
                     !l.supplierProductId,
             );
             if (bad) {
-                setCreateError(
-                    `Line ${bad.idx + 1}: select a product from the master catalog, qty > 0, and unit price cannot be negative.`,
-                );
+                setCreateError(t('err.lineBad', { n: bad.idx + 1 }));
                 return;
             }
         }
@@ -1944,7 +1970,7 @@ export default function SupplierPurchaseInvoices() {
                 normalizedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0),
         );
         if (!isDraftSave && !(subtotalExVat + vatAmount > 0)) {
-            setCreateError('Invoice total must be greater than zero (check quantities and unit prices).');
+            setCreateError(t('err.totalZero'));
             return;
         }
 
@@ -2032,7 +2058,7 @@ export default function SupplierPurchaseInvoices() {
             await loadSuperSuppliers();
         } catch (err) {
             console.error('Save super supplier purchase failed:', err);
-            setCreateError(err?.message || 'Could not save purchase invoice');
+            setCreateError(err?.message || t('err.savePi'));
         } finally {
             setCreateSubmitting(false);
         }
@@ -2055,14 +2081,14 @@ export default function SupplierPurchaseInvoices() {
                         fontSize: '0.875rem',
                     }}
                 >
-                    <strong>Could not load suppliers:</strong> {ssListError}
+                    <strong>{t('err.loadSuppliersStrong')}</strong> {ssListError}
                 </div>
             ) : null}
 
             <header className="purchases-header-row">
                 <div className="pi-header-left">
-                    <h2 className="cash-bank-title">Purchases</h2>
-                    <p className="cash-bank-desc">Track supplier payables, super suppliers, and upstream purchase invoices.</p>
+                    <h2 className="cash-bank-title">{t('page.title')}</h2>
+                    <p className="cash-bank-desc">{t('page.sub')}</p>
                 </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
@@ -2073,7 +2099,7 @@ export default function SupplierPurchaseInvoices() {
                             openAddSuperSupplier();
                         }}
                     >
-                        <Building2 size={18} /> Add Super Supplier
+                        <Building2 size={18} /> {t('btn.addSuperSupplier')}
                     </button>
                     <button
                         type="button"
@@ -2084,30 +2110,30 @@ export default function SupplierPurchaseInvoices() {
                             setModalOpen(true);
                         }}
                     >
-                        <Plus size={18} /> New Purchase Invoice
+                        <Plus size={18} /> {t('btn.newPurchaseInvoice')}
                     </button>
                 </div>
             </header>
 
-            <div role="tablist" aria-label="Purchase sections" className="theme-segmented" style={{ marginBottom: 16 }}>
+            <div role="tablist" aria-label={t('tabs.aria')} className="theme-segmented" style={{ marginBottom: 16 }}>
                 {[
-                    { id: 'payables', label: 'Suppliers' },
-                    { id: 'super_suppliers', label: 'Super suppliers' },
-                    { id: 'ssp_invoices', label: 'Super supplier invoices' },
-                ].map((t) => {
-                    const active = apTab === t.id;
+                    { id: 'payables', labelKey: 'tab.payables' },
+                    { id: 'super_suppliers', labelKey: 'tab.super_suppliers' },
+                    { id: 'ssp_invoices', labelKey: 'tab.ssp_invoices' },
+                ].map((tab) => {
+                    const active = apTab === tab.id;
                     return (
                         <button
-                            key={t.id}
+                            key={tab.id}
                             type="button"
                             role="tab"
                             aria-selected={active}
-                            id={`ap-tab-${t.id}`}
-                            aria-controls={`ap-panel-${t.id}`}
-                            onClick={() => setApTab(/** @type {ApTabId} */ (t.id))}
+                            id={`ap-tab-${tab.id}`}
+                            aria-controls={`ap-panel-${tab.id}`}
+                            onClick={() => setApTab(/** @type {ApTabId} */ (tab.id))}
                             className={`theme-segmented__btn${active ? ' theme-segmented__btn--active' : ''}`}
                         >
-                            {t.label}
+                            {t(tab.labelKey)}
                         </button>
                     );
                 })}
@@ -2142,7 +2168,7 @@ export default function SupplierPurchaseInvoices() {
                                 fontSize: '0.8125rem',
                             }}
                         >
-                            Total suppliers: <strong>{filteredSuperSuppliers.length}</strong>
+                            {t('kpi.totalSuppliers')} <strong>{filteredSuperSuppliers.length}</strong>
                         </div>
                         <div
                             style={{
@@ -2152,7 +2178,7 @@ export default function SupplierPurchaseInvoices() {
                                 fontSize: '0.8125rem',
                             }}
                         >
-                            Aggregate AP: <strong>{formatAccountsPayableDisplay(aggregateAp)}</strong>
+                            {t('kpi.aggregateAp')} <strong>{formatAccountsPayableDisplay(aggregateAp, money)}</strong>
                         </div>
                     </div>
                     <div style={{ position: 'relative', minWidth: 220 }}>
@@ -2170,7 +2196,7 @@ export default function SupplierPurchaseInvoices() {
                             type="search"
                             value={supplierSearch}
                             onChange={(e) => setSupplierSearch(e.target.value)}
-                            placeholder="Search suppliers…"
+                            placeholder={t('search.suppliers')}
                             style={{
                                 width: '100%',
                                 padding: '8px 12px 8px 34px',
@@ -2184,10 +2210,10 @@ export default function SupplierPurchaseInvoices() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">Name</th>
-                            <th className="table-th">Accounts payable</th>
-                            <th className="table-th">Status</th>
-                            <th className="table-th">Actions</th>
+                            <th className="table-th">{t('th.name')}</th>
+                            <th className="table-th">{t('th.ap')}</th>
+                            <th className="table-th">{t('th.status')}</th>
+                            <th className="table-th">{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2203,10 +2229,10 @@ export default function SupplierPurchaseInvoices() {
                             <tr>
                                 <td colSpan={4} className="table-cell table-empty">
                                     {ssListError
-                                        ? 'No data loaded.'
+                                        ? t('empty.noData')
                                         : superSuppliers.length === 0
-                                          ? 'No super suppliers yet. Use "Add Super Supplier" above.'
-                                          : 'No suppliers match your search.'}
+                                          ? t('empty.noSuperSuppliers')
+                                          : t('empty.noSearchMatch')}
                                 </td>
                             </tr>
                         ) : (
@@ -2230,7 +2256,7 @@ export default function SupplierPurchaseInvoices() {
                                                     textAlign: 'left',
                                                     font: 'inherit',
                                                 }}
-                                                title="Open accounts payable ledger"
+                                                title={t('title.openLedger')}
                                             >
                                                 <strong
                                                     style={{
@@ -2249,12 +2275,12 @@ export default function SupplierPurchaseInvoices() {
                                                         marginTop: 4,
                                                     }}
                                                 >
-                                                    VAT: {ss.vatNumber}
+                                                    {t('vat.prefix', { id: ss.vatNumber })}
                                                 </div>
                                             ) : null}
                                     </td>
                                     <td className="table-cell">
-                                            {formatAccountsPayableDisplay(ss.accountsPayable)}
+                                            {formatAccountsPayableDisplay(ss.accountsPayable, money)}
                                     </td>
                                     <td className="table-cell">
                                             <span
@@ -2265,7 +2291,7 @@ export default function SupplierPurchaseInvoices() {
                                                     textTransform: 'none',
                                                 }}
                                             >
-                                                {apStatusLabel(apStatus)}
+                                                {apStatusLabel(apStatus, t)}
                                             </span>
                                         </td>
                                         <td className="table-cell">
@@ -2277,7 +2303,7 @@ export default function SupplierPurchaseInvoices() {
                                                     openSuperSupplierLedger(String(ss.id), ss.name)
                                                 }
                                             >
-                                                <BookOpen size={14} /> Ledger
+                                                <BookOpen size={14} /> {t('btn.ledger')}
                                             </button>
                                     </td>
                                 </tr>
@@ -2312,14 +2338,14 @@ export default function SupplierPurchaseInvoices() {
                             gap: 8,
                         }}
                     >
-                        <Building2 size={18} /> Super suppliers
+                        <Building2 size={18} /> {t('ss.sectionTitle')}
                     </h3>
                     <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        Vendors you buy inventory from. Record purchases here; all actions are stored in the audit log.
+                        {t('ss.sectionSub')}
                     </p>
                     <div style={{ marginTop: 10 }}>
                         <button type="button" className="btn-pi-cancel" onClick={() => openAuditModal('')}>
-                            <History size={14} /> View full audit log
+                            <History size={14} /> {t('btn.viewAudit')}
                         </button>
                     </div>
                 </div>
@@ -2327,11 +2353,11 @@ export default function SupplierPurchaseInvoices() {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                             <tr className="table-header-row">
-                                <th className="table-th">Name</th>
-                                <th className="table-th">VAT / Contact</th>
-                                <th className="table-th">Purchases</th>
-                                <th className="table-th">Status</th>
-                                <th className="table-th">Actions</th>
+                                <th className="table-th">{t('th.name')}</th>
+                                <th className="table-th">{t('th.vatContact')}</th>
+                                <th className="table-th">{t('th.purchases')}</th>
+                                <th className="table-th">{t('th.status')}</th>
+                                <th className="table-th">{t('th.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2346,7 +2372,7 @@ export default function SupplierPurchaseInvoices() {
                             ) : superSuppliers.length === 0 ? (
                                 <tr>
                                     <td colSpan={5} className="table-cell table-empty">
-                                        No super suppliers yet. Use &quot;Add Super Supplier&quot; above.
+                                        {t('empty.noSuperSuppliersHtml')}
                                     </td>
                                 </tr>
                             ) : (
@@ -2366,7 +2392,7 @@ export default function SupplierPurchaseInvoices() {
                                                     textAlign: 'left',
                                                     font: 'inherit',
                                                 }}
-                                                title="View purchased products"
+                                                title={t('title.viewProducts')}
                                             >
                                                 <strong style={{ color: '#EA580C', textDecoration: 'underline' }}>{ss.name}</strong>
                                             </button>
@@ -2385,7 +2411,7 @@ export default function SupplierPurchaseInvoices() {
                                         <td className="table-cell">{ss.purchaseCount ?? 0}</td>
                                         <td className="table-cell">
                                             <span className={`status-badge ${ss.isActive ? 'status-completed' : 'status-badge'}`}>
-                                                {ss.isActive ? 'Active' : 'Inactive'}
+                                                {ss.isActive ? t('status.active') : t('status.inactive')}
                                             </span>
                                         </td>
                                         <td className="table-cell">
@@ -2405,8 +2431,8 @@ export default function SupplierPurchaseInvoices() {
                                                     }`}
                                                     title={
                                                         ss.isActive
-                                                            ? 'Set inactive'
-                                                            : 'Set active'
+                                                            ? t('title.setInactive')
+                                                            : t('title.setActive')
                                                     }
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
@@ -2419,24 +2445,24 @@ export default function SupplierPurchaseInvoices() {
                                                         }
                                                         aria-label={
                                                             ss.isActive
-                                                                ? 'Set inactive'
-                                                                : 'Set active'
+                                                                ? t('title.setInactive')
+                                                                : t('title.setActive')
                                                         }
                                                     />
                                                     <span className="ws-toggle-slider" />
                                                 </label>
                                                 <RowActionsMenu
-                                                    ariaLabel={`Actions for ${ss.name || 'super supplier'}`}
+                                                    ariaLabel={t('aria.actionsFor', { name: ss.name || t('fallback.superSupplier') })}
                                                     items={[
                                                         {
-                                                            label: 'Edit',
+                                                            label: t('btn.edit'),
                                                             onClick: () => openEditSuperSupplier(ss),
                                                         },
                                                         {
                                                             label:
                                                                 ssDeletingId === String(ss.id)
-                                                                    ? 'Deleting…'
-                                                                    : 'Delete',
+                                                                    ? t('btn.deleting')
+                                                                    : t('btn.delete'),
                                                             onClick: () => handleDeleteSuperSupplier(ss),
                                                             disabled: ssDeletingId === String(ss.id),
                                                             hidden: !canDeleteSuperSupplier(ss),
@@ -2463,6 +2489,7 @@ export default function SupplierPurchaseInvoices() {
             >
                 <SupplierSuperSupplierPurchasesPanel
                     key={sspPanelKey}
+                    locale={locale}
                     superSuppliers={superSuppliers}
                     createIntentSupplierId={createSspPurchaseForId}
                     onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
@@ -2479,7 +2506,7 @@ export default function SupplierPurchaseInvoices() {
                         title={
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <Building2 size={20} />{' '}
-                                {editingSuperSupplierId ? 'Edit Super Supplier' : 'Add Super Supplier'}
+                                {editingSuperSupplierId ? t('modal.editSs') : t('modal.addSs')}
                             </span>
                         }
                         onClose={() => {
@@ -2502,10 +2529,10 @@ export default function SupplierPurchaseInvoices() {
                                         setSsErr('');
                                     }}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button type="button" className="btn-pi-create" disabled={ssSaving} onClick={handleSaveSuperSupplier}>
-                                    {ssSaving ? 'Saving…' : editingSuperSupplierId ? 'Save changes' : 'Save'}
+                                    {ssSaving ? t('btn.saving') : editingSuperSupplierId ? t('btn.saveChanges') : t('btn.save')}
                                 </button>
                             </div>
                         }
@@ -2516,16 +2543,16 @@ export default function SupplierPurchaseInvoices() {
                             </p>
                         ) : null}
                         <div className="pi-field pi-full-width">
-                            <label>Name *</label>
+                            <label>{t('label.nameReq')}</label>
                             <input
                                 type="text"
                                 value={ssForm.name}
                                 onChange={(e) => setSsForm((s) => ({ ...s, name: e.target.value }))}
-                                placeholder="Company name"
+                                placeholder={t('ph.companyName')}
                             />
                         </div>
                         <div className="pi-field pi-full-width">
-                            <label>VAT number</label>
+                            <label>{t('label.vatNumber')}</label>
                             <input
                                 type="text"
                                 value={ssForm.vatNumber}
@@ -2534,7 +2561,7 @@ export default function SupplierPurchaseInvoices() {
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div className="pi-field">
-                                <label>Mobile</label>
+                                <label>{t('label.mobile')}</label>
                                 <input
                                     type="text"
                                     value={ssForm.mobile}
@@ -2542,7 +2569,7 @@ export default function SupplierPurchaseInvoices() {
                                 />
                             </div>
                             <div className="pi-field">
-                                <label>Email</label>
+                                <label>{t('label.email')}</label>
                                 <input
                                     type="email"
                                     value={ssForm.email}
@@ -2551,7 +2578,7 @@ export default function SupplierPurchaseInvoices() {
                             </div>
                         </div>
                         <div className="pi-field pi-full-width">
-                            <label>Address</label>
+                            <label>{t('label.address')}</label>
                             <input
                                 type="text"
                                 value={ssForm.address}
@@ -2582,7 +2609,7 @@ export default function SupplierPurchaseInvoices() {
                                     color: '#0f172a',
                                 }}
                             >
-                                Opening balance (accounts payable)
+                                {t('opening.title')}
                             </p>
                             <p
                                 style={{
@@ -2592,10 +2619,7 @@ export default function SupplierPurchaseInvoices() {
                                     lineHeight: 1.45,
                                 }}
                             >
-                                Enter what you owed this vendor before go-live. A balanced journal
-                                posts automatically: debit your contra account (e.g. stock inventory)
-                                and credit AP for this vendor. Use a negative amount only for a
-                                vendor credit balance (prepayment).
+{t('opening.body')}
                             </p>
                             {ssOpeningLocked ? (
                                 <p
@@ -2608,13 +2632,12 @@ export default function SupplierPurchaseInvoices() {
                                         color: '#475569',
                                     }}
                                 >
-                                    Opening balance is locked because purchase invoices were already
-                                    posted for this vendor.
+{t('opening.locked')}
                                 </p>
                             ) : null}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                 <div className="pi-field">
-                                    <label>Opening balance (SAR)</label>
+                                    <label>{t('label.openingBalance')}</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -2630,7 +2653,7 @@ export default function SupplierPurchaseInvoices() {
                                     />
                                 </div>
                                 <div className="pi-field">
-                                    <label>As of date</label>
+                                    <label>{t('label.asOfDate')}</label>
                                     <input
                                         type="date"
                                         value={ssForm.openingBalanceDate || ''}
@@ -2645,7 +2668,7 @@ export default function SupplierPurchaseInvoices() {
                                 </div>
                             </div>
                             <div className="pi-field pi-full-width" style={{ marginTop: 12 }}>
-                                <label>Contra account (chart of accounts)</label>
+                                <label>{t('label.contraAccount')}</label>
                                 <select
                                     value={ssForm.openingOffsetAccountId || ''}
                                     disabled={ssOpeningLocked || ssCoaLoading}
@@ -2658,13 +2681,13 @@ export default function SupplierPurchaseInvoices() {
                                 >
                                     <option value="">
                                         {ssCoaLoading
-                                            ? 'Loading accounts…'
-                                            : '— Select asset or expense account —'}
+                                            ? t('opt.loadingAccounts')
+                                            : t('opt.selectAccount')}
                                     </option>
                                     {ssOpeningContraOptions.map((a) => (
                                         <option key={a.id} value={a.id}>
                                             [{a.code}] {a.name}
-                                            {a.seedKey === 'INVENTORY' ? ' (recommended)' : ''}
+                                            {a.seedKey === 'INVENTORY' ? t('opening.recommended') : ''}
                                         </option>
                                     ))}
                                 </select>
@@ -2675,8 +2698,7 @@ export default function SupplierPurchaseInvoices() {
                                         color: '#64748b',
                                     }}
                                 >
-                                    Typically stock inventory for goods bought on credit before
-                                    system start.
+{t('opening.hint')}
                                 </p>
                             </div>
                         </div>
@@ -2687,8 +2709,10 @@ export default function SupplierPurchaseInvoices() {
                     <Modal
                         title={
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <BookOpen size={20} /> Account ledger —{' '}
-                                {ssLedgerData?.supplier?.name || 'Super supplier'}
+                                <BookOpen size={20} />{' '}
+                                {t('modal.ledger', {
+                                    name: ssLedgerData?.supplier?.name || t('fallback.superSupplier'),
+                                })}
                             </span>
                         }
                         onClose={closeSuperSupplierLedger}
@@ -2705,8 +2729,8 @@ export default function SupplierPurchaseInvoices() {
                                 }}
                             >
                                 <span style={{ fontSize: '0.9375rem', fontWeight: 700 }}>
-                                    Current accounts payable:{' '}
-                                    {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable)}
+                                    {t('ledger.currentAp')}{' '}
+                                    {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable, money)}
                                 </span>
                             <button
                                 type="button"
@@ -2733,7 +2757,7 @@ export default function SupplierPurchaseInvoices() {
                                             fontSize: '0.8125rem',
                                         }}
                                     >
-                                        Account:{' '}
+                                        {t('ledger.account')}{' '}
                                         <strong>
                                             [{ssLedgerData?.account?.code}] {ssLedgerData?.account?.name}
                                         </strong>
@@ -2746,9 +2770,9 @@ export default function SupplierPurchaseInvoices() {
                                             fontSize: '0.8125rem',
                                         }}
                                     >
-                                        Current balance:{' '}
+                                        {t('ledger.currentBalance')}{' '}
                                         <strong>
-                                            {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable)}
+                                            {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable, money)}
                                         </strong>
                                     </div>
                                     <span
@@ -2760,20 +2784,20 @@ export default function SupplierPurchaseInvoices() {
                                             alignSelf: 'center',
                                         }}
                                     >
-                                        {apStatusLabel(ssLedgerData?.apStatus ?? 'paid')}
+                                        {apStatusLabel(ssLedgerData?.apStatus ?? 'paid', t)}
                                     </span>
                                 </div>
                                 <div style={{ maxHeight: 460, overflow: 'auto' }}>
                                     <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
                                         <thead>
                                             <tr>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>Date</th>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>Entry #</th>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>Description</th>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>Reference</th>
-                                                <th style={{ textAlign: 'right', padding: 8 }}>Debit</th>
-                                                <th style={{ textAlign: 'right', padding: 8 }}>Credit</th>
-                                                <th style={{ textAlign: 'right', padding: 8 }}>Balance</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.date')}</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.entryNo')}</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.description')}</th>
+                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.reference')}</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>{t('th.debit')}</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>{t('th.credit')}</th>
+                                                <th style={{ textAlign: 'right', padding: 8 }}>{t('th.balance')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -2783,7 +2807,7 @@ export default function SupplierPurchaseInvoices() {
                                                         colSpan={7}
                                                         style={{ padding: 16, color: 'var(--color-text-muted)' }}
                                                     >
-                                                        No journal transactions for this supplier yet.
+                                                        {t('empty.noJournal')}
                                                     </td>
                                                 </tr>
                                             ) : (
@@ -2797,16 +2821,16 @@ export default function SupplierPurchaseInvoices() {
                                                         <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.reference || '—'}</td>
                                                         <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
                                                             {Number(ln.debit) > 0
-                                                                ? `SAR ${fmtApMoney(ln.debit)}`
-                                                                : '—'}
+                                                                ? money(fmtApMoney(ln.debit))
+                                                                : t('emdash')}
                                                         </td>
                                                         <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
                                                             {Number(ln.credit) > 0
-                                                                ? `SAR ${fmtApMoney(ln.credit)}`
-                                                                : '—'}
+                                                                ? money(fmtApMoney(ln.credit))
+                                                                : t('emdash')}
                                                         </td>
                                                         <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top', fontWeight: 700 }}>
-                                                            {formatAccountsPayableDisplay(ln.runningBalance)}
+                                                            {formatAccountsPayableDisplay(ln.runningBalance, money)}
                                                         </td>
                                                     </tr>
                                                 ))
@@ -2816,7 +2840,10 @@ export default function SupplierPurchaseInvoices() {
                                 </div>
                                 {ssLedgerData?.total > (ssLedgerData?.lines?.length || 0) ? (
                                     <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                        Showing {ssLedgerData.lines.length} of {ssLedgerData.total} journal lines.
+                                        {t('ledger.showing', {
+                                            shown: ssLedgerData.lines.length,
+                                            total: ssLedgerData.total,
+                                        })}
                                     </p>
                                 ) : null}
                             </div>
@@ -2828,8 +2855,12 @@ export default function SupplierPurchaseInvoices() {
                     <Modal
                         title={
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <Package size={20} /> Purchased products —{' '}
-                                {ssProductsData?.supplier?.name || 'Super supplier'}
+                                <Package size={20} />{' '}
+                                {t('modal.products', {
+                                    name:
+                                        ssProductsData?.supplier?.name ||
+                                        t('fallback.superSupplier'),
+                                })}
                             </span>
                         }
                         onClose={closeSuperSupplierProducts}
@@ -3013,7 +3044,8 @@ export default function SupplierPurchaseInvoices() {
                     <Modal
                         title={
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <History size={20} /> Super supplier audit {auditSsFilter ? '(filtered)' : ''}
+                                <History size={20} />{' '}
+                                {auditSsFilter ? t('modal.auditFiltered') : t('modal.audit')}
                             </span>
                         }
                         onClose={() => setAuditOpen(false)}
@@ -3211,7 +3243,7 @@ export default function SupplierPurchaseInvoices() {
                             </div>
 
                             <div className="pi-field pi-full-width">
-                                <label>Super supplier *</label>
+                                <label>{t('label.superSupplierReq')}</label>
                                 <select
                                     value={superSupplierId}
                                     disabled={sspPurchaseModalMode === 'edit'}
@@ -3228,7 +3260,9 @@ export default function SupplierPurchaseInvoices() {
                                     }}
                                 >
                                     <option value="">
-                                        {ssLoading ? 'Loading vendors…' : 'Select super supplier'}
+                                        {ssLoading
+                                            ? t('opt.loadingVendors')
+                                            : t('opt.selectSuperSupplier')}
                                     </option>
                                     {superSuppliers.map((ss) => (
                                         <option
@@ -3304,6 +3338,8 @@ export default function SupplierPurchaseInvoices() {
                                     const conversionPreview = formatPiUomConversionPreview(
                                         line,
                                         capsRow,
+                                        t,
+                                        money,
                                     );
                                     return (
                                     <div
@@ -3867,8 +3903,8 @@ export default function SupplierPurchaseInvoices() {
                                                         }}
                                                     >
                                                         {superSupplierId
-                                                            ? 'No previous purchase from this supplier'
-                                                            : 'Select super supplier'}
+                                                            ? t('lastPurchase.none')
+                                                            : t('lastPurchase.select')}
                                                     </span>
                                                 );
                                             })()}
@@ -4092,9 +4128,11 @@ export default function SupplierPurchaseInvoices() {
                                     </div>
                                     <div className="pi-ap-alert">
                                         <span>
-                                            Saves a <strong>super supplier purchase invoice</strong> with line items and VAT
-                                            total. It appears in <strong>Super supplier purchase invoices</strong> below and
-                                            updates your vendor purchase history.
+                                            {t('alert.save.before')}{' '}
+                                            <strong>{t('alert.savePi')}</strong>{' '}
+                                            {t('alert.save.mid')}{' '}
+                                            <strong>{t('alert.saveList')}</strong>{' '}
+                                            {t('alert.save.after')}
                                         </span>
                                     </div>
                                 </div>

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Modal from '../../components/Modal';
 import { getSupplierProduct, updateSupplierProduct } from '../../services/supplierApi';
+import { sstockT } from '../../utils/supplierStockI18n';
 
 const WAREHOUSE_UNIT_PRESETS = ['Box', 'Carton', 'Dozen', 'Pack', 'Drum', 'Bag', 'liter', 'pcs'];
 const WORKSHOP_UNIT_PRESETS = ['pcs', 'Liter', 'liter', 'kg', 'ml', 'Set', 'piece'];
@@ -14,7 +15,12 @@ function formatConversionRule(warehouseUnit, workshopUnit, cf) {
     return `1 ${wu} = ${n} ${ws}`;
 }
 
-export default function StockProductUomEditModal({ product, onClose, onSaved }) {
+export default function StockProductUomEditModal({ product, onClose, onSaved, locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sstockT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -48,7 +54,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                     setWarehouseUnit(product.warehouseUnit || 'Box');
                     setWorkshopUnit(product.unit || 'pcs');
                     setConversionFactor(String(product.conversionFactor ?? 1));
-                    setError(ex?.message || 'Could not load product details');
+                    setError(ex?.message || t('uom.errLoad'));
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -81,7 +87,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
             onSaved?.();
             onClose?.();
         } catch (ex) {
-            setError(ex?.message || 'Failed to update units');
+            setError(ex?.message || t('uom.errUpdate'));
         } finally {
             setSaving(false);
         }
@@ -91,7 +97,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
 
     return (
         <Modal
-            title="Edit UOM & conversion"
+            title={t("uom.title")}
             width="520px"
             onClose={() => !saving && onClose?.()}
             disableClose={saving}
@@ -102,17 +108,15 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                     {product.sku ? ` · ${product.sku}` : ''}
                 </p>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: '#b45309' }}>
-                    Existing stock is recalculated to keep the same physical quantity (e.g. 36
-                    Liter → 3 Box when 1 Box = 12 L). Labels and conversion only — use Adjust if
-                    you need to change actual quantities.
+                    {t("uom.hint")}
                 </p>
 
                 {loading ? (
-                    <p style={{ margin: 0, fontSize: '0.875rem' }}>Loading…</p>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>{t("uom.loading")}</p>
                 ) : (
                     <>
                         <div className="pi-field">
-                            <label htmlFor="stock-uom-wh">Warehouse UOM</label>
+                            <label htmlFor="stock-uom-wh">{t("uom.wh")}</label>
                             <select
                                 id="stock-uom-wh"
                                 value={warehouseUnit}
@@ -131,7 +135,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                             </select>
                         </div>
                         <div className="pi-field">
-                            <label htmlFor="stock-uom-ws">Workshop UOM</label>
+                            <label htmlFor="stock-uom-ws">{t("uom.ws")}</label>
                             <select
                                 id="stock-uom-ws"
                                 value={workshopUnit}
@@ -151,7 +155,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                         </div>
                         <div className="pi-field">
                             <label htmlFor="stock-uom-cf">
-                                Conversion factor (1 warehouse unit = ? workshop units)
+                                {t("uom.cf")}
                             </label>
                             <input
                                 id="stock-uom-cf"
@@ -171,7 +175,7 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                                 fontSize: '0.8125rem',
                             }}
                         >
-                            Rule: <strong>{rulePreview}</strong>
+                            {t("uom.rule", { rule: rulePreview })}
                         </p>
                     </>
                 )}
@@ -187,14 +191,14 @@ export default function StockProductUomEditModal({ product, onClose, onSaved }) 
                         disabled={saving}
                         onClick={onClose}
                     >
-                        Cancel
+                        {t("btn.cancel")}
                     </button>
                     <button
                         type="submit"
                         className="mgr-si-btn-new"
                         disabled={saving || loading}
                     >
-                        {saving ? 'Saving…' : 'Save'}
+                        {saving ? t('btn.saving') : t('btn.save')}
                     </button>
                 </div>
             </form>

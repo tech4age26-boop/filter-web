@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
     Package,
     FileText,
@@ -22,15 +22,25 @@ import {
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
 import { ShimmerKpiGrid, ShimmerTable } from '../../components/supplier/Shimmer';
+import { sdashT } from '../../utils/supplierDashboardI18n';
 
-const ORDER_SUMMARY_STAGES = [
-    { id: 'pending_acceptance', label: 'Pending' },
-    { id: 'accepted', label: 'Accepted' },
-    { id: 'processing', label: 'Processing' },
-    { id: 'ready_to_dispatch', label: 'Ready to Deliver' },
-    { id: 'dispatched', label: 'On the Way' },
-    { id: 'delivered', label: 'Delivered' },
+const ORDER_SUMMARY_STAGE_IDS = [
+    'pending_acceptance',
+    'accepted',
+    'processing',
+    'ready_to_dispatch',
+    'dispatched',
+    'delivered',
 ];
+
+const STAGE_LABEL_KEYS = {
+    pending_acceptance: 'stage.pending',
+    accepted: 'stage.accepted',
+    processing: 'stage.processing',
+    ready_to_dispatch: 'stage.readyToDeliver',
+    dispatched: 'stage.onTheWay',
+    delivered: 'stage.delivered',
+};
 
 /** Workshop PI `status` → same pipeline bucket as branch POs (Order Queue). */
 function wpiStatusToPipelineId(status) {
@@ -52,13 +62,22 @@ function workshopInvoiceStatusBadge(status) {
     return 'ws-badge--yellow';
 }
 
-function workshopInvoiceStatusLabel(status) {
+function workshopInvoiceStatusLabel(status, t) {
     const s = String(status || '').toLowerCase();
-    if (s === 'on_the_way') return 'On the way';
+    if (s === 'on_the_way') return t('status.onTheWay');
+    const key = `status.${s}`;
+    const translated = t(key);
+    if (translated !== key) return translated;
     return s.replace(/_/g, ' ');
 }
 
-export default function SupplierDashboard({ onTabChange }) {
+export default function SupplierDashboard({ onTabChange, locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sdashT(locale, key, vars), [locale]);
+
     const [loading, setLoading] = useState(true);
     const [apiError, setApiError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
@@ -70,14 +89,15 @@ export default function SupplierDashboard({ onTabChange }) {
     const [storageBrandCount, setStorageBrandCount] = useState(null);
     const [storageArTotal, setStorageArTotal] = useState(null);
 
-    const formatCurrency = (amount, currency = 'SAR') =>
-        `${currency} ${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    const formatCurrency = (amount) =>
+        t('money.sar', {
+            amount: Number(amount || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+            }),
+        });
 
     const dataReady = !loading && !apiError && dashboardData != null;
-    const currency =
-        dashboardData?.currency ||
-        dashboardData?.reports?.summary?.currencyCode ||
-        'SAR';
 
     const totalAR = dataReady ? Number(dashboardData.receivables?.total ?? 0) : null;
     const totalAP = dataReady
@@ -87,12 +107,13 @@ export default function SupplierDashboard({ onTabChange }) {
     const totalCash =
         dataReady && cashTotal != null ? Number(cashTotal) : dataReady ? 0 : null;
 
-    const orderSummary = ORDER_SUMMARY_STAGES.map((s) => {
+    const orderSummary = ORDER_SUMMARY_STAGE_IDS.map((id) => {
+        const label = t(STAGE_LABEL_KEYS[id]);
         if (loading && !apiError) {
-            return { ...s, count: '…' };
+            return { id, label, count: t('ellipsis') };
         }
         if (apiError) {
-            return { ...s, count: '—' };
+            return { id, label, count: t('emdash') };
         }
         const source = dashboardData?.orderStatusSummary;
         const countMap = source
@@ -112,11 +133,11 @@ export default function SupplierDashboard({ onTabChange }) {
                   dispatched: 0,
                   delivered: 0,
               };
-        const po = countMap[s.id] ?? 0;
+        const po = countMap[id] ?? 0;
         const wpi = Array.isArray(wpiRowsForPipeline)
-            ? wpiRowsForPipeline.filter((r) => wpiStatusToPipelineId(r?.status) === s.id).length
+            ? wpiRowsForPipeline.filter((r) => wpiStatusToPipelineId(r?.status) === id).length
             : 0;
-        return { ...s, count: po + wpi };
+        return { id, label, count: po + wpi };
     });
 
     const criticalStock =
@@ -132,49 +153,49 @@ export default function SupplierDashboard({ onTabChange }) {
             : [];
 
     const formatKpiValue = (val) => {
-        if (loading) return '…';
-        if (apiError) return '—';
-        if (val == null) return '—';
-        return typeof val === 'number' ? formatCurrency(val, currency) : String(val);
+        if (loading) return t('ellipsis');
+        if (apiError) return t('emdash');
+        if (val == null) return t('emdash');
+        return typeof val === 'number' ? formatCurrency(val) : String(val);
     };
 
     const pendingAcceptanceDisplay =
-        orderSummary.find((s) => s.id === 'pending_acceptance')?.count ?? '—';
+        orderSummary.find((s) => s.id === 'pending_acceptance')?.count ?? t('emdash');
 
     /** Top-row KPIs aligned with supplier dashboard reference (4 cards only). */
     const kpis = [
         {
             key: 'new_pos',
-            label: 'NEW POS',
+            label: t('kpi.newPos'),
             value: pendingAcceptanceDisplay,
-            sub: 'Pending acceptance',
+            sub: t('kpi.newPosSub'),
             subAction: () => onTabChange('order_queue'),
             icon: Package,
             c: 'ws-kpi-icon--dark',
         },
         {
             key: 'ar',
-            label: 'ACCOUNTS RECEIVABLE',
+            label: t('kpi.ar'),
             value: formatKpiValue(totalAR),
-            sub: 'From workshops',
+            sub: t('kpi.arSub'),
             subAction: () => onTabChange('sales_invoices'),
             icon: FileText,
             c: 'ws-kpi-icon--dark',
         },
         {
             key: 'ap',
-            label: 'ACCOUNTS PAYABLE',
+            label: t('kpi.ap'),
             value: formatKpiValue(totalAP),
-            sub: 'To vendors',
+            sub: t('kpi.apSub'),
             subAction: () => onTabChange('purchase_invoices'),
             icon: BarChart3,
             c: 'ws-kpi-icon--dark',
         },
         {
             key: 'cash',
-            label: 'CASH & BANK',
+            label: t('kpi.cash'),
             value: formatKpiValue(totalCash),
-            sub: 'Total balance',
+            sub: t('kpi.cashSub'),
             subAction: () => onTabChange('cash_bank'),
             icon: DollarSign,
             c: 'ws-kpi-icon--dark',
@@ -199,7 +220,7 @@ export default function SupplierDashboard({ onTabChange }) {
 
                 if (dashResult.status === 'rejected') {
                     console.error('Supplier dashboard API failed:', dashResult.reason);
-                    setApiError(dashResult.reason?.message || 'Failed to load dashboard.');
+                    setApiError(dashResult.reason?.message || t('error.load'));
                     setDashboardData(null);
                     setRecentWorkshopInvoices([]);
                     setWpiRowsForPipeline([]);
@@ -214,7 +235,7 @@ export default function SupplierDashboard({ onTabChange }) {
 
                 if (reportsResult.status === 'rejected') {
                     setReportsPartialError(
-                        reportsResult.reason?.message || 'Reports summary unavailable.',
+                        reportsResult.reason?.message || t('error.reportsPartial'),
                     );
                 }
 
@@ -248,7 +269,7 @@ export default function SupplierDashboard({ onTabChange }) {
             } catch (err) {
                 if (!cancelled) {
                     console.error('Supplier dashboard load failed:', err);
-                    setApiError(err?.message || 'Failed to load dashboard.');
+                    setApiError(err?.message || t('error.load'));
                     setDashboardData(null);
                     setRecentWorkshopInvoices([]);
                     setWpiRowsForPipeline([]);
@@ -262,24 +283,28 @@ export default function SupplierDashboard({ onTabChange }) {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [t]);
+
+    const storageArFormatted = t('money.sar', {
+        amount: Number(storageArTotal || 0).toLocaleString(),
+    });
 
     return (
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Supplier & Warehouse Dashboard</h2>
-                    <p className="ws-page-sub">Overview of orders, AR, outstanding invoices & cash</p>
+                    <h2 className="ws-page-title">{t('title')}</h2>
+                    <p className="ws-page-sub">{t('subtitle')}</p>
                 </div>
             </div>
             {apiError ? (
                 <div className="theme-alert">
-                    <strong>Backend error:</strong> {apiError}
+                    <strong>{t('error.backend')}</strong> {apiError}
                 </div>
             ) : null}
             {reportsPartialError && !apiError ? (
                 <div className="theme-callout" style={{ marginBottom: 12 }}>
-                    {reportsPartialError} Some totals may show “—” until this succeeds.
+                    {reportsPartialError} {t('error.reportsHint')}
                 </div>
             ) : null}
             {loading && !apiError ? (
@@ -332,20 +357,27 @@ export default function SupplierDashboard({ onTabChange }) {
                             }}
                         >
                             <div>
-                                    <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9375rem' }}>
-                                        Storage Facility
-                                    </p>
-                                    <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                        {storageBrandCount} brand{storageBrandCount === 1 ? '' : 's'} · AR SAR{' '}
-                                        {Number(storageArTotal || 0).toLocaleString()}
-                                    </p>
-                                </div>
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9375rem' }}>
+                                    {t('storage.title')}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                    {storageBrandCount === 1
+                                        ? t('storage.brandsAr', {
+                                              count: storageBrandCount,
+                                              amount: storageArFormatted,
+                                          })
+                                        : t('storage.brandsArPlural', {
+                                              count: storageBrandCount,
+                                              amount: storageArFormatted,
+                                          })}
+                                </p>
+                            </div>
                             <button
                                 type="button"
                                 className="theme-action-btn theme-action-btn--dark"
                                 onClick={() => onTabChange('storage_facility')}
                             >
-                                Manage storage brands
+                                {t('storage.manage')}
                             </button>
                         </div>
                     ) : null}
@@ -363,7 +395,7 @@ export default function SupplierDashboard({ onTabChange }) {
                         }}
                     >
                         <p style={{ fontWeight: 600, fontSize: '1rem', color: '#DC2626', margin: 0 }}>
-                            Critical stock alerts ({criticalStock.length})
+                            {t('critical.title', { count: criticalStock.length })}
                         </p>
                         <button
                             type="button"
@@ -371,7 +403,7 @@ export default function SupplierDashboard({ onTabChange }) {
                             style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
                             onClick={() => onTabChange('stock')}
                         >
-                            View inventory <ChevronRight size={14} />
+                            {t('critical.viewInventory')} <ChevronRight size={14} />
                         </button>
                     </div>
                     <div>
@@ -403,8 +435,11 @@ export default function SupplierDashboard({ onTabChange }) {
                                         margin: '4px 0 0 0',
                                     }}
                                 >
-                                    {Number(p.qty ?? 0).toLocaleString()} {p.unit} on hand · reorder at{' '}
-                                    {Number(p.critical ?? 0).toLocaleString()} {p.unit}
+                                    {t('critical.detail', {
+                                        qty: Number(p.qty ?? 0).toLocaleString(),
+                                        unit: p.unit,
+                                        critical: Number(p.critical ?? 0).toLocaleString(),
+                                    })}
                                 </p>
                             </div>
                         ))}
@@ -420,7 +455,7 @@ export default function SupplierDashboard({ onTabChange }) {
                         margin: '0 0 8px 4px',
                     }}
                 >
-                    Quick actions
+                    {t('quick.title')}
                 </p>
                 <div
                     className="theme-quick-actions"
@@ -431,15 +466,13 @@ export default function SupplierDashboard({ onTabChange }) {
                     }}
                 >
                     {[
-                        { label: 'Order Queue', tab: 'order_queue', icon: Package },
-                        { label: 'Stock Inventory', tab: 'stock', icon: Warehouse },
-                        { label: 'Sales Invoices (AR)', tab: 'sales_invoices', icon: FileText },
-                        { label: 'Purchase Invoices (AP)', tab: 'purchase_invoices', icon: ShoppingCart },
-                        // { label: 'Cash & Bank', tab: 'cash_bank', icon: DollarSign },
-                        // { label: 'Expenses', tab: 'expenses', icon: AlertTriangle },
-                        { label: 'Staff & Roles', tab: 'employees', icon: Eye },
-                        { label: 'Accounting', tab: 'accounting', icon: BarChart3 },
-                        { label: 'Storage Facility', tab: 'storage_facility', icon: Boxes },
+                        { label: t('quick.orderQueue'), tab: 'order_queue', icon: Package },
+                        { label: t('quick.stock'), tab: 'stock', icon: Warehouse },
+                        { label: t('quick.salesInvoices'), tab: 'sales_invoices', icon: FileText },
+                        { label: t('quick.purchaseInvoices'), tab: 'purchase_invoices', icon: ShoppingCart },
+                        { label: t('quick.staff'), tab: 'employees', icon: Eye },
+                        { label: t('quick.accounting'), tab: 'accounting', icon: BarChart3 },
+                        { label: t('quick.storage'), tab: 'storage_facility', icon: Boxes },
                     ].map((a) => (
                         <button
                             key={a.tab}
@@ -475,7 +508,7 @@ export default function SupplierDashboard({ onTabChange }) {
                     }}
                 >
                     <p style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--color-text-dark)', margin: 0 }}>
-                        Recent workshop orders
+                        {t('recent.title')}
                     </p>
                     <button
                         type="button"
@@ -483,7 +516,7 @@ export default function SupplierDashboard({ onTabChange }) {
                         className="theme-link-btn"
                         style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4 }}
                     >
-                        View all <ChevronRight size={14} />
+                        {t('recent.viewAll')} <ChevronRight size={14} />
                     </button>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
@@ -491,21 +524,21 @@ export default function SupplierDashboard({ onTabChange }) {
                         <ShimmerTable rows={6} columns={9} />
                     ) : apiError ? (
                         <p className="theme-alert" style={{ textAlign: 'center', padding: 32, margin: 0 }}>
-                            Unable to load workshop orders ({apiError})
+                            {t('error.workshopOrders', { error: apiError })}
                         </p>
                     ) : (
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>Invoice #</th>
-                                    <th>Vendor ref</th>
-                                    <th>Issue date</th>
-                                    <th>Product name</th>
-                                    <th>Quantity</th>
-                                    <th>Unit</th>
-                                    <th>Unit price</th>
-                                    <th>Total</th>
-                                    <th>Status</th>
+                                    <th>{t('th.invoice')}</th>
+                                    <th>{t('th.vendorRef')}</th>
+                                    <th>{t('th.issueDate')}</th>
+                                    <th>{t('th.product')}</th>
+                                    <th>{t('th.qty')}</th>
+                                    <th>{t('th.unit')}</th>
+                                    <th>{t('th.unitPrice')}</th>
+                                    <th>{t('th.total')}</th>
+                                    <th>{t('th.status')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -519,8 +552,7 @@ export default function SupplierDashboard({ onTabChange }) {
                                                 color: 'var(--color-text-muted)',
                                             }}
                                         >
-                                            No workshop purchase invoices yet. Workshops send these from Purchase
-                                            Invoices after they raise stock requests.
+                                            {t('recent.empty')}
                                         </td>
                                     </tr>
                                 ) : (
@@ -530,9 +562,9 @@ export default function SupplierDashboard({ onTabChange }) {
                                                 <strong className="theme-invoice-id">{r.invoice_number}</strong>
                                             </td>
                                             <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                                {r.vendor_invoice_ref || '—'}
+                                                {r.vendor_invoice_ref || t('emdash')}
                                             </td>
-                                            <td style={{ fontSize: '0.8125rem' }}>{r.date || '—'}</td>
+                                            <td style={{ fontSize: '0.8125rem' }}>{r.date || t('emdash')}</td>
                                             <td
                                                 style={{
                                                     fontSize: '0.8125rem',
@@ -540,36 +572,38 @@ export default function SupplierDashboard({ onTabChange }) {
                                                     color: 'var(--color-text-muted)',
                                                     lineHeight: 1.35,
                                                 }}
-                                                title={r.product_label ?? '—'}
+                                                title={r.product_label ?? t('emdash')}
                                             >
-                                                {r.product_label ?? '—'}
+                                                {r.product_label ?? t('emdash')}
                                             </td>
-                                            <td style={{ fontSize: '0.8125rem' }}>{r.quantity_label ?? '—'}</td>
+                                            <td style={{ fontSize: '0.8125rem' }}>{r.quantity_label ?? t('emdash')}</td>
                                             <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                                {r.unit_label ?? '—'}
+                                                {r.unit_label ?? t('emdash')}
                                             </td>
                                             <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
                                                 {r.primary_unit_price != null &&
                                                 Number.isFinite(Number(r.primary_unit_price)) ? (
-                                                    <>
-                                                        SAR{' '}
-                                                        {Number(r.primary_unit_price).toLocaleString(undefined, {
-                                                            minimumFractionDigits: 2,
-                                                            maximumFractionDigits: 2,
-                                                        })}
-                                                    </>
+                                                    t('money.sar', {
+                                                        amount: Number(r.primary_unit_price).toLocaleString(
+                                                            undefined,
+                                                            {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            },
+                                                        ),
+                                                    })
                                                 ) : (
-                                                    '—'
+                                                    t('emdash')
                                                 )}
                                             </td>
                                             <td>
                                                 <strong>
-                                                    {formatCurrency(r.grand_total ?? 0, currency)}
+                                                    {formatCurrency(r.grand_total ?? 0)}
                                                 </strong>
                                             </td>
                                             <td>
                                                 <span className={`ws-badge ${workshopInvoiceStatusBadge(r.status)}`}>
-                                                    {workshopInvoiceStatusLabel(r.status)}
+                                                    {workshopInvoiceStatusLabel(r.status, t)}
                                                 </span>
                                             </td>
                                         </tr>

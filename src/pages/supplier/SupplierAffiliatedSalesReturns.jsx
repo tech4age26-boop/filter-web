@@ -16,6 +16,7 @@ import {
 } from '../../services/supplierApi';
 import { mapSupplierAffiliatedReturnForView } from '../../utils/mapAffiliatedReturnDetail';
 import { supplierProfileFromApi } from '../../utils/supplierProfile';
+import { ssrT } from '../../utils/supplierSalesReturnsI18n';
 import '../../styles/admin/AccountingPage.css';
 
 function sarFmt(v) {
@@ -105,18 +106,21 @@ function aggregateReturnedQtyByInvoiceLine(returns) {
     return m;
 }
 
-function returnStatusBadge(status, row) {
+function returnStatusBadge(status, row, t) {
     const s = String(status || 'pending').toLowerCase();
     if (s === 'approved' || s === 'posted') {
-        return { label: s === 'posted' ? 'Posted' : 'Approved', cls: 'mgr-si-status mgr-si-status--paid' };
+        return {
+            label: s === 'posted' ? t('status.posted') : t('status.approved'),
+            cls: 'mgr-si-status mgr-si-status--paid',
+        };
     }
     if (s === 'rejected') {
-        return { label: 'Rejected', cls: 'mgr-si-status mgr-si-status--overdue' };
+        return { label: t('status.rejected'), cls: 'mgr-si-status mgr-si-status--overdue' };
     }
     if (row?.mode === 'workshop_initiated' || row?.linkedPurchaseReturn?.mode === 'workshop_initiated') {
-        return { label: 'Pending supplier', cls: 'mgr-si-status mgr-si-status--pending' };
+        return { label: t('status.pendingSupplier'), cls: 'mgr-si-status mgr-si-status--pending' };
     }
-    return { label: 'Pending workshop', cls: 'mgr-si-status mgr-si-status--pending' };
+    return { label: t('status.pendingWorkshop'), cls: 'mgr-si-status mgr-si-status--pending' };
 }
 
 function isWorkshopInitiatedReturn(row) {
@@ -126,14 +130,19 @@ function isWorkshopInitiatedReturn(row) {
     );
 }
 
-function linkedPurchaseStatus(row) {
+function linkedPurchaseStatus(row, t) {
     const st = row?.linkedPurchaseReturn?.status;
-    if (!st) return '—';
-    const badge = returnStatusBadge(st, row);
+    if (!st) return t('emdash');
+    const badge = returnStatusBadge(st, row, t);
     return badge.label;
 }
 
-export default function SupplierAffiliatedSalesReturns() {
+export default function SupplierAffiliatedSalesReturns({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => ssrT(locale, key, vars), [locale]);
     const [formOpen, setFormOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -168,11 +177,11 @@ export default function SupplierAffiliatedSalesReturns() {
             const returnsRes = await listSupplierAffiliatedSalesReturns();
             setReturns(Array.isArray(returnsRes?.items) ? returnsRes.items : []);
         } catch (err) {
-            setError(err.message || 'Failed to load sales returns.');
+            setError(err.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const loadSalesInvoicesForPicker = useCallback(async () => {
         setInvoicesLoading(true);
@@ -180,12 +189,12 @@ export default function SupplierAffiliatedSalesReturns() {
             const rows = await fetchAllSupplierSalesInvoices();
             setInvoices(rows);
         } catch (err) {
-            setFormError(err.message || 'Failed to load sales invoices.');
+            setFormError(err.message || t('err.loadInvoices'));
             setInvoices([]);
         } finally {
             setInvoicesLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         load();
@@ -220,7 +229,7 @@ export default function SupplierAffiliatedSalesReturns() {
                 setLineReason({});
             })
             .catch((err) => {
-                if (active) setFormError(err.message || 'Failed to load invoice detail.');
+                if (active) setFormError(err.message || t('err.loadInvoice'));
             })
             .finally(() => {
                 if (active) setInvoiceLoading(false);
@@ -228,7 +237,7 @@ export default function SupplierAffiliatedSalesReturns() {
         return () => {
             active = false;
         };
-    }, [formOpen, selectedInvoiceId]);
+    }, [formOpen, selectedInvoiceId, t]);
 
     const filteredReturns = useMemo(() => {
         let rows = returns;
@@ -309,38 +318,34 @@ export default function SupplierAffiliatedSalesReturns() {
             }
             setViewReturnDetail(detail);
         } catch (err) {
-            setError(err?.message || 'Failed to load return details.');
+            setError(err?.message || t('err.loadDetail'));
             setViewReturnId(null);
         } finally {
             setViewReturnLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const handleApproveReturn = useCallback(async (row) => {
         if (!row?.id || row.status !== 'pending' || !isWorkshopInitiatedReturn(row)) return;
-        const ok = window.confirm(
-            `Approve return ${row.returnNo}?\n\nWorkshop branch stock will decrease and your supplier warehouse stock will increase.\n\nThis action cannot be undone.`,
-        );
+        const ok = window.confirm(t('confirm.approve', { no: row.returnNo }));
         if (!ok) return;
         setApprovingId(String(row.id));
         setError('');
         try {
             await approveSupplierAffiliatedSalesReturn(row.id);
-            setSuccess(`Approved ${row.returnNo}`);
+            setSuccess(t('success.approved', { no: row.returnNo }));
             await load();
         } catch (err) {
-            setError(err?.message || 'Failed to approve return.');
+            setError(err?.message || t('err.approve'));
         } finally {
             setApprovingId(null);
         }
-    }, [load]);
+    }, [load, t]);
 
     const handleSubmit = async (event) => {
         event.preventDefault();
         if (!selectedInvoiceId) {
-            setFormError(
-                'Sales invoice is optional while filling the form. To submit, pick an invoice and enter at least one return quantity.',
-            );
+            setFormError(t('err.needInvoice'));
             return;
         }
         const lines = (invoiceDetail?.items || [])
@@ -351,7 +356,7 @@ export default function SupplierAffiliatedSalesReturns() {
             }))
             .filter((item) => item.qtyReturned > 0);
         if (!lines.length) {
-            setFormError('Enter at least one return quantity.');
+            setFormError(t('err.needQty'));
             return;
         }
         setSaving(true);
@@ -366,12 +371,15 @@ export default function SupplierAffiliatedSalesReturns() {
                 lines,
             });
             setSuccess(
-                `Return ${res?.supplierReturnNo || ''} created — linked workshop purchase return ${res?.purchaseReturnNo || ''}.`.trim(),
+                t('success.created', {
+                    returnNo: res?.supplierReturnNo || '',
+                    purchaseReturnNo: res?.purchaseReturnNo || '',
+                }).trim(),
             );
             setFormOpen(false);
             await load();
         } catch (err) {
-            setFormError(err.message || 'Failed to create linked return.');
+            setFormError(err.message || t('err.create'));
         } finally {
             setSaving(false);
         }
@@ -386,9 +394,9 @@ export default function SupplierAffiliatedSalesReturns() {
         () =>
             invoices.map((inv) => ({
                 id: String(inv.id),
-                label: inv.invoiceNo || '—',
+                label: inv.invoiceNo || t('emdash'),
                 subtitle: salesInvoiceComboboxSubtitle(inv),
-                trailing: `SAR ${sarFmt(inv.amount)}`,
+                trailing: t('money.sar', { amount: sarFmt(inv.amount) }),
                 searchTokens: [
                     inv.invoiceNo,
                     salesInvoiceCustomerLabel(inv),
@@ -396,9 +404,9 @@ export default function SupplierAffiliatedSalesReturns() {
                     inv.branch,
                     inv.workshopName,
                     inv.date,
-                ].filter((t) => t && t !== '—'),
+                ].filter((tok) => tok && tok !== '—'),
             })),
-        [invoices],
+        [invoices, t],
     );
 
     const lineGridCols = 'minmax(140px,2fr) 88px 104px 96px 112px minmax(120px,1fr)';
@@ -409,34 +417,30 @@ export default function SupplierAffiliatedSalesReturns() {
                 <>
                     <header className="mgr-si-header">
                         <div className="mgr-si-header-top">
-                            <div className="mgr-si-breadcrumb">Sales Returns</div>
+                            <div className="mgr-si-breadcrumb">{t('page.breadcrumb')}</div>
                             <div className="mgr-si-toolbar-actions">
                                 <button type="button" className="mgr-si-btn-new" onClick={openForm}>
-                                    <Plus size={16} /> New return
+                                    <Plus size={16} /> {t('btn.newReturn')}
                                 </button>
                             </div>
                         </div>
-                        <h2 className="mgr-si-title">Affiliated sales returns</h2>
-                        <p className="mgr-si-subtitle">
-                            Credit goods back to affiliated workshops. Each return creates a linked{' '}
-                            <strong>workshop purchase return</strong> that the workshop must approve or
-                            confirm via QR before stock and accounting finalize on both sides.
-                        </p>
+                        <h2 className="mgr-si-title">{t('page.title')}</h2>
+                        <p className="mgr-si-subtitle">{t('page.subtitle')}</p>
                     </header>
 
                     <div className="mgr-si-toolbar">
                         <div className="mgr-si-filter-bar">
-                            <span className="mgr-si-filter-label">Status</span>
+                            <span className="mgr-si-filter-label">{t('label.status')}</span>
                             <select
                                 className="mgr-si-filter-select"
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
-                                aria-label="Filter by status"
+                                aria-label={t('aria.filterStatus')}
                             >
-                                <option value="all">All returns</option>
-                                <option value="pending">Pending workshop</option>
-                                <option value="approved">Approved</option>
-                                <option value="posted">Posted</option>
+                                <option value="all">{t('opt.allReturns')}</option>
+                                <option value="pending">{t('opt.pendingWorkshop')}</option>
+                                <option value="approved">{t('opt.approved')}</option>
+                                <option value="posted">{t('opt.posted')}</option>
                             </select>
                         </div>
                         <div className="mgr-si-search-wrap">
@@ -445,14 +449,14 @@ export default function SupplierAffiliatedSalesReturns() {
                                 <input
                                     type="search"
                                     className="mgr-si-search-input"
-                                    placeholder="Search return #, invoice, workshop…"
+                                    placeholder={t('search.placeholder')}
                                     value={listSearch}
                                     onChange={(e) => setListSearch(e.target.value)}
-                                    aria-label="Search returns"
+                                    aria-label={t('aria.searchReturns')}
                                 />
                             </div>
                             <button type="button" className="mgr-si-search-btn">
-                                Search
+                                {t('btn.search')}
                             </button>
                         </div>
                     </div>
@@ -484,14 +488,14 @@ export default function SupplierAffiliatedSalesReturns() {
                                 <table className="mgr-si-table">
                                     <thead>
                                         <tr className="table-header-row">
-                                            <th className="table-th">Return date</th>
-                                            <th className="table-th">Return #</th>
-                                            <th className="table-th">Sales invoice</th>
-                                            <th className="table-th">Workshop / branch</th>
-                                            <th className="table-th">Amount</th>
-                                            <th className="table-th">Supplier status</th>
-                                            <th className="table-th">Workshop return</th>
-                                            <th className="table-th">Workshop status</th>
+                                            <th className="table-th">{t('th.returnDate')}</th>
+                                            <th className="table-th">{t('th.returnNo')}</th>
+                                            <th className="table-th">{t('th.salesInvoice')}</th>
+                                            <th className="table-th">{t('th.workshopBranch')}</th>
+                                            <th className="table-th">{t('th.amount')}</th>
+                                            <th className="table-th">{t('th.supplierStatus')}</th>
+                                            <th className="table-th">{t('th.workshopReturn')}</th>
+                                            <th className="table-th">{t('th.workshopStatus')}</th>
                                             <th className="table-th" style={{ width: 72 }} />
                                         </tr>
                                     </thead>
@@ -508,11 +512,10 @@ export default function SupplierAffiliatedSalesReturns() {
                                                         }}
                                                     />
                                                     <div style={{ fontWeight: 700, marginBottom: 8 }}>
-                                                        No affiliated returns yet
+                                                        {t('empty.title')}
                                                     </div>
                                                     <p style={{ margin: 0, color: '#64748B', fontSize: '0.875rem' }}>
-                                                        Create a return against an affiliated sales invoice — a
-                                                        linked purchase return is sent to the workshop automatically.
+                                                        {t('empty.hint')}
                                                     </p>
                                                     <button
                                                         type="button"
@@ -520,13 +523,13 @@ export default function SupplierAffiliatedSalesReturns() {
                                                         style={{ marginTop: 16 }}
                                                         onClick={openForm}
                                                     >
-                                                        <Plus size={16} /> New return
+                                                        <Plus size={16} /> {t('btn.newReturn')}
                                                     </button>
                                                 </td>
                                             </tr>
                                         ) : (
                                             filteredReturns.map((row) => {
-                                                const badge = returnStatusBadge(row.status, row);
+                                                const badge = returnStatusBadge(row.status, row, t);
                                                 const canApprove =
                                                     row.status === 'pending' &&
                                                     isWorkshopInitiatedReturn(row);
@@ -538,20 +541,20 @@ export default function SupplierAffiliatedSalesReturns() {
                                                         <td className="table-cell" style={{ fontWeight: 600 }}>
                                                             {row.returnNo}
                                                         </td>
-                                                        <td className="table-cell">{row.invoiceNo || '—'}</td>
+                                                        <td className="table-cell">{row.invoiceNo || t('emdash')}</td>
                                                         <td className="table-cell">
                                                             {row.workshopName
                                                                 ? `${row.workshopName}${row.branchName ? ` — ${row.branchName}` : ''}`
-                                                                : row.branchName || '—'}
+                                                                : row.branchName || t('emdash')}
                                                         </td>
                                                         <td className="table-cell mgr-si-cell-amount">
-                                                            SAR {sarFmt(row.grandTotal)}
+                                                            {t('money.sar', { amount: sarFmt(row.grandTotal) })}
                                                         </td>
                                                         <td className="table-cell">
                                                             <span className={badge.cls}>{badge.label}</span>
                                                         </td>
                                                         <td className="table-cell">
-                                                            {row.linkedPurchaseReturn?.returnNumber || '—'}
+                                                            {row.linkedPurchaseReturn?.returnNumber || t('emdash')}
                                                         </td>
                                                         <td className="table-cell">
                                                             {row.linkedPurchaseReturn ? (
@@ -560,13 +563,14 @@ export default function SupplierAffiliatedSalesReturns() {
                                                                         returnStatusBadge(
                                                                             row.linkedPurchaseReturn.status,
                                                                             row,
+                                                                            t,
                                                                         ).cls
                                                                     }
                                                                 >
-                                                                    {linkedPurchaseStatus(row)}
+                                                                    {linkedPurchaseStatus(row, t)}
                                                                 </span>
                                                             ) : (
-                                                                '—'
+                                                                t('emdash')
                                                             )}
                                                         </td>
                                                         <td className="table-cell">
@@ -578,7 +582,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                                         style={{ padding: '6px 10px' }}
                                                                         onClick={() => handleApproveReturn(row)}
                                                                         disabled={approvingId !== null}
-                                                                        title="Approve and receive stock"
+                                                                        title={t('btn.approveTitle')}
                                                                     >
                                                                         <Check size={15} />
                                                                     </button>
@@ -588,7 +592,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                                     className="btn-portal-outline"
                                                                     style={{ padding: '6px 10px' }}
                                                                     onClick={() => handleViewReturn(row)}
-                                                                    title="View credit note"
+                                                                    title={t('btn.viewTitle')}
                                                                 >
                                                                     <Eye size={15} />
                                                                 </button>
@@ -611,16 +615,17 @@ export default function SupplierAffiliatedSalesReturns() {
                     title={
                         <div className="pi-modal-title">
                             <span className="pi-breadcrumb">
-                                Sales Returns › <span className="pi-b-active">New</span>
+                                {t('form.breadcrumbParent')} ›{' '}
+                                <span className="pi-b-active">{t('form.breadcrumbNewLeaf')}</span>
                             </span>
                             <div className="pi-title-main">
                                 <RotateCcw size={24} />
-                                <span>Affiliated sales return</span>
+                                <span>{t('form.title')}</span>
                             </div>
                         </div>
                     }
                     onBack={closeForm}
-                    backLabel="Back to list"
+                    backLabel={t('btn.backList')}
                     bodyClassName="supplier-affiliated-return-form-body"
                     footer={
                         <div className="pi-modal-footer">
@@ -631,7 +636,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                     onClick={closeForm}
                                     disabled={saving}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                             </div>
                             <div className="pi-footer-right">
@@ -670,10 +675,10 @@ export default function SupplierAffiliatedSalesReturns() {
                                                 className="supplier-sales-last-sale-spinner"
                                                 aria-hidden
                                             />
-                                            Creating…
+                                            {t('btn.creating')}
                                         </span>
                                     ) : (
-                                        'Create linked return'
+                                        t('btn.createLinked')
                                     )}
                                 </button>
                             </div>
@@ -691,20 +696,15 @@ export default function SupplierAffiliatedSalesReturns() {
                         ) : (
                             <>
                                 <div className="pi-ap-alert" style={{ marginBottom: 24 }}>
-                                    <span>
-                                        This return is sent to the affiliated workshop as a{' '}
-                                        <strong>purchase return</strong>. Stock and GL on both sides
-                                        update only after the workshop <strong>approves</strong> or{' '}
-                                        <strong>scans the QR</strong> — not immediately on submit.
-                                    </span>
+                                    <span>{t('form.alert')}</span>
                                 </div>
 
                                 <div className="pi-header-grid">
                                     <div className="pi-field pi-full-width">
                                         <label>
-                                            Sales invoice{' '}
+                                            {t('form.salesInvoice')}{' '}
                                             <span style={{ fontWeight: 400, color: '#94A3B8' }}>
-                                                (optional)
+                                                {t('form.optional')}
                                             </span>
                                         </label>
                                         <SearchableEntityCombobox
@@ -716,13 +716,13 @@ export default function SupplierAffiliatedSalesReturns() {
                                             displayText={invoiceSearchDraft}
                                             entityLabel="invoice"
                                             loading={invoicesLoading}
-                                            placeholder="Type invoice #, customer, product… (↑↓ Enter)"
+                                            placeholder={t('form.invoicePlaceholder')}
                                             emptyHint={
                                                 invoicesLoading
-                                                    ? 'Loading sales invoices…'
+                                                    ? t('form.loadingInvoices')
                                                     : invoices.length === 0
-                                                      ? 'No sales invoices yet — create one under Sales Invoices (AR)'
-                                                      : 'No matches — try invoice #, customer, or product'
+                                                      ? t('form.noInvoices')
+                                                      : t('form.noMatches')
                                             }
                                             disabled={saving}
                                             onDisplayTextChange={(text) => {
@@ -752,9 +752,10 @@ export default function SupplierAffiliatedSalesReturns() {
                                         />
                                         {!invoicesLoading && invoices.length > 0 ? (
                                             <span className="pi-hint" style={{ marginTop: 6, display: 'block' }}>
-                                                {invoices.length} sales invoice
-                                                {invoices.length === 1 ? '' : 's'} — type to search, ↑↓ to
-                                                navigate, Enter to select (optional)
+                                                {t('form.invoiceHint', {
+                                                    n: invoices.length,
+                                                    s: invoices.length === 1 ? '' : 's',
+                                                })}
                                             </span>
                                         ) : null}
                                     </div>
@@ -764,27 +765,27 @@ export default function SupplierAffiliatedSalesReturns() {
                                     <>
                                         <div className="pi-header-grid">
                                             <div className="pi-field">
-                                                <label>Invoice #</label>
-                                                <input readOnly value={invoiceDetail.invoiceNo || '—'} />
+                                                <label>{t('form.invoiceNo')}</label>
+                                                <input readOnly value={invoiceDetail.invoiceNo || t('emdash')} />
                                             </div>
                                             <div className="pi-field">
-                                                <label>Issue date</label>
+                                                <label>{t('form.issueDate')}</label>
                                                 <input
                                                     readOnly
-                                                    value={invoiceDetail.invoiceDate?.slice(0, 10) || '—'}
+                                                    value={invoiceDetail.invoiceDate?.slice(0, 10) || t('emdash')}
                                                 />
                                             </div>
                                             <div className="pi-field">
-                                                <label>Due date</label>
+                                                <label>{t('form.dueDate')}</label>
                                                 <input
                                                     readOnly
-                                                    value={invoiceDetail.dueDate?.slice(0, 10) || '—'}
+                                                    value={invoiceDetail.dueDate?.slice(0, 10) || t('emdash')}
                                                 />
                                             </div>
                                         </div>
                                         <div className="pi-header-grid">
                                             <div className="pi-field pi-full-width">
-                                                <label>Workshop / branch (customer)</label>
+                                                <label>{t('form.customer')}</label>
                                                 <input
                                                     readOnly
                                                     value={
@@ -793,32 +794,38 @@ export default function SupplierAffiliatedSalesReturns() {
                                                             ? `${selectedInvoiceMeta.workshopName} — ${selectedInvoiceMeta.branch}`
                                                             : selectedInvoiceMeta?.branch ||
                                                               selectedInvoiceMeta?.workshopName ||
-                                                              '—'
+                                                              t('emdash')
                                                     }
                                                 />
                                             </div>
                                         </div>
                                         <div className="pi-header-grid">
                                             <div className="pi-field">
-                                                <label>Grand total</label>
+                                                <label>{t('form.grandTotal')}</label>
                                                 <input
                                                     readOnly
-                                                    value={`SAR ${sarFmt(invoiceDetail.grandTotal)}`}
+                                                    value={t('money.sar', {
+                                                        amount: sarFmt(invoiceDetail.grandTotal),
+                                                    })}
                                                 />
                                             </div>
                                             <div className="pi-field">
-                                                <label>Paid</label>
+                                                <label>{t('form.paid')}</label>
                                                 <input
                                                     readOnly
-                                                    value={`SAR ${sarFmt(invoiceDetail.paid)}`}
+                                                    value={t('money.sar', {
+                                                        amount: sarFmt(invoiceDetail.paid),
+                                                    })}
                                                 />
                                             </div>
                                             <div className="pi-field">
-                                                <label>Balance due</label>
+                                                <label>{t('form.balanceDue')}</label>
                                                 <input
                                                     readOnly
                                                     style={{ fontWeight: 700, color: '#b91c1c' }}
-                                                    value={`SAR ${sarFmt(invoiceDetail.outstanding)}`}
+                                                    value={t('money.sar', {
+                                                        amount: sarFmt(invoiceDetail.outstanding),
+                                                    })}
                                                 />
                                             </div>
                                         </div>
@@ -827,7 +834,7 @@ export default function SupplierAffiliatedSalesReturns() {
 
                                 <div className="pi-header-grid">
                                     <div className="pi-field">
-                                        <label>Return date</label>
+                                        <label>{t('form.returnDate')}</label>
                                         <input
                                             type="date"
                                             value={returnDate}
@@ -836,20 +843,20 @@ export default function SupplierAffiliatedSalesReturns() {
                                         />
                                     </div>
                                     <div className="pi-field">
-                                        <label>Reference</label>
+                                        <label>{t('form.reference')}</label>
                                         <input
                                             value={reference}
                                             onChange={(e) => setReference(e.target.value)}
-                                            placeholder="Optional reference"
+                                            placeholder={t('form.referencePh')}
                                             disabled={saving}
                                         />
                                     </div>
                                     <div className="pi-field">
-                                        <label>Description</label>
+                                        <label>{t('form.description')}</label>
                                         <input
                                             value={description}
                                             onChange={(e) => setDescription(e.target.value)}
-                                            placeholder="Short description for the workshop"
+                                            placeholder={t('form.descriptionPh')}
                                             disabled={saving}
                                         />
                                     </div>
@@ -876,14 +883,14 @@ export default function SupplierAffiliatedSalesReturns() {
                                                 letterSpacing: '0.04em',
                                             }}
                                         >
-                                            Previous returns on this invoice ({returnHistory.length})
+                                            {t('form.prevReturns', { n: returnHistory.length })}
                                         </div>
                                         <ul style={{ margin: 0, paddingLeft: 18, color: '#64748B' }}>
                                             {returnHistory.map((r) => (
                                                 <li key={r.id} style={{ marginBottom: 6 }}>
                                                     <strong>{r.returnNo}</strong> ·{' '}
-                                                    {r.returnDate?.slice(0, 10) || '—'} · SAR{' '}
-                                                    {sarFmt(r.grandTotal)}
+                                                    {r.returnDate?.slice(0, 10) || t('emdash')} ·{' '}
+                                                    {t('money.sar', { amount: sarFmt(r.grandTotal) })}
                                                 </li>
                                             ))}
                                         </ul>
@@ -897,12 +904,12 @@ export default function SupplierAffiliatedSalesReturns() {
                                             gridTemplateColumns: lineGridCols,
                                         }}
                                     >
-                                        <div className="pi-col-item">Item</div>
-                                        <div className="pi-col-qty">Invoiced</div>
-                                        <div className="pi-col-qty">Returned</div>
-                                        <div className="pi-col-qty">Left</div>
-                                        <div className="pi-col-qty">Return qty</div>
-                                        <div className="pi-col-item">Reason</div>
+                                        <div className="pi-col-item">{t('form.col.item')}</div>
+                                        <div className="pi-col-qty">{t('form.col.invoiced')}</div>
+                                        <div className="pi-col-qty">{t('form.col.returned')}</div>
+                                        <div className="pi-col-qty">{t('form.col.left')}</div>
+                                        <div className="pi-col-qty">{t('form.col.returnQty')}</div>
+                                        <div className="pi-col-item">{t('form.col.reason')}</div>
                                     </div>
                                     {!selectedInvoiceId ? (
                                         <div
@@ -916,8 +923,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                 padding: '20px 16px',
                                             }}
                                         >
-                                            Optionally select a sales invoice above to load its lines.
-                                            You can still fill return date, reference, and notes without one.
+                                            {t('form.noInvoiceLines')}
                                         </div>
                                     ) : (invoiceDetail?.items || []).length === 0 ? (
                                         <div
@@ -929,7 +935,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                 margin: '8px',
                                             }}
                                         >
-                                            This invoice has no line items to return.
+                                            {t('form.noLineItems')}
                                         </div>
                                     ) : (
                                         (invoiceDetail?.items || []).map((it) => {
@@ -948,7 +954,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                 >
                                                     <div className="pi-col-item" style={{ minWidth: 0 }}>
                                                         <span style={{ fontWeight: 600 }}>
-                                                            {it.productName || '—'}
+                                                            {it.productName || t('emdash')}
                                                         </span>
                                                         {it.unit ? (
                                                             <span
@@ -975,7 +981,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                     </div>
                                                     <div className="pi-col-qty">
                                                         {remaining <= 0 ? (
-                                                            <span style={{ color: '#94A3B8' }}>—</span>
+                                                            <span style={{ color: '#94A3B8' }}>{t('emdash')}</span>
                                                         ) : (
                                                             <input
                                                                 type="text"
@@ -1004,7 +1010,7 @@ export default function SupplierAffiliatedSalesReturns() {
                                                                     [id]: e.target.value,
                                                                 }))
                                                             }
-                                                            placeholder="Optional"
+                                                            placeholder={t('form.reasonPh')}
                                                             disabled={saving || remaining <= 0}
                                                         />
                                                     </div>
@@ -1017,29 +1023,27 @@ export default function SupplierAffiliatedSalesReturns() {
                                 <div className="pi-footer-grid" style={{ marginTop: 8 }}>
                                     <div>
                                         <div className="pi-field pi-full-width">
-                                            <label>Notes (optional)</label>
+                                            <label>{t('form.notes')}</label>
                                             <textarea
                                                 rows={4}
                                                 value={notes}
                                                 onChange={(e) => setNotes(e.target.value)}
                                                 disabled={saving}
-                                                placeholder="Internal note for this return"
+                                                placeholder={t('form.notesPh')}
                                             />
                                         </div>
                                     </div>
                                     <div className="pi-footer-column pi-summary-column">
                                         <div className="pi-summary-card">
                                             <div className="pi-summary-row pi-grand-total">
-                                                <span>Return total:</span>
-                                                <span>SAR {sarFmt(totalSelected)}</span>
+                                                <span>{t('form.returnTotal')}</span>
+                                                <span>
+                                                    {t('money.sar', { amount: sarFmt(totalSelected) })}
+                                                </span>
                                             </div>
                                         </div>
                                         <div className="pi-ap-alert">
-                                            <span>
-                                                A linked <strong>workshop purchase return</strong> is
-                                                created automatically and stays pending until the
-                                                workshop approves it.
-                                            </span>
+                                            <span>{t('form.footerAlert')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1054,19 +1058,19 @@ export default function SupplierAffiliatedSalesReturns() {
                     title={
                         <div className="pi-modal-title">
                             <span className="pi-breadcrumb">
-                                Sales Returns ›{' '}
+                                {t('page.breadcrumb')} ›{' '}
                                 <span className="pi-b-active">
-                                    {viewReturnDetail?.returnNumber || 'Return'}
+                                    {viewReturnDetail?.returnNumber || t('fallback.return')}
                                 </span>
                             </span>
                             <div className="pi-title-main">
                                 <RotateCcw size={24} />
-                                <span>Credit Note</span>
+                                <span>{t('view.creditNote')}</span>
                             </div>
                         </div>
                     }
                     onBack={closeViewReturn}
-                    backLabel="Back to Sales Returns"
+                    backLabel={t('btn.backReturns')}
                     bodyClassName="supplier-affiliated-return-view-body"
                 >
                     {viewReturnLoading ? (
@@ -1078,7 +1082,7 @@ export default function SupplierAffiliatedSalesReturns() {
                             compact
                         />
                     ) : (
-                        <p style={{ margin: 0, color: '#64748b' }}>Could not load return details.</p>
+                        <p style={{ margin: 0, color: '#64748b' }}>{t('view.loadFailed')}</p>
                     )}
                 </InlineFormScreen>
             ) : null}

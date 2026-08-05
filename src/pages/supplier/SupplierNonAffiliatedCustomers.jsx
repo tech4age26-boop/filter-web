@@ -14,6 +14,7 @@ import {
     exportCustomerLedgerExcel,
     exportCustomerLedgerPdf,
 } from '../../utils/supplierLedgerExport';
+import { snacT } from '../../utils/supplierNonAffiliatedCustomersI18n';
 
 function fmtMoney(v) {
     return Number(v ?? 0).toLocaleString(undefined, {
@@ -22,15 +23,15 @@ function fmtMoney(v) {
     });
 }
 
-function fmtBalance(n) {
+function fmtBalance(n, t) {
     const v = Number(n || 0);
     const abs = Math.abs(v).toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
-    if (v > 0.005) return `SAR ${abs} — they owe you`;
-    if (v < -0.005) return `SAR ${abs} — you owe them`;
-    return 'SAR 0.00 — settled';
+    if (v > 0.005) return t('balance.theyOwe', { amount: abs });
+    if (v < -0.005) return t('balance.youOwe', { amount: abs });
+    return t('balance.settled');
 }
 
 function todayYmd() {
@@ -42,7 +43,12 @@ function firstOfMonthYmd() {
     d.setDate(1);
     return d.toISOString().slice(0, 10);
 }
-export default function SupplierNonAffiliatedCustomers() {
+export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => snacT(locale, key, vars), [locale]);
     const [partyRows, setPartyRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -82,11 +88,11 @@ export default function SupplierNonAffiliatedCustomers() {
             setPartyRows(Array.isArray(res?.parties) ? res.parties : []);
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Failed to load');
+            setErr(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadParties();
@@ -100,13 +106,13 @@ export default function SupplierNonAffiliatedCustomers() {
             return res;
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Transaction load failed');
+            setErr(e?.message || t('err.tx'));
             setLedgerData(null);
             return null;
         } finally {
             setLogLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const openDetail = async (row) => {
         const from = firstOfMonthYmd();
@@ -142,7 +148,7 @@ export default function SupplierNonAffiliatedCustomers() {
             await loadParties();
         } catch (errSubmit) {
             console.error(errSubmit);
-            setErr(errSubmit?.message || 'Save failed');
+            setErr(errSubmit?.message || t('err.save'));
         } finally {
             setSavingParty(false);
         }
@@ -176,18 +182,14 @@ export default function SupplierNonAffiliatedCustomers() {
             }
         } catch (errSubmit) {
             console.error(errSubmit);
-            setErr(errSubmit?.message || 'Update failed');
+            setErr(errSubmit?.message || t('err.update'));
         } finally {
             setSavingParty(false);
         }
     };
 
     const onDeactivate = async (row) => {
-        if (
-            !window.confirm(
-                'Deactivate this party? They disappear from your list until re-added.',
-            )
-        ) {
+        if (!window.confirm(t('confirm.deactivate'))) {
             return;
         }
         try {
@@ -196,7 +198,7 @@ export default function SupplierNonAffiliatedCustomers() {
             await loadParties();
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Remove failed');
+            setErr(e?.message || t('err.remove'));
         }
     };
 
@@ -275,7 +277,7 @@ export default function SupplierNonAffiliatedCustomers() {
             });
         } catch (errSubmit) {
             console.error(errSubmit);
-            setErr(errSubmit?.message || 'Ledger save failed');
+            setErr(errSubmit?.message || t('err.ledger'));
         } finally {
             setSavingLedger(false);
         }
@@ -295,15 +297,12 @@ export default function SupplierNonAffiliatedCustomers() {
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Non-affiliated customers / workshops</h2>
-                    <p className="ws-page-sub">
-                        Manually track parties outside Filter: running balance from your ledger lines, with
-                        dated transaction history.
-                    </p>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
+                    <p className="ws-page-sub">{t('page.sub')}</p>
                 </div>
                 <button type="button" className="btn-portal" onClick={() => setAddOpen(true)}>
                     <Plus size={16} />
-                    Add Non-Affiliated Customer
+                    {t('btn.add')}
                 </button>
             </div>
 
@@ -317,19 +316,19 @@ export default function SupplierNonAffiliatedCustomers() {
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Party</th>
-                            <th>Balance</th>
-                            <th style={{ width: 180 }}>Actions</th>
+                            <th>{t('th.party')}</th>
+                            <th>{t('th.balance')}</th>
+                            <th style={{ width: 180 }}>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={3}>Loading…</td>
+                                <td colSpan={3}>{t('loading')}</td>
                             </tr>
                         ) : partyRows.length === 0 ? (
                             <tr>
-                                <td colSpan={3}>No customers yet — use &quot;Add Non-Affiliated Customer&quot;.</td>
+                                <td colSpan={3}>{t('empty')}</td>
                             </tr>
                         ) : (
                             partyRows.map((r) => (
@@ -341,20 +340,22 @@ export default function SupplierNonAffiliatedCustomers() {
                                     <td>
                                         <div style={{ fontWeight: 700 }}>{r.displayName}</div>
                                         <div style={{ fontSize: '0.76rem', opacity: 0.65 }}>
-                                            {[r.phone, r.email].filter(Boolean).join(' · ') || '—'}
+                                            {[r.phone, r.email].filter(Boolean).join(' · ') || t('emdash')}
                                         </div>
                                     </td>
-                                    <td>{fmtBalance(r.balance)}</td>
+                                    <td>{fmtBalance(r.balance, t)}</td>
                                     <td onClick={(ev) => ev.stopPropagation()}>
                                         <RowActionsMenu
-                                            ariaLabel={`Actions for ${r.displayName || 'customer'}`}
+                                            ariaLabel={t('aria.actions', {
+                                                name: r.displayName || t('fallback.customer'),
+                                            })}
                                             items={[
                                                 {
-                                                    label: 'Edit',
+                                                    label: t('btn.edit'),
                                                     onClick: () => openEdit(r),
                                                 },
                                                 {
-                                                    label: 'Deactivate',
+                                                    label: t('btn.deactivate'),
                                                     onClick: () => onDeactivate(r),
                                                     danger: true,
                                                 },
@@ -370,7 +371,7 @@ export default function SupplierNonAffiliatedCustomers() {
 
             {addOpen ? (
                 <Modal
-                    title="Add Non-Affiliated Customer"
+                    title={t('modal.addTitle')}
                     onClose={() => !savingParty && setAddOpen(false)}
                     disableClose={savingParty}
                     footer={
@@ -381,7 +382,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 onClick={() => setAddOpen(false)}
                                 disabled={savingParty}
                             >
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 type="submit"
@@ -389,14 +390,14 @@ export default function SupplierNonAffiliatedCustomers() {
                                 form="party-add-form"
                                 disabled={savingParty}
                             >
-                                {savingParty ? 'Saving…' : 'Save'}
+                                {savingParty ? t('btn.saving') : t('btn.save')}
                             </button>
                         </>
                     }
                 >
                     <form id="party-add-form" onSubmit={submitParty}>
                         <label className="ws-form-label-block">
-                            Display name
+                            {t('modal.displayName')}
                             <input
                                 required
                                 className="ws-input-like"
@@ -408,7 +409,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </label>
                         <label className="ws-form-label-block">
-                            Phone
+                            {t('modal.phone')}
                             <input
                                 className="ws-input-like"
                                 value={partyForm.phone}
@@ -419,7 +420,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </label>
                         <label className="ws-form-label-block">
-                            Email
+                            {t('modal.email')}
                             <input
                                 className="ws-input-like"
                                 type="email"
@@ -431,7 +432,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </label>
                         <label className="ws-form-label-block">
-                            Notes
+                            {t('modal.notes')}
                             <textarea
                                 className="ws-input-like"
                                 rows={2}
@@ -448,7 +449,7 @@ export default function SupplierNonAffiliatedCustomers() {
 
             {editParty ? (
                 <Modal
-                    title={`Edit — ${editParty.displayName}`}
+                    title={t('modal.editTitle', { name: editParty.displayName })}
                     onClose={() => !savingParty && setEditParty(null)}
                     disableClose={savingParty}
                     footer={
@@ -459,7 +460,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 onClick={() => setEditParty(null)}
                                 disabled={savingParty}
                             >
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 type="submit"
@@ -467,14 +468,14 @@ export default function SupplierNonAffiliatedCustomers() {
                                 form="party-edit-form"
                                 disabled={savingParty}
                             >
-                                {savingParty ? 'Saving…' : 'Update'}
+                                {savingParty ? t('btn.saving') : t('btn.update')}
                             </button>
                         </>
                     }
                 >
                     <form id="party-edit-form" onSubmit={submitEditParty}>
                         <label className="ws-form-label-block">
-                            Display name
+                            {t('modal.displayName')}
                             <input
                                 required
                                 className="ws-input-like"
@@ -486,7 +487,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </label>
                         <label className="ws-form-label-block">
-                            Phone
+                            {t('modal.phone')}
                             <input
                                 className="ws-input-like"
                                 value={partyForm.phone}
@@ -497,7 +498,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </label>
                         <label className="ws-form-label-block">
-                            Email
+                            {t('modal.email')}
                             <input
                                 className="ws-input-like"
                                 type="email"
@@ -509,7 +510,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </label>
                         <label className="ws-form-label-block">
-                            Notes
+                            {t('modal.notes')}
                             <textarea
                                 className="ws-input-like"
                                 rows={2}
@@ -526,12 +527,12 @@ export default function SupplierNonAffiliatedCustomers() {
 
             {detail ? (
                 <Modal
-                    title={`Customer Ledger — ${detail.displayName}`}
+                    title={t('ledger.title', { name: detail.displayName })}
                     onClose={() => setDetail(null)}
                     width={960}
                     footer={
                         <button type="button" className="btn-portal-outline" onClick={() => setDetail(null)}>
-                            Close
+                            {t('btn.close')}
                         </button>
                     }
                 >
@@ -553,7 +554,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 letterSpacing: '0.04em',
                             }}
                         >
-                            Ledger account
+                            {t('ledger.account')}
                         </div>
                         <div
                             style={{
@@ -582,16 +583,16 @@ export default function SupplierNonAffiliatedCustomers() {
                     >
                         <div style={{ flex: '1 1 200px' }}>
                             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
-                                Current balance
+                                {t('ledger.currentBalance')}
                             </div>
                             <div style={{ fontWeight: 800, fontSize: '1.05rem', marginTop: 4 }}>
-                                {fmtBalance(ledgerData?.currentBalance ?? detail.balance)}
+                                {fmtBalance(ledgerData?.currentBalance ?? detail.balance, t)}
                             </div>
                         </div>
                         {ledgerData?.header?.companyName ? (
                             <div style={{ flex: '1 1 200px' }}>
                                 <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
-                                    Your business
+                                    {t('ledger.yourBusiness')}
                                 </div>
                                 <div style={{ fontWeight: 600, marginTop: 4 }}>
                                     {ledgerData.header.companyName}
@@ -600,12 +601,12 @@ export default function SupplierNonAffiliatedCustomers() {
                         ) : null}
                         <div style={{ flex: '1 1 200px' }}>
                             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748B' }}>
-                                Statement period
+                                {t('ledger.period')}
                             </div>
                             <div style={{ fontWeight: 600, marginTop: 4 }}>
-                                {(ledgerData?.header?.from || logFrom || '—') +
+                                {(ledgerData?.header?.from || logFrom || t('emdash')) +
                                     ' — ' +
-                                    (ledgerData?.header?.to || logTo || '—')}
+                                    (ledgerData?.header?.to || logTo || t('emdash'))}
                             </div>
                         </div>
                     </div>
@@ -621,7 +622,7 @@ export default function SupplierNonAffiliatedCustomers() {
                     >
                         <div>
                             <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>
-                                From
+                                {t('ledger.from')}
                             </div>
                             <input
                                 type="date"
@@ -631,7 +632,9 @@ export default function SupplierNonAffiliatedCustomers() {
                             />
                         </div>
                         <div>
-                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>To</div>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>
+                                {t('ledger.to')}
+                            </div>
                             <input
                                 type="date"
                                 value={logTo}
@@ -645,7 +648,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             onClick={applyRange}
                             disabled={logLoading}
                         >
-                            {logLoading ? 'Loading…' : 'Apply filters'}
+                            {logLoading ? t('btn.loading') : t('btn.applyFilters')}
                         </button>
                         <button
                             type="button"
@@ -653,7 +656,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             onClick={clearRange}
                             disabled={logLoading}
                         >
-                            Clear filters
+                            {t('btn.clearFilters')}
                         </button>
                         <div style={{ flex: 1, minWidth: 12 }} />
                         <button
@@ -663,7 +666,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             disabled={!ledgerData || logLoading}
                         >
                             <FileText size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
-                            Download PDF
+                            {t('btn.pdf')}
                         </button>
                         <button
                             type="button"
@@ -675,7 +678,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 size={14}
                                 style={{ marginRight: 6, verticalAlign: -2 }}
                             />
-                            Download Excel
+                            {t('btn.excel')}
                         </button>
                     </div>
 
@@ -690,48 +693,56 @@ export default function SupplierNonAffiliatedCustomers() {
                         <table className="ws-table" style={{ margin: 0 }}>
                             <thead>
                                 <tr>
-                                    <th style={{ width: 110 }}>Date</th>
-                                    <th>Description</th>
-                                    <th style={{ width: 120, textAlign: 'right' }}>Debit</th>
-                                    <th style={{ width: 120, textAlign: 'right' }}>Credit</th>
-                                    <th style={{ width: 130, textAlign: 'right' }}>Balance</th>
+                                    <th style={{ width: 110 }}>{t('th.date')}</th>
+                                    <th>{t('th.description')}</th>
+                                    <th style={{ width: 120, textAlign: 'right' }}>{t('th.debit')}</th>
+                                    <th style={{ width: 120, textAlign: 'right' }}>{t('th.credit')}</th>
+                                    <th style={{ width: 130, textAlign: 'right' }}>{t('th.balanceCol')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr style={{ background: '#F8FAFC', fontWeight: 700 }}>
-                                    <td>—</td>
-                                    <td>Opening balance</td>
-                                    <td style={{ textAlign: 'right' }}>—</td>
-                                    <td style={{ textAlign: 'right' }}>—</td>
+                                    <td>{t('emdash')}</td>
+                                    <td>{t('ledger.opening')}</td>
+                                    <td style={{ textAlign: 'right' }}>{t('emdash')}</td>
+                                    <td style={{ textAlign: 'right' }}>{t('emdash')}</td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {fmtMoney(ledgerData?.openingBalance ?? 0)}
+                                        {t('money.sar', {
+                                            amount: fmtMoney(ledgerData?.openingBalance ?? 0),
+                                        })}
                                     </td>
                                 </tr>
                                 {logLoading ? (
                                     <tr>
                                         <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
-                                            Loading ledger…
+                                            {t('ledger.loading')}
                                         </td>
                                     </tr>
                                 ) : (ledgerData?.rows ?? []).length === 0 ? (
                                     <tr>
                                         <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
-                                            No transactions in this period.
+                                            {t('ledger.empty')}
                                         </td>
                                     </tr>
                                 ) : (
                                     (ledgerData?.rows ?? []).map((r) => (
                                         <tr key={r.id}>
                                             <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
-                                            <td>{r.description || '—'}</td>
+                                            <td>{r.description || t('emdash')}</td>
                                             <td style={{ textAlign: 'right' }}>
-                                                {r.debit > 0 ? fmtMoney(r.debit) : ''}
+                                                {r.debit > 0
+                                                    ? t('money.sar', { amount: fmtMoney(r.debit) })
+                                                    : ''}
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
-                                                {r.credit > 0 ? fmtMoney(r.credit) : ''}
+                                                {r.credit > 0
+                                                    ? t('money.sar', { amount: fmtMoney(r.credit) })
+                                                    : ''}
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
-                                                {fmtMoney(r.runningBalance)}
+                                                {t('money.sar', {
+                                                    amount: fmtMoney(r.runningBalance),
+                                                })}
                                             </td>
                                         </tr>
                                     ))
@@ -745,15 +756,21 @@ export default function SupplierNonAffiliatedCustomers() {
                                         }}
                                     >
                                         <td />
-                                        <td>Closing summary</td>
+                                        <td>{t('ledger.closingSummary')}</td>
                                         <td style={{ textAlign: 'right' }}>
-                                            {fmtMoney(ledgerData.totals.totalDebit)}
+                                            {t('money.sar', {
+                                                amount: fmtMoney(ledgerData.totals.totalDebit),
+                                            })}
                                         </td>
                                         <td style={{ textAlign: 'right' }}>
-                                            {fmtMoney(ledgerData.totals.totalCredit)}
+                                            {t('money.sar', {
+                                                amount: fmtMoney(ledgerData.totals.totalCredit),
+                                            })}
                                         </td>
                                         <td style={{ textAlign: 'right' }}>
-                                            {fmtMoney(ledgerData.totals.closingBalance)}
+                                            {t('money.sar', {
+                                                amount: fmtMoney(ledgerData.totals.closingBalance),
+                                            })}
                                         </td>
                                     </tr>
                                 ) : null}
@@ -771,21 +788,27 @@ export default function SupplierNonAffiliatedCustomers() {
                             }}
                         >
                             <div style={summaryCardStyle}>
-                                <div style={summaryLabelStyle}>Total Debit</div>
+                                <div style={summaryLabelStyle}>{t('ledger.totalDebit')}</div>
                                 <div style={{ ...summaryValueStyle, color: '#B91C1C' }}>
-                                    SAR {fmtMoney(ledgerData.totals.totalDebit)}
+                                    {t('money.sar', {
+                                        amount: fmtMoney(ledgerData.totals.totalDebit),
+                                    })}
                                 </div>
                             </div>
                             <div style={summaryCardStyle}>
-                                <div style={summaryLabelStyle}>Total Credit</div>
+                                <div style={summaryLabelStyle}>{t('ledger.totalCredit')}</div>
                                 <div style={{ ...summaryValueStyle, color: '#0F766E' }}>
-                                    SAR {fmtMoney(ledgerData.totals.totalCredit)}
+                                    {t('money.sar', {
+                                        amount: fmtMoney(ledgerData.totals.totalCredit),
+                                    })}
                                 </div>
                             </div>
                             <div style={summaryCardStyle}>
-                                <div style={summaryLabelStyle}>Closing Balance</div>
+                                <div style={summaryLabelStyle}>{t('ledger.closingBalance')}</div>
                                 <div style={summaryValueStyle}>
-                                    SAR {fmtMoney(ledgerData.totals.closingBalance)}
+                                    {t('money.sar', {
+                                        amount: fmtMoney(ledgerData.totals.closingBalance),
+                                    })}
                                 </div>
                             </div>
                         </div>
@@ -803,7 +826,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 marginBottom: 8,
                             }}
                         >
-                            Record manual payment / adjustment
+                            {t('ledger.manual')}
                         </summary>
                         <form onSubmit={submitLedger}>
                         <div
@@ -814,7 +837,7 @@ export default function SupplierNonAffiliatedCustomers() {
                             }}
                         >
                             <label style={lbl}>
-                                Date
+                                {t('ledger.date')}
                                 <input
                                     type="date"
                                     required
@@ -826,12 +849,12 @@ export default function SupplierNonAffiliatedCustomers() {
                                 />
                             </label>
                             <label style={lbl}>
-                                Amount (+ charge / − payment)
+                                {t('ledger.amount')}
                                 <input
                                     type="number"
                                     step="any"
                                     required
-                                    placeholder="e.g. 500 or -500"
+                                    placeholder={t('ledger.amountPh')}
                                     value={ledgerForm.amount}
                                     onChange={(e) =>
                                         setLedgerForm((f) => ({ ...f, amount: e.target.value }))
@@ -840,7 +863,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 />
                             </label>
                             <label style={lbl}>
-                                Type
+                                {t('ledger.type')}
                                 <select
                                     value={ledgerForm.entryType}
                                     onChange={(e) =>
@@ -848,14 +871,14 @@ export default function SupplierNonAffiliatedCustomers() {
                                     }
                                     style={inputStyle}
                                 >
-                                    <option value="charge">charge</option>
-                                    <option value="credit">credit</option>
-                                    <option value="payment">payment</option>
-                                    <option value="adjustment">adjustment</option>
+                                    <option value="charge">{t('ledger.type.charge')}</option>
+                                    <option value="credit">{t('ledger.type.credit')}</option>
+                                    <option value="payment">{t('ledger.type.payment')}</option>
+                                    <option value="adjustment">{t('ledger.type.adjustment')}</option>
                                 </select>
                             </label>
                             <label style={{ ...lbl, gridColumn: '1 / -1' }}>
-                                Title
+                                {t('ledger.lineTitle')}
                                 <input
                                     required
                                     value={ledgerForm.title}
@@ -866,7 +889,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 />
                             </label>
                             <label style={{ ...lbl, gridColumn: '1 / -1' }}>
-                                Description (optional)
+                                {t('ledger.desc')}
                                 <input
                                     value={ledgerForm.description}
                                     onChange={(e) =>
@@ -879,7 +902,7 @@ export default function SupplierNonAffiliatedCustomers() {
                                 />
                             </label>
                             <label style={lbl}>
-                                Reference (optional)
+                                {t('ledger.ref')}
                                 <input
                                     value={ledgerForm.reference}
                                     onChange={(e) =>
@@ -890,14 +913,15 @@ export default function SupplierNonAffiliatedCustomers() {
                             </label>
                             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                                 <button type="submit" className="btn-portal" disabled={savingLedger}>
-                                    {savingLedger ? 'Saving…' : 'Add ledger line'}
+                                    {savingLedger ? t('btn.saving') : t('btn.addLedger')}
                                 </button>
                             </div>
                         </div>
                     </form>
                     </details>
                 </Modal>
-            ) : null}        </div>
+            ) : null}
+        </div>
     );
 }
 

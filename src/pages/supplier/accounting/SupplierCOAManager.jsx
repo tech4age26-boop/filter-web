@@ -35,6 +35,8 @@ import {
     coaNetBalance,
     formatCoaBalance,
 } from './SupplierAccountingShared';
+import { saccT } from '../../../utils/supplierAccountingI18n';
+
 function buildRollupMap(nodes) {
     const map = new Map();
     function walk(node) {
@@ -59,12 +61,12 @@ function buildRollupMap(nodes) {
     return map;
 }
 
-const TYPE_LABELS = {
-    ASSET: 'Assets',
-    LIABILITY: 'Liabilities',
-    EQUITY: 'Equity',
-    INCOME: 'Revenue',
-    EXPENSE: 'Expenses',
+const TYPE_LABEL_KEYS = {
+    ASSET: 'type.ASSET',
+    LIABILITY: 'type.LIABILITY',
+    EQUITY: 'type.EQUITY',
+    INCOME: 'type.INCOME',
+    EXPENSE: 'type.EXPENSE',
 };
 
 function emptyForm() {
@@ -110,7 +112,7 @@ function formFromInitial(initial) {
     };
 }
 
-function AccountForm({ initial, accounts, onCancel, onSaved }) {
+function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
     const [form, setForm] = useState(() => formFromInitial(initial));
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
@@ -180,7 +182,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
             }
             onSaved();
         } catch (e) {
-            setErr(e?.message || 'Failed to save account');
+            setErr(e?.message || t('coa.err.save'));
         } finally {
             setSaving(false);
         }
@@ -199,55 +201,54 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                 border: '1px solid rgba(0,0,0,0.06)',
             }}
         >
-            <Field
-                label="Account code"
-                hint="Optional. Seeded chart uses 1000–6999 (e.g. 1100 is already AR). Leave blank to auto-generate a unique code."
-            >
+            <Field label={t('coa.form.code')} hint={t('coa.form.codeHint')}>
                 <input
                     style={inputStyle}
                     value={form.code}
                     onChange={(e) => setForm({ ...form, code: e.target.value })}
-                    placeholder="e.g. 6210 — or leave blank"
+                    placeholder={t('coa.form.codePh') || t('coa.form.codeHint')}
                 />
             </Field>
-            <Field label="Name" required>
+            <Field label={t('coa.form.name')} required>
                 <input
                     style={inputStyle}
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Account name"
+                    placeholder={t('coa.form.namePh')}
                     required
                 />
             </Field>
-            <Field label="Type" required>
+            <Field label={t('coa.form.type')} required>
                 <select
                     style={inputStyle}
                     value={form.type}
                     onChange={(e) => setForm({ ...form, type: e.target.value })}
                 >
-                    {ACCOUNT_TYPES.map((t) => (
-                        <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>
+                    {ACCOUNT_TYPES.map((typeKey) => (
+                        <option key={typeKey} value={typeKey}>
+                            {t(TYPE_LABEL_KEYS[typeKey] || typeKey)}
+                        </option>
                     ))}
                 </select>
             </Field>
-            <Field label="Sub-type" required>
+            <Field label={t('coa.form.subType')} required>
                 <select
                     style={inputStyle}
                     value={form.subType}
                     onChange={(e) => setForm({ ...form, subType: e.target.value })}
                 >
                     {subtypes.map((s) => (
-                        <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                        <option key={s} value={s}>{t(`subtype.${s}`) || s.replace(/_/g, ' ')}</option>
                     ))}
                 </select>
             </Field>
-            <Field label="Parent">
+            <Field label={t('coa.form.parent')}>
                 <select
                     style={inputStyle}
                     value={form.parentId || ''}
                     onChange={(e) => setForm({ ...form, parentId: e.target.value })}
                 >
-                    <option value="">— None —</option>
+                    <option value="">{t('coa.form.parentNone')}</option>
                     {parentOptions.map((p) => (
                         <option key={p.id} value={p.id}>
                             [{p.code}] {p.name}
@@ -255,18 +256,18 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                     ))}
                 </select>
             </Field>
-            <Field label="Cash flow category" hint="Tag cash/bank accounts so they show up in the Cash Flow statement.">
+            <Field label={t('coa.form.cashFlow')} hint={t('coa.form.cashFlowHint')}>
                 <select
                     style={inputStyle}
                     value={form.cashFlowCategory || ''}
                     onChange={(e) => setForm({ ...form, cashFlowCategory: e.target.value })}
                 >
                     {CASH_FLOW_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>{c || '— Auto —'}</option>
+                        <option key={c} value={c}>{c ? (t(`cfCat.${c}`) || c) : t('coa.form.cashFlowAuto')}</option>
                     ))}
                 </select>
             </Field>
-            <Field label="Opening balance">
+            <Field label={t('coa.form.openingBal')}>
                 <input
                     type="number"
                     step="0.01"
@@ -275,10 +276,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                     onChange={(e) => setForm({ ...form, openingBalance: e.target.value })}
                 />
             </Field>
-            <Field
-                label="Opening balance date"
-                hint="Date this opening balance applies from. Used as the journal date for the opening entry. Required when opening balance is not zero."
-            >
+            <Field label={t('coa.form.openingDate')} hint={t('coa.form.openingDateHint')}>
                 <input
                     type="date"
                     style={inputStyle}
@@ -288,10 +286,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                     }
                 />
             </Field>
-            <Field
-                label="Opening contra (equity)"
-                hint="Optional. Positive = normal side for this account type (e.g. debit for cash). If empty, the other leg posts to system account 3190 Opening balance suspense."
-            >
+            <Field label={t('coa.form.openingContra')} hint={t('coa.form.openingContraHint')}>
                 <select
                     style={inputStyle}
                     value={form.openingOffsetAccountId || ''}
@@ -299,7 +294,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                         setForm({ ...form, openingOffsetAccountId: e.target.value })
                     }
                 >
-                    <option value="">— Use opening suspense (3190) —</option>
+                    <option value="">{t('coa.form.openingSuspense')}</option>
                     {equityContraOptions.map((a) => (
                         <option key={a.id} value={a.id}>
                             [{a.code}] {a.name}
@@ -307,14 +302,14 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                     ))}
                 </select>
             </Field>
-            <Field label="Status">
+            <Field label={t('coa.form.status')}>
                 <select
                     style={inputStyle}
                     value={form.status}
                     onChange={(e) => setForm({ ...form, status: e.target.value })}
                 >
-                    <option value="active">active</option>
-                    <option value="inactive">inactive</option>
+                    <option value="active">{t('coa.form.status.active')}</option>
+                    <option value="inactive">{t('coa.form.status.inactive')}</option>
                 </select>
             </Field>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, gridColumn: '1 / -1' }}>
@@ -323,9 +318,9 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
                     checked={!!form.isCashEquivalent}
                     onChange={(e) => setForm({ ...form, isCashEquivalent: e.target.checked })}
                 />
-                Treat as a cash equivalent (cash/bank). Used by Cash Flow report scope.
+                {t('coa.form.cashEquiv')}
             </label>
-            <Field label="Description">
+            <Field label={t('coa.form.description')}>
                 <textarea
                     rows={2}
                     style={{ ...inputStyle, fontFamily: 'inherit' }}
@@ -335,16 +330,27 @@ function AccountForm({ initial, accounts, onCancel, onSaved }) {
             </Field>
             {err ? <div style={{ gridColumn: '1 / -1' }}><AcctError message={err} /></div> : null}
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button type="button" style={outlineBtnStyle} onClick={onCancel} disabled={saving}>Cancel</button>
+                <button type="button" style={outlineBtnStyle} onClick={onCancel} disabled={saving}>
+                    {t('btn.cancel')}
+                </button>
                 <button type="submit" style={primaryBtnStyle} disabled={saving}>
-                    {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create account'}
+                    {saving
+                        ? t('coa.btn.saving')
+                        : isEdit
+                          ? t('coa.btn.saveChanges')
+                          : t('coa.btn.createAccount')}
                 </button>
             </div>
         </form>
     );
 }
 
-export default function SupplierCOAManager() {
+export default function SupplierCOAManager({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [tree, setTree] = useState([]);
@@ -408,18 +414,18 @@ export default function SupplierCOAManager() {
         setLoading(true);
         setErr('');
         try {
-            const [flat, t] = await Promise.all([
+            const [flat, treeRes] = await Promise.all([
                 getSupplierAccounts(),
                 getSupplierAccountsTree(),
             ]);
             setAccounts(unwrapSupplierAccountingList(flat));
-            setTree(unwrapSupplierAccountingList(t));
+            setTree(unwrapSupplierAccountingList(treeRes));
         } catch (e) {
-            setErr(e?.message || 'Failed to load chart of accounts');
+            setErr(e?.message || t('coa.err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => { reload(); }, [reload]);
 
@@ -460,12 +466,12 @@ export default function SupplierCOAManager() {
     const rollupById = useMemo(() => buildRollupMap(tree), [tree]);
 
     async function handleDelete(id) {
-        if (!confirm('Delete this account? System-seeded and posted accounts cannot be deleted.')) return;
+        if (!confirm(t('coa.confirm.delete'))) return;
         try {
             await deleteSupplierAccount(id);
             await reload();
         } catch (e) {
-            alert(e?.message || 'Delete failed');
+            alert(e?.message || t('coa.err.delete'));
         }
     }
 
@@ -512,15 +518,15 @@ export default function SupplierCOAManager() {
                         {pb.label}
                         {pb.lineCount != null ? (
                             <span style={{ marginLeft: 8, fontSize: 11, color: '#94A3B8' }}>
-                                ({pb.lineCount} lines)
+                                {t('coa.party.lines', { count: pb.lineCount })}
                             </span>
                         ) : null}
                     </td>
-                    <td style={{ color: '#64748B' }}>{pb.partyType || '—'}</td>
-                    <td style={{ color: '#94A3B8' }}>—</td>
-                    <td style={{ textAlign: 'right' }}>{Number(pbd) > 0 ? money(pbd) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{Number(pbc) > 0 ? money(pbc) : '—'}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatCoaBalance(a.type, pbd, pbc)}</td>
+                    <td style={{ color: '#64748B' }}>{pb.partyType || t('emdash')}</td>
+                    <td style={{ color: '#94A3B8' }}>{t('emdash')}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(pbd) > 0 ? money(pbd, 'SAR', { locale }) : t('emdash')}</td>
+                    <td style={{ textAlign: 'right' }}>{Number(pbc) > 0 ? money(pbc, 'SAR', { locale }) : t('emdash')}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatCoaBalance(a.type, pbd, pbc, 'SAR', locale)}</td>
                     <td style={{ textAlign: 'right' }}>
                         {canOpenLedger ? (
                             <button
@@ -533,7 +539,7 @@ export default function SupplierCOAManager() {
                                         externalPartyId: pb.externalPartyId || '',
                                     })}
                             >
-                                Ledger
+                                {t('coa.btn.ledger')}
                             </button>
                         ) : null}
                     </td>
@@ -554,47 +560,47 @@ export default function SupplierCOAManager() {
                     ) : (
                         <span
                             style={{ fontWeight: 700, color: '#0F172A', cursor: 'default' }}
-                            title="Roll-up of sub-accounts. Open a sub-account for ledger and date filters."
+                            title={t('coa.rollupTitle')}
                         >
                             [{a.code}] {a.name}
-                            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: '#64748B' }}>(total)</span>
+                            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: '#64748B' }}>{t('coa.badge.total')}</span>
                         </span>
                     )}
                     {a.isAutoSeed ? (
                         <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
-                            System
+                            {t('coa.badge.system')}
                         </span>
                     ) : null}
                     {isVatPayable ? (
                         <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 4 }}>
-                            Debit = VAT Input · Credit = VAT Output · Balance = Net payable to ZATCA
+                            {t('coa.vat.hint')}
                         </div>
                     ) : null}
                     {isRetainedEarnings ? (
                         <div style={{ fontSize: 11, color: '#64748B', fontWeight: 500, marginTop: 4 }}>
-                            Auto-updated from Income − Expenses (live, no manual closing entry)
+                            {t('coa.re.hint')}
                         </div>
                     ) : null}
                 </td>
-                <td>{a.type}</td>
-                <td>{String(a.subType || '').replace(/_/g, ' ') || '—'}</td>
-                <td style={{ textAlign: 'right' }}>{Number(rd) > 0 ? money(rd) : '—'}</td>
-                <td style={{ textAlign: 'right' }}>{Number(rc) > 0 ? money(rc) : '—'}</td>
+                <td>{t(TYPE_LABEL_KEYS[a.type] || a.type)}</td>
+                <td>{(a.subType ? (t(`subtype.${a.subType}`) || String(a.subType).replace(/_/g, ' ')) : t('emdash'))}</td>
+                <td style={{ textAlign: 'right' }}>{Number(rd) > 0 ? money(rd, 'SAR', { locale }) : t('emdash')}</td>
+                <td style={{ textAlign: 'right' }}>{Number(rc) > 0 ? money(rc, 'SAR', { locale }) : t('emdash')}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>
                     {isVatPayable
-                        ? (Math.abs(vatBalance) < 0.005 ? '—' : money(vatBalance))
-                        : formatCoaBalance(a.type, rd, rc)}
+                        ? (Math.abs(vatBalance) < 0.005 ? t('emdash') : money(vatBalance, 'SAR', { locale }))
+                        : formatCoaBalance(a.type, rd, rc, 'SAR', locale)}
                 </td>
                 <td style={{ textAlign: 'right' }}>
                     <RowActionsMenu
                         ariaLabel={`Actions for [${a.code}] ${a.name}`}
                         items={[
                             {
-                                label: 'Edit',
+                                label: t('coa.btn.edit'),
                                 onClick: () => setEditing(a),
                             },
                             {
-                                label: 'Delete',
+                                label: t('coa.btn.delete'),
                                 onClick: () => handleDelete(a.id),
                                 hidden: Boolean(a.isAutoSeed),
                                 danger: true,
@@ -620,26 +626,30 @@ export default function SupplierCOAManager() {
     return (
         <div style={{ padding: 4 }}>
             <AcctCard
-                title="Chart of Accounts"
+                title={t('coa.title')}
                 action={(
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <select style={{ ...inputStyle, width: 'auto' }} value={view} onChange={(e) => setView(e.target.value)}>
-                            <option value="tree">Tree view</option>
-                            <option value="flat">Flat list</option>
+                            <option value="tree">{t('coa.view.tree')}</option>
+                            <option value="flat">{t('coa.view.flat')}</option>
                         </select>
                         <select style={{ ...inputStyle, width: 'auto' }} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-                            <option value="">All types</option>
-                            {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>)}
+                            <option value="">{t('coa.filter.allTypes')}</option>
+                            {ACCOUNT_TYPES.map((typeKey) => (
+                                <option key={typeKey} value={typeKey}>
+                                    {t(TYPE_LABEL_KEYS[typeKey] || typeKey)}
+                                </option>
+                            ))}
                         </select>
                         <input
                             type="search"
-                            placeholder="Search by code/name"
+                            placeholder={t('coa.search.placeholder')}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             style={{ ...inputStyle, width: 200 }}
                         />
                         <button type="button" style={primaryBtnStyle} onClick={() => { setCreating(true); setEditing(null); }}>
-                            <Plus size={14} /> New Account
+                            <Plus size={14} /> {t('coa.btn.newAccount')}
                         </button>
                     </div>
                 )}
@@ -649,6 +659,8 @@ export default function SupplierCOAManager() {
                         <AccountForm
                             initial={editing}
                             accounts={accounts}
+                            locale={locale}
+                            t={t}
                             onCancel={() => { setCreating(false); setEditing(null); }}
                             onSaved={() => { setCreating(false); setEditing(null); reload(); }}
                         />
@@ -656,18 +668,18 @@ export default function SupplierCOAManager() {
                 ) : null}
 
                 <AcctError message={err} />
-                {loading ? <AcctLoading label="Loading accounts…" /> : (
+                {loading ? <AcctLoading label={t('coa.loading')} locale={locale} /> : (
                     <div style={{ overflowX: 'auto' }}>
                         <table className="ws-table" style={{ width: '100%' }}>
                             <thead>
                                 <tr>
-                                    <th>Account</th>
-                                    <th>Type</th>
-                                    <th>Sub-type</th>
-                                    <th style={{ textAlign: 'right' }}>Debit Bal</th>
-                                    <th style={{ textAlign: 'right' }}>Credit Bal</th>
-                                    <th style={{ textAlign: 'right' }}>Balance</th>
-                                    <th style={{ textAlign: 'right' }}>Actions</th>
+                                    <th>{t('coa.th.account')}</th>
+                                    <th>{t('coa.th.type')}</th>
+                                    <th>{t('coa.th.subType')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('coa.th.debitBal')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('coa.th.creditBal')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('coa.th.balance')}</th>
+                                    <th style={{ textAlign: 'right' }}>{t('coa.th.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -679,8 +691,8 @@ export default function SupplierCOAManager() {
                                     <tr>
                                         <td colSpan={7} style={{ textAlign: 'center', padding: 32, color: '#64748B' }}>
                                             {accounts.length === 0
-                                                ? 'No accounts in chart yet — use New Account, or open Sales/Purchases once to run system seed.'
-                                                : 'No accounts match your filters.'}
+                                                ? t('coa.empty.none')
+                                                : t('coa.empty.filtered')}
                                         </td>
                                     </tr>
                                 )}

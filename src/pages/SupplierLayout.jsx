@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -35,6 +35,11 @@ import { isPlatformChatNavId } from '../utils/platformChatForUser';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import { getSupplierProfile, getSupplierReceivables } from '../services/supplierApi';
+import {
+    spT,
+    SP_NAV_LABEL_KEYS,
+    SP_GROUP_LABEL_KEYS,
+} from '../utils/supplierPortalI18n';
 import './workshop/Workshop.css';
 import '../styles/admin/PlatformChat.css';
 import '../styles/ThemeOnly.css';
@@ -45,11 +50,18 @@ export default function SupplierLayout() {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout } = useAuth();
-    
-    // Determine active tab from URL: /supplier/TAB_NAME
+
+    const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
+    useEffect(() => {
+        document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
+        document.documentElement.lang = locale === 'ar' ? 'ar' : 'en';
+        localStorage.setItem('portal-locale', locale);
+    }, [locale]);
+
+    const t = useCallback((key, vars) => spT(locale, key, vars), [locale]);
+
     const getActiveTabFromUrl = () => {
         const parts = location.pathname.split('/').filter(Boolean);
-        // If path is /supplier/accounting/cash-bank, parts are ['supplier', 'accounting', 'cash-bank']
         if (parts[1] === 'accounting' && parts[2]) {
             return `accounting_${parts[2]}`;
         }
@@ -58,11 +70,11 @@ export default function SupplierLayout() {
 
     const activeTab = getActiveTabFromUrl();
     const [expandedGroups, setExpandedGroups] = useState(['accounting']);
-    
+
     const [arSummary, setArSummary] = useState(null);
     const [arSummaryError, setArSummaryError] = useState('');
-    const [profileName, setProfileName] = useState(user?.name || 'Supplier Admin');
-    const [profileRole, setProfileRole] = useState('Supplier Portal Manager');
+    const [profileName, setProfileName] = useState(user?.name || '');
+    const [profileRole, setProfileRole] = useState('');
     const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
     const storageBrandPortal = useMemo(() => {
@@ -80,6 +92,15 @@ export default function SupplierLayout() {
         return null;
     }, [user?.supplier?.portalScope, user?.supplier?.storageBrandId]);
 
+    const navLabel = useCallback(
+        (id, fallback) => {
+            const key = SP_NAV_LABEL_KEYS[id];
+            if (id === 'storage_facility' && storageBrandPortal) return t('nav.myStorage');
+            return key ? t(key) : fallback;
+        },
+        [t, storageBrandPortal],
+    );
+
     const setActiveTab = (tab) => {
         if (storageBrandPortal && tab !== 'storage_facility') return;
         if (tab.startsWith('accounting_')) {
@@ -95,8 +116,8 @@ export default function SupplierLayout() {
     };
 
     const toggleGroup = (id) => {
-        setExpandedGroups(prev => 
-            prev.includes(id) ? prev.filter(g => g !== id) : [...prev, id]
+        setExpandedGroups((prev) =>
+            prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
         );
     };
 
@@ -114,15 +135,24 @@ export default function SupplierLayout() {
         userType === 'platform_admin';
 
     useEffect(() => {
+        if (!profileName && user?.name) setProfileName(user.name);
+        if (!profileRole) setProfileRole(t('layout.defaultRole'));
+    }, [user?.name, profileName, profileRole, t]);
+
+    useEffect(() => {
         if (storageBrandPortal) return undefined;
         let cancelled = false;
         const bootstrapSupplierData = async () => {
             try {
-                const [profileRes, receivablesRes] = await Promise.all([
-                    getSupplierProfile(),
-                    getSupplierReceivables(),
-                ].map(p => p.catch(e => { console.error(e); return null; })));
-                
+                const [profileRes, receivablesRes] = await Promise.all(
+                    [getSupplierProfile(), getSupplierReceivables()].map((p) =>
+                        p.catch((e) => {
+                            console.error(e);
+                            return null;
+                        }),
+                    ),
+                );
+
                 if (cancelled) return;
 
                 if (receivablesRes && Array.isArray(receivablesRes.list)) {
@@ -140,18 +170,20 @@ export default function SupplierLayout() {
                     profileRes?.supplier?.name ||
                     user?.name;
                 if (supplierName) setProfileName(supplierName);
-                
+
                 if (profileRes?.supplier?.role) setProfileRole(profileRes.supplier.role);
             } catch (error) {
                 if (!cancelled) {
                     console.error('Supplier layout API bootstrap failed:', error);
-                    setArSummaryError('Error loading AR');
+                    setArSummaryError(t('layout.loadingAr'));
                 }
             }
         };
         bootstrapSupplierData();
-        return () => { cancelled = true; };
-    }, [user?.name, storageBrandPortal]);
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.name, storageBrandPortal, t]);
 
     useEffect(() => {
         if (!storageBrandPortal) return;
@@ -177,77 +209,140 @@ export default function SupplierLayout() {
 
     const renderContent = () => {
         if (/^\/supplier\/accounting\/ledger\/[^/]+/.test(location.pathname)) {
-            return <SupplierAccountLedgerPage />;
+            return <SupplierAccountLedgerPage locale={locale} />;
         }
 
         if (activeTab.startsWith('accounting_')) {
-            return <SupplierAccountingPage activeSubTab={activeTab} />;
+            return <SupplierAccountingPage activeSubTab={activeTab} locale={locale} />;
         }
 
         switch (activeTab) {
-            case 'platform-chat': return null;
-            case 'dashboard': return <SupplierDashboard onTabChange={setActiveTab}/>;
-            case 'order_queue': return <SupplierOrderQueue/>;
-            case 'stock': return <SupplierStockInventory/>;
-            case 'stock_alerts': return <SupplierWorkshopAlerts/>;
-            case 'catalog': return <SupplierCatalog/>;
-            case 'employees': return <SupplierEmployeesPage/>;
-            case 'staff_app': return <SupplierStaffAppPage/>;
-            case 'sales_invoices': return <SupplierSalesInvoices/>;
-            case 'sales_returns': return <SupplierAffiliatedSalesReturns/>;
-            case 'affiliated_workshops': return <SupplierAffiliatedWorkshops/>;
-            case 'nonaffiliated_customers': return <SupplierNonAffiliatedCustomers/>;
-            case 'workshop_purchase_invoices': return <SupplierWorkshopPurchaseInvoices/>;
-            case 'purchase_invoices': return <SupplierPurchaseInvoices/>;
-            case 'storage_facility': return <SupplierStorageFacility />;
-            case 'cash_bank': return <SupplierCashBank/>;
-            case 'expenses': return <SupplierExpenses/>;
-            case 'accounting': return <SupplierAccountingPage activeSubTab="accounting_coa" />;
-            default: return <SupplierDashboard onTabChange={setActiveTab}/>;
+            case 'platform-chat':
+                return null;
+            case 'dashboard':
+                return <SupplierDashboard onTabChange={setActiveTab} locale={locale} />;
+            case 'order_queue':
+                return <SupplierOrderQueue locale={locale} />;
+            case 'stock':
+                return <SupplierStockInventory locale={locale} />;
+            case 'stock_alerts':
+                return <SupplierWorkshopAlerts locale={locale} />;
+            case 'catalog':
+                return <SupplierCatalog locale={locale} />;
+            case 'employees':
+                return <SupplierEmployeesPage locale={locale} />;
+            case 'staff_app':
+                return <SupplierStaffAppPage locale={locale} />;
+            case 'sales_invoices':
+                return <SupplierSalesInvoices locale={locale} />;
+            case 'sales_returns':
+                return <SupplierAffiliatedSalesReturns locale={locale} />;
+            case 'affiliated_workshops':
+                return <SupplierAffiliatedWorkshops locale={locale} />;
+            case 'nonaffiliated_customers':
+                return <SupplierNonAffiliatedCustomers locale={locale} />;
+            case 'workshop_purchase_invoices':
+                return <SupplierWorkshopPurchaseInvoices locale={locale} />;
+            case 'purchase_invoices':
+                return <SupplierPurchaseInvoices locale={locale} />;
+            case 'storage_facility':
+                return <SupplierStorageFacility locale={locale} />;
+            case 'cash_bank':
+                return <SupplierCashBank locale={locale} />;
+            case 'expenses':
+                return <SupplierExpenses locale={locale} />;
+            case 'accounting':
+                return <SupplierAccountingPage activeSubTab="accounting_coa" locale={locale} />;
+            default:
+                return <SupplierDashboard onTabChange={setActiveTab} locale={locale} />;
         }
     };
 
-    const currentLabel = navGroupsForUser.flatMap(g => [g, ...(g.items || [])])
-        .flatMap(i => [i, ...(i.subItems || [])])
-        .find(i => i.id === activeTab)?.label || 'Dashboard';
+    const currentLabel =
+        navLabel(
+            activeTab,
+            navGroupsForUser
+                .flatMap((g) => [g, ...(g.items || [])])
+                .flatMap((i) => [i, ...(i.subItems || [])])
+                .find((i) => i.id === activeTab)?.label || t('nav.dashboard'),
+        );
 
     if (activeTab === 'platform-chat') {
         return (
-            <div className="portal-layout--chat-fullscreen">
-                <SupplierPlatformChatPage />
+            <div className="portal-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
+                <SupplierPlatformChatPage locale={locale} />
             </div>
         );
     }
 
     return (
-        <div className="workshop-layout supplier-portal">
+        <div
+            className="workshop-layout supplier-portal"
+            dir={locale === 'ar' ? 'rtl' : 'ltr'}
+        >
             <aside className="ws-sidebar">
                 <div className="ws-logo">
-                    <div className="ws-logo-icon"><Warehouse size={20}/></div>
-                    <div><p className="ws-logo-title">Filter Supplier</p><p className="ws-logo-sub">Portal</p></div>
+                    <div className="ws-logo-icon">
+                        <Warehouse size={20} />
+                    </div>
+                    <div>
+                        <p className="ws-logo-title">{t('layout.logoTitle')}</p>
+                        <p className="ws-logo-sub">{t('layout.logoSub')}</p>
+                    </div>
                 </div>
                 {!storageBrandPortal ? (
                     <div className="sp-sidebar-ar-summary">
                         <span className="sp-sidebar-ar-summary__text">
                             {arSummaryError ? (
-                                <>AR: Error</>
+                                <>{t('layout.arError')}</>
                             ) : arSummary === null ? (
                                 <>
-                                    <span>AR:</span>
-                                    <ShimmerLine height={14} width={72} rounded className="sp-shimmer-inline-block" />
+                                    <span>{t('layout.ar')}:</span>
+                                    <ShimmerLine
+                                        height={14}
+                                        width={72}
+                                        rounded
+                                        className="sp-shimmer-inline-block"
+                                    />
                                 </>
                             ) : (
-                                <>AR: SAR {Number(arSummary).toLocaleString()}</>
+                                <>
+                                    {t('layout.arValue', {
+                                        amount: Number(arSummary).toLocaleString(),
+                                    })}
+                                </>
                             )}
                         </span>
                     </div>
                 ) : null}
                 {canGoBackToAdmin ? (
-                    <a className="ws-back-link" onClick={() => navigate('/admin/dashboard')} style={{cursor:'pointer'}}><ArrowLeft size={14}/> Back to Super Admin</a>
+                    <a
+                        className="ws-back-link"
+                        onClick={() => navigate('/admin/dashboard')}
+                        style={{ cursor: 'pointer' }}
+                    >
+                        <ArrowLeft size={14} /> {t('layout.backAdmin')}
+                    </a>
                 ) : null}
                 <nav className="ws-nav">
                     {navGroupsForUser.map((grp) => (
                         <div key={grp.label || 'nav'}>
+                            {grp.label ? (
+                                <div
+                                    className="ws-nav-section-label"
+                                    style={{
+                                        fontSize: '0.65rem',
+                                        fontWeight: 700,
+                                        letterSpacing: '0.06em',
+                                        opacity: 0.45,
+                                        padding: '10px 12px 4px',
+                                    }}
+                                >
+                                    {SP_GROUP_LABEL_KEYS[grp.label]
+                                        ? t(SP_GROUP_LABEL_KEYS[grp.label])
+                                        : grp.label}
+                                </div>
+                            ) : null}
                             {grp.items.map((item) => {
                                 const hasSub = item.subItems && item.subItems.length > 0;
                                 const isExpanded = expandedGroups.includes(item.id);
@@ -257,17 +352,27 @@ export default function SupplierLayout() {
 
                                 return (
                                     <div key={item.id} className="ws-nav-group">
-                                        <button 
-                                            className={`ws-nav-btn ${isActive ? 'active' : ''}`} 
-                                            onClick={() => hasSub ? toggleGroup(item.id) : setActiveTab(item.id)}
+                                        <button
+                                            className={`ws-nav-btn ${isActive ? 'active' : ''}`}
+                                            onClick={() =>
+                                                hasSub ? toggleGroup(item.id) : setActiveTab(item.id)
+                                            }
                                         >
                                             <item.icon size={17} stroke="currentColor" />
-                                            <span>{item.label}</span>
-                                            {isPlatformChatNavId(item.id) && <PlatformChatNavBadge />}
-                                            {item.badge > 0 && <span className="ws-nav-badge">{item.badge}</span>}
+                                            <span>{navLabel(item.id, item.label)}</span>
+                                            {isPlatformChatNavId(item.id) && (
+                                                <PlatformChatNavBadge />
+                                            )}
+                                            {item.badge > 0 && (
+                                                <span className="ws-nav-badge">{item.badge}</span>
+                                            )}
                                             {hasSub && (
                                                 <div style={{ marginLeft: 'auto', opacity: 0.5 }}>
-                                                    {isExpanded ? <ChevronDown size={14} stroke="currentColor" /> : <ChevronRight size={14} stroke="currentColor" />}
+                                                    {isExpanded ? (
+                                                        <ChevronDown size={14} stroke="currentColor" />
+                                                    ) : (
+                                                        <ChevronRight size={14} stroke="currentColor" />
+                                                    )}
                                                 </div>
                                             )}
                                         </button>
@@ -278,13 +383,13 @@ export default function SupplierLayout() {
                                                     initial={{ height: 0, opacity: 0 }}
                                                     animate={{ height: 'auto', opacity: 1 }}
                                                     exit={{ height: 0, opacity: 0 }}
-                                                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                                                    transition={{ duration: 0.2, ease: 'easeInOut' }}
                                                     className="ws-nav-submenu"
                                                     style={{ overflow: 'hidden' }}
                                                 >
-                                                    {item.subItems.map(sub => (
-                                                        <button 
-                                                            key={sub.id} 
+                                                    {item.subItems.map((sub) => (
+                                                        <button
+                                                            key={sub.id}
                                                             className={`ws-nav-sub-btn ${activeTab === sub.id ? 'active' : ''}`}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
@@ -292,7 +397,7 @@ export default function SupplierLayout() {
                                                             }}
                                                         >
                                                             <sub.icon size={14} stroke="currentColor" />
-                                                            <span>{sub.label}</span>
+                                                            <span>{navLabel(sub.id, sub.label)}</span>
                                                         </button>
                                                     ))}
                                                 </motion.div>
@@ -305,23 +410,65 @@ export default function SupplierLayout() {
                     ))}
                 </nav>
                 <div className="ws-user-footer">
-                    <div className="ws-user-info"><div className="ws-user-avatar">SP</div><div><p className="ws-user-name">{profileName}</p><p className="ws-user-role">{profileRole}</p></div></div>
+                    <div className="ws-user-info">
+                        <div className="ws-user-avatar">SP</div>
+                        <div>
+                            <p className="ws-user-name">
+                                {profileName || t('layout.defaultName')}
+                            </p>
+                            <p className="ws-user-role">
+                                {profileRole || t('layout.defaultRole')}
+                            </p>
+                        </div>
+                    </div>
                     <button
                         type="button"
                         className="ws-logout-btn"
                         onClick={() => setLogoutConfirmOpen(true)}
-                        aria-label="Log out"
+                        aria-label={t('layout.logout')}
                     >
-                        <LogOut size={16}/>
+                        <LogOut size={16} />
                     </button>
                 </div>
             </aside>
             <div className="ws-main">
-                <header className="ws-topbar"><div><p className="ws-topbar-title">{currentLabel}</p><p className="ws-topbar-sub">Complete operations, stock, invoicing & accounting</p></div>
-                    <div className="ws-topbar-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                       
-                        <button type="button" className="btn-portal-outline" style={{ fontSize: '0.8125rem', padding: '8px 14px' }} onClick={() => setActiveTab('order_queue')}><ShoppingCart size={14}/> Order Queue</button>
-                        <div className="ws-online-badge"><div className="ws-online-dot"/>Online</div>
+                <header className="ws-topbar">
+                    <div>
+                        <p className="ws-topbar-title">{currentLabel}</p>
+                        <p className="ws-topbar-sub">{t('layout.subtitle')}</p>
+                    </div>
+                    <div
+                        className="ws-topbar-right"
+                        style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                    >
+                        <div className="ws-lang-switcher" role="group" aria-label={t('layout.lang')}>
+                            <button
+                                type="button"
+                                className={`ws-lang-btn ${locale === 'en' ? 'active' : ''}`}
+                                onClick={() => setLocale('en')}
+                            >
+                                EN
+                            </button>
+                            <button
+                                type="button"
+                                className={`ws-lang-btn ws-lang-btn-ar ${locale === 'ar' ? 'active' : ''}`}
+                                onClick={() => setLocale('ar')}
+                            >
+                                العربية
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            style={{ fontSize: '0.8125rem', padding: '8px 14px' }}
+                            onClick={() => setActiveTab('order_queue')}
+                        >
+                            <ShoppingCart size={14} /> {t('layout.orderQueueBtn')}
+                        </button>
+                        <div className="ws-online-badge">
+                            <div className="ws-online-dot" />
+                            {t('layout.online')}
+                        </div>
                     </div>
                 </header>
                 <main className="ws-content">{renderContent()}</main>
@@ -329,26 +476,40 @@ export default function SupplierLayout() {
 
             {logoutConfirmOpen && (
                 <Modal
-                    title="Sign out?"
+                    title={t('layout.logoutTitle')}
                     width="420px"
                     onClose={() => setLogoutConfirmOpen(false)}
                     footer={
-                        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        <div
+                            style={{
+                                display: 'flex',
+                                gap: 10,
+                                justifyContent: 'flex-end',
+                                flexWrap: 'wrap',
+                            }}
+                        >
                             <button
                                 type="button"
                                 className="btn-portal-outline"
                                 onClick={() => setLogoutConfirmOpen(false)}
                             >
-                                Cancel
+                                {t('layout.cancel')}
                             </button>
                             <button type="button" className="btn-portal" onClick={performLogout}>
-                                Log out
+                                {t('layout.logout')}
                             </button>
                         </div>
                     }
                 >
-                    <p style={{ margin: 0, fontSize: '0.9375rem', color: '#374151', lineHeight: 1.5 }}>
-                        You will need to sign in again to access the supplier portal.
+                    <p
+                        style={{
+                            margin: 0,
+                            fontSize: '0.9375rem',
+                            color: '#374151',
+                            lineHeight: 1.5,
+                        }}
+                    >
+                        {t('layout.logoutBody')}
                     </p>
                 </Modal>
             )}

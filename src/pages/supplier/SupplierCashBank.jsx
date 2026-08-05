@@ -10,6 +10,7 @@ import {
     listSupplierPayments,
 } from '../../services/supplierApi';
 import { Shimmer, ShimmerListRows, ShimmerTable } from '../../components/supplier/Shimmer';
+import { scbT } from '../../utils/supplierCashBankI18n';
 
 /** Backend may nest lists under different keys or return an array directly. */
 function extractArray(res, keys) {
@@ -28,7 +29,7 @@ function mapAccountsFromApi(rows) {
         const id = a.id ?? a.accountId;
         return {
             id,
-            name: a.name ?? a.accountName ?? 'Account',
+            name: a.name ?? a.accountName ?? '',
             type,
             bankName: a.bankName ?? '',
             iban: a.iban ?? '',
@@ -44,7 +45,7 @@ function mapLedgerFromApi(ledgerRows) {
         id: r.id ?? `${r.accountId}-${r.entryDate}-${r.amount}`,
         date: (r.entryDate ?? r.transactionDate ?? r.createdAt)?.slice?.(0, 10) ?? '-',
         account: r.accountName ?? r.account?.name ?? '-',
-        type: r.direction === 'debit' ? 'Receipt' : 'Payment',
+        type: r.direction === 'debit' ? 'receipt' : 'payment',
         description: r.description ?? r.sourceType ?? '-',
         reference: String(r.reference ?? r.sourceId ?? r.referenceNumber ?? ''),
         debit: r.direction === 'credit' ? Number(r.amount ?? 0).toFixed(2) : '',
@@ -57,15 +58,21 @@ function mapPaymentsFallback(payments) {
         id: p.id,
         date: (p.paymentDate ?? p.paidAt ?? '').toString().slice(0, 10),
         account: p.method ?? '-',
-        type: 'Receipt',
-        description: p.notes ?? `Payment for ${p.invoiceNo ?? p.invoiceId ?? ''}`,
+        type: 'receipt',
+        description: p.notes ?? '',
+        _paymentRef: p.invoiceNo ?? p.invoiceId ?? '',
         reference: String(p.reference ?? p.invoiceId ?? ''),
         debit: '',
         credit: Number(p.amount ?? 0).toFixed(2),
     }));
 }
 
-export default function SupplierCashBank() {
+export default function SupplierCashBank({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => scbT(locale, key, vars), [locale]);
     const [accounts, setAccounts] = useState([]);
     const [activeTab, setActiveTab] = useState('accounts');
     const [addModalOpen, setAddModalOpen] = useState(false);
@@ -123,19 +130,19 @@ export default function SupplierCashBank() {
         if (accResult.status === 'fulfilled') {
             accountsPayload = accResult.value;
         } else {
-            warnings.push(`Accounts: ${accResult.reason?.message || 'request failed'}`);
+            warnings.push(t('warn.accounts', { msg: accResult.reason?.message || t('warn.requestFailed') }));
         }
 
         if (ledResult.status === 'fulfilled') {
             ledgerPayload = ledResult.value;
         } else {
-            warnings.push(`Ledger: ${ledResult.reason?.message || 'request failed'}`);
+            warnings.push(t('warn.ledger', { msg: ledResult.reason?.message || t('warn.requestFailed') }));
         }
 
         if (payResult.status === 'fulfilled') {
             paymentsPayload = payResult.value;
         } else {
-            warnings.push(`Payments: ${payResult.reason?.message || 'request failed'}`);
+            warnings.push(t('warn.payments', { msg: payResult.reason?.message || t('warn.requestFailed') }));
         }
 
         const rawAccounts = extractArray(accountsPayload, ['accounts', 'list', 'items', 'data']);
@@ -153,13 +160,13 @@ export default function SupplierCashBank() {
 
         setPartialLoadWarnings(warnings);
         if (rawAccounts.length === 0 && accResult.status === 'rejected') {
-            setBootstrapError(accResult.reason?.message || 'Failed to load accounts');
+            setBootstrapError(accResult.reason?.message || t('err.loadAccounts'));
         } else {
             setBootstrapError('');
         }
 
         return { warnings, accountCount: rawAccounts.length };
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         let cancelled = false;
@@ -170,7 +177,7 @@ export default function SupplierCashBank() {
                 await reloadCashBankData();
             } catch (err) {
                 if (!cancelled) {
-                    setBootstrapError(err?.message || 'Failed to load cash & bank data');
+                    setBootstrapError(err?.message || t('err.loadData'));
                     setAccounts([]);
                     setLedger([]);
                 }
@@ -213,19 +220,19 @@ export default function SupplierCashBank() {
             await reloadCashBankData();
         } catch (err) {
             console.error('Create supplier cash/bank account failed:', err);
-            setAccountSaveError(err?.message || 'Could not create account');
+            setAccountSaveError(err?.message || t('err.createAccount'));
         }
     };
 
     const handleRecordReceipt = async () => {
         setReceiveSubmitError('');
         if (!receiveForm.accountId || !receiveForm.amount || !receiveForm.date) {
-            setReceiveSubmitError('Account, amount, and date are required.');
+            setReceiveSubmitError(t('err.requiredFields'));
             return;
         }
         const amount = Number(receiveForm.amount);
         if (!(amount > 0)) {
-            setReceiveSubmitError('Enter a valid amount greater than zero.');
+            setReceiveSubmitError(t('err.validAmount'));
             return;
         }
 
@@ -235,7 +242,7 @@ export default function SupplierCashBank() {
                 accountId: String(receiveForm.accountId),
                 direction: 'debit',
                 amount,
-                description: receiveForm.description?.trim() || 'Payment received from workshop',
+                description: receiveForm.description?.trim() || t('desc.defaultReceipt'),
                 sourceType: 'manual_receipt',
                 entryDate: receiveForm.date,
                 reference: receiveForm.reference?.trim() || undefined,
@@ -252,7 +259,7 @@ export default function SupplierCashBank() {
             setActiveTab('ledger');
         } catch (err) {
             console.error('Record receipt failed:', err);
-            setReceiveSubmitError(err?.message || 'Could not record receipt');
+            setReceiveSubmitError(err?.message || t('err.recordReceipt'));
         } finally {
             setReceiveSubmitting(false);
         }
@@ -261,12 +268,12 @@ export default function SupplierCashBank() {
     const handleRecordPayment = async () => {
         setPaySubmitError('');
         if (!payForm.accountId || !payForm.amount || !payForm.date) {
-            setPaySubmitError('Account, amount, and date are required.');
+            setPaySubmitError(t('err.requiredFields'));
             return;
         }
         const amount = Number(payForm.amount);
         if (!(amount > 0)) {
-            setPaySubmitError('Enter a valid amount greater than zero.');
+            setPaySubmitError(t('err.validAmount'));
             return;
         }
 
@@ -276,7 +283,7 @@ export default function SupplierCashBank() {
                 accountId: String(payForm.accountId),
                 direction: 'credit',
                 amount,
-                description: payForm.description?.trim() || 'Payment to vendor / expense',
+                description: payForm.description?.trim() || t('desc.defaultPayment'),
                 sourceType: 'manual_payment',
                 entryDate: payForm.date,
                 reference: payForm.reference?.trim() || undefined,
@@ -293,7 +300,7 @@ export default function SupplierCashBank() {
             setActiveTab('ledger');
         } catch (err) {
             console.error('Record payment failed:', err);
-            setPaySubmitError(err?.message || 'Could not record payment');
+            setPaySubmitError(err?.message || t('err.recordPayment'));
         } finally {
             setPaySubmitting(false);
         }
@@ -306,8 +313,8 @@ export default function SupplierCashBank() {
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Cash & Bank</h2>
-                    <p className="ws-page-sub">Manage cash and bank accounts</p>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
+                    <p className="ws-page-sub">{t('page.sub')}</p>
                 </div>
             </div>
 
@@ -324,7 +331,7 @@ export default function SupplierCashBank() {
                         fontSize: '0.875rem',
                     }}
                 >
-                    <strong>Could not load accounts:</strong> {bootstrapError}
+                    <strong>{t('err.couldNotLoad')}</strong> {bootstrapError}
                 </div>
             ) : null}
 
@@ -341,38 +348,38 @@ export default function SupplierCashBank() {
                         fontSize: '0.8125rem',
                     }}
                 >
-                    <strong>Partial load:</strong> {partialLoadWarnings.join(' · ')}
+                    <strong>{t('warn.partial')}</strong> {partialLoadWarnings.join(' · ')}
                 </div>
             ) : null}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, marginBottom: 16 }}>
                 <div style={{ background: '#ECFDF3', border: '1px solid #BBF7D0', borderRadius: 14, padding: 14 }}>
-                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#16A34A', margin: 0 }}>Total Cash</p>
+                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#16A34A', margin: 0 }}>{t('kpi.totalCash')}</p>
                     <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#14532D', minHeight: 28 }}>
                         {bootstrapLoading ? (
                             <Shimmer style={{ display: 'inline-block', height: 22, width: 100, borderRadius: 6 }} />
                         ) : (
-                            <>SAR {totalCash.toLocaleString()}</>
+                            t('money.sar', { amount: totalCash.toLocaleString() })
                         )}
                     </p>
                 </div>
                 <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 14, padding: 14 }}>
-                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', margin: 0 }}>Total Bank</p>
+                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', margin: 0 }}>{t('kpi.totalBank')}</p>
                     <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#1D4ED8', minHeight: 28 }}>
                         {bootstrapLoading ? (
                             <Shimmer style={{ display: 'inline-block', height: 22, width: 100, borderRadius: 6 }} />
                         ) : (
-                            <>SAR {totalBank.toLocaleString()}</>
+                            t('money.sar', { amount: totalBank.toLocaleString() })
                         )}
                     </p>
                 </div>
                 <div style={{ background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 14, padding: 14 }}>
-                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>Total Balance</p>
+                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', margin: 0 }}>{t('kpi.totalBalance')}</p>
                     <p style={{ fontSize: '1.25rem', fontWeight: 900, margin: '6px 0 0 0', color: '#0F172A', minHeight: 28 }}>
                         {bootstrapLoading ? (
                             <Shimmer style={{ display: 'inline-block', height: 22, width: 100, borderRadius: 6 }} />
                         ) : (
-                            <>SAR {totalBalance.toLocaleString()}</>
+                            t('money.sar', { amount: totalBalance.toLocaleString() })
                         )}
                     </p>
                 </div>
@@ -390,7 +397,7 @@ export default function SupplierCashBank() {
                     }}
                     disabled={bootstrapLoading || !!bootstrapError}
                 >
-                    Receive Payment
+                    {t('btn.receive')}
                 </button>
                 <button
                     type="button"
@@ -403,7 +410,7 @@ export default function SupplierCashBank() {
                     }}
                     disabled={bootstrapLoading || !!bootstrapError}
                 >
-                    Make Payment
+                    {t('btn.makePay')}
                 </button>
                 <button
                     type="button"
@@ -414,29 +421,29 @@ export default function SupplierCashBank() {
                     }}
                     disabled={bootstrapLoading && !!bootstrapError}
                 >
-                    <Plus size={15} /> Add Cash / Bank Account
+                    <Plus size={15} /> {t('btn.addAccount')}
                 </button>
             </div>
 
             <div style={{ display: 'flex', gap: 16, marginBottom: 12, borderBottom: '1px solid var(--color-border-light)' }}>
-                {['accounts', 'ledger'].map((t) => (
+                {['accounts', 'ledger'].map((tabKey) => (
                     <button
-                        key={t}
+                        key={tabKey}
                         type="button"
-                        onClick={() => setActiveTab(t)}
+                        onClick={() => setActiveTab(tabKey)}
                         style={{
                             padding: '8px 14px',
                             border: 'none',
                             background: 'none',
                             cursor: 'pointer',
                             fontSize: '0.8125rem',
-                            fontWeight: activeTab === t ? 700 : 500,
-                            color: activeTab === t ? '#111827' : 'var(--color-text-muted)',
-                            borderBottom: activeTab === t ? '2px solid #2563EB' : '2px solid transparent',
+                            fontWeight: activeTab === tabKey ? 700 : 500,
+                            color: activeTab === tabKey ? '#111827' : 'var(--color-text-muted)',
+                            borderBottom: activeTab === tabKey ? '2px solid #2563EB' : '2px solid transparent',
                             marginBottom: -1,
                         }}
                     >
-                        {t === 'accounts' ? 'Accounts' : 'Transaction Ledger'}
+                        {tabKey === 'accounts' ? t('tab.accounts') : t('tab.ledger')}
                     </button>
                 ))}
             </div>
@@ -449,11 +456,11 @@ export default function SupplierCashBank() {
                     <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
                         <Wallet size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
                         <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                            {bootstrapError ? 'Accounts could not be loaded.' : 'No accounts yet'}
+                            {bootstrapError ? t('empty.couldNotLoad') : t('empty.noAccounts')}
                         </p>
                         {!bootstrapError ? (
                             <p style={{ margin: '8px 0 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Use &quot;Add Cash / Bank Account&quot; to create one. Totals stay at SAR 0 until accounts exist.
+                                {t('empty.hint')}
                             </p>
                         ) : null}
                     </div>
@@ -473,10 +480,12 @@ export default function SupplierCashBank() {
                                 }}
                             >
                                 <div>
-                                    <p style={{ fontWeight: 700, margin: 0, fontSize: '0.9375rem' }}>{a.name}</p>
+                                    <p style={{ fontWeight: 700, margin: 0, fontSize: '0.9375rem' }}>
+                                        {a.name || t('fallback.account')}
+                                    </p>
                                     <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '4px 0 0 0' }}>
                                         <span className="ws-badge ws-badge--blue" style={{ fontSize: '0.65rem', marginRight: 6 }}>
-                                            {a.type}
+                                            {a.type === 'Cash' ? t('type.cash') : t('type.bank')}
                                         </span>
                                         {a.bankName}
                                         {a.bankName && (a.iban || a.number) ? ' · ' : ''}
@@ -484,9 +493,11 @@ export default function SupplierCashBank() {
                                     </p>
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: 0 }}>Current Balance</p>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                                        {t('label.currentBalance')}
+                                    </p>
                                     <p style={{ fontWeight: 800, margin: '2px 0 0 0', color: '#111827' }}>
-                                        SAR {(a.balance || 0).toLocaleString()}
+                                        {t('money.sar', { amount: (a.balance || 0).toLocaleString() })}
                                     </p>
                                 </div>
                             </div>
@@ -499,13 +510,13 @@ export default function SupplierCashBank() {
                     <table className="ws-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Account</th>
-                                <th>Type</th>
-                                <th>Description</th>
-                                <th>Reference</th>
-                                <th>Debit</th>
-                                <th>Credit</th>
+                                <th>{t('th.date')}</th>
+                                <th>{t('th.account')}</th>
+                                <th>{t('th.type')}</th>
+                                <th>{t('th.description')}</th>
+                                <th>{t('th.reference')}</th>
+                                <th>{t('th.debit')}</th>
+                                <th>{t('th.credit')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -518,19 +529,30 @@ export default function SupplierCashBank() {
                             ) : ledger.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} style={{ textAlign: 'center', padding: 32, fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
-                                        {bootstrapError ? 'No ledger data loaded.' : 'No transactions recorded.'}
+                                        {bootstrapError ? t('empty.noLedgerData') : t('empty.noLedger')}
                                     </td>
                                 </tr>
                             ) : (
-                                ledger.map((t) => (
-                                    <tr key={String(t.id)}>
-                                        <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{t.date}</td>
-                                        <td>{t.account}</td>
-                                        <td>{t.type}</td>
-                                        <td>{t.description}</td>
-                                        <td>{t.reference}</td>
-                                        <td>{t.debit ? `SAR ${t.debit}` : ''}</td>
-                                        <td>{t.credit ? `SAR ${t.credit}` : ''}</td>
+                                ledger.map((row) => (
+                                    <tr key={String(row.id)}>
+                                        <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{row.date}</td>
+                                        <td>{row.account}</td>
+                                        <td>
+                                            {row.type === 'receipt'
+                                                ? t('type.receipt')
+                                                : row.type === 'payment'
+                                                  ? t('type.payment')
+                                                  : row.type}
+                                        </td>
+                                        <td>
+                                            {row.description ||
+                                                (row._paymentRef
+                                                    ? t('desc.paymentFor', { ref: row._paymentRef })
+                                                    : '')}
+                                        </td>
+                                        <td>{row.reference}</td>
+                                        <td>{row.debit ? t('money.sar', { amount: row.debit }) : ''}</td>
+                                        <td>{row.credit ? t('money.sar', { amount: row.credit }) : ''}</td>
                                     </tr>
                                 ))
                             )}
@@ -541,7 +563,7 @@ export default function SupplierCashBank() {
             <AnimatePresence>
                 {addModalOpen && (
                     <Modal
-                        title="Add Cash / Bank Account"
+                        title={t('modal.addTitle')}
                         onClose={() => {
                             setAddModalOpen(false);
                             setAccountSaveError('');
@@ -549,7 +571,7 @@ export default function SupplierCashBank() {
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                                 <button className="btn-portal-outline" onClick={() => { setAddModalOpen(false); setAccountSaveError(''); }}>
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     className="btn-portal"
@@ -557,7 +579,7 @@ export default function SupplierCashBank() {
                                     disabled={!addForm.name}
                                     onClick={handleAddAccount}
                                 >
-                                    Add Account
+                                    {t('btn.addAccountSubmit')}
                                 </button>
                             </div>
                         }
@@ -569,34 +591,34 @@ export default function SupplierCashBank() {
                         ) : null}
                         <div className="ws-form-grid">
                             <div className="ws-field">
-                                <label>Account Name *</label>
+                                <label>{t('modal.accountName')}</label>
                                 <input
                                     value={addForm.name}
                                     onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
-                                    placeholder="e.g. Petty Cash, Riyad Bank"
+                                    placeholder={t('modal.accountNamePh')}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Account Type</label>
+                                <label>{t('modal.accountType')}</label>
                                 <select value={addForm.type} onChange={(e) => setAddForm((f) => ({ ...f, type: e.target.value }))}>
-                                    <option value="Bank">Bank</option>
-                                    <option value="Cash">Cash</option>
+                                    <option value="Bank">{t('type.bank')}</option>
+                                    <option value="Cash">{t('type.cash')}</option>
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Bank Name</label>
+                                <label>{t('modal.bankName')}</label>
                                 <input value={addForm.bankName} onChange={(e) => setAddForm((f) => ({ ...f, bankName: e.target.value }))} />
                             </div>
                             <div className="ws-field">
-                                <label>IBAN</label>
-                                <input value={addForm.iban} onChange={(e) => setAddForm((f) => ({ ...f, iban: e.target.value }))} placeholder="SA..." />
+                                <label>{t('modal.iban')}</label>
+                                <input value={addForm.iban} onChange={(e) => setAddForm((f) => ({ ...f, iban: e.target.value }))} placeholder={t('modal.ibanPh')} />
                             </div>
                             <div className="ws-field">
-                                <label>Account Number</label>
+                                <label>{t('modal.accountNumber')}</label>
                                 <input value={addForm.number} onChange={(e) => setAddForm((f) => ({ ...f, number: e.target.value }))} />
                             </div>
                             <div className="ws-field">
-                                <label>Opening Balance (SAR)</label>
+                                <label>{t('modal.openingBalance')}</label>
                                 <input
                                     type="number"
                                     value={addForm.openingBalance}
@@ -609,7 +631,7 @@ export default function SupplierCashBank() {
 
                 {receiveModalOpen && (
                     <Modal
-                        title="Receive Payment (from Workshop)"
+                        title={t('modal.receiveTitle')}
                         onClose={() => {
                             setReceiveModalOpen(false);
                             setReceiveSubmitError('');
@@ -617,7 +639,7 @@ export default function SupplierCashBank() {
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                                 <button className="btn-portal-outline" onClick={() => { setReceiveModalOpen(false); setReceiveSubmitError(''); }}>
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -632,7 +654,7 @@ export default function SupplierCashBank() {
                                     }
                                     onClick={handleRecordReceipt}
                                 >
-                                    {receiveSubmitting ? 'Saving…' : 'Record Receipt'}
+                                    {receiveSubmitting ? t('btn.saving') : t('btn.recordReceipt')}
                                 </button>
                             </div>
                         }
@@ -644,26 +666,29 @@ export default function SupplierCashBank() {
                         ) : null}
                         {noAccounts ? (
                             <p style={{ margin: '0 0 12px 0', padding: 12, background: '#FFFBEB', borderRadius: 8, color: '#92400E', fontSize: '0.8125rem' }}>
-                                Add a cash or bank account first, then record receipts against it.
+                                {t('modal.needAccountReceipt')}
                             </p>
                         ) : null}
                         <div className="ws-form-grid">
                             <div className="ws-field">
-                                <label>Account *</label>
+                                <label>{t('modal.account')}</label>
                                 <select
                                     value={receiveForm.accountId}
                                     onChange={(e) => setReceiveForm((f) => ({ ...f, accountId: e.target.value }))}
                                 >
-                                    <option value="">Select account</option>
+                                    <option value="">{t('modal.selectAccount')}</option>
                                     {accounts.map((a) => (
                                         <option key={String(a.id)} value={String(a.id)}>
-                                            {a.name} ({a.type})
+                                            {t('modal.accountOption', {
+                                                name: a.name,
+                                                type: a.type === 'Cash' ? t('type.cash') : t('type.bank'),
+                                            })}
                                         </option>
                                     ))}
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Amount (SAR) *</label>
+                                <label>{t('modal.amount')}</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -673,7 +698,7 @@ export default function SupplierCashBank() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Date *</label>
+                                <label>{t('modal.date')}</label>
                                 <input
                                     type="date"
                                     value={receiveForm.date}
@@ -681,19 +706,19 @@ export default function SupplierCashBank() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Description</label>
+                                <label>{t('modal.description')}</label>
                                 <input
                                     value={receiveForm.description}
                                     onChange={(e) => setReceiveForm((f) => ({ ...f, description: e.target.value }))}
-                                    placeholder="e.g. Payment received from Workshop A"
+                                    placeholder={t('modal.receiveDescPh')}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Reference / TXN</label>
+                                <label>{t('modal.reference')}</label>
                                 <input
                                     value={receiveForm.reference}
                                     onChange={(e) => setReceiveForm((f) => ({ ...f, reference: e.target.value }))}
-                                    placeholder="Bank TXN or cheque #"
+                                    placeholder={t('modal.refPh')}
                                 />
                             </div>
                         </div>
@@ -702,7 +727,7 @@ export default function SupplierCashBank() {
 
                 {payModalOpen && (
                     <Modal
-                        title="Make Payment (to Vendor / Expense)"
+                        title={t('modal.payTitle')}
                         onClose={() => {
                             setPayModalOpen(false);
                             setPaySubmitError('');
@@ -710,7 +735,7 @@ export default function SupplierCashBank() {
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                                 <button className="btn-portal-outline" onClick={() => { setPayModalOpen(false); setPaySubmitError(''); }}>
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -725,7 +750,7 @@ export default function SupplierCashBank() {
                                     }
                                     onClick={handleRecordPayment}
                                 >
-                                    {paySubmitting ? 'Saving…' : 'Record Payment'}
+                                    {paySubmitting ? t('btn.saving') : t('btn.recordPayment')}
                                 </button>
                             </div>
                         }
@@ -737,23 +762,26 @@ export default function SupplierCashBank() {
                         ) : null}
                         {noAccounts ? (
                             <p style={{ margin: '0 0 12px 0', padding: 12, background: '#FFFBEB', borderRadius: 8, color: '#92400E', fontSize: '0.8125rem' }}>
-                                Add a cash or bank account first.
+                                {t('modal.needAccountPay')}
                             </p>
                         ) : null}
                         <div className="ws-form-grid">
                             <div className="ws-field">
-                                <label>Account *</label>
+                                <label>{t('modal.account')}</label>
                                 <select value={payForm.accountId} onChange={(e) => setPayForm((f) => ({ ...f, accountId: e.target.value }))}>
-                                    <option value="">Select account</option>
+                                    <option value="">{t('modal.selectAccount')}</option>
                                     {accounts.map((a) => (
                                         <option key={String(a.id)} value={String(a.id)}>
-                                            {a.name} ({a.type})
+                                            {t('modal.accountOption', {
+                                                name: a.name,
+                                                type: a.type === 'Cash' ? t('type.cash') : t('type.bank'),
+                                            })}
                                         </option>
                                     ))}
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Amount (SAR) *</label>
+                                <label>{t('modal.amount')}</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -763,23 +791,23 @@ export default function SupplierCashBank() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Date *</label>
+                                <label>{t('modal.date')}</label>
                                 <input type="date" value={payForm.date} onChange={(e) => setPayForm((f) => ({ ...f, date: e.target.value }))} />
                             </div>
                             <div className="ws-field">
-                                <label>Description</label>
+                                <label>{t('modal.description')}</label>
                                 <input
                                     value={payForm.description}
                                     onChange={(e) => setPayForm((f) => ({ ...f, description: e.target.value }))}
-                                    placeholder="e.g. Payment to Vendor"
+                                    placeholder={t('modal.payDescPh')}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Reference / TXN</label>
+                                <label>{t('modal.reference')}</label>
                                 <input
                                     value={payForm.reference}
                                     onChange={(e) => setPayForm((f) => ({ ...f, reference: e.target.value }))}
-                                    placeholder="Bank TXN or cheque #"
+                                    placeholder={t('modal.refPh')}
                                 />
                             </div>
                         </div>

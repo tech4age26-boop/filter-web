@@ -13,6 +13,7 @@ import {
 } from '../../services/supplierApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import { spiT } from '../../utils/supplierPurchaseInvoicesI18n';
 
 function unwrapProducts(res) {
     if (!res || typeof res !== 'object') return [];
@@ -43,13 +44,13 @@ function sarFmt(v) {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function purchaseMetaSummary(meta) {
+function purchaseMetaSummary(meta, t) {
     if (meta == null || typeof meta !== 'object') return '';
     const parts = [];
-    if (meta.showLineNum) parts.push('Line #');
-    if (meta.showDesc) parts.push('Desc');
-    if (meta.showDiscount) parts.push('Disc');
-    if (meta.amountsTaxInclusive) parts.push('Tax incl.');
+    if (meta.showLineNum) parts.push(t('sspPanel.meta.lineNum'));
+    if (meta.showDesc) parts.push(t('sspPanel.meta.desc'));
+    if (meta.showDiscount) parts.push(t('sspPanel.meta.disc'));
+    if (meta.amountsTaxInclusive) parts.push(t('sspPanel.meta.taxIncl'));
     return parts.join(' · ');
 }
 
@@ -57,6 +58,7 @@ function purchaseMetaSummary(meta) {
  * Supplier-side list + detail + full line-item composer for upstream (super supplier) purchases.
  */
 export default function SupplierSuperSupplierPurchasesPanel({
+    locale: localeProp,
     superSuppliers = [],
     createIntentSupplierId = null,
     onConsumeCreateIntent,
@@ -64,6 +66,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
     /** Opens parent Purchase Invoices modal — same full form as &quot;New Purchase Invoice&quot; */
     onEditPurchase,
 }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => spiT(locale, key, vars), [locale]);
+    const money = useCallback((amount) => t('money.sar', { amount }), [t]);
+
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -89,11 +98,11 @@ export default function SupplierSuperSupplierPurchasesPanel({
             setRows(Array.isArray(res?.purchases) ? res.purchases : []);
         } catch (e) {
             setRows([]);
-            setErr(e?.message || 'Failed to load super supplier purchases.');
+            setErr(e?.message || t('sspPanel.err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         load();
@@ -139,7 +148,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             String(p.warehouseUnit ?? '').trim() || 'pcs';
                         return {
                             id: String(p.id ?? ''),
-                            name: p.name ?? p.productName ?? 'Item',
+                            name: p.name ?? p.productName ?? t('fallback.product'),
                             sku: (p.sku || '').trim(),
                             unit: warehouseUnit,
                             warehouseUnit,
@@ -159,7 +168,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
         return () => {
             cancelled = true;
         };
-    }, [composer]);
+    }, [composer, t]);
 
     const catalogOptions = useMemo(
         () => catalog.filter((c) => c.id && (c.name || '').trim()),
@@ -175,7 +184,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
             setViewDetail(d?.purchase ?? d?.data ?? d);
         } catch {
             setViewDetail(null);
-            setErr('Could not load purchase detail.');
+            setErr(t('sspPanel.err.detail'));
         } finally {
             setViewLoading(false);
         }
@@ -187,7 +196,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
             onEditPurchase(String(r.id));
             return;
         }
-        setComposerErr('Edit is not wired.');
+        setComposerErr(t('sspPanel.err.editNotWired'));
     };
 
     const summary = useMemo(() => {
@@ -208,7 +217,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
 
     const persistComposer = async () => {
         if (!composer?.superSupplierId) {
-            setComposerErr('Select a super supplier.');
+            setComposerErr(t('sspPanel.err.selectSs'));
             return;
         }
         const items = composer.lines
@@ -226,7 +235,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
             }))
             .filter((l) => l.qty > 0 && l.unitPrice >= 0);
         if (!items.length) {
-            setComposerErr('Add at least one product line with name, qty and unit price.');
+            setComposerErr(t('sspPanel.err.needLine'));
             return;
         }
         setSaving(true);
@@ -252,7 +261,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
             await load();
             onPurchasesMutated?.();
         } catch (e) {
-            setComposerErr(e?.message || 'Save failed.');
+            setComposerErr(e?.message || t('sspPanel.err.saveFailed'));
         } finally {
             setSaving(false);
         }
@@ -290,6 +299,15 @@ export default function SupplierSuperSupplierPurchasesPanel({
         return 'ws-badge--green';
     };
 
+    const statusLabel = (s) => {
+        if (s == null || s === '') return t('sspPanel.status.posted');
+        const x = String(s).toLowerCase();
+        if (x === 'posted') return t('sspPanel.status.posted');
+        return s;
+    };
+
+    const em = t('emdash');
+
     return (
         <div className="ws-section" style={{ marginTop: 24, overflow: 'hidden' }}>
             <div
@@ -314,10 +332,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             gap: 8,
                         }}
                     >
-                        <ShoppingCart size={18} /> Super supplier purchase invoices
+                        <ShoppingCart size={18} /> {t('sspPanel.title')}
                     </h3>
                     <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        Bills from your upstream vendors — line items stored in database; edit anytime.
+                        {t('sspPanel.sub')}
                     </p>
                     <p
                         style={{
@@ -327,12 +345,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             fontWeight: 600,
                         }}
                     >
-                        Auto-posted to the supplier <strong>General Ledger</strong>: Dr Inventory + VAT Input / Cr AP
-                        Super Supplier, plus per-product moving-average updates.
+                        {t('sspPanel.glBefore')}{' '}
+                        <strong>{t('sspPanel.glLedger')}</strong>
+                        {t('sspPanel.glAfter')}
                     </p>
                 </div>
                 <button type="button" className="btn-portal" onClick={() => load()} disabled={loading}>
-                    <RefreshCw size={14} /> {loading ? 'Loading…' : 'Refresh'}
+                    <RefreshCw size={14} /> {loading ? t('loading') : t('sspPanel.refresh')}
                 </button>
             </div>
 
@@ -356,20 +375,20 @@ export default function SupplierSuperSupplierPurchasesPanel({
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Invoice #</th>
-                            <th>Vendor</th>
-                            <th>Vendor ref</th>
-                            <th>Issue date</th>
-                            <th>Product</th>
-                            <th>Qty / Unit</th>
-                            <th>Unit price</th>
-                            <th>Lines</th>
-                            <th>Freight</th>
-                            <th>Discount</th>
-                            <th>Form options</th>
-                            <th>Total</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th>{t('sspPanel.th.invoiceNo')}</th>
+                            <th>{t('sspPanel.th.vendor')}</th>
+                            <th>{t('sspPanel.th.vendorRef')}</th>
+                            <th>{t('sspPanel.th.issueDate')}</th>
+                            <th>{t('th.product')}</th>
+                            <th>{t('sspPanel.th.qtyUnit')}</th>
+                            <th>{t('th.unitPrice')}</th>
+                            <th>{t('sspPanel.th.lines')}</th>
+                            <th>{t('sspPanel.th.freight')}</th>
+                            <th>{t('sspPanel.th.discount')}</th>
+                            <th>{t('sspPanel.th.formOptions')}</th>
+                            <th>{t('sspPanel.th.total')}</th>
+                            <th>{t('th.status')}</th>
+                            <th>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -382,19 +401,22 @@ export default function SupplierSuperSupplierPurchasesPanel({
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={14} style={{ textAlign: 'center', padding: 36, color: 'var(--color-text-muted)' }}>
-                                    No purchases yet — use{' '}
-                                    <strong>&quot;Record purchase&quot;</strong> beside a vendor.
+                                    {t('sspPanel.empty.before')}{' '}
+                                    <strong>&quot;{t('sspPanel.empty.action')}&quot;</strong>{' '}
+                                    {t('sspPanel.empty.after')}
                                 </td>
                             </tr>
                         ) : (
-                            rows.map((r) => (
+                            rows.map((r) => {
+                                const metaSummary = purchaseMetaSummary(r.purchaseFormMeta, t);
+                                return (
                                 <tr
                                     key={r.id}
                                     style={{ cursor: 'pointer' }}
                                     title={
                                         (r.moreLines ?? 0) > 0 || (r.itemCount ?? 0) > 1
-                                            ? 'Click to view all products and line details'
-                                            : 'Click to view invoice details'
+                                            ? t('sspPanel.title.clickAll')
+                                            : t('sspPanel.title.clickInvoice')
                                     }
                                     onClick={() => openView(r)}
                                 >
@@ -415,7 +437,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                 textDecoration: 'underline',
                                                 fontSize: '0.9375rem',
                                             }}
-                                            title="View invoice"
+                                            title={t('sspPanel.title.viewInvoice')}
                                         >
                                             {r.invoiceNo ?? `SSP-${r.id}`}
                                         </button>
@@ -423,37 +445,38 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                     <td style={{ fontSize: '0.875rem', fontWeight: 600 }}>
                                         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                             <Building2 size={14} style={{ opacity: 0.5 }} aria-hidden />{' '}
-                                            {r.superSupplierName ?? '—'}
+                                            {r.superSupplierName ?? em}
                                         </span>
                                     </td>
                                     <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                        {r.vendorRef || '—'}
+                                        {r.vendorRef || em}
                                     </td>
-                                    <td style={{ fontSize: '0.8125rem' }}>{r.purchaseDate || '—'}</td>
+                                    <td style={{ fontSize: '0.8125rem' }}>{r.purchaseDate || em}</td>
                                     <td style={{ fontSize: '0.8125rem', maxWidth: 220 }} title={r.primaryProductName}>
-                                        {r.primaryProductName ?? '—'}
+                                        {r.primaryProductName ?? em}
                                         {r.moreLines > 0 ? (
                                             <div style={{ fontSize: '0.6875rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
-                                                + {r.moreLines} more…
+                                                {t('sspPanel.moreLines', { n: r.moreLines })}
                                             </div>
                                         ) : null}
                                     </td>
                                     <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
                                         {r.primaryQty != null && r.primaryQty !== ''
                                             ? `${r.primaryQty} ${r.primaryUnit || ''}`
-                                            : '—'}
+                                            : em}
                                     </td>
                                     <td
                                         style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
-                                        title="Unit price for the first line (per quantity / per piece)"
+                                        title={t('sspPanel.title.unitPriceFirst')}
                                     >
                                         {r.primaryUnitPrice != null && Number.isFinite(Number(r.primaryUnitPrice)) ? (
                                             <>
-                                                SAR{' '}
-                                                {Number(r.primaryUnitPrice).toLocaleString(undefined, {
-                                                    minimumFractionDigits: 2,
-                                                    maximumFractionDigits: 2,
-                                                })}
+                                                {money(
+                                                    Number(r.primaryUnitPrice).toLocaleString(undefined, {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    }),
+                                                )}
                                                 {r.primaryUnit ? (
                                                     <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
                                                         {' '}
@@ -462,15 +485,15 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                 ) : null}
                                             </>
                                         ) : (
-                                            '—'
+                                            em
                                         )}
                                     </td>
                                     <td style={{ fontSize: '0.8125rem' }}>{r.itemCount ?? 0}</td>
                                     <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                                        SAR {sarFmt(r.freightIn)}
+                                        {money(sarFmt(r.freightIn))}
                                     </td>
                                     <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                                        SAR {sarFmt(r.invoiceDiscount)}
+                                        {money(sarFmt(r.invoiceDiscount))}
                                     </td>
                                     <td
                                         style={{
@@ -479,27 +502,37 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             maxWidth: 160,
                                             lineHeight: 1.35,
                                         }}
-                                        title={purchaseMetaSummary(r.purchaseFormMeta) || undefined}
+                                        title={metaSummary || undefined}
                                     >
-                                        {purchaseMetaSummary(r.purchaseFormMeta) || '—'}
+                                        {metaSummary || em}
                                     </td>
                                     <td>
-                                        <strong>SAR {(r.total ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+                                        <strong>
+                                            {money(
+                                                (r.total ?? 0).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                }),
+                                            )}
+                                        </strong>
                                     </td>
                                     <td>
-                                        <span className={`ws-badge ${statusTone(r.status)}`}>{r.status ?? 'posted'}</span>
+                                        <span className={`ws-badge ${statusTone(r.status)}`}>
+                                            {statusLabel(r.status)}
+                                        </span>
                                     </td>
                                     <td>
                                         <RowActionsMenu
-                                            ariaLabel={`Actions for purchase ${r.invoice_number || r.id}`}
+                                            ariaLabel={t('sspPanel.aria.actionsFor', {
+                                                id: r.invoice_number || r.id,
+                                            })}
                                             disabled={saving}
                                             items={[
                                                 {
-                                                    label: 'View',
+                                                    label: t('sspPanel.action.view'),
                                                     onClick: () => openView(r),
                                                 },
                                                 {
-                                                    label: 'Edit purchase & lines',
+                                                    label: t('sspPanel.action.edit'),
                                                     onClick: () => openEdit(r),
                                                     disabled: saving,
                                                 },
@@ -507,7 +540,8 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                         />
                                     </td>
                                 </tr>
-                            ))
+                                );
+                            })
                         )}
                     </tbody>
                 </table>
@@ -516,7 +550,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
             <AnimatePresence>
                 {viewRow && (
                     <Modal
-                        title="Super supplier purchase invoice"
+                        title={t('sspPanel.modal.viewTitle')}
                         width="min(980px, 99vw)"
                         contentClassName="wpi-invoice-preview-modal"
                         onClose={() => {
@@ -542,11 +576,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
                         title={
                             <div className="pi-modal-title">
                                 <span className="pi-breadcrumb">
-                                    Super supplier ›{' '}
-                                    <span className="pi-b-active">{composer.mode === 'edit' ? 'Edit' : 'New'}</span>
+                                    {t('sspPanel.composer.breadcrumb')}{' '}
+                                    <span className="pi-b-active">
+                                        {composer.mode === 'edit' ? t('form.edit') : t('form.new')}
+                                    </span>
                                 </span>
                                 <div className="pi-title-main">
-                                    <ShoppingCart className="pi-icon-orange" size={22} /> Purchase Invoice
+                                    <ShoppingCart className="pi-icon-orange" size={22} /> {t('form.title')}
                                 </div>
                             </div>
                         }
@@ -556,10 +592,14 @@ export default function SupplierSuperSupplierPurchasesPanel({
                         footer={
                             <div className="pi-modal-footer">
                                 <button type="button" className="btn-pi-cancel" disabled={saving} onClick={() => setComposer(null)}>
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button type="button" className="btn-pi-create" disabled={saving} onClick={() => persistComposer()}>
-                                    {saving ? 'Saving…' : composer.mode === 'edit' ? 'Save changes' : 'Create invoice'}
+                                    {saving
+                                        ? t('btn.saving')
+                                        : composer.mode === 'edit'
+                                          ? t('btn.saveChanges')
+                                          : t('sspPanel.btn.createInvoice')}
                                 </button>
                             </div>
                         }
@@ -580,7 +620,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                         ) : null}
                         <div className="pi-form-container">
                             <div style={{ marginBottom: 12 }}>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Quick add line from catalog</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>{t('sspPanel.quickAdd')}</label>
                                 <select
                                     className=""
                                     disabled={catalogLoading || !catalogOptions.length}
@@ -595,18 +635,27 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                     }}
                                 >
                                     <option value="">
-                                        {catalogLoading ? 'Loading catalog…' : catalogOptions.length ? 'Select product…' : 'No catalog'}
+                                        {catalogLoading
+                                            ? t('sspPanel.opt.loadingCatalog')
+                                            : catalogOptions.length
+                                              ? t('sspPanel.opt.selectProduct')
+                                              : t('sspPanel.opt.noCatalog')}
                                     </option>
                                     {catalogOptions.map((p) => (
                                         <option key={p.id} value={p.id}>
-                                            {p.name} — SAR {Number(p.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            {p.name} —{' '}
+                                            {money(
+                                                Number(p.price).toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                }),
+                                            )}
                                         </option>
                                     ))}
                                 </select>
                             </div>
                             <div className="pi-header-grid">
                                 <div className="pi-field">
-                                    <label>Issue date *</label>
+                                    <label>{t('sspPanel.label.issueDateReq')}</label>
                                     <input
                                         type="date"
                                         value={composer.purchaseDate}
@@ -616,7 +665,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                     />
                                 </div>
                                 <div className="pi-field">
-                                    <label>Super supplier *</label>
+                                    <label>{t('label.superSupplierReq')}</label>
                                     <select
                                         value={composer.superSupplierId}
                                         onChange={(e) =>
@@ -629,7 +678,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             width: '100%',
                                         }}
                                     >
-                                        <option value="">Select…</option>
+                                        <option value="">{t('sspPanel.opt.select')}</option>
                                         {(superSuppliers || []).filter((s) => s.isActive !== false).map((s) => (
                                             <option key={String(s.id)} value={String(s.id)}>
                                                 {s.name}
@@ -638,10 +687,10 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                     </select>
                                 </div>
                                 <div className="pi-field">
-                                    <label>Vendor ref #</label>
+                                    <label>{t('sspPanel.label.vendorRef')}</label>
                                     <input
                                         type="text"
-                                        placeholder="Vendor invoice #"
+                                        placeholder={t('sspPanel.ph.vendorInvoice')}
                                         value={composer.vendorRef}
                                         onChange={(e) =>
                                             setComposer((c) => (c ? { ...c, vendorRef: e.target.value } : c))
@@ -650,7 +699,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                 </div>
                             </div>
                             <div className="pi-field pi-full-width">
-                                <label>Description</label>
+                                <label>{t('label.description')}</label>
                                 <input
                                     type="text"
                                     value={composer.description}
@@ -672,11 +721,11 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                             )
                                         }
                                     />
-                                    Update stock inventory purchase price from this purchase
+                                    {t('sspPanel.updatePurchasePrice')}
                                 </label>
                             </div>
                             <div className="pi-field pi-full-width">
-                                <label>Notes</label>
+                                <label>{t('label.notes')}</label>
                                 <textarea
                                     rows={2}
                                     value={composer.notes}
@@ -690,14 +739,14 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                                     <thead>
                                         <tr>
-                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>#</th>
-                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>Product name</th>
-                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>SKU</th>
-                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>Qty</th>
-                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>Unit</th>
-                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>Unit price</th>
-                                            <th style={{ padding: '6px 8px', textAlign: 'right' }}>Line total</th>
-                                            <th style={{ padding: '6px 8px', width: 48 }} aria-label="Actions" />
+                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>{t('col.hash')}</th>
+                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>{t('sspPanel.th.productName')}</th>
+                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>{t('th.sku')}</th>
+                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>{t('th.qty')}</th>
+                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>{t('col.uom')}</th>
+                                            <th style={{ padding: '6px 8px', textAlign: 'left' }}>{t('th.unitPrice')}</th>
+                                            <th style={{ padding: '6px 8px', textAlign: 'right' }}>{t('th.lineTotal')}</th>
+                                            <th style={{ padding: '6px 8px', width: 48 }} aria-label={t('th.actions')} />
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -711,7 +760,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                     <td style={{ padding: 6 }}>
                                                         <input
                                                             type="text"
-                                                            placeholder="Product"
+                                                            placeholder={t('fallback.product')}
                                                             style={{ width: '100%', minWidth: 160 }}
                                                             value={ln.productName}
                                                             onChange={(e) => {
@@ -732,7 +781,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                     <td style={{ padding: 6 }}>
                                                         <input
                                                             type="text"
-                                                            placeholder="SKU"
+                                                            placeholder={t('th.sku')}
                                                             style={{ width: 92 }}
                                                             value={ln.sku}
                                                             onChange={(e) => {
@@ -775,13 +824,13 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                     <td style={{ padding: 6 }}>
                                                         <input
                                                             type="text"
-                                                            placeholder="pcs"
+                                                            placeholder={t('sspPanel.ph.pcs')}
                                                             style={{ width: 76 }}
                                                             value={ln.unit}
                                                             readOnly={!!ln.supplierProductId}
                                                             title={
                                                                 ln.supplierProductId
-                                                                    ? 'Master Catalog warehouse unit'
+                                                                    ? t('sspPanel.title.warehouseUnit')
                                                                     : undefined
                                                             }
                                                             onChange={(e) => {
@@ -823,13 +872,17 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                                         />
                                                     </td>
                                                     <td style={{ padding: 6, textAlign: 'right', fontWeight: 700 }}>
-                                                        SAR{' '}
-                                                        {lt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        {money(
+                                                            lt.toLocaleString(undefined, {
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
+                                                            }),
+                                                        )}
                                                     </td>
                                                     <td style={{ padding: 6 }}>
                                                         <button
                                                             type="button"
-                                                            aria-label="Remove line"
+                                                            aria-label={t('aria.removeLine')}
                                                             className="btn-pi-cancel"
                                                             style={{ padding: '4px 8px' }}
                                                             onClick={() =>
@@ -869,7 +922,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                         setComposer((c) => (c ? { ...c, lines: [...c.lines, newLineRow()] } : c))
                                     }
                                 >
-                                    <Plus size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} /> Add line
+                                    <Plus size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} /> {t('btn.addLine')}
                                 </button>
                             </div>
 
@@ -884,7 +937,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                 }}
                             >
                                 <div className="pi-field" style={{ minWidth: 140 }}>
-                                    <label>VAT (SAR)</label>
+                                    <label>{t('sspPanel.label.vatSar')}</label>
                                     <input
                                         type="number"
                                         step="0.01"
@@ -899,37 +952,40 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                 </div>
                                 <div className="pi-summary-card" style={{ minWidth: 240 }}>
                                     <div className="pi-summary-row">
-                                        <span>Subtotal:</span>{' '}
+                                        <span>{t('summary.subtotal')}</span>{' '}
                                         <span>
-                                            SAR{' '}
-                                            {summary.subtotal.toLocaleString(undefined, {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                            })}
+                                            {money(
+                                                summary.subtotal.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }),
+                                            )}
                                         </span>
                                     </div>
                                     <div className="pi-summary-row">
-                                        <span>Total Tax (VAT):</span>{' '}
+                                        <span>{t('summary.totalTax')}</span>{' '}
                                         <span>
-                                            SAR{' '}
-                                            {summary.vat.toLocaleString(undefined, {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                            })}
+                                            {money(
+                                                summary.vat.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }),
+                                            )}
                                         </span>
                                     </div>
                                     <div className="pi-summary-row pi-grand-total">
-                                        <span>Grand Total:</span>{' '}
+                                        <span>{t('summary.grandTotal')}</span>{' '}
                                         <span>
-                                            SAR{' '}
-                                            {summary.grand.toLocaleString(undefined, {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                            })}
+                                            {money(
+                                                summary.grand.toLocaleString(undefined, {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }),
+                                            )}
                                         </span>
                                     </div>
                                     <div className="pi-ap-alert" style={{ marginTop: 12 }}>
-                                        <span>Line totals = Qty × unit price before VAT.</span>
+                                        <span>{t('sspPanel.hint.lineTotals')}</span>
                                     </div>
                                 </div>
                             </div>
