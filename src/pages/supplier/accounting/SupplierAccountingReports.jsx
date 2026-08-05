@@ -12,7 +12,6 @@ import {
     AcctError,
     AcctLoading,
     Field,
-    fmtDate,
     inputStyle,
     money,
     outlineBtnStyle,
@@ -20,21 +19,22 @@ import {
     startOfMonthISO,
     todayISO,
 } from './SupplierAccountingShared';
+import { saccT } from '../../../utils/supplierAccountingI18n';
 
-const REPORT_TABS = [
-    { id: 'tb', label: 'Trial Balance' },
-    { id: 'pl', label: 'Profit & Loss' },
-    { id: 'bs', label: 'Balance Sheet' },
-    { id: 'cf', label: 'Cash Flow' },
+const REPORT_TAB_KEYS = [
+    { id: 'tb', key: 'reports.tab.tb' },
+    { id: 'pl', key: 'reports.tab.pl' },
+    { id: 'bs', key: 'reports.tab.bs' },
+    { id: 'cf', key: 'reports.tab.cf' },
 ];
 
-function DateRangePicker({ dateFrom, dateTo, onChange }) {
+function DateRangePicker({ dateFrom, dateTo, onChange, t }) {
     return (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <Field label="From"><input type="date" style={inputStyle} value={dateFrom} onChange={(e) => onChange({ dateFrom: e.target.value, dateTo })} /></Field>
-            <Field label="To"><input type="date" style={inputStyle} value={dateTo} onChange={(e) => onChange({ dateFrom, dateTo: e.target.value })} /></Field>
-            <button type="button" style={outlineBtnStyle} onClick={() => onChange({ dateFrom: '', dateTo: '' })}>All time</button>
-            <button type="button" style={outlineBtnStyle} onClick={() => onChange({ dateFrom: startOfMonthISO(), dateTo: todayISO() })}>This month</button>
+            <Field label={t('reports.from')}><input type="date" style={inputStyle} value={dateFrom} onChange={(e) => onChange({ dateFrom: e.target.value, dateTo })} /></Field>
+            <Field label={t('reports.to')}><input type="date" style={inputStyle} value={dateTo} onChange={(e) => onChange({ dateFrom, dateTo: e.target.value })} /></Field>
+            <button type="button" style={outlineBtnStyle} onClick={() => onChange({ dateFrom: '', dateTo: '' })}>{t('reports.allTime')}</button>
+            <button type="button" style={outlineBtnStyle} onClick={() => onChange({ dateFrom: startOfMonthISO(), dateTo: todayISO() })}>{t('reports.thisMonth')}</button>
         </div>
     );
 }
@@ -43,7 +43,8 @@ const CLICKABLE_ROW = {
     cursor: 'pointer',
 };
 
-function TrialBalance() {
+function TrialBalance({ locale, t }) {
+    const m = (v) => money(v, 'SAR', { locale });
     const navigate = useNavigate();
     const openLedger = useCallback(
         (accountId) => {
@@ -66,24 +67,24 @@ function TrialBalance() {
             const res = await getSupplierTrialBalance({ dateFrom, dateTo });
             setData(res);
         } catch (e) {
-            setErr(e?.message || 'Failed to load trial balance');
+            setErr(e?.message || t('reports.err.tb'));
         } finally {
             setLoading(false);
         }
-    }, [dateFrom, dateTo]);
+    }, [dateFrom, dateTo, t]);
 
     useEffect(() => { load(); }, [load]);
 
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={setRange} />
+                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={setRange} t={t} />
             </div>
             <AcctError message={err} />
-            {loading ? <AcctLoading /> : !data ? <AcctEmpty message="No data" /> : (
+            {loading ? <AcctLoading locale={locale} /> : !data ? <AcctEmpty message={t('reports.noData')} /> : (
                 <div style={{ overflowX: 'auto' }}>
                     <table className="ws-table" style={{ width: '100%' }}>
-                        <thead><tr><th>Code</th><th>Account</th><th>Type</th><th style={{ textAlign: 'right' }}>Debit</th><th style={{ textAlign: 'right' }}>Credit</th></tr></thead>
+                        <thead><tr><th>{t('reports.th.code')}</th><th>{t('reports.th.account')}</th><th>{t('reports.th.type')}</th><th style={{ textAlign: 'right' }}>{t('reports.th.debit')}</th><th style={{ textAlign: 'right' }}>{t('reports.th.credit')}</th></tr></thead>
                         <tbody>
                             {data.accounts.map((a) => (
                                 <tr
@@ -102,23 +103,23 @@ function TrialBalance() {
                                     <td style={{ fontWeight: 700 }}>{a.code}</td>
                                     <td>{a.name}</td>
                                     <td>{a.type}</td>
-                                    <td style={{ textAlign: 'right' }}>{a.debitBalance > 0 ? money(a.debitBalance) : '—'}</td>
-                                    <td style={{ textAlign: 'right' }}>{a.creditBalance > 0 ? money(a.creditBalance) : '—'}</td>
+                                    <td style={{ textAlign: 'right' }}>{a.debitBalance > 0 ? m(a.debitBalance) : t('emdash')}</td>
+                                    <td style={{ textAlign: 'right' }}>{a.creditBalance > 0 ? m(a.creditBalance) : t('emdash')}</td>
                                 </tr>
                             ))}
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td colSpan={3} style={{ textAlign: 'right', fontWeight: 800 }}>Totals</td>
-                                <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(data.totalDebits)}</td>
-                                <td style={{ textAlign: 'right', fontWeight: 800 }}>{money(data.totalCredits)}</td>
+                                <td colSpan={3} style={{ textAlign: 'right', fontWeight: 800 }}>{t('reports.totals')}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 800 }}>{m(data.totalDebits)}</td>
+                                <td style={{ textAlign: 'right', fontWeight: 800 }}>{m(data.totalCredits)}</td>
                             </tr>
                         </tfoot>
                     </table>
                     <p style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: data.isBalanced ? '#065F46' : '#B91C1C' }}>
                         {data.isBalanced
-                            ? '✓ Balanced'
-                            : `⚠ Out of balance by ${money(Math.abs(data.difference ?? data.totalDebits - data.totalCredits))}`}
+                            ? t('reports.balanced')
+                            : t('reports.outOfBalance', { amount: m(Math.abs(data.difference ?? data.totalDebits - data.totalCredits)) })}
                     </p>
                 </div>
             )}
@@ -126,11 +127,12 @@ function TrialBalance() {
     );
 }
 
-function ReportSection({ title, rows, total, onAccountClick }) {
+function ReportSection({ title, rows, total, onAccountClick, locale, t, totalLabel }) {
+    const m = (v) => money(v, 'SAR', { locale });
     return (
         <div style={{ marginBottom: 14 }}>
             <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{title}</h4>
-            {rows.length === 0 ? <div style={{ fontSize: 12, color: '#64748B' }}>—</div> : (
+            {rows.length === 0 ? <div style={{ fontSize: 12, color: '#64748B' }}>{t('emdash')}</div> : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <tbody>
                         {rows.map((r) => (
@@ -152,15 +154,15 @@ function ReportSection({ title, rows, total, onAccountClick }) {
                                 }
                             >
                                 <td style={{ padding: '4px 0', color: '#475569' }}>[{r.code}] {r.name}</td>
-                                <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(r.amount)}</td>
+                                <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{m(r.amount)}</td>
                             </tr>
                         ))}
                     </tbody>
                     {total != null ? (
                         <tfoot>
                             <tr style={{ borderTop: '1px solid #E2E8F0' }}>
-                                <td style={{ padding: '6px 0', fontWeight: 800 }}>Total {title.toLowerCase()}</td>
-                                <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 800 }}>{money(total)}</td>
+                                <td style={{ padding: '6px 0', fontWeight: 800 }}>{totalLabel || t('reports.totalOf', { title: title.toLowerCase() })}</td>
+                                <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 800 }}>{m(total)}</td>
                             </tr>
                         </tfoot>
                     ) : null}
@@ -170,7 +172,8 @@ function ReportSection({ title, rows, total, onAccountClick }) {
     );
 }
 
-function ProfitLoss() {
+function ProfitLoss({ locale, t }) {
+    const m = (v) => money(v, 'SAR', { locale });
     const navigate = useNavigate();
     const openLedger = useCallback(
         (accountId) => {
@@ -193,32 +196,32 @@ function ProfitLoss() {
             const res = await getSupplierPnl({ dateFrom, dateTo });
             setData(res);
         } catch (e) {
-            setErr(e?.message || 'Failed to load P&L');
+            setErr(e?.message || t('reports.err.pl'));
         } finally {
             setLoading(false);
         }
-    }, [dateFrom, dateTo]);
+    }, [dateFrom, dateTo, t]);
 
     useEffect(() => { load(); }, [load]);
 
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={setRange} />
+                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={setRange} t={t} />
             </div>
             <AcctError message={err} />
-            {loading ? <AcctLoading /> : !data ? <AcctEmpty message="No data" /> : (
+            {loading ? <AcctLoading locale={locale} /> : !data ? <AcctEmpty message={t('reports.noData')} /> : (
                 <div>
-                    <ReportSection title="Revenue" rows={data.revenue} total={data.totalRevenue} onAccountClick={openLedger} />
-                    <ReportSection title="Cost of Goods Sold" rows={data.costOfGoodsSold} total={data.totalCOGS} onAccountClick={openLedger} />
+                    <ReportSection title={t('reports.revenue')} rows={data.revenue} total={data.totalRevenue} onAccountClick={openLedger} locale={locale} t={t} />
+                    <ReportSection title={t('reports.cogs')} rows={data.costOfGoodsSold} total={data.totalCOGS} onAccountClick={openLedger} locale={locale} t={t} />
                     <div style={{ padding: '8px 0', borderTop: '2px solid #0F172A', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
-                        <span>Gross Profit</span><span>{money(data.grossProfit)}</span>
+                        <span>{t('reports.grossProfit')}</span><span>{m(data.grossProfit)}</span>
                     </div>
                     <div style={{ height: 12 }} />
-                    <ReportSection title="Operating Expenses" rows={data.operatingExpenses} total={data.totalOperatingExpenses} onAccountClick={openLedger} />
-                    {data.otherExpenses.length > 0 && <ReportSection title="Other Expenses" rows={data.otherExpenses} total={data.totalOtherExpenses} onAccountClick={openLedger} />}
+                    <ReportSection title={t('reports.opEx')} rows={data.operatingExpenses} total={data.totalOperatingExpenses} onAccountClick={openLedger} locale={locale} t={t} />
+                    {data.otherExpenses.length > 0 && <ReportSection title={t('reports.otherEx')} rows={data.otherExpenses} total={data.totalOtherExpenses} onAccountClick={openLedger} locale={locale} t={t} />}
                     <div style={{ padding: '12px 0', borderTop: '2px solid #0F172A', display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: 16, color: data.netIncome >= 0 ? '#065F46' : '#B91C1C' }}>
-                        <span>Net Income</span><span>{money(data.netIncome)}</span>
+                        <span>{t('reports.netIncome')}</span><span>{m(data.netIncome)}</span>
                     </div>
                 </div>
             )}
@@ -226,7 +229,8 @@ function ProfitLoss() {
     );
 }
 
-function BalanceSheet() {
+function BalanceSheet({ locale, t }) {
+    const m = (v) => money(v, 'SAR', { locale });
     const navigate = useNavigate();
     const openLedger = useCallback(
         (accountId) => {
@@ -249,11 +253,11 @@ function BalanceSheet() {
             const res = await getSupplierBalanceSheet({ asOf });
             setData(res);
         } catch (e) {
-            setErr(e?.message || 'Failed to load balance sheet');
+            setErr(e?.message || t('reports.err.bs'));
         } finally {
             setLoading(false);
         }
-    }, [asOf]);
+    }, [asOf, t]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -280,7 +284,7 @@ function BalanceSheet() {
                                 }}
                             >
                                 <td style={{ padding: '4px 0', color: '#475569' }}>[{a.code}] {a.name}</td>
-                                <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(a.amount)}</td>
+                                <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{m(a.amount)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -292,28 +296,28 @@ function BalanceSheet() {
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-                <Field label="As of date"><input type="date" style={inputStyle} value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
+                <Field label={t('reports.asOf')}><input type="date" style={inputStyle} value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
             </div>
             <AcctError message={err} />
-            {loading ? <AcctLoading /> : !data ? <AcctEmpty message="No data" /> : (
+            {loading ? <AcctLoading locale={locale} /> : !data ? <AcctEmpty message={t('reports.noData')} /> : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
                     <div>
-                        {renderBucket('Current Assets', data.assets.current)}
-                        {renderBucket('Fixed Assets', data.assets.fixed)}
-                        {renderBucket('Other Assets', data.assets.other)}
+                        {renderBucket(t('reports.currentAssets'), data.assets.current)}
+                        {renderBucket(t('reports.fixedAssets'), data.assets.fixed)}
+                        {renderBucket(t('reports.otherAssets'), data.assets.other)}
                         <div style={{ padding: '10px 0', borderTop: '2px solid #0F172A', display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
-                            <span>Total Assets</span><span>{money(data.assets.total)}</span>
+                            <span>{t('reports.totalAssets')}</span><span>{m(data.assets.total)}</span>
                         </div>
                     </div>
                     <div>
-                        {renderBucket('Current Liabilities', data.liabilities.current)}
-                        {renderBucket('Long Term Liabilities', data.liabilities.longTerm)}
-                        {renderBucket('Other Liabilities', data.liabilities.other)}
+                        {renderBucket(t('reports.currentLiab'), data.liabilities.current)}
+                        {renderBucket(t('reports.longTermLiab'), data.liabilities.longTerm)}
+                        {renderBucket(t('reports.otherLiab'), data.liabilities.other)}
                         <div style={{ padding: '8px 0', borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                            <span>Total Liabilities</span><span>{money(data.liabilities.total)}</span>
+                            <span>{t('reports.totalLiab')}</span><span>{m(data.liabilities.total)}</span>
                         </div>
                         <div style={{ height: 12 }} />
-                        <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 800, color: '#0F172A' }}>Equity</h4>
+                        <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{t('reports.equity')}</h4>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <tbody>
                                 {data.equity.accounts.map((a) => (
@@ -331,20 +335,20 @@ function BalanceSheet() {
                                         }}
                                     >
                                         <td style={{ padding: '4px 0', color: '#475569' }}>[{a.code}] {a.name}</td>
-                                        <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(a.amount)}</td>
+                                        <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{m(a.amount)}</td>
                                     </tr>
                                 ))}
                                 <tr>
-                                    <td style={{ padding: '4px 0', color: '#475569' }}>Cumulative Net Income</td>
-                                    <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{money(data.equity.cumulativeNetIncome)}</td>
+                                    <td style={{ padding: '4px 0', color: '#475569' }}>{t('reports.cumNetIncome')}</td>
+                                    <td style={{ padding: '4px 0', textAlign: 'right', fontWeight: 600 }}>{m(data.equity.cumulativeNetIncome)}</td>
                                 </tr>
                             </tbody>
                         </table>
                         <div style={{ padding: '8px 0', borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-                            <span>Total Equity</span><span>{money(data.equity.total)}</span>
+                            <span>{t('reports.totalEquity')}</span><span>{m(data.equity.total)}</span>
                         </div>
                         <div style={{ padding: '10px 0', borderTop: '2px solid #0F172A', display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
-                            <span>Total Liab. + Equity</span><span>{money(data.totalLiabilitiesAndEquity)}</span>
+                            <span>{t('reports.totalLiabEquity')}</span><span>{m(data.totalLiabilitiesAndEquity)}</span>
                         </div>
                     </div>
                 </div>
@@ -353,13 +357,14 @@ function BalanceSheet() {
     );
 }
 
-function CashFlowBucket({ title, bucket, onCashLineClick }) {
+function CashFlowBucket({ title, bucket, onCashLineClick, locale, t }) {
+    const m = (v) => money(v, 'SAR', { locale });
     if (!bucket) return null;
     return (
         <div style={{ marginBottom: 12 }}>
             <h4 style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{title}</h4>
             {bucket.inflows.length === 0 && bucket.outflows.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#64748B' }}>No activity</div>
+                <div style={{ fontSize: 12, color: '#64748B' }}>{t('reports.noActivity')}</div>
             ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <tbody>
@@ -382,7 +387,7 @@ function CashFlowBucket({ title, bucket, onCashLineClick }) {
                                 }
                             >
                                 <td style={{ padding: '3px 0', color: '#065F46' }}>↑ {r.description || r.journalType}</td>
-                                <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 600 }}>{money(r.amount)}</td>
+                                <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 600 }}>{m(r.amount)}</td>
                             </tr>
                         ))}
                         {bucket.outflows.map((r, i) => (
@@ -404,14 +409,14 @@ function CashFlowBucket({ title, bucket, onCashLineClick }) {
                                 }
                             >
                                 <td style={{ padding: '3px 0', color: '#B45309' }}>↓ {r.description || r.journalType}</td>
-                                <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 600 }}>({money(r.amount)})</td>
+                                <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 600 }}>({m(r.amount)})</td>
                             </tr>
                         ))}
                     </tbody>
                     <tfoot>
                         <tr style={{ borderTop: '1px solid #E2E8F0' }}>
-                            <td style={{ padding: '6px 0', fontWeight: 800 }}>Net {title.toLowerCase()}</td>
-                            <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 800, color: bucket.net >= 0 ? '#065F46' : '#B91C1C' }}>{money(bucket.net)}</td>
+                            <td style={{ padding: '6px 0', fontWeight: 800 }}>{t('reports.netOf', { title: title.toLowerCase() })}</td>
+                            <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 800, color: bucket.net >= 0 ? '#065F46' : '#B91C1C' }}>{m(bucket.net)}</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -420,7 +425,7 @@ function CashFlowBucket({ title, bucket, onCashLineClick }) {
     );
 }
 
-function CashFlowInsights({ insights }) {
+function CashFlowInsights({ insights, t }) {
     const list = Array.isArray(insights) ? insights : [];
     if (!list.length) return null;
     const tone = {
@@ -431,7 +436,7 @@ function CashFlowInsights({ insights }) {
     return (
         <div style={{ marginBottom: 16 }}>
             <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 800, color: '#0F172A' }}>
-                Performance insights
+                {t('reports.insights')}
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {list.map((item, i) => {
@@ -454,7 +459,7 @@ function CashFlowInsights({ insights }) {
                             </div>
                             {item.action ? (
                                 <div style={{ fontSize: 11, color: '#64748B', marginTop: 6, fontStyle: 'italic' }}>
-                                    Suggested action: {item.action}
+                                    {t('reports.suggestedAction', { action: item.action })}
                                 </div>
                             ) : null}
                         </div>
@@ -465,7 +470,8 @@ function CashFlowInsights({ insights }) {
     );
 }
 
-function IndirectCashFlowSection({ indirect }) {
+function IndirectCashFlowSection({ indirect, locale, t }) {
+    const m = (v) => money(v, 'SAR', { locale });
     if (!indirect) return null;
     const lineRow = (label, amount, bold = false) => (
         <div
@@ -479,21 +485,21 @@ function IndirectCashFlowSection({ indirect }) {
         >
             <span style={{ color: '#475569' }}>{label}</span>
             <span style={{ color: amount >= 0 ? '#065F46' : '#B91C1C' }}>
-                {amount < 0 ? `(${money(Math.abs(amount))})` : money(amount)}
+                {amount < 0 ? `(${m(Math.abs(amount))})` : m(amount)}
             </span>
         </div>
     );
     return (
         <div>
-            <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 800 }}>Cash flows from operating activities</h4>
-            {lineRow('Net income (from Profit & Loss)', indirect.netIncome)}
+            <h4 style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 800 }}>{t('reports.cfOperating')}</h4>
+            {lineRow(t('reports.netIncomeFromPl'), indirect.netIncome)}
             {(indirect.adjustments ?? []).map((a, i) => (
                 <div key={`adj-${i}`}>{lineRow(a.label, a.amount)}</div>
             ))}
             {(indirect.workingCapitalChanges ?? []).length > 0 ? (
                 <>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', margin: '8px 0 4px' }}>
-                        Changes in working capital
+                        {t('reports.wcChanges')}
                     </div>
                     {indirect.workingCapitalChanges.map((w, i) => (
                         <div key={`wc-${i}`}>{lineRow(w.label, w.amount)}</div>
@@ -501,25 +507,25 @@ function IndirectCashFlowSection({ indirect }) {
                 </>
             ) : null}
             <div style={{ borderTop: '1px solid #E2E8F0', marginTop: 8, paddingTop: 6 }}>
-                {lineRow('Net cash from operating activities', indirect.netCashFromOperating, true)}
+                {lineRow(t('reports.netCashOperating'), indirect.netCashFromOperating, true)}
             </div>
             {Math.abs(indirect.reconciliationDifference ?? 0) > 0.5 ? (
                 <p style={{ fontSize: 11, color: '#64748B', margin: '6px 0 0' }}>
-                    Reconciliation vs direct operating total: {money(indirect.directOperatingNet)} (difference{' '}
-                    {money(indirect.reconciliationDifference)})
+                    {t('reports.reconVsDirect', { direct: m(indirect.directOperatingNet), diff: m(indirect.reconciliationDifference) })}
                 </p>
             ) : null}
 
-            <h4 style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 800 }}>Cash flows from investing activities</h4>
-            {lineRow(indirect.investing?.description || 'Net investing', indirect.investing?.net ?? 0, true)}
+            <h4 style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 800 }}>{t('reports.cfInvesting')}</h4>
+            {lineRow(indirect.investing?.description || t('reports.netInvesting'), indirect.investing?.net ?? 0, true)}
 
-            <h4 style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 800 }}>Cash flows from financing activities</h4>
-            {lineRow(indirect.financing?.description || 'Net financing', indirect.financing?.net ?? 0, true)}
+            <h4 style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 800 }}>{t('reports.cfFinancing')}</h4>
+            {lineRow(indirect.financing?.description || t('reports.netFinancing'), indirect.financing?.net ?? 0, true)}
         </div>
     );
 }
 
-function CashFlow() {
+function CashFlow({ locale, t }) {
+    const m = (v) => money(v, 'SAR', { locale });
     const navigate = useNavigate();
     const openLedger = useCallback(
         (accountId) => {
@@ -546,11 +552,11 @@ function CashFlow() {
             const res = await getSupplierCashFlow({ dateFrom, dateTo, method });
             setData(res);
         } catch (e) {
-            setErr(e?.message || 'Failed to load cash flow');
+            setErr(e?.message || t('reports.err.cf'));
         } finally {
             setLoading(false);
         }
-    }, [dateFrom, dateTo, method]);
+    }, [dateFrom, dateTo, method, t]);
 
     useEffect(() => {
         load();
@@ -570,34 +576,34 @@ function CashFlow() {
                     gap: 10,
                 }}
             >
-                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={setRange} />
+                <DateRangePicker dateFrom={dateFrom} dateTo={dateTo} onChange={setRange} t={t} />
                 <div>
                     <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>
-                        Cash flow method
+                        {t('reports.cfMethod')}
                     </div>
                     <select
                         style={{ ...inputStyle, minWidth: 200 }}
                         value={method}
                         onChange={(e) => setMethod(e.target.value)}
                     >
-                        <option value="direct">Direct method</option>
-                        <option value="indirect">Indirect method</option>
+                        <option value="direct">{t('reports.directMethod')}</option>
+                        <option value="indirect">{t('reports.indirectMethod')}</option>
                     </select>
                 </div>
             </div>
             <p style={{ fontSize: 12, color: '#64748B', marginBottom: 12 }}>
                 {isIndirect
-                    ? 'Indirect method — starts with net income, then adjusts for working capital (AR, inventory, AP, VAT) to explain cash from operations.'
-                    : 'Direct method — lists actual cash receipts and payments on bank/cash accounts by activity.'}
+                    ? t('reports.indirectHint')
+                    : t('reports.directHint')}
             </p>
             <AcctError message={err} />
             {loading ? (
-                <AcctLoading />
+                <AcctLoading locale={locale} />
             ) : !data ? (
-                <AcctEmpty message="No data" />
+                <AcctEmpty message={t('reports.noData')} />
             ) : (
                 <div>
-                    <CashFlowInsights insights={data.insights} />
+                    <CashFlowInsights insights={data.insights} t={t} />
                     <div
                         style={{
                             display: 'flex',
@@ -608,27 +614,33 @@ function CashFlow() {
                             marginBottom: 12,
                         }}
                     >
-                        <span style={{ fontSize: 13, color: '#475569' }}>Opening cash</span>
-                        <span style={{ fontWeight: 700 }}>{money(data.openingCash)}</span>
+                        <span style={{ fontSize: 13, color: '#475569' }}>{t('reports.openingCash')}</span>
+                        <span style={{ fontWeight: 700 }}>{m(data.openingCash)}</span>
                     </div>
                     {isIndirect ? (
-                        <IndirectCashFlowSection indirect={data.indirect} />
+                        <IndirectCashFlowSection indirect={data.indirect} locale={locale} t={t} />
                     ) : (
                         <>
                             <CashFlowBucket
-                                title="Operating Activities"
+                                title={t('reports.operatingAct')}
                                 bucket={data.operating}
                                 onCashLineClick={openLedger}
+                                locale={locale}
+                                t={t}
                             />
                             <CashFlowBucket
-                                title="Investing Activities"
+                                title={t('reports.investingAct')}
                                 bucket={data.investing}
                                 onCashLineClick={openLedger}
+                                locale={locale}
+                                t={t}
                             />
                             <CashFlowBucket
-                                title="Financing Activities"
+                                title={t('reports.financingAct')}
                                 bucket={data.financing}
                                 onCashLineClick={openLedger}
+                                locale={locale}
+                                t={t}
                             />
                         </>
                     )}
@@ -641,13 +653,13 @@ function CashFlow() {
                             fontWeight: 700,
                         }}
                     >
-                        <span>Net change in cash</span>
+                        <span>{t('reports.netChangeCash')}</span>
                         <span
                             style={{
                                 color: data.netChange >= 0 ? '#065F46' : '#B91C1C',
                             }}
                         >
-                            {money(data.netChange)}
+                            {m(data.netChange)}
                         </span>
                     </div>
                     <div
@@ -660,8 +672,8 @@ function CashFlow() {
                             fontSize: 16,
                         }}
                     >
-                        <span>Closing cash</span>
-                        <span>{money(data.closingCash)}</span>
+                        <span>{t('reports.closingCash')}</span>
+                        <span>{m(data.closingCash)}</span>
                     </div>
                 </div>
             )}
@@ -669,26 +681,31 @@ function CashFlow() {
     );
 }
 
-export default function SupplierAccountingReports({ initialTab = 'tb' }) {
+export default function SupplierAccountingReports({ initialTab = 'tb', locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const [tab, setTab] = useState(initialTab);
     return (
         <div style={{ padding: 4 }}>
             <AcctCard
-                title="Financial Statements"
+                title={t('reports.title')}
                 action={(
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {REPORT_TABS.map((t) => (
-                            <button key={t.id} type="button" style={tab === t.id ? primaryBtnStyle : outlineBtnStyle} onClick={() => setTab(t.id)}>
-                                {t.label}
+                        {REPORT_TAB_KEYS.map((item) => (
+                            <button key={item.id} type="button" style={tab === item.id ? primaryBtnStyle : outlineBtnStyle} onClick={() => setTab(item.id)}>
+                                {t(item.key)}
                             </button>
                         ))}
                     </div>
                 )}
             >
-                {tab === 'tb' && <TrialBalance />}
-                {tab === 'pl' && <ProfitLoss />}
-                {tab === 'bs' && <BalanceSheet />}
-                {tab === 'cf' && <CashFlow />}
+                {tab === 'tb' && <TrialBalance locale={locale} t={t} />}
+                {tab === 'pl' && <ProfitLoss locale={locale} t={t} />}
+                {tab === 'bs' && <BalanceSheet locale={locale} t={t} />}
+                {tab === 'cf' && <CashFlow locale={locale} t={t} />}
             </AcctCard>
         </div>
     );

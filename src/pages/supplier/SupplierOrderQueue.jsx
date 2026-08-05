@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Package } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
@@ -17,25 +17,24 @@ import {
     unwrapWorkshopSupplierPurchaseInvoiceList,
 } from '../../services/workshopSupplierPurchaseInvoices';
 import WorkshopPurchaseInvoicesSupplierPanel from './WorkshopPurchaseInvoicesSupplierPanel';
+import { soqT } from '../../utils/supplierOrderQueueI18n';
 
-const PIPELINE_STAGES = [
-    { id: 'pending_acceptance', label: 'Pending Acceptance', badge: 'yellow' },
-    { id: 'accepted', label: 'Accepted', badge: 'dark' },
-    { id: 'processing', label: 'Processing', badge: 'yellow' },
-    { id: 'ready_to_dispatch', label: 'Ready to Dispatch', badge: 'dark' },
-    { id: 'dispatched', label: 'Dispatched / On Way', badge: 'yellow' },
-    { id: 'delivered', label: 'Delivered', badge: 'dark' },
+const PIPELINE_STAGE_DEFS = [
+    { id: 'pending_acceptance', labelKey: 'stage.pendingAcceptance', badge: 'yellow' },
+    { id: 'accepted', labelKey: 'stage.accepted', badge: 'dark' },
+    { id: 'processing', labelKey: 'stage.processing', badge: 'yellow' },
+    { id: 'ready_to_dispatch', labelKey: 'stage.readyToDispatch', badge: 'dark' },
+    { id: 'dispatched', labelKey: 'stage.dispatched', badge: 'yellow' },
+    { id: 'delivered', labelKey: 'stage.delivered', badge: 'dark' },
 ];
 
-const ORDER_STATUS_BADGE = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.id, s.badge]));
-
-const STATUS_LABEL = Object.fromEntries(PIPELINE_STAGES.map(s => [s.id, s.label]));
+const ORDER_STATUS_BADGE = Object.fromEntries(PIPELINE_STAGE_DEFS.map((s) => [s.id, s.badge]));
 
 /** Workshop purchase requests: pending → approved → sales invoice (no fulfillment pipeline). */
 const WPI_WORKSHOP_ORDER_STAGES = [
-    { id: 'pending_acceptance', label: 'Pending approval', api: 'pending' },
-    { id: 'accepted', label: 'Approved', api: 'approved' },
-    { id: 'rejected', label: 'Rejected', api: 'rejected' },
+    { id: 'pending_acceptance', labelKey: 'seg.pendingApproval', api: 'pending' },
+    { id: 'accepted', labelKey: 'seg.approved', api: 'approved' },
+    { id: 'rejected', labelKey: 'seg.rejected', api: 'rejected' },
 ];
 
 /** Maps workshop PI API status → simplified Order Queue bucket. */
@@ -55,7 +54,17 @@ function wpiStatusToPipelineId(status) {
     return null;
 }
 
-export default function SupplierOrderQueue() {
+function formatMoney(t, amount) {
+    return t('money.sar', { amount: Number(amount || 0).toLocaleString() });
+}
+
+export default function SupplierOrderQueue({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => soqT(locale, key, vars), [locale]);
+
     /** Purchase-order queue vs full workshop purchase invoice list (same APIs as Finance → Workshop purchases). */
     const [segment, setSegment] = useState('wpi_all');
     const [wpiTotal, setWpiTotal] = useState(null);
@@ -71,6 +80,14 @@ export default function SupplierOrderQueue() {
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [viewLoading, setViewLoading] = useState(false);
 
+    const statusLabelMap = useMemo(
+        () =>
+            Object.fromEntries(
+                PIPELINE_STAGE_DEFS.map((s) => [s.id, t(s.labelKey)]),
+            ),
+        [t],
+    );
+
     const normalizeStatus = (status) => {
         if (status === 'ready_to_deliver') return 'ready_to_dispatch';
         if (status === 'on_the_way') return 'dispatched';
@@ -84,7 +101,7 @@ export default function SupplierOrderQueue() {
         return status;
     };
 
-    const reloadOrders = async () => {
+    const reloadOrders = useCallback(async () => {
         setLoading(true);
         setApiError('');
         try {
@@ -94,34 +111,41 @@ export default function SupplierOrderQueue() {
                 : Array.isArray(res?.data?.purchaseOrders)
                   ? res.data.purchaseOrders
                   : [];
-            const list = rows.map((po) => ({
-                      ...po,
-                      id: String(po.id ?? ''),
-                      branch: po.branch?.name || '-',
-                      requested: po.createdAt ? po.createdAt.slice(0, 16).replace('T', ' ') : '-',
-                      items: Array.isArray(po.items) ? po.items.length : 0,
-                      total: `SAR ${(Array.isArray(po.items) ? po.items.reduce((sum, i) => sum + Number(i.lineTotal || 0), 0) : 0).toLocaleString()}`,
-                      status: normalizeStatus(po.status),
-                  }));
+            const list = rows.map((po) => {
+                const itemsTotal = Array.isArray(po.items)
+                    ? po.items.reduce((sum, i) => sum + Number(i.lineTotal || 0), 0)
+                    : 0;
+                return {
+                    ...po,
+                    id: String(po.id ?? ''),
+                    branch: po.branch?.name || t('emdash'),
+                    requested: po.createdAt
+                        ? po.createdAt.slice(0, 16).replace('T', ' ')
+                        : t('emdash'),
+                    items: Array.isArray(po.items) ? po.items.length : 0,
+                    total: formatMoney(t, itemsTotal),
+                    status: normalizeStatus(po.status),
+                };
+            });
             setOrders(list);
         } catch (err) {
             console.error('Supplier order queue API failed:', err);
             setOrders([]);
-            setApiError(err?.message || 'Failed to load orders');
+            setApiError(err?.message || t('error.load'));
         } finally {
             setLoading(false);
         }
-    };
+    }, [t]);
 
     useEffect(() => {
         reloadOrders();
-    }, []);
+    }, [reloadOrders]);
 
     const reloadWpiCounts = useCallback(async () => {
         try {
             const res = await listSupplierWorkshopPurchaseInvoices({ limit: 500, offset: 0 });
-            const t = res?.total ?? res?.data?.total;
-            setWpiTotal(t != null ? Number(t) : null);
+            const total = res?.total ?? res?.data?.total;
+            setWpiTotal(total != null ? Number(total) : null);
             const list = unwrapWorkshopSupplierPurchaseInvoiceList(res ?? {});
             setWpiRowsForCounts(list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean));
         } catch {
@@ -134,7 +158,8 @@ export default function SupplierOrderQueue() {
         reloadWpiCounts();
     }, [reloadWpiCounts]);
 
-    const setStatus = (id, status) => setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o));
+    const setStatus = (id, status) =>
+        setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)));
     const accept = async (id) => {
         setStatus(id, 'accepted');
         try {
@@ -149,7 +174,7 @@ export default function SupplierOrderQueue() {
         try {
             await updateSupplierPurchaseOrderStatus(id, {
                 status: mapToApiStatus('processing'),
-                notes: 'Processing started',
+                notes: t('notes.processing'),
             });
         } catch (err) {
             console.error('Update PO status failed:', err);
@@ -161,7 +186,7 @@ export default function SupplierOrderQueue() {
         try {
             await updateSupplierPurchaseOrderStatus(id, {
                 status: mapToApiStatus('ready_to_dispatch'),
-                notes: 'Packed and ready for dispatch',
+                notes: t('notes.ready'),
             });
         } catch (err) {
             console.error('Update PO status failed:', err);
@@ -173,7 +198,7 @@ export default function SupplierOrderQueue() {
         try {
             await updateSupplierPurchaseOrderStatus(id, {
                 status: mapToApiStatus('dispatched'),
-                notes: 'Order dispatched',
+                notes: t('notes.dispatched'),
             });
         } catch (err) {
             console.error('Update PO status failed:', err);
@@ -185,7 +210,7 @@ export default function SupplierOrderQueue() {
         try {
             await updateSupplierPurchaseOrderStatus(id, {
                 status: mapToApiStatus('delivered'),
-                notes: 'Order delivered successfully',
+                notes: t('notes.delivered'),
             });
         } catch (err) {
             console.error('Update PO status failed:', err);
@@ -193,9 +218,9 @@ export default function SupplierOrderQueue() {
         }
     };
     const reject = async (id) => {
-        setOrders(prev => prev.filter(o => o.id !== id));
+        setOrders((prev) => prev.filter((o) => o.id !== id));
         try {
-            await rejectSupplierPurchaseOrder(id, { reason: 'Rejected by supplier' });
+            await rejectSupplierPurchaseOrder(id, { reason: t('notes.rejectReason') });
         } catch (err) {
             console.error('Reject PO failed:', err);
             reloadOrders();
@@ -210,14 +235,19 @@ export default function SupplierOrderQueue() {
             const res = await getSupplierPurchaseOrder(order.id);
             const po = res?.purchaseOrder;
             if (po) {
+                const itemsTotal = Array.isArray(po.items)
+                    ? po.items.reduce((sum, i) => sum + Number(i.lineTotal || 0), 0)
+                    : 0;
                 setSelectedOrder({
                     ...order,
                     id: po.id || order.id,
                     branch: po.branch?.name || order.branch,
-                    requested: po.createdAt ? po.createdAt.slice(0, 16).replace('T', ' ') : order.requested,
+                    requested: po.createdAt
+                        ? po.createdAt.slice(0, 16).replace('T', ' ')
+                        : order.requested,
                     status: normalizeStatus(po.status || order.status),
                     items: Array.isArray(po.items) ? po.items : [],
-                    total: `SAR ${(Array.isArray(po.items) ? po.items.reduce((sum, i) => sum + Number(i.lineTotal || 0), 0) : 0).toLocaleString()}`,
+                    total: formatMoney(t, itemsTotal),
                     notes: po.notes || '',
                     rejectionReason: po.rejectionReason || '',
                 });
@@ -228,14 +258,6 @@ export default function SupplierOrderQueue() {
             setViewLoading(false);
         }
     };
-
-    const pipelineCounts = PIPELINE_STAGES.reduce(
-        (acc, s) => ({
-            ...acc,
-            [s.id]: orders.filter((o) => o.status === s.id).length,
-        }),
-        {},
-    );
 
     const wpiPipelineCounts = WPI_WORKSHOP_ORDER_STAGES.reduce(
         (acc, s) => ({
@@ -248,12 +270,15 @@ export default function SupplierOrderQueue() {
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Order Queue</h2><p className="ws-page-sub">Workshop branch stock requests</p></div>
+                <div>
+                    <h2 className="ws-page-title">{t('title')}</h2>
+                    <p className="ws-page-sub">{t('subtitle')}</p>
+                </div>
             </div>
 
             {apiError ? (
                 <div className="theme-alert">
-                    <strong>Could not load orders:</strong> {apiError}
+                    <strong>{t('error.couldNotLoad')}</strong> {apiError}
                 </div>
             ) : null}
 
@@ -265,13 +290,16 @@ export default function SupplierOrderQueue() {
                         setWpiListStatusFilter('');
                     }}
                     className={`theme-segmented__btn${
-                        segment === 'wpi_all' && wpiListStatusFilter === '' ? ' theme-segmented__btn--active' : ''
+                        segment === 'wpi_all' && wpiListStatusFilter === ''
+                            ? ' theme-segmented__btn--active'
+                            : ''
                     }`}
                 >
-                    {wpiTotal != null ? `All (${wpiTotal})` : 'All'}
+                    {wpiTotal != null ? t('seg.allCount', { count: wpiTotal }) : t('seg.all')}
                 </button>
                 {WPI_WORKSHOP_ORDER_STAGES.map((s) => {
                     const isActive = segment === 'wpi_all' && wpiListStatusFilter === s.api;
+                    const label = t(s.labelKey);
                     return (
                         <button
                             key={s.id}
@@ -282,7 +310,7 @@ export default function SupplierOrderQueue() {
                             }}
                             className={`theme-segmented__btn${isActive ? ' theme-segmented__btn--active' : ''}`}
                         >
-                            {s.label} ({wpiPipelineCounts[s.id]})
+                            {t('seg.stageCount', { label, count: wpiPipelineCounts[s.id] })}
                         </button>
                     );
                 })}
@@ -293,19 +321,19 @@ export default function SupplierOrderQueue() {
                     onClick={() => setSegment('po')}
                     className="theme-link-btn"
                 >
-                    Classic branch purchase orders (PO queue)
+                    {t('link.classicPo')}
                 </button>{' '}
-                — separate from workshop purchase invoices above.
+                {t('link.classicPoHint')}
             </p>
 
             {segment === 'wpi_all' ? (
                 <div style={{ marginTop: 8 }}>
                     <p style={{ margin: '0 0 12px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        Approve or reject, then <strong>Prepare sales invoice</strong> (same AR/stock/GL as Sales
-                        Invoices). Same data as <strong>Finance → Workshop purchases</strong>.
+                        {t('wpi.hint')}
                     </p>
                     <WorkshopPurchaseInvoicesSupplierPanel
                         variant="embedded"
+                        locale={locale}
                         pipelineStatusFilter={wpiListStatusFilter}
                         onListMutated={reloadWpiCounts}
                     />
@@ -317,37 +345,85 @@ export default function SupplierOrderQueue() {
             ) : segment === 'po' && orders.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
                     <Package size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }} />
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No orders in queue</p>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Workshop requests will appear here when the backend returns purchase orders.</p>
+                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                        {t('empty.title')}
+                    </p>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>
+                        {t('empty.body')}
+                    </p>
                 </div>
             ) : segment === 'po' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {orders.map(o => {
+                    {orders.map((o) => {
                         const badge = ORDER_STATUS_BADGE[o.status] || 'yellow';
-                        const label = STATUS_LABEL[o.status] || o.status;
+                        const label = statusLabelMap[o.status] || o.status;
+                        const itemsLabel =
+                            o.items === 1
+                                ? t('items.one', { count: o.items })
+                                : t('items.many', { count: o.items });
                         return (
                             <div key={o.id} className="ws-section" style={{ marginBottom: 0, padding: 20 }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'flex-start',
+                                        justifyContent: 'space-between',
+                                    }}
+                                >
                                     <div>
-                                        <p style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--color-text-dark)', margin: 0 }}>{o.id}</p>
-                                        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '2px 0 0 0' }}>{o.branch} · {o.requested}</p>
-                                        <p style={{ fontSize: '0.875rem', fontWeight: 600, margin: '8px 0 0 0', color: 'var(--color-text-dark)' }}>{o.total} · {o.items} item{o.items !== 1 ? 's' : ''}</p>
+                                        <p
+                                            style={{
+                                                fontWeight: 700,
+                                                fontSize: '0.9375rem',
+                                                color: 'var(--color-text-dark)',
+                                                margin: 0,
+                                            }}
+                                        >
+                                            {o.id}
+                                        </p>
+                                        <p
+                                            style={{
+                                                fontSize: '0.75rem',
+                                                color: 'var(--color-text-muted)',
+                                                margin: '2px 0 0 0',
+                                            }}
+                                        >
+                                            {o.branch} · {o.requested}
+                                        </p>
+                                        <p
+                                            style={{
+                                                fontSize: '0.875rem',
+                                                fontWeight: 600,
+                                                margin: '8px 0 0 0',
+                                                color: 'var(--color-text-dark)',
+                                            }}
+                                        >
+                                            {t('card.totalItems', { total: o.total, items: itemsLabel })}
+                                        </p>
                                     </div>
                                     <span className={`ws-badge ws-badge--${badge}`}>{label}</span>
                                 </div>
-                                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        gap: 8,
+                                        marginTop: 12,
+                                        flexWrap: 'wrap',
+                                        alignItems: 'center',
+                                    }}
+                                >
                                     <RowActionsMenu
-                                        ariaLabel={`Actions for order ${o.id}`}
+                                        ariaLabel={t('action.aria', { id: o.id })}
                                         items={[
-                                            { label: 'View', onClick: () => viewOrder(o) },
+                                            { label: t('action.view'), onClick: () => viewOrder(o) },
                                             ...(o.status === 'pending_acceptance'
                                                 ? [
                                                       {
-                                                          label: 'Accept',
+                                                          label: t('action.accept'),
                                                           onClick: () => accept(o.id),
                                                       },
                                                       {
-                                                          label: 'Reject',
+                                                          label: t('action.reject'),
                                                           onClick: () => reject(o.id),
                                                           danger: true,
                                                       },
@@ -356,7 +432,7 @@ export default function SupplierOrderQueue() {
                                             ...(o.status === 'accepted'
                                                 ? [
                                                       {
-                                                          label: 'Start processing',
+                                                          label: t('action.startProcessing'),
                                                           onClick: () => startProcessing(o.id),
                                                       },
                                                   ]
@@ -364,7 +440,7 @@ export default function SupplierOrderQueue() {
                                             ...(o.status === 'processing'
                                                 ? [
                                                       {
-                                                          label: 'Ready to dispatch',
+                                                          label: t('action.readyToDispatch'),
                                                           onClick: () => markReadyToDispatch(o.id),
                                                       },
                                                   ]
@@ -372,7 +448,7 @@ export default function SupplierOrderQueue() {
                                             ...(o.status === 'ready_to_dispatch'
                                                 ? [
                                                       {
-                                                          label: 'Dispatch',
+                                                          label: t('action.dispatch'),
                                                           onClick: () => dispatch(o.id),
                                                       },
                                                   ]
@@ -380,7 +456,7 @@ export default function SupplierOrderQueue() {
                                             ...(o.status === 'dispatched'
                                                 ? [
                                                       {
-                                                          label: 'Mark delivered',
+                                                          label: t('action.markDelivered'),
                                                           onClick: () => markDelivered(o.id),
                                                       },
                                                   ]
@@ -396,7 +472,7 @@ export default function SupplierOrderQueue() {
             <AnimatePresence>
                 {viewModalOpen && selectedOrder && (
                     <Modal
-                        title={`Order Detail — ${selectedOrder.id}`}
+                        title={t('modal.title', { id: selectedOrder.id })}
                         onClose={() => {
                             setViewModalOpen(false);
                             setSelectedOrder(null);
@@ -404,8 +480,11 @@ export default function SupplierOrderQueue() {
                         width="700px"
                         footer={
                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                <button className="btn-portal-outline" onClick={() => setViewModalOpen(false)}>
-                                    Close
+                                <button
+                                    className="btn-portal-outline"
+                                    onClick={() => setViewModalOpen(false)}
+                                >
+                                    {t('modal.close')}
                                 </button>
                             </div>
                         }
@@ -417,39 +496,79 @@ export default function SupplierOrderQueue() {
                         ) : (
                             <div style={{ display: 'grid', gap: 12 }}>
                                 <div className="ws-section" style={{ marginBottom: 0, padding: 12 }}>
-                                    <p style={{ margin: 0, fontSize: '0.8125rem' }}><strong>Branch:</strong> {selectedOrder.branch || '-'}</p>
-                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}><strong>Requested At:</strong> {selectedOrder.requested || '-'}</p>
-                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}><strong>Status:</strong> {selectedOrder.status || '-'}</p>
-                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}><strong>Total:</strong> {selectedOrder.total || '-'}</p>
-                                    {selectedOrder.notes ? <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}><strong>Notes:</strong> {selectedOrder.notes}</p> : null}
-                                    {selectedOrder.rejectionReason ? <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}><strong>Rejection:</strong> {selectedOrder.rejectionReason}</p> : null}
+                                    <p style={{ margin: 0, fontSize: '0.8125rem' }}>
+                                        <strong>{t('modal.branch')}</strong>{' '}
+                                        {selectedOrder.branch || t('emdash')}
+                                    </p>
+                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}>
+                                        <strong>{t('modal.requestedAt')}</strong>{' '}
+                                        {selectedOrder.requested || t('emdash')}
+                                    </p>
+                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}>
+                                        <strong>{t('modal.status')}</strong>{' '}
+                                        {statusLabelMap[selectedOrder.status] ||
+                                            selectedOrder.status ||
+                                            t('emdash')}
+                                    </p>
+                                    <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}>
+                                        <strong>{t('modal.total')}</strong>{' '}
+                                        {selectedOrder.total || t('emdash')}
+                                    </p>
+                                    {selectedOrder.notes ? (
+                                        <p style={{ margin: '6px 0 0 0', fontSize: '0.8125rem' }}>
+                                            <strong>{t('modal.notes')}</strong> {selectedOrder.notes}
+                                        </p>
+                                    ) : null}
+                                    {selectedOrder.rejectionReason ? (
+                                        <p
+                                            style={{
+                                                margin: '6px 0 0 0',
+                                                fontSize: '0.8125rem',
+                                                color: 'var(--color-text-muted)',
+                                            }}
+                                        >
+                                            <strong>{t('modal.rejection')}</strong>{' '}
+                                            {selectedOrder.rejectionReason}
+                                        </p>
+                                    ) : null}
                                 </div>
                                 <div className="ws-section" style={{ marginBottom: 0, padding: 12 }}>
-                                    <p style={{ margin: '0 0 8px 0', fontWeight: 700, fontSize: '0.8125rem' }}>Items</p>
-                                    {Array.isArray(selectedOrder.items) && selectedOrder.items.length > 0 ? (
+                                    <p style={{ margin: '0 0 8px 0', fontWeight: 700, fontSize: '0.8125rem' }}>
+                                        {t('modal.items')}
+                                    </p>
+                                    {Array.isArray(selectedOrder.items) &&
+                                    selectedOrder.items.length > 0 ? (
                                         <table className="ws-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Product</th>
-                                                    <th>Qty</th>
-                                                    <th>Unit Price</th>
-                                                    <th>Total</th>
+                                                    <th>{t('modal.th.product')}</th>
+                                                    <th>{t('modal.th.qty')}</th>
+                                                    <th>{t('modal.th.unitPrice')}</th>
+                                                    <th>{t('modal.th.total')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {selectedOrder.items.map((it) => (
                                                     <tr key={it.id || `${it.supplierProductId}-${it.qty}`}>
-                                                        <td>{it.supplierProductName || '-'}</td>
-                                                        <td>{it.qty || '-'}</td>
-                                                        <td>{it.unitPrice || '-'}</td>
-                                                        <td>{it.lineTotal || '-'}</td>
+                                                        <td>
+                                                            {it.supplierProductName || t('emdash')}
+                                                        </td>
+                                                        <td>{it.qty || t('emdash')}</td>
+                                                        <td>{it.unitPrice || t('emdash')}</td>
+                                                        <td>{it.lineTotal || t('emdash')}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>
                                         </table>
                                     ) : (
-                                        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                            No line items available for this order.
+                                        <p
+                                            style={{
+                                                margin: 0,
+                                                fontSize: '0.8125rem',
+                                                color: 'var(--color-text-muted)',
+                                            }}
+                                        >
+                                            {t('modal.noItems')}
                                         </p>
                                     )}
                                 </div>

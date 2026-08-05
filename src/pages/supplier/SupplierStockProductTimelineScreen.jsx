@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { FileSpreadsheet, FileText } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import {
@@ -6,6 +6,7 @@ import {
     formatSupplierTimelineSourceRef,
 } from './supplierInventoryTimelineUtils';
 import { exportTimelineExcel, exportTimelinePdf } from './supplierInventoryExport';
+import { sstockT } from '../../utils/supplierStockI18n';
 
 const exportToolbarBtnStyle = {
     display: 'inline-flex',
@@ -54,7 +55,13 @@ export default function SupplierStockProductTimelineScreen({
     error = '',
     locationSummary = () => '—',
     onBack,
+    locale: localeProp,
 }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sstockT(locale, key, vars), [locale]);
     const showRefCol = useMemo(
         () => entries.some((e) => e.source !== 'manual' || e.reference?.id || e.invoiceNo),
         [entries],
@@ -76,9 +83,9 @@ export default function SupplierStockProductTimelineScreen({
 
     return (
         <WorkshopSubScreen
-            title="Inventory stock timeline"
-            subtitle={product?.name || 'Product'}
-            backLabel="Back to Stock Inventory"
+            title={t("timeline.title")}
+            subtitle={product?.name || t('fallback.product')}
+            backLabel={t("timeline.back")}
             onBack={onBack}
             size="xl"
         >
@@ -101,15 +108,17 @@ export default function SupplierStockProductTimelineScreen({
                             margin: '0 0 6px',
                         }}
                     >
-                        Product
+                        {t("timeline.product")}
                     </p>
                     <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
                         {product?.name || '—'}
                     </h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        SKU: <strong>{product?.sku || '—'}</strong> · Opening (adoption):{' '}
-                        <strong>{fmtQty(product?.openingAdoption)}</strong> · Current stock:{' '}
-                        <strong>{currentStockDisplay}</strong>
+                        {t('timeline.meta', {
+                            sku: product?.sku || t('emdash'),
+                            opening: fmtQty(product?.openingAdoption),
+                            stock: currentStockDisplay,
+                        })}
                     </p>
                     <p style={{ margin: '6px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                         {locationSummary(stockRow || product)}
@@ -127,12 +136,12 @@ export default function SupplierStockProductTimelineScreen({
                             disabled={exportDisabled}
                             title={
                                 loading
-                                    ? 'Loading…'
+                                    ? t('timeline.loading')
                                     : error
-                                      ? 'Fix load error before export'
+                                      ? t('timeline.errExport')
                                       : !entries.length
-                                        ? 'No timeline rows to export'
-                                        : 'Download spreadsheet (.xlsx)'
+                                        ? t('timeline.noRows')
+                                        : t('export.xlsx')
                             }
                             onClick={() => exportTimelineExcel(product, entries, exportFilename)}
                             style={{
@@ -141,19 +150,19 @@ export default function SupplierStockProductTimelineScreen({
                                 cursor: exportDisabled ? 'not-allowed' : 'pointer',
                             }}
                         >
-                            <FileSpreadsheet size={14} aria-hidden /> Excel
+                            <FileSpreadsheet size={14} aria-hidden /> {t("btn.excel")}
                         </button>
                         <button
                             type="button"
                             disabled={exportDisabled}
                             title={
                                 loading
-                                    ? 'Loading…'
+                                    ? t('timeline.loading')
                                     : error
-                                      ? 'Fix load error before export'
+                                      ? t('timeline.errExport')
                                       : !entries.length
-                                        ? 'No timeline rows to export'
-                                        : 'Download PDF'
+                                        ? t('timeline.noRows')
+                                        : t('export.pdf')
                             }
                             onClick={() => exportTimelinePdf(product, entries, exportFilename)}
                             style={{
@@ -162,7 +171,7 @@ export default function SupplierStockProductTimelineScreen({
                                 cursor: exportDisabled ? 'not-allowed' : 'pointer',
                             }}
                         >
-                            <FileText size={14} aria-hidden /> PDF
+                            <FileText size={14} aria-hidden /> {t("btn.pdf")}
                         </button>
                     </div>
                 </div>
@@ -192,7 +201,7 @@ export default function SupplierStockProductTimelineScreen({
                             fontSize: '0.875rem',
                         }}
                     >
-                        Loading history…
+                        {t("timeline.loadingHistory")}
                     </p>
                 ) : !entries.length ? (
                     <p
@@ -204,7 +213,7 @@ export default function SupplierStockProductTimelineScreen({
                             fontSize: '0.875rem',
                         }}
                     >
-                        No timeline entries yet for this product.
+                        {t("timeline.empty")}
                     </p>
                 ) : (
                     <div
@@ -223,14 +232,14 @@ export default function SupplierStockProductTimelineScreen({
                         >
                             <thead>
                                 <tr style={{ background: '#F9FAFB' }}>
-                                    <th style={thStyle}>When</th>
-                                    <th style={thRight}>From (warehouse)</th>
-                                    <th style={thRight}>To (warehouse)</th>
-                                    <th style={thRight}>Δ (warehouse)</th>
-                                    <th style={thRight}>Workshop equiv.</th>
-                                    <th style={thStyle}>Reason</th>
-                                    {showRefCol ? <th style={thStyle}>Source / Ref</th> : null}
-                                    {showByCol ? <th style={thStyle}>By</th> : null}
+                                    <th style={thStyle}>{t("th.when")}</th>
+                                    <th style={thRight}>{t("th.fromWh")}</th>
+                                    <th style={thRight}>{t("th.toWh")}</th>
+                                    <th style={thRight}>{t("th.deltaWh")}</th>
+                                    <th style={thRight}>{t("th.wsEquiv")}</th>
+                                    <th style={thStyle}>{t("th.reason")}</th>
+                                    {showRefCol ? <th style={thStyle}>{t("th.sourceRef")}</th> : null}
+                                    {showByCol ? <th style={thStyle}>{t("th.by")}</th> : null}
                                 </tr>
                             </thead>
                             <tbody>

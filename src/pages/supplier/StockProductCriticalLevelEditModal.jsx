@@ -1,12 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Modal from '../../components/Modal';
 import { getSupplierProduct, updateSupplierProduct } from '../../services/supplierApi';
+import { sstockT } from '../../utils/supplierStockI18n';
 
 export default function StockProductCriticalLevelEditModal({
     product,
     onClose,
     onSaved,
+    locale: localeProp,
 }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sstockT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -47,7 +54,7 @@ export default function StockProductCriticalLevelEditModal({
                 );
             } catch (ex) {
                 if (!cancelled) {
-                    setError(ex?.message || 'Could not load product');
+                    setError(ex?.message || t('cl.errLoad'));
                     setCriticalLevel(
                         product.criticalLevel != null
                             ? String(product.criticalLevel)
@@ -73,7 +80,7 @@ export default function StockProductCriticalLevelEditModal({
             onSaved?.();
             onClose?.();
         } catch (ex) {
-            setError(ex?.message || 'Failed to clear critical level');
+            setError(ex?.message || t('cl.errClear'));
         } finally {
             setSaving(false);
         }
@@ -83,12 +90,12 @@ export default function StockProductCriticalLevelEditModal({
         e.preventDefault();
         const raw = String(criticalLevel ?? '').trim();
         if (raw === '') {
-            setError('Enter a critical level, or use Clear to remove it.');
+            setError(t('cl.errEmpty'));
             return;
         }
         const n = Number(raw);
         if (!Number.isFinite(n) || n < 0) {
-            setError('Enter a valid critical level (0 or greater).');
+            setError(t('cl.errValid'));
             return;
         }
         setSaving(true);
@@ -100,7 +107,7 @@ export default function StockProductCriticalLevelEditModal({
             onSaved?.();
             onClose?.();
         } catch (ex) {
-            setError(ex?.message || 'Failed to update critical level');
+            setError(ex?.message || t('cl.errUpdate'));
         } finally {
             setSaving(false);
         }
@@ -124,7 +131,7 @@ export default function StockProductCriticalLevelEditModal({
 
     return (
         <Modal
-            title="Edit critical level"
+            title={t("cl.title")}
             width="480px"
             onClose={() => !saving && onClose?.()}
             disableClose={saving}
@@ -135,16 +142,15 @@ export default function StockProductCriticalLevelEditModal({
                     {product.sku ? ` · ${product.sku}` : ''}
                 </p>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                    When warehouse stock falls to or below this level, the product is flagged as
-                    critical on this page.
+                    {t("cl.hint")}
                 </p>
 
                 {loading ? (
-                    <p style={{ margin: 0 }}>Loading…</p>
+                    <p style={{ margin: 0 }}>{t("cl.loading")}</p>
                 ) : (
                     <div className="pi-field">
                         <label htmlFor="stock-critical-level">
-                            Critical level ({wh})
+                            {t("cl.label", { unit: wh })}
                         </label>
                         <input
                             id="stock-critical-level"
@@ -153,11 +159,11 @@ export default function StockProductCriticalLevelEditModal({
                             step="any"
                             value={criticalLevel}
                             onChange={(e) => setCriticalLevel(e.target.value)}
-                            placeholder="e.g. 10"
+                            placeholder={t("cl.ph")}
                         />
                         {previewWs != null ? (
                             <span className="pi-sub-label">
-                                ≈ {previewWs} {ws} in workshop units
+                                {t("cl.preview", { qty: previewWs, unit: ws })}
                             </span>
                         ) : null}
                     </div>
@@ -174,7 +180,7 @@ export default function StockProductCriticalLevelEditModal({
                         disabled={saving || loading}
                         onClick={handleClear}
                     >
-                        Clear
+                        {t("cl.clear")}
                     </button>
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button
@@ -183,10 +189,10 @@ export default function StockProductCriticalLevelEditModal({
                             disabled={saving}
                             onClick={onClose}
                         >
-                            Cancel
+                            {t('btn.cancel')}
                         </button>
                         <button type="submit" className="mgr-si-btn-new" disabled={saving || loading}>
-                            {saving ? 'Saving…' : 'Save'}
+                            {saving ? t('btn.saving') : t('btn.save')}
                         </button>
                     </div>
                 </div>

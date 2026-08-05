@@ -56,6 +56,7 @@ import {
     exportStockInventoryExcel,
     exportStockInventoryPdf,
 } from './supplierInventoryExport';
+import { sstockT } from '../../utils/supplierStockI18n';
 
 function fmtQty(n) {
     if (n == null || !Number.isFinite(Number(n))) return '—';
@@ -90,7 +91,12 @@ const exportToolbarBtnStyle = {
     color: 'var(--color-text-dark)',
 };
 
-export default function SupplierStockInventory() {
+export default function SupplierStockInventory({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sstockT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const [stock, setStock] = useState([]);
     const [stockTotal, setStockTotal] = useState(0);
@@ -351,7 +357,7 @@ export default function SupplierStockInventory() {
                 setMovementHistory([]);
                 setWarehouseQtyByProductId({});
                 setProductUomByProductId({});
-                setApiError(err?.message || 'Failed to load stock');
+                setApiError(err?.message || t('err.loadStock'));
             }
         } finally {
             if (!silent) {
@@ -381,7 +387,7 @@ export default function SupplierStockInventory() {
             setInventoryItems(Array.isArray(products) ? products : []);
         } catch (e) {
             setInventoryItems([]);
-            setItemsError(e?.message || 'Failed to load inventory items');
+            setItemsError(e?.message || t('err.loadItems'));
         } finally {
             setItemsLoading(false);
         }
@@ -410,7 +416,7 @@ export default function SupplierStockInventory() {
             const uom = productUomByProductId[String(productId)] || {};
             setTimelineEntries(mapSupplierHistoryToTimelineEntries(hist, currentQty, uom));
         } catch (e) {
-            setTimelineError(e?.message || 'Failed to load timeline.');
+            setTimelineError(e?.message || t('err.loadTimeline'));
             setTimelineEntries([]);
         } finally {
             setTimelineLoading(false);
@@ -478,7 +484,7 @@ export default function SupplierStockInventory() {
             setStock((prev) => prev.filter((p) => String(p.id) !== String(row.id)));
             await loadStock({ silent: true });
         } catch (e) {
-            window.alert(e?.message || 'Failed to remove item from stock');
+            window.alert(e?.message || t('err.remove'));
         } finally {
             setRemovingId(null);
         }
@@ -503,9 +509,9 @@ export default function SupplierStockInventory() {
         try {
             const autoNote =
                 adjustmentType === 'set' && newWarehouseQty === 0 && !adjustNotes.trim()
-                    ? 'Stock set to zero'
+                    ? t('adjust.zeroNote')
                     : adjustmentType === 'set' && !adjustNotes.trim()
-                      ? `Stock set to ${newWarehouseQty} ${adjustItem.warehouseUnit || 'Box'}`
+                      ? t('adjust.setNote', { qty: newWarehouseQty, unit: adjustItem.warehouseUnit || 'Box' })
                       : '';
             await setSupplierStock({
                 supplierProductId: String(adjustItem.id),
@@ -551,6 +557,7 @@ export default function SupplierStockInventory() {
                 error={timelineError}
                 locationSummary={locationSummary}
                 onBack={closeTimeline}
+                locale={locale}
             />
         );
     }
@@ -559,14 +566,14 @@ export default function SupplierStockInventory() {
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Stock Inventory</h2>
-                    <p className="ws-page-sub">Warehouse stock levels and movements</p>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
+                    <p className="ws-page-sub">{t('page.sub')}</p>
                 </div>
             </div>
 
             {apiError ? (
                 <div className="theme-alert">
-                    <strong>Could not load stock:</strong> {apiError}
+                    <strong>{t('err.couldNotLoad')}</strong> {apiError}
                 </div>
             ) : null}
 
@@ -575,13 +582,13 @@ export default function SupplierStockInventory() {
             ) : (
                 <div className="ws-kpi-grid">
                     {[
-                        { key: 'skus', label: 'TOTAL SKUS', value: totalSKUs, Icon: Package },
-                        { key: 'critical', label: 'CRITICAL', value: criticalCount, Icon: AlertTriangle },
-                        { key: 'reorder', label: 'REORDER NEEDED', value: reorderNeededCount, Icon: TrendingUp },
+                        { key: 'skus', label: t('kpi.skus'), value: totalSKUs, Icon: Package },
+                        { key: 'critical', label: t('kpi.critical'), value: criticalCount, Icon: AlertTriangle },
+                        { key: 'reorder', label: t('kpi.reorder'), value: reorderNeededCount, Icon: TrendingUp },
                         {
                             key: 'value',
-                            label: 'INVENTORY VALUE',
-                            value: `SAR ${inventoryValue.toLocaleString()}`,
+                            label: t('kpi.value'),
+                            value: t('money.sar', { amount: inventoryValue.toLocaleString() }),
                             Icon: FileSpreadsheet,
                         },
                     ].map(({ key, label, value, Icon }) => (
@@ -604,21 +611,21 @@ export default function SupplierStockInventory() {
                     onClick={() => setActiveTab('inventory')}
                     className={`theme-segmented__btn${activeTab === 'inventory' ? ' theme-segmented__btn--active' : ''}`}
                 >
-                    Stock Inventory
+                    {t('tab.inventory')}
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab('items')}
                     className={`theme-segmented__btn${activeTab === 'items' ? ' theme-segmented__btn--active' : ''}`}
                 >
-                    Inventory items
+                    {t('tab.items')}
                 </button>
                 <button
                     type="button"
                     onClick={() => setActiveTab('movements')}
                     className={`theme-segmented__btn${activeTab === 'movements' ? ' theme-segmented__btn--active' : ''}`}
                 >
-                    Stock Movements
+                    {t('tab.movements')}
                 </button>
                     </div>
 
@@ -635,7 +642,7 @@ export default function SupplierStockInventory() {
                             }}
                         >
                         <div>
-                            <h3 style={{ margin: 0, fontSize: '1rem' }}>Inventory items</h3>
+                            <h3 style={{ margin: 0, fontSize: '1rem' }}>{t('items.title')}</h3>
                         <p
                             style={{
                                     margin: '4px 0 0',
@@ -643,8 +650,7 @@ export default function SupplierStockInventory() {
                                     color: 'var(--color-text-muted)',
                                 }}
                             >
-                                Shows all catalog items (including 0 quantity). Use Critical to
-                                toggle critical-only view.
+                                {t('items.sub')}
                         </p>
                     </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -658,7 +664,7 @@ export default function SupplierStockInventory() {
                                     fontWeight: 700,
                                 }}
                             >
-                                {criticalOnly ? 'Critical (ON)' : 'Critical'}
+                                {criticalOnly ? t('btn.criticalOn') : t('btn.critical')}
                             </button>
                             <button
                                 type="button"
@@ -666,7 +672,7 @@ export default function SupplierStockInventory() {
                                 onClick={loadItems}
                                 disabled={itemsLoading}
                             >
-                                {itemsLoading ? 'Refreshing…' : 'Refresh'}
+                                {itemsLoading ? t('btn.refreshing') : t('btn.refresh')}
                             </button>
                     </div>
                     </div>
@@ -694,7 +700,7 @@ export default function SupplierStockInventory() {
                             type="text"
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search items by name or SKU..."
+                            placeholder={t('search.items')}
                     style={{
                                 width: '100%',
                                 padding: '11px 14px 11px 42px',
@@ -712,12 +718,12 @@ export default function SupplierStockInventory() {
                             <table className="ws-table">
                                 <thead>
                                     <tr>
-                                        <SortableTh label="Product" columnKey="product" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
-                                        <SortableTh label="SKU" columnKey="sku" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
-                                        <SortableTh label="Qty (warehouse)" columnKey="qtyWh" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
-                                        <SortableTh label="Qty (workshop)" columnKey="qtyWs" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
-                                        <SortableTh label="Critical" columnKey="critical" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
-                                        <th>Actions</th>
+                                        <SortableTh label={t('th.product')} columnKey="product" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label={t('th.sku')} columnKey="sku" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label={t('th.qtyWh')} columnKey="qtyWh" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label={t('th.qtyWs')} columnKey="qtyWs" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <SortableTh label={t('th.critical')} columnKey="critical" align="right" sortKey={itemsSort.sortKey} sortDir={itemsSort.sortDir} onSort={itemsSort.toggleSort} />
+                                        <th>{t('th.actions')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -789,17 +795,17 @@ export default function SupplierStockInventory() {
                                                     </td>
                                                     <td style={{ whiteSpace: 'nowrap' }}>
                                                         <RowActionsMenu
-                                                            ariaLabel={`Actions for ${p?.name || p?.productName || 'item'}`}
+                                                            ariaLabel={t('action.aria', { name: p?.name || p?.productName || t('fallback.item') })}
                                                             items={[
                                                                 {
-                                                                    label: 'Edit critical level',
+                                                                    label: t('action.editCritical'),
                                                                     onClick: () =>
                                                                         setCriticalLevelEditProduct({
                                                                             id: p.id,
                                                                             name:
                                                                                 p?.name ||
                                                                                 p?.productName ||
-                                                                                'Product',
+                                                                                t('fallback.product'),
                                                                             sku: p?.sku || '',
                                                                             warehouseUnit:
                                                                                 uom.warehouseUnit ||
@@ -854,7 +860,7 @@ export default function SupplierStockInventory() {
                                 type="text"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search products by name or SKU..."
+                                placeholder={t('search.products')}
                                 style={{
                                     width: '100%',
                                     padding: '11px 14px 11px 42px',
@@ -871,7 +877,7 @@ export default function SupplierStockInventory() {
                                 color: 'var(--color-text-muted)',
                             }}
                         >
-                            Click a <strong>row</strong> to open <strong>Inventory stock timeline</strong> (audit log).
+                            {t('hint.rowTimeline')}
                         </p>
                         {!loading ? (
                             <div
@@ -894,11 +900,11 @@ export default function SupplierStockInventory() {
                                     }}
                                     title={
                                         criticalOnly
-                                            ? 'Showing critical + low stock only (click to release)'
-                                            : 'Show only critical/low stock (click to toggle)'
+                                            ? t('title.criticalOn')
+                                            : t('title.criticalOff')
                                     }
                                 >
-                                    {criticalOnly ? 'Critical (ON)' : 'Critical'}
+                                    {criticalOnly ? t('btn.criticalOn') : t('btn.critical')}
                                 </button>
                                 <span
                                     style={{
@@ -909,15 +915,15 @@ export default function SupplierStockInventory() {
                                         letterSpacing: '0.04em',
                                     }}
                                 >
-                                    Export
+                                    {t('export.label')}
                                 </span>
                                 <button
                                     type="button"
                                     disabled={filteredList.length === 0}
                                     title={
                                         filteredList.length === 0
-                                            ? 'Nothing to export for the current filters'
-                                            : 'Download spreadsheet (.xlsx)'
+                                            ? t('export.nothingFilters')
+                                            : t('export.xlsx')
                                     }
                                     onClick={() => {
                                         exportStockInventoryExcel(filteredList, 'supplier-stock-inventory');
@@ -929,15 +935,15 @@ export default function SupplierStockInventory() {
                                             filteredList.length === 0 ? 'not-allowed' : 'pointer',
                                     }}
                                 >
-                                    <FileSpreadsheet size={14} aria-hidden /> Excel
+                                    <FileSpreadsheet size={14} aria-hidden /> {t('btn.excel')}
                                 </button>
                                 <button
                                     type="button"
                                     disabled={filteredList.length === 0}
                                     title={
                                         filteredList.length === 0
-                                            ? 'Nothing to export'
-                                            : 'Download PDF'
+                                            ? t('export.nothing')
+                                            : t('export.pdf')
                                     }
                                     onClick={() => {
                                         exportStockInventoryPdf(filteredList, 'supplier-stock-inventory');
@@ -949,7 +955,7 @@ export default function SupplierStockInventory() {
                                             filteredList.length === 0 ? 'not-allowed' : 'pointer',
                                     }}
                                 >
-                                    <FileText size={14} aria-hidden /> PDF
+                                    <FileText size={14} aria-hidden /> {t('btn.pdf')}
                                 </button>
                                 {search.trim() ? (
                                     <span
@@ -958,8 +964,9 @@ export default function SupplierStockInventory() {
                                             color: 'var(--color-text-muted)',
                                         }}
                                     >
-                                        ({filteredList.length} row{filteredList.length !== 1 ? 's' : ''}{' '}
-                                        match search)
+                                        {filteredList.length === 1
+                                            ? t('matchSearch', { n: filteredList.length })
+                                            : t('matchSearchPlural', { n: filteredList.length })}
                                     </span>
                                 ) : null}
                             </div>
@@ -976,18 +983,18 @@ export default function SupplierStockInventory() {
                                 <table className="ws-table">
                                     <thead>
                                         <tr>
-                                            <SortableTh label="Product" columnKey="product" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="SKU" columnKey="sku" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Unit" columnKey="unit" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Stock Qty" columnKey="stockQty" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Awaiting Workshop" columnKey="awaiting" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Critical Level" columnKey="critical" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Reorder Level" columnKey="reorder" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Purchase Price" columnKey="price" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Sales Price" columnKey="salePrice" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Value" columnKey="value" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <SortableTh label="Status" columnKey="status" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
-                                            <th>Actions</th>
+                                            <SortableTh label={t('th.product')} columnKey="product" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.sku')} columnKey="sku" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.unit')} columnKey="unit" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.stockQty')} columnKey="stockQty" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.awaiting')} columnKey="awaiting" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.criticalLevel')} columnKey="critical" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.reorderLevel')} columnKey="reorder" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.purchasePrice')} columnKey="price" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.salesPrice')} columnKey="salePrice" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.value')} columnKey="value" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <SortableTh label={t('th.status')} columnKey="status" sortKey={stockSort.sortKey} sortDir={stockSort.sortDir} onSort={stockSort.toggleSort} />
+                                            <th>{t('th.actions')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1046,7 +1053,7 @@ export default function SupplierStockInventory() {
                                                                 }}
                                                             >
                                                                 <History size={12} aria-hidden />
-                                                                Timeline
+                                                                {t('row.timeline')}
                                                             </span>
                                                         </div>
                                                     </td>
@@ -1094,7 +1101,7 @@ export default function SupplierStockInventory() {
                                                                     color: '#B45309',
                                                                     fontWeight: 600,
                                                                 }}
-                                                                title="Issued on sales invoice — workshop has not approved/received yet"
+                                                                title={t('row.awaitingTitle')}
                                                             >
                                                                 {fmtQty(s.pendingWorkshopReceive)}{' '}
                                                                 {s.unit}
@@ -1105,7 +1112,7 @@ export default function SupplierStockInventory() {
                                                                         color: 'var(--color-text-muted)',
                                                                     }}
                                                                 >
-                                                                    Not received
+                                                                    {t('row.notReceived')}
                                                         </span>
                                                             </span>
                                                         ) : (
@@ -1125,8 +1132,7 @@ export default function SupplierStockInventory() {
                                                     <td>
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                             <span>
-                                                                SAR {Number(s.price).toLocaleString()} per{' '}
-                                                                {s.warehouseUnit || 'unit'}
+                                                                {t('money.sarPer', { amount: Number(s.price).toLocaleString(), unit: s.warehouseUnit || t('fallback.unit') })}
                                                             </span>
                                                             {s.usesCatalogPrice ? (
                                                                 <span
@@ -1136,7 +1142,7 @@ export default function SupplierStockInventory() {
                                                                 fontWeight: 600,
                                                                     }}
                                                                 >
-                                                                    From master catalog
+                                                                    {t('row.fromCatalog')}
                                                                 </span>
                                                             ) : null}
                                                         </div>
@@ -1152,7 +1158,7 @@ export default function SupplierStockInventory() {
                                                             <span>
                                                                 {s.salePrice != null &&
                                                                 Number(s.salePrice) > 0
-                                                                    ? `SAR ${Number(s.salePrice).toLocaleString()} per ${s.unit || 'unit'}`
+                                                                    ? t('money.sarPer', { amount: Number(s.salePrice).toLocaleString(), unit: s.unit || t('fallback.unit') })
                                                                     : '—'}
                                                             </span>
                                                             {s.salePrice != null &&
@@ -1172,49 +1178,45 @@ export default function SupplierStockInventory() {
                                                                 fontWeight: 600,
                                                                     }}
                                                                 >
-                                                                    SAR{' '}
-                                                                    {Number(
-                                                                        s.salePriceWarehouse,
-                                                                    ).toLocaleString()}{' '}
-                                                                    per {s.warehouseUnit || 'unit'}
+                                                                    {t('money.sarPer', { amount: Number(s.salePriceWarehouse).toLocaleString(), unit: s.warehouseUnit || t('fallback.unit') })}
                                                                 </span>
                                                             ) : null}
                                                         </div>
                                                     </td>
-                                                    <td>SAR {value.toLocaleString()}</td>
+                                                    <td>{t('money.sar', { amount: value.toLocaleString() })}</td>
                                                     <td>
                                                         <span
                                                             className={`ws-badge ${isCritical ? 'ws-badge--red' : 'ws-badge--green'}`}
                                                         >
-                                                            {isCritical ? 'Critical' : 'OK'}
+                                                            {isCritical ? t('status.critical') : t('status.ok')}
                                                         </span>
                                                     </td>
                                                     <td style={{ whiteSpace: 'nowrap' }}>
                                                         <RowActionsMenu
-                                                            ariaLabel={`Actions for ${s.name || 'product'}`}
+                                                            ariaLabel={t('action.aria', { name: s.name || t('fallback.product') })}
                                                             items={[
                                                                 {
-                                                                    label: 'Edit purchase price',
+                                                                    label: t('action.editPurchase'),
                                                                     onClick: () => setPurchasePriceEditProduct(s),
                                                                 },
                                                                 {
-                                                                    label: 'Edit sales price',
+                                                                    label: t('action.editSales'),
                                                                     onClick: () => setSalesPriceEditProduct(s),
                                                                 },
                                                                 {
-                                                                    label: 'Edit critical level',
+                                                                    label: t('action.editCritical'),
                                                                     onClick: () => setCriticalLevelEditProduct(s),
                                                                 },
                                                                 {
-                                                                    label: 'Adjust stock',
+                                                                    label: t('action.adjust'),
                                                                     onClick: () => openAdjust(s),
                                                                 },
                                                                 {
-                                                                    label: 'Adjust via purchase',
+                                                                    label: t('action.adjustPurchase'),
                                                                     onClick: () => navigateToPurchaseWithProduct(s),
                                                                 },
                                                                 {
-                                                                    label: 'Accounting history',
+                                                                    label: t('action.accounting'),
                                                                     onClick: () =>
                                                                         setAccountingHistoryProduct({
                                                                             id: s.id,
@@ -1222,7 +1224,7 @@ export default function SupplierStockInventory() {
                                                                         }),
                                                                 },
                                                                 {
-                                                                    label: 'Remove from stock',
+                                                                    label: t('action.remove'),
                                                                     onClick: () => removeFromStock(s),
                                                                     disabled: String(removingId) === String(s.id),
                                                                     danger: true,
@@ -1253,8 +1255,7 @@ export default function SupplierStockInventory() {
                                 }}
                             >
                                 <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                    Page <strong>{stockPage}</strong> · Showing{' '}
-                                    <strong>{stock.length}</strong> of <strong>{totalSKUs}</strong>
+                                    {t('page.showing', { page: stockPage, shown: stock.length, total: totalSKUs })}
                                 </div>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button
@@ -1263,7 +1264,7 @@ export default function SupplierStockInventory() {
                                         onClick={() => setStockPage((p) => Math.max(1, p - 1))}
                                         disabled={stockPage <= 1}
                                     >
-                                        Prev
+                                        {t('btn.prev')}
                                     </button>
                                     <button
                                         type="button"
@@ -1275,7 +1276,7 @@ export default function SupplierStockInventory() {
                                         }
                                         disabled={stockPage * STOCK_PAGE_SIZE >= (totalSKUs || 0)}
                                     >
-                                        Next
+                                        {t('btn.next')}
                                     </button>
                                 </div>
                             </div>
@@ -1293,8 +1294,8 @@ export default function SupplierStockInventory() {
                                         }}
                                     >
                                         {search
-                                            ? 'No products match your search'
-                                            : 'No stock items yet'}
+                                            ? t('empty.noMatch')
+                                            : t('empty.noStock')}
                                     </p>
                                 </div>
                             )}
@@ -1332,7 +1333,7 @@ export default function SupplierStockInventory() {
                                         marginBottom: 6,
                                     }}
                                 >
-                                    Search product
+                                    {t('movements.searchProduct')}
                                 </label>
                                 <div style={{ position: 'relative' }}>
                                     <Search
@@ -1363,7 +1364,7 @@ export default function SupplierStockInventory() {
                                             window.setTimeout(() => setMovementPickerOpen(false), 150);
                                         }}
                                         onKeyDown={onMovementSearchKeyDown}
-                                        placeholder="Type product name or SKU… (↑↓ Enter)"
+                                        placeholder={t('movements.searchPh')}
                                         autoComplete="off"
                                         role="combobox"
                                         aria-expanded={movementPickerOpen}
@@ -1380,7 +1381,7 @@ export default function SupplierStockInventory() {
                                     {movementProductId ? (
                             <button
                                 type="button"
-                                            title="Clear product filter"
+                                            title={t('movements.clearFilter')}
                                             onMouseDown={(e) => e.preventDefault()}
                                             onClick={clearMovementProductFilter}
                                 style={{
@@ -1453,8 +1454,7 @@ export default function SupplierStockInventory() {
                                                         marginTop: 2,
                                                     }}
                                                 >
-                                                    SKU: {p.sku || '—'} · On hand:{' '}
-                                                    {fmtQty(p.warehouseQty)} {p.unit || 'pcs'}
+                                                    {t('movements.skuOnHand', { sku: p.sku || t('emdash'), qty: fmtQty(p.warehouseQty), unit: p.unit || 'pcs' })}
                                                 </div>
                                             </li>
                                         ))}
@@ -1479,7 +1479,7 @@ export default function SupplierStockInventory() {
                                         color: 'var(--color-text-muted)',
                                     }}
                                 >
-                                        No products match
+                                        {t('movements.noMatch')}
                             </div>
                                 ) : null}
                     </div>
@@ -1505,8 +1505,7 @@ export default function SupplierStockInventory() {
                                         {selectedMovementProduct.name}
                                     </div>
                                     <div style={{ fontSize: '0.8125rem', color: '#15803D', marginTop: 4 }}>
-                                        SKU {selectedMovementProduct.sku || '—'} ·{' '}
-                                        {displayedMovementEntries.length} movement(s)
+                                        {t('movements.skuCount', { sku: selectedMovementProduct.sku || t('emdash'), n: displayedMovementEntries.length })}
                                     </div>
                                     <div
                                     style={{
@@ -1516,7 +1515,7 @@ export default function SupplierStockInventory() {
                                             marginTop: 6,
                                         }}
                                     >
-                                        Final balance:{' '}
+                                        {t('movements.finalBalance')}{' '}
                                         {formatDualUomQty(
                                             movementFinalBalance,
                                             selectedMovementProduct.warehouseUnit,
@@ -1536,8 +1535,7 @@ export default function SupplierStockInventory() {
                                         alignSelf: 'center',
                                     }}
                                 >
-                                    Select a product to view its full movement history and final
-                                    warehouse balance. Leave empty to see all products.
+                                    {t('movements.hint')}
                                 </p>
                             )}
                         </div>
@@ -1558,16 +1556,14 @@ export default function SupplierStockInventory() {
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.04em',
                                 }}
-                            >
-                                Export
-                            </span>
+                            >{t('export.label')}</span>
                                     <button
                                         type="button"
                                 disabled={displayedMovementEntries.length === 0}
                                         title={
                                     displayedMovementEntries.length === 0
-                                        ? 'No movements to export'
-                                                    : 'Download spreadsheet (.xlsx)'
+                                        ? t('export.noMovements')
+                                                    : t('export.xlsx')
                                         }
                                         onClick={() => {
                                     exportMovementsExcel(
@@ -1586,15 +1582,15 @@ export default function SupplierStockInventory() {
                                                     : 'pointer',
                                         }}
                                     >
-                                        <FileSpreadsheet size={14} aria-hidden /> Excel
+                                        <FileSpreadsheet size={14} aria-hidden /> {t('btn.excel')}
                                     </button>
                                     <button
                                         type="button"
                                 disabled={displayedMovementEntries.length === 0}
                                         title={
                                     displayedMovementEntries.length === 0
-                                        ? 'No movements'
-                                                    : 'Download PDF'
+                                        ? t('export.noMovementsShort')
+                                                    : t('export.pdf')
                                         }
                                         onClick={() => {
                                     exportMovementsPdf(
@@ -1613,22 +1609,22 @@ export default function SupplierStockInventory() {
                                                     : 'pointer',
                                         }}
                                     >
-                                        <FileText size={14} aria-hidden /> PDF
+                                        <FileText size={14} aria-hidden /> {t('btn.pdf')}
                                     </button>
                                 </div>
                         <div style={{ overflowX: 'auto' }}>
                             <table className="ws-table">
                                         <thead>
                                     <tr>
-                                        <th>When</th>
-                                        {!movementProductId ? <th>Product</th> : null}
-                                        <th>From (warehouse)</th>
-                                        <th>To (warehouse)</th>
-                                        <th>Δ (warehouse)</th>
-                                        <th>Workshop equiv.</th>
-                                        <th>Reason</th>
-                                        <th>Source / Ref</th>
-                                        <th>By</th>
+                                        <th>{t('th.when')}</th>
+                                        {!movementProductId ? <th>{t('th.product')}</th> : null}
+                                        <th>{t('th.fromWh')}</th>
+                                        <th>{t('th.toWh')}</th>
+                                        <th>{t('th.deltaWh')}</th>
+                                        <th>{t('th.wsEquiv')}</th>
+                                        <th>{t('th.reason')}</th>
+                                        <th>{t('th.sourceRef')}</th>
+                                        <th>{t('th.by')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1709,8 +1705,8 @@ export default function SupplierStockInventory() {
                                     }}
                                 >
                                     {movementProductId
-                                        ? 'No movements for this product yet'
-                                        : 'No movements yet'}
+                                        ? t('empty.noMovementsProduct')
+                                        : t('empty.noMovements')}
                                 </p>
                         </div>
                 )}
@@ -1720,7 +1716,7 @@ export default function SupplierStockInventory() {
             <AnimatePresence>
                 {adjustModalOpen && adjustItem && (
                     <Modal
-                        title={`Stock Adjustment — ${adjustItem.name}`}
+                        title={t('adjust.title', { name: adjustItem.name })}
                         disableClose={adjustConfirming}
                         onClose={() => {
                             setAdjustModalOpen(false);
@@ -1739,7 +1735,7 @@ export default function SupplierStockInventory() {
                                         setAdjustConfirming(false);
                                     }}
                                 >
-                                    Cancel
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -1759,7 +1755,7 @@ export default function SupplierStockInventory() {
                                     }
                                     onClick={handleConfirmAdjustment}
                                 >
-                                    {adjustConfirming ? 'Confirming...' : 'Confirm Adjustment'}
+                                    {adjustConfirming ? t('adjust.confirming') : t('adjust.confirm')}
                                 </button>
                             </div>
                         }
@@ -1775,7 +1771,7 @@ export default function SupplierStockInventory() {
                                         marginBottom: 4,
                                     }}
                                 >
-                                    Current Stock
+                                    {t('adjust.current')}
                                 </label>
                                 <p
                                     style={{
@@ -1803,8 +1799,11 @@ export default function SupplierStockInventory() {
                                             color: 'var(--color-text-muted)',
                                         }}
                                     >
-                                        1 {adjustItem.warehouseUnit} ={' '}
-                                        {adjustItem.conversionFactor || 1} {adjustItem.unit}
+                                        {t('adjust.conv', {
+                                            wh: adjustItem.warehouseUnit,
+                                            cf: adjustItem.conversionFactor || 1,
+                                            ws: adjustItem.unit,
+                                        })}
                                     </p>
                                 ) : null}
                             </div>
@@ -1818,7 +1817,7 @@ export default function SupplierStockInventory() {
                                         marginBottom: 8,
                                     }}
                                 >
-                                    Adjustment Type
+                                    {t('adjust.type')}
                                 </label>
                                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                                     <button
@@ -1838,7 +1837,7 @@ export default function SupplierStockInventory() {
                                             cursor: 'pointer',
                                         }}
                                     >
-                                        + Add Stock
+                                        {t('adjust.add')}
                                     </button>
                                     <button
                                         type="button"
@@ -1855,7 +1854,7 @@ export default function SupplierStockInventory() {
                                             cursor: 'pointer',
                                         }}
                                     >
-                                        - Remove Stock
+                                        {t('adjust.remove')}
                                     </button>
                                     <button
                                         type="button"
@@ -1877,7 +1876,7 @@ export default function SupplierStockInventory() {
                                             cursor: 'pointer',
                                         }}
                                     >
-                                        Set stock to
+                                        {t('adjust.set')}
                                     </button>
                                 </div>
                             </div>
@@ -1892,8 +1891,8 @@ export default function SupplierStockInventory() {
                                     }}
                                 >
                                     {adjustmentType === 'set'
-                                        ? `New stock level (${adjustItem.warehouseUnit || 'Box'}) *`
-                                        : `Quantity (${adjustItem.warehouseUnit || 'Box'}) *`}
+                                        ? t('adjust.newLevel', { unit: adjustItem.warehouseUnit || 'Box' })
+                                        : t('adjust.qty', { unit: adjustItem.warehouseUnit || 'Box' })}
                                 </label>
                                 <input
                                     type="number"
@@ -1903,8 +1902,8 @@ export default function SupplierStockInventory() {
                                     onChange={(e) => setAdjustQty(e.target.value)}
                                     placeholder={
                                         adjustmentType === 'set'
-                                            ? `Enter total ${adjustItem.warehouseUnit || 'Box'} on hand (0 to clear)`
-                                            : `How many ${adjustItem.warehouseUnit || 'Box'}?`
+                                            ? t('adjust.phSet', { unit: adjustItem.warehouseUnit || 'Box' })
+                                            : t('adjust.phQty', { unit: adjustItem.warehouseUnit || 'Box' })
                                     }
                                     style={{
                                         width: '100%',
@@ -1944,10 +1943,17 @@ export default function SupplierStockInventory() {
                                                 fontWeight: 600,
                                             }}
                                         >
-                                            After adjustment: {fmtQty(newWh)} {whUnit}
                                             {hasSplit
-                                                ? ` (= ${fmtQty(newWs)} ${wsUnit})`
-                                                : ''}
+                                                ? t('adjust.afterSplit', {
+                                                      qty: fmtQty(newWh),
+                                                      unit: whUnit,
+                                                      wsQty: fmtQty(newWs),
+                                                      wsUnit,
+                                                  })
+                                                : t('adjust.after', {
+                                                      qty: fmtQty(newWh),
+                                                      unit: whUnit,
+                                                  })}
                                         </p>
                                     );
                                 })()}
@@ -1962,13 +1968,13 @@ export default function SupplierStockInventory() {
                                         marginBottom: 6,
                                     }}
                                 >
-                                    Notes / Reason
+                                    {t('adjust.notes')}
                                 </label>
                                 <textarea
                                     value={adjustNotes}
                                     onChange={(e) => setAdjustNotes(e.target.value)}
                                     rows={3}
-                                    placeholder="Optional reason for adjustment"
+                                    placeholder={t('adjust.notesPh')}
                                     style={{
                                         width: '100%',
                                         padding: '10px 12px',
@@ -1990,6 +1996,7 @@ export default function SupplierStockInventory() {
                     product={purchasePriceEditProduct}
                     onClose={() => setPurchasePriceEditProduct(null)}
                     onSaved={() => loadStock({ silent: true })}
+                    locale={locale}
                 />
             ) : null}
 
@@ -1997,6 +2004,7 @@ export default function SupplierStockInventory() {
                 <StockProductSalesPriceEditModal
                     product={salesPriceEditProduct}
                     onClose={() => setSalesPriceEditProduct(null)}
+                    locale={locale}
                     onSaved={(saved) => {
                         const productId = salesPriceEditProduct?.id;
                         if (productId && saved?.salePrice != null) {
@@ -2024,6 +2032,7 @@ export default function SupplierStockInventory() {
                 <StockProductCriticalLevelEditModal
                     product={criticalLevelEditProduct}
                     onClose={() => setCriticalLevelEditProduct(null)}
+                    locale={locale}
                     onSaved={() => {
                         loadStock({ silent: true });
                         if (activeTab === 'items') loadItems();

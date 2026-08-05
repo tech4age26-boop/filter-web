@@ -12,6 +12,7 @@ import {
     exportAccountLedgerExcel,
     exportAccountLedgerPdf,
 } from '../../../utils/supplierLedgerExport';
+import { saccT } from '../../../utils/supplierAccountingI18n';
 import { getSupplierAccountLedger, getSupplierAccounts } from '../../../services/supplierAccountingApi';
 import {
     startOfMonthISO,
@@ -21,7 +22,13 @@ import {
 /**
  * Supplier portal — full-page COA account ledger statement.
  */
-export default function SupplierAccountLedgerPage() {
+export default function SupplierAccountLedgerPage({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
+
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
@@ -109,12 +116,12 @@ export default function SupplierAccountLedgerPage() {
             setData(unwrapLedgerPayload(res));
         } catch (e) {
             if (seq !== loadSeqRef.current) return;
-            setErr(e?.message || 'Failed to load ledger');
+            setErr(e?.message || t('ledger.err.load'));
             setData(null);
         } finally {
             if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [accountId, ledgerQueryBase]);
+    }, [accountId, ledgerQueryBase, t]);
 
     useEffect(() => {
         void load();
@@ -155,7 +162,7 @@ export default function SupplierAccountLedgerPage() {
                 totals: root?.totals,
             });
         } catch (e) {
-            setErr(e?.message || 'PDF export failed');
+            setErr(e?.message || t('ledger.err.pdf'));
         }
     }
 
@@ -170,7 +177,7 @@ export default function SupplierAccountLedgerPage() {
                 totals: root?.totals,
             });
         } catch (e) {
-            setErr(e?.message || 'Excel export failed');
+            setErr(e?.message || t('ledger.err.excel'));
         }
     }
 
@@ -184,20 +191,21 @@ export default function SupplierAccountLedgerPage() {
     const accountType = data?.header?.accountType || account?.type || '';
     const normalDebit = accountNormalDebit(accountType);
     const filterOptions = data?.filterOptions ?? { parties: [], offsetAccounts: [] };
+    const em = t('emdash');
 
     return (
         <div className="accounting-page module-container">
             <ProfessionalLedgerStatementDocument
                 onBack={() => navigate('/supplier/accounting/coa')}
-                backLabel="Back to Chart of Accounts"
+                backLabel={t('ledger.back')}
                 loading={loading}
                 error={err}
                 accountCode={data?.header?.accountCode || account?.code || ''}
                 accountName={data?.header?.accountName || account?.name || ''}
                 accountType={accountType}
                 companyName={data?.header?.companyName}
-                periodFrom={data?.header?.from || dateFrom || '—'}
-                periodTo={data?.header?.to || dateTo || '—'}
+                periodFrom={data?.header?.from || dateFrom || em}
+                periodTo={data?.header?.to || dateTo || em}
                 openingBalance={data?.openingBalance ?? 0}
                 rows={data?.rows ?? []}
                 totals={data?.totals}
@@ -212,8 +220,8 @@ export default function SupplierAccountLedgerPage() {
                 onExportExcel={() => void onExportExcel()}
                 exportDisabled={!data || loading}
                 showCashLedgerColumns={isCashLedger}
-                counterpartyColumnLabel="Paid to / Received from"
-                offsetAccountColumnLabel="Expense / AR account"
+                counterpartyColumnLabel={t('ledger.counterpartyCol')}
+                offsetAccountColumnLabel={t('ledger.offsetCol')}
                 filterOptions={filterOptions}
                 partyFilterKey={partyFilterKey}
                 onPartyFilterKeyChange={setPartyFilterKey}

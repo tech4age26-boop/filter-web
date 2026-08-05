@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Modal from '../../components/Modal';
 import { getSupplierProduct, updateSupplierProduct } from '../../services/supplierApi';
 import { roundMoney2 } from './internal/supplierUomLineUtils';
+import { sstockT } from '../../utils/supplierStockI18n';
 
 function formatConversionRule(warehouseUnit, workshopUnit, cf) {
     const wu = String(warehouseUnit || '').trim();
@@ -16,7 +17,13 @@ export default function StockProductSalesPriceEditModal({
     product,
     onClose,
     onSaved,
+    locale: localeProp,
 }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sstockT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -109,7 +116,7 @@ export default function StockProductSalesPriceEditModal({
                 }
             } catch (ex) {
                 if (!cancelled) {
-                    setError(ex?.message || 'Could not load product');
+                    setError(ex?.message || t('sp.errLoad'));
                     const fallback =
                         product.salePrice != null && Number(product.salePrice) > 0
                             ? Number(product.salePrice)
@@ -136,7 +143,7 @@ export default function StockProductSalesPriceEditModal({
         e.preventDefault();
         const n = Number(priceWorkshop);
         if (!Number.isFinite(n) || n < 0) {
-            setError('Enter a valid sales price.');
+            setError(t('sp.errValid'));
             return;
         }
         setSaving(true);
@@ -152,7 +159,7 @@ export default function StockProductSalesPriceEditModal({
             });
             onClose?.();
         } catch (ex) {
-            setError(ex?.message || 'Failed to update sales price');
+            setError(ex?.message || t('sp.errUpdate'));
         } finally {
             setSaving(false);
         }
@@ -162,7 +169,7 @@ export default function StockProductSalesPriceEditModal({
 
     return (
         <Modal
-            title="Edit sales price"
+            title={t("sp.title")}
             width="520px"
             onClose={() => !saving && onClose?.()}
             disableClose={saving}
@@ -173,9 +180,7 @@ export default function StockProductSalesPriceEditModal({
                     {product.sku ? ` · ${product.sku}` : ''}
                 </p>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                    Enter the sales price per workshop or warehouse unit (includes VAT) — the other
-                    field updates automatically. This price appears on sales invoices when
-                    &ldquo;Amounts are tax inclusive&rdquo; is checked.
+                    {t("sp.hint")}
                 </p>
                 {splitUom ? (
                     <p
@@ -188,17 +193,17 @@ export default function StockProductSalesPriceEditModal({
                             color: '#475569',
                         }}
                     >
-                        Conversion: <strong>{rulePreview}</strong>
+                        {t("sp.conversion", { rule: rulePreview })}
                     </p>
                 ) : null}
 
                 {loading ? (
-                    <p style={{ margin: 0 }}>Loading…</p>
+                    <p style={{ margin: 0 }}>{t("sp.loading")}</p>
                 ) : (
                     <>
                         <div className="pi-field">
                             <label htmlFor="stock-sales-price-workshop">
-                                Sales price (SAR / {workshopUnit})
+                                {t("sp.labelWs", { unit: workshopUnit })}
                             </label>
                             <input
                                 id="stock-sales-price-workshop"
@@ -207,13 +212,13 @@ export default function StockProductSalesPriceEditModal({
                                 step="0.01"
                                 value={priceWorkshop}
                                 onChange={(e) => syncFromWorkshop(e.target.value)}
-                                placeholder="Enter price"
+                                placeholder={t("sp.phEnter")}
                             />
                         </div>
                         {splitUom ? (
                             <div className="pi-field">
                                 <label htmlFor="stock-sales-price-warehouse">
-                                    Sales price (SAR / {warehouseUnit})
+                                    {t("sp.labelWh", { unit: warehouseUnit })}
                                 </label>
                                 <input
                                     id="stock-sales-price-warehouse"
@@ -222,7 +227,7 @@ export default function StockProductSalesPriceEditModal({
                                     step="0.01"
                                     value={priceWarehouse}
                                     onChange={(e) => syncFromWarehouse(e.target.value)}
-                                    placeholder="Enter price"
+                                    placeholder={t("sp.phEnter")}
                                 />
                             </div>
                         ) : null}
@@ -240,10 +245,10 @@ export default function StockProductSalesPriceEditModal({
                         disabled={saving}
                         onClick={onClose}
                     >
-                        Cancel
+                        {t("btn.cancel")}
                     </button>
                     <button type="submit" className="mgr-si-btn-new" disabled={saving || loading}>
-                        {saving ? 'Saving…' : 'Save'}
+                        {saving ? t('btn.saving') : t('btn.save')}
                     </button>
                 </div>
             </form>

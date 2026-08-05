@@ -31,6 +31,7 @@ import {
 import { Shimmer, ShimmerKpiGrid, ShimmerLine, ShimmerTable } from '../../components/supplier/Shimmer';
 import '../../styles/admin/AccountingPage.css';
 import './SupplierChartOfAccounts.css';
+import { saccT } from '../../utils/supplierAccountingI18n';
 
 function extractArray(res, keys) {
     if (!res || typeof res !== 'object') return [];
@@ -126,7 +127,12 @@ function SupplierChartOfAccountsShimmer() {
     );
 }
 
-function SupplierChartOfAccountsTab() {
+function SupplierChartOfAccountsTab({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [currency, setCurrency] = useState('SAR');
@@ -143,7 +149,7 @@ function SupplierChartOfAccountsTab() {
                 setCurrency(res?.currencyCode || 'SAR');
                 setChart(res && typeof res === 'object' ? res : {});
             } catch (e) {
-                if (!cancelled) setErr(e?.message || 'Failed to load chart of accounts');
+                if (!cancelled) setErr(e?.message || t('page.err.coa'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -186,12 +192,12 @@ function SupplierChartOfAccountsTab() {
     const workshopPurchaseInvoices = extractArray(chart, ['workshopPurchaseInvoices']);
 
     const kpiItems = [
-        { key: 'ar', label: 'Accounts receivable', value: roll.accountsReceivable, Icon: TrendingUp },
-        { key: 'ap', label: 'Accounts payable', value: roll.accountsPayable, Icon: TrendingDown },
-        { key: 'pay', label: 'Payments received', value: roll.paymentsReceivedTotal, Icon: ArrowDownToLine },
-        { key: 'exp', label: 'Operational expenses', value: roll.expenseAmountTotal, Icon: Receipt },
-        { key: 'ssp', label: 'Vendor purchases', value: roll.superSupplierPurchasesTotal, Icon: Package },
-        { key: 'wpi', label: 'Workshop P.I.', value: roll.workshopPurchaseInvoicesTotal, Icon: Factory },
+        { key: 'ar', label: t('page.kpi.ar'), value: roll.accountsReceivable, Icon: TrendingUp },
+        { key: 'ap', label: t('page.kpi.ap'), value: roll.accountsPayable, Icon: TrendingDown },
+        { key: 'pay', label: t('page.kpi.pay'), value: roll.paymentsReceivedTotal, Icon: ArrowDownToLine },
+        { key: 'exp', label: t('page.kpi.exp'), value: roll.expenseAmountTotal, Icon: Receipt },
+        { key: 'ssp', label: t('page.kpi.ssp'), value: roll.superSupplierPurchasesTotal, Icon: Package },
+        { key: 'wpi', label: t('page.kpi.wpi'), value: roll.workshopPurchaseInvoicesTotal, Icon: Factory },
     ];
 
     return (
@@ -200,20 +206,18 @@ function SupplierChartOfAccountsTab() {
                 <div className="supplier-coa__hero-inner">
                     <span className="supplier-coa__hero-badge">
                         <Sparkles size={14} strokeWidth={2.5} aria-hidden />
-                        Filter supplier
+                        {t('page.hero.badge')}
                     </span>
-                    <h2 className="supplier-coa__hero-title">Chart of accounts</h2>
+                    <h2 className="supplier-coa__hero-title">{t('page.hero.title')}</h2>
                     <p className="supplier-coa__hero-sub">
-                        One place for your workshop ledger, receivables, payables, cash-in, expenses, vendor bills, and
-                        workshop purchase invoices — tied to your supplier login.
+                        {t('page.hero.sub')}
                     </p>
                 </div>
             </header>
 
             <div className="supplier-coa__body">
                 <p className="supplier-coa__intro">
-                    Amounts use your workshop currency where applicable. Tables show the latest records returned by the
-                    server (up to 100 lines per section).
+                    {t('page.intro')}
                 </p>
 
                 <div className="ws-kpi-grid">
@@ -232,20 +236,20 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={Landmark}
-                    title="Ledger accounts"
-                    desc="Cash, bank, and other ledger accounts on your linked workshop."
+                    title={t('page.sec.ledger')}
+                    desc={t('page.sec.ledgerDesc')}
                 >
                     {ledger.length === 0 ? (
-                        <CoaEmpty icon={Wallet} message="No ledger accounts yet. Add cash or bank under Cash & Bank." />
+                        <CoaEmpty icon={Wallet} message={t('page.empty.ledger')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Account</th>
-                                        <th>Type</th>
-                                        <th className="supplier-coa__th-num">Opening</th>
-                                        <th className="supplier-coa__th-num">Balance</th>
+                                        <th>{t('page.th.account')}</th>
+                                        <th>{t('page.th.type')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.opening')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.balance')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -268,15 +272,15 @@ function SupplierChartOfAccountsTab() {
                 {memo.length > 0 ? (
                     <CoaSection
                         icon={FileSpreadsheet}
-                        title="Receivable & payable"
-                        desc="High-level balances from open sales invoices and creditor payables."
+                        title={t('page.sec.memo')}
+                        desc={t('page.sec.memoDesc')}
                     >
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Description</th>
-                                        <th className="supplier-coa__th-num">Amount</th>
+                                        <th>{t('page.th.description')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.amount')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -294,21 +298,21 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={TrendingUp}
-                    title="Sales invoices — AR detail"
-                    desc="Open balances owed to you by workshops."
+                    title={t('page.sec.ar')}
+                    desc={t('page.sec.arDesc')}
                 >
                     {receivableRecords.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No open receivable lines. When workshops owe you on invoices, they appear here." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.ar')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Invoice</th>
-                                        <th>Workshop</th>
-                                        <th>Due</th>
-                                        <th className="supplier-coa__th-num">Outstanding</th>
-                                        <th>Status</th>
+                                        <th>{t('page.th.invoice')}</th>
+                                        <th>{t('page.th.workshop')}</th>
+                                        <th>{t('page.th.due')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.outstanding')}</th>
+                                        <th>{t('page.th.status')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -329,17 +333,17 @@ function SupplierChartOfAccountsTab() {
                     )}
                 </CoaSection>
 
-                <CoaSection icon={Building2} title="Payables" desc="Creditors and manual payable entries.">
+                <CoaSection icon={Building2} title={t('page.sec.ap')} desc={t('page.sec.apDesc')}>
                     {payableRecords.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No payables on file." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.ap')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Vendor</th>
-                                        <th className="supplier-coa__th-num">Opening balance</th>
-                                        <th>Created</th>
+                                        <th>{t('page.th.vendor')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.openingBal')}</th>
+                                        <th>{t('page.th.created')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -358,20 +362,20 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={ArrowDownToLine}
-                    title="Payments received"
-                    desc="Cash recorded against your sales invoices."
+                    title={t('page.sec.paymentsIn')}
+                    desc={t('page.sec.paymentsInDesc')}
                 >
                     {supplierPayments.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No payments recorded yet." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.payments')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Date</th>
-                                        <th>Invoice</th>
-                                        <th className="supplier-coa__th-num">Amount</th>
-                                        <th>Method</th>
+                                        <th>{t('page.th.date')}</th>
+                                        <th>{t('page.th.invoice')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.amount')}</th>
+                                        <th>{t('page.th.method')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -391,19 +395,19 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={Receipt}
-                    title="Operational expenses — by category"
-                    desc="Roll-up of your submitted expense requests."
+                    title={t('page.sec.expCat')}
+                    desc={t('page.sec.expCatDesc')}
                 >
                     {expenseByCategory.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No expense categories yet." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.expCat')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Category</th>
-                                        <th>Records</th>
-                                        <th className="supplier-coa__th-num">Total</th>
+                                        <th>{t('page.th.category')}</th>
+                                        <th>{t('page.th.records')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.total')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -422,21 +426,21 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={Receipt}
-                    title="Operational expenses — lines"
-                    desc="Latest expense requests (up to 100)."
+                    title={t('page.sec.expLines')}
+                    desc={t('page.sec.expLinesDesc')}
                 >
                     {expenseRecords.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No expense requests." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.exp')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Date</th>
-                                        <th>Category</th>
-                                        <th>Description</th>
-                                        <th className="supplier-coa__th-num">Total</th>
-                                        <th>Status</th>
+                                        <th>{t('page.th.date')}</th>
+                                        <th>{t('page.th.category')}</th>
+                                        <th>{t('page.th.description')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.total')}</th>
+                                        <th>{t('page.th.status')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -459,21 +463,21 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={Package}
-                    title="Inventory purchases"
-                    desc="Bills from your upstream vendors (super suppliers)."
+                    title={t('page.sec.purchases')}
+                    desc={t('page.sec.purchasesDesc')}
                 >
                     {superSupplierPurchases.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No purchase bills." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.purchases')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Ref</th>
-                                        <th>Vendor</th>
-                                        <th>Date</th>
-                                        <th className="supplier-coa__th-num">Total</th>
-                                        <th>Status</th>
+                                        <th>{t('page.th.ref')}</th>
+                                        <th>{t('page.th.vendor')}</th>
+                                        <th>{t('page.th.date')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.total')}</th>
+                                        <th>{t('page.th.status')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -496,22 +500,22 @@ function SupplierChartOfAccountsTab() {
 
                 <CoaSection
                     icon={Factory}
-                    title="Workshop purchase invoices"
-                    desc="Invoices workshops send you for parts and stock."
+                    title={t('page.sec.wpi')}
+                    desc={t('page.sec.wpiDesc')}
                 >
                     {workshopPurchaseInvoices.length === 0 ? (
-                        <CoaEmpty icon={Inbox} message="No workshop purchase invoices." />
+                        <CoaEmpty icon={Inbox} message={t('page.empty.wpi')} />
                     ) : (
                         <div className="supplier-coa__table-wrap">
                             <table className="supplier-coa__table">
                                 <thead>
                                     <tr>
-                                        <th>Invoice #</th>
-                                        <th>Workshop</th>
-                                        <th>Issue</th>
-                                        <th className="supplier-coa__th-num">Grand total</th>
-                                        <th className="supplier-coa__th-num">Balance</th>
-                                        <th>Status</th>
+                                        <th>{t('page.th.invoiceNo')}</th>
+                                        <th>{t('page.th.workshop')}</th>
+                                        <th>{t('page.th.issue')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.grandTotal')}</th>
+                                        <th className="supplier-coa__th-num">{t('page.th.balance')}</th>
+                                        <th>{t('page.th.status')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -537,7 +541,12 @@ function SupplierChartOfAccountsTab() {
     );
 }
 
-function SupplierCashBankLedgerTab({ variant }) {
+function SupplierCashBankLedgerTab({ variant, locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [rows, setRows] = useState([]);
@@ -559,12 +568,12 @@ function SupplierCashBankLedgerTab({ variant }) {
             }));
             setRows(mapped);
         } catch (e) {
-            setErr(e?.message || 'Failed to load ledger');
+            setErr(e?.message || t('page.err.ledger'));
             setRows([]);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         load();
@@ -573,7 +582,7 @@ function SupplierCashBankLedgerTab({ variant }) {
     if (loading) {
         return (
             <div className="ws-section" style={{ padding: 24, color: 'var(--color-text-muted)' }}>
-                Loading…
+                {t('loading')}
             </div>
         );
     }
@@ -591,34 +600,34 @@ function SupplierCashBankLedgerTab({ variant }) {
         <div className="ws-section" style={{ paddingTop: 12 }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0 0 12px' }}>
                 {variant === 'transactions'
-                    ? 'Cash and bank movements (same data as your Cash & Bank ledger).'
-                    : 'Cash and bank entries in debit / credit form (read-only).'}
+                    ? t('page.ledger.txHint')
+                    : t('page.ledger.jeHint')}
             </p>
             <table className="ws-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Account</th>
+                        <th>{t('page.th.date')}</th>
+                        <th>{t('page.th.account')}</th>
                         {isJournal ? (
                             <>
-                                <th>Debit</th>
-                                <th>Credit</th>
+                                <th>{t('page.th.debit')}</th>
+                                <th>{t('page.th.credit')}</th>
                             </>
                         ) : (
                             <>
-                                <th>Direction</th>
-                                <th>Amount</th>
+                                <th>{t('page.th.direction')}</th>
+                                <th>{t('page.th.amount')}</th>
                             </>
                         )}
-                        <th>Source</th>
-                        <th>Description</th>
+                        <th>{t('page.th.source')}</th>
+                        <th>{t('page.th.description')}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
                         <tr>
                             <td colSpan={isJournal ? 6 : 6} style={{ textAlign: 'center', padding: 24 }}>
-                                No entries yet.
+                                {t('page.ledger.empty')}
                             </td>
                         </tr>
                     ) : (
@@ -633,7 +642,7 @@ function SupplierCashBankLedgerTab({ variant }) {
                                     </>
                                 ) : (
                                     <>
-                                        <td>{r.direction === 'debit' ? 'Debit (in)' : 'Credit (out)'}</td>
+                                        <td>{r.direction === 'debit' ? t('page.dir.in') : t('page.dir.out')}</td>
                                         <td>{money('SAR', r.amount)}</td>
                                     </>
                                 )}
@@ -648,7 +657,12 @@ function SupplierCashBankLedgerTab({ variant }) {
     );
 }
 
-function SupplierReceiptsTab() {
+function SupplierReceiptsTab({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [rows, setRows] = useState([]);
@@ -674,7 +688,7 @@ function SupplierReceiptsTab() {
                     })),
                 );
             } catch (e) {
-                if (!cancelled) setErr(e?.message || 'Failed to load receipts');
+                if (!cancelled) setErr(e?.message || t('page.err.receipts'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -685,7 +699,7 @@ function SupplierReceiptsTab() {
     }, []);
 
     if (loading) {
-        return <div className="ws-section" style={{ padding: 24 }}>Loading receipts…</div>;
+        return <div className="ws-section" style={{ padding: 24 }}>{t('page.receipts.loading')}</div>;
     }
     if (err) {
         return (
@@ -698,24 +712,24 @@ function SupplierReceiptsTab() {
     return (
         <div className="ws-section" style={{ paddingTop: 12 }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0 0 12px' }}>
-                Payments recorded against your sales invoices (money in from workshops).
+                {t('page.receipts.hint')}
             </p>
             <table className="ws-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Invoice</th>
-                        <th>Amount</th>
-                        <th>Method</th>
-                        <th>Reference</th>
-                        <th>Notes</th>
+                        <th>{t('page.th.date')}</th>
+                        <th>{t('page.th.invoice')}</th>
+                        <th>{t('page.th.amount')}</th>
+                        <th>{t('page.th.method')}</th>
+                        <th>{t('page.th.reference')}</th>
+                        <th>{t('page.th.notes')}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
                         <tr>
                             <td colSpan={6} style={{ textAlign: 'center', padding: 24 }}>
-                                No receipt records yet.
+                                {t('page.receipts.empty')}
                             </td>
                         </tr>
                     ) : (
@@ -736,7 +750,12 @@ function SupplierReceiptsTab() {
     );
 }
 
-function SupplierPaymentsOutTab() {
+function SupplierPaymentsOutTab({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [rows, setRows] = useState([]);
@@ -762,7 +781,7 @@ function SupplierPaymentsOutTab() {
                     }));
                 setRows(credits);
             } catch (e) {
-                if (!cancelled) setErr(e?.message || 'Failed to load payments');
+                if (!cancelled) setErr(e?.message || t('page.err.payments'));
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -773,7 +792,7 @@ function SupplierPaymentsOutTab() {
     }, []);
 
     if (loading) {
-        return <div className="ws-section" style={{ padding: 24 }}>Loading…</div>;
+        return <div className="ws-section" style={{ padding: 24 }}>{t('loading')}</div>;
     }
     if (err) {
         return (
@@ -786,23 +805,23 @@ function SupplierPaymentsOutTab() {
     return (
         <div className="ws-section" style={{ paddingTop: 12 }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '0 0 12px' }}>
-                Outflows from cash and bank accounts (credit entries). Use Purchase Invoices for creditor bills.
+                {t('page.payments.hint')}
             </p>
             <table className="ws-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Account</th>
-                        <th>Amount</th>
-                        <th>Source</th>
-                        <th>Description</th>
+                        <th>{t('page.th.date')}</th>
+                        <th>{t('page.th.account')}</th>
+                        <th>{t('page.th.amount')}</th>
+                        <th>{t('page.th.source')}</th>
+                        <th>{t('page.th.description')}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {rows.length === 0 ? (
                         <tr>
                             <td colSpan={5} style={{ textAlign: 'center', padding: 24 }}>
-                                No outgoing cash/bank entries yet.
+                                {t('page.payments.empty')}
                             </td>
                         </tr>
                     ) : (
@@ -822,18 +841,27 @@ function SupplierPaymentsOutTab() {
     );
 }
 
-function SupplierAdvancesTab() {
+function SupplierAdvancesTab({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     return (
         <div className="ws-section" style={{ padding: 24, maxWidth: 560 }}>
             <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-                Staff salary advances and similar balances are tracked in the main workshop accounting module, not in
-                the supplier portal. If you need this on the supplier side later, it can be added as a dedicated API.
+                {t('page.advances.hint')}
             </p>
         </div>
     );
 }
 
-function SupplierAccountingPurchasesTab() {
+function SupplierAccountingPurchasesTab({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
     const [superSuppliers, setSuperSuppliers] = useState([]);
 
     const reloadSs = useCallback(() => {
@@ -866,7 +894,7 @@ function SupplierAccountingPurchasesTab() {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                Inventory purchases from your upstream vendors (super suppliers), synced with the backend.
+                {t('page.purchases.hint')}
             </p>
             <SupplierSuperSupplierPurchasesPanel
                 superSuppliers={superSuppliers}
@@ -878,7 +906,11 @@ function SupplierAccountingPurchasesTab() {
     );
 }
 
-export default function SupplierAccountingPage({ activeSubTab: propActiveTab }) {
+export default function SupplierAccountingPage({ activeSubTab: propActiveTab, locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
     const { subTab } = useParams();
 
     const getActiveSub = () => {
@@ -912,27 +944,27 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab }) 
     return (
         <div className="accounting-page module-container">
             {/* New accounting (v2) sub-tabs */}
-            {activeSub === 'chart-of-accounts' && <SupplierCOAManager />}
-            {activeSub === 'hub' && <SupplierTransactionHub />}
-            {activeSub === 'logs-payments' && <SupplierJournalLogs initialTab="payments" />}
-            {activeSub === 'logs-receipts' && <SupplierJournalLogs initialTab="receipts" />}
-            {activeSub === 'logs-journals' && <SupplierJournalLogs initialTab="journals" />}
-            {activeSub === 'vat' && <SupplierVatReport />}
-            {activeSub === 'reports-tb' && <SupplierAccountingReports initialTab="tb" />}
-            {activeSub === 'reports-pl' && <SupplierAccountingReports initialTab="pl" />}
-            {activeSub === 'reports-bs' && <SupplierAccountingReports initialTab="bs" />}
-            {activeSub === 'reports-cf' && <SupplierAccountingReports initialTab="cf" />}
+            {activeSub === 'chart-of-accounts' && <SupplierCOAManager locale={locale} />}
+            {activeSub === 'hub' && <SupplierTransactionHub locale={locale} />}
+            {activeSub === 'logs-payments' && <SupplierJournalLogs initialTab="payments" locale={locale} />}
+            {activeSub === 'logs-receipts' && <SupplierJournalLogs initialTab="receipts" locale={locale} />}
+            {activeSub === 'logs-journals' && <SupplierJournalLogs initialTab="journals" locale={locale} />}
+            {activeSub === 'vat' && <SupplierVatReport locale={locale} />}
+            {activeSub === 'reports-tb' && <SupplierAccountingReports initialTab="tb" locale={locale} />}
+            {activeSub === 'reports-pl' && <SupplierAccountingReports initialTab="pl" locale={locale} />}
+            {activeSub === 'reports-bs' && <SupplierAccountingReports initialTab="bs" locale={locale} />}
+            {activeSub === 'reports-cf' && <SupplierAccountingReports initialTab="cf" locale={locale} />}
 
             {/* Legacy sub-tabs */}
-            {activeSub === 'cash-bank' && <SupplierCashBank />}
-            {activeSub === 'transactions' && <SupplierCashBankLedgerTab variant="transactions" />}
-            {activeSub === 'journal-entries' && <SupplierCashBankLedgerTab variant="journal" />}
-            {activeSub === 'purchases' && <SupplierAccountingPurchasesTab />}
-            {activeSub === 'expenses' && <SupplierExpenses />}
-            {activeSub === 'receipts' && <SupplierReceiptsTab />}
-            {activeSub === 'payments' && <SupplierPaymentsOutTab />}
-            {activeSub === 'advances' && <SupplierAdvancesTab />}
-            {activeSub === 'ledger' && <SupplierCashBankLedgerTab variant="ledger" />}
+            {activeSub === 'cash-bank' && <SupplierCashBank locale={locale} />}
+            {activeSub === 'transactions' && <SupplierCashBankLedgerTab variant="transactions" locale={locale} />}
+            {activeSub === 'journal-entries' && <SupplierCashBankLedgerTab variant="journal" locale={locale} />}
+            {activeSub === 'purchases' && <SupplierAccountingPurchasesTab locale={locale} />}
+            {activeSub === 'expenses' && <SupplierExpenses locale={locale} />}
+            {activeSub === 'receipts' && <SupplierReceiptsTab locale={locale} />}
+            {activeSub === 'payments' && <SupplierPaymentsOutTab locale={locale} />}
+            {activeSub === 'advances' && <SupplierAdvancesTab locale={locale} />}
+            {activeSub === 'ledger' && <SupplierCashBankLedgerTab variant="ledger" locale={locale} />}
         </div>
     );
 }

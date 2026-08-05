@@ -18,6 +18,7 @@ import SupplierWorkshopPurchaseInvoiceEditModal from './SupplierWorkshopPurchase
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import RowActionsMenu from '../../components/RowActionsMenu';
+import { swpiStatusLabel, swpiT } from '../../utils/supplierWpiPanelI18n';
 
 /**
  * Workshop → supplier purchase invoices (list, view, workshop-style PI edit via PATCH, approve, reject).
@@ -31,8 +32,14 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
     variant = 'page',
     pipelineStatusFilter,
     onListMutated,
+    locale: localeProp,
 }) {
     const navigate = useNavigate();
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => swpiT(locale, key, vars), [locale]);
     const embedded = variant === 'embedded';
     const parentControlsFilter = pipelineStatusFilter !== undefined;
     const [rows, setRows] = useState([]);
@@ -65,11 +72,11 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             setRows(list.map(normalizeWorkshopSupplierPurchaseInvoiceRow).filter(Boolean));
         } catch (e) {
             setRows([]);
-            setError(e.message || 'Failed to load workshop purchase invoices.');
+            setError(e.message || t('error.load'));
         } finally {
             setLoading(false);
         }
-    }, [effectiveListStatus, parentControlsFilter]);
+    }, [effectiveListStatus, parentControlsFilter, t]);
 
     useEffect(() => {
         load();
@@ -99,7 +106,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             setEditFetchPayload(d);
         } catch (e) {
             setEditFetchPayload(null);
-            setEditError(e.message || 'Could not load invoice for editing.');
+            setEditError(e.message || t('error.editLoad'));
         } finally {
             setEditLoading(false);
         }
@@ -124,7 +131,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             await load();
             onListMutated?.();
         } catch (e) {
-            setError(e.message || 'Approve failed.');
+            setError(e.message || t('error.approve'));
         } finally {
             setActionId(null);
         }
@@ -143,12 +150,12 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             }
             const prefill = res?.prefill;
             if (!prefill || typeof prefill !== 'object') {
-                throw new Error('Could not build sales invoice prefill.');
+                throw new Error(t('error.prefill'));
             }
             sessionStorage.setItem(WORKSHOP_PURCHASE_SI_PREFILL_KEY, JSON.stringify(prefill));
             navigate('/supplier/sales_invoices');
         } catch (e) {
-            setError(e.message || 'Prepare sales invoice failed.');
+            setError(e.message || t('error.prepareSi'));
         } finally {
             setActionId(null);
         }
@@ -166,11 +173,16 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             await load();
             onListMutated?.();
         } catch (e) {
-            setError(e.message || 'Reject failed.');
+            setError(e.message || t('error.reject'));
         } finally {
             setActionId(null);
         }
     };
+
+    const em = t('emdash');
+    const filterStatusLabel = effectiveListStatus
+        ? swpiStatusLabel(locale, effectiveListStatus)
+        : t('filter.all');
 
     return (
         <div style={embedded ? { marginBottom: 24 } : undefined}>
@@ -199,12 +211,11 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                 color: 'var(--color-text-dark)',
                             }}
                         >
-                            {embedded ? 'Workshop purchase invoices' : 'Filters'}
+                            {embedded ? t('title.embedded') : t('title.filters')}
                         </h3>
                         {embedded ? (
                             <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                Approve or reject the order, then use Prepare sales invoice (same AR/stock/GL as Sales
-                                Invoices).
+                                {t('subtitle.embedded')}
                             </p>
                         ) : null}
                     </div>
@@ -221,18 +232,18 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                 minWidth: 180,
                             }}
                         >
-                            <option value="">All statuses</option>
-                            <option value="pending">Pending approval</option>
-                            <option value="approved">Approved — awaiting sales invoice</option>
-                            <option value="rejected">Rejected</option>
+                            <option value="">{t('filter.allStatuses')}</option>
+                            <option value="pending">{t('filter.pending')}</option>
+                            <option value="approved">{t('filter.approved')}</option>
+                            <option value="rejected">{t('filter.rejected')}</option>
                         </select>
                         ) : (
                             <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>
-                                Filter: {effectiveListStatus ? effectiveListStatus.replace(/_/g, ' ') : 'All'}
+                                {t('filter.label', { status: filterStatusLabel })}
                             </span>
                         )}
                         <button type="button" className="btn-portal" onClick={load} disabled={loading}>
-                            <RefreshCw size={14} /> {loading ? 'Loading…' : 'Refresh'}
+                            <RefreshCw size={14} /> {loading ? t('btn.loading') : t('btn.refresh')}
                         </button>
                     </div>
                 </div>
@@ -245,23 +256,23 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                     <table className="ws-table">
                         <thead>
                             <tr>
-                                <th>Invoice #</th>
-                                <th>Vendor ref</th>
-                                <th>Issue date</th>
-                                <th>Product name</th>
-                                <th>Quantity</th>
-                                <th>Unit</th>
-                                <th>Unit price</th>
-                                <th>Total</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th>{t('th.invoice')}</th>
+                                <th>{t('th.vendorRef')}</th>
+                                <th>{t('th.issueDate')}</th>
+                                <th>{t('th.productName')}</th>
+                                <th>{t('th.quantity')}</th>
+                                <th>{t('th.unit')}</th>
+                                <th>{t('th.unitPrice')}</th>
+                                <th>{t('th.total')}</th>
+                                <th>{t('th.status')}</th>
+                                <th>{t('th.actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {rows.length === 0 ? (
                                 <tr>
                                     <td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                        No workshop purchase invoices
+                                        {t('empty')}
                                     </td>
                                 </tr>
                             ) : (
@@ -274,9 +285,9 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                             <strong className="theme-invoice-id">{r.invoice_number}</strong>
                                         </td>
                                         <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                            {r.vendor_invoice_ref || '—'}
+                                            {r.vendor_invoice_ref || em}
                                         </td>
-                                        <td style={{ fontSize: '0.8125rem' }}>{r.date || '—'}</td>
+                                        <td style={{ fontSize: '0.8125rem' }}>{r.date || em}</td>
                                         <td
                                             style={{
                                                 fontSize: '0.8125rem',
@@ -284,29 +295,30 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                                 color: 'var(--color-text-muted)',
                                                 lineHeight: 1.35,
                                             }}
-                                            title={r.product_label ?? '—'}
+                                            title={r.product_label ?? em}
                                         >
-                                            {r.product_label ?? '—'}
+                                            {r.product_label ?? em}
                                         </td>
-                                        <td style={{ fontSize: '0.8125rem' }}>{r.quantity_label ?? '—'}</td>
+                                        <td style={{ fontSize: '0.8125rem' }}>{r.quantity_label ?? em}</td>
                                         <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                            {r.unit_label ?? '—'}
+                                            {r.unit_label ?? em}
                                         </td>
                                         <td
                                             style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
                                             title={
                                                 Array.isArray(r.items) && r.items.length > 1
-                                                    ? 'Unit price (ex VAT) — first line'
-                                                    : 'Unit price (ex VAT)'
+                                                    ? t('tip.unitPriceFirst')
+                                                    : t('tip.unitPrice')
                                             }
                                         >
                                             {r.primary_unit_price != null &&
                                             Number.isFinite(Number(r.primary_unit_price)) ? (
                                                 <>
-                                                    SAR{' '}
-                                                    {Number(r.primary_unit_price).toLocaleString(undefined, {
-                                                        minimumFractionDigits: 2,
-                                                        maximumFractionDigits: 2,
+                                                    {t('money.sar', {
+                                                        amount: Number(r.primary_unit_price).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
+                                                        }),
                                                     })}
                                                     {Array.isArray(r.items) && r.items.length > 1 ? (
                                                         <span
@@ -316,16 +328,20 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                                                 marginLeft: 4,
                                                             }}
                                                         >
-                                                            (1st line)
+                                                            {t('unitPrice.firstLine')}
                                                         </span>
                                                     ) : null}
                                                 </>
                                             ) : (
-                                                '—'
+                                                em
                                             )}
                                         </td>
                                         <td>
-                                            <strong>SAR {(r.grand_total || 0).toLocaleString()}</strong>
+                                            <strong>
+                                                {t('money.sar', {
+                                                    amount: (r.grand_total || 0).toLocaleString(),
+                                                })}
+                                            </strong>
                                         </td>
                                         <td>
                                             <span
@@ -339,19 +355,21 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                                             : 'yellow'
                                                 }`}
                                             >
-                                                {r.status === 'on_the_way' ? 'On the way' : (r.status || '').replace(/_/g, ' ')}
+                                                {swpiStatusLabel(locale, r.status)}
                                             </span>
                                         </td>
                                         <td>
                                             <RowActionsMenu
                                                 disabled={actionId !== null}
-                                                ariaLabel={`Actions for ${r.invoice_number || 'invoice'}`}
+                                                ariaLabel={t('action.aria', {
+                                                    id: r.invoice_number || t('action.invoiceFallback'),
+                                                })}
                                                 items={[
-                                                    { label: 'View', onClick: () => openView(r) },
+                                                    { label: t('action.view'), onClick: () => openView(r) },
                                                     ...(r.supplier_invoice_id
                                                         ? [
                                                               {
-                                                                  label: 'Open sales invoice (AR)',
+                                                                  label: t('action.openSalesInvoice'),
                                                                   onClick: () =>
                                                                       openLinkedSalesInvoice(
                                                                           r.supplier_invoice_id,
@@ -362,17 +380,17 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                                     ...(r.status === 'pending'
                                                         ? [
                                                               {
-                                                                  label: 'Edit purchase invoice',
+                                                                  label: t('action.edit'),
                                                                   onClick: () => openEdit(r),
                                                                   disabled: actionId !== null,
                                                               },
                                                               {
-                                                                  label: 'Approve',
+                                                                  label: t('action.approve'),
                                                                   onClick: () => handleApprove(r.id),
                                                                   disabled: actionId !== null,
                                                               },
                                                               {
-                                                                  label: 'Reject',
+                                                                  label: t('action.reject'),
                                                                   onClick: () => {
                                                                       setRejectOpen(r);
                                                                       setRejectReason('');
@@ -384,7 +402,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                                     ...(approvedAwaitingSi
                                                         ? [
                                                               {
-                                                                  label: 'Prepare sales invoice',
+                                                                  label: t('action.prepareSalesInvoice'),
                                                                   onClick: () =>
                                                                       handlePrepareSalesInvoice(r),
                                                                   disabled: actionId !== null,
@@ -407,7 +425,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
             <AnimatePresence>
                 {viewRow && (
                     <Modal
-                        title="Workshop purchase invoice"
+                        title={t('modal.viewTitle')}
                         width="min(980px, 99vw)"
                         contentClassName="wpi-invoice-preview-modal"
                         onClose={() => {
@@ -422,15 +440,16 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                 {viewRow?.supplier_invoice_id ? (
                                     <div className="theme-callout" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                                         <span>
-                                            Linked <strong>sales invoice (AR)</strong> — same accounting as Sales
-                                            Invoices.
+                                            {t('modal.linkedSiBefore')}{' '}
+                                            <strong>{t('modal.linkedSiStrong')}</strong>{' '}
+                                            {t('modal.linkedSiAfter')}
                                         </span>
                                         <button
                                             type="button"
                                             className="btn-portal-outline"
                                             onClick={() => openLinkedSalesInvoice(viewRow.supplier_invoice_id)}
                                         >
-                                            <FileText size={14} /> Open sales invoice
+                                            <FileText size={14} /> {t('modal.openSalesInvoice')}
                                         </button>
                                     </div>
                                 ) : null}
@@ -460,7 +479,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                 )}
                 {rejectOpen && (
                     <Modal
-                        title="Reject invoice"
+                        title={t('modal.rejectTitle')}
                         onClose={() => {
                             setRejectOpen(null);
                             setRejectReason('');
@@ -476,7 +495,7 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                     }}
                                     disabled={actionId !== null}
                                 >
-                                    Cancel
+                                    {t('modal.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -484,13 +503,13 @@ export default function WorkshopPurchaseInvoicesSupplierPanel({
                                     disabled={!rejectReason.trim() || actionId !== null}
                                     onClick={handleReject}
                                 >
-                                    {actionId?.startsWith('rj-') ? 'Rejecting…' : 'Reject'}
+                                    {actionId?.startsWith('rj-') ? t('modal.rejecting') : t('modal.reject')}
                                 </button>
                             </div>
                         }
                     >
                         <textarea
-                            placeholder="Reason for rejection…"
+                            placeholder={t('modal.rejectPlaceholder')}
                             value={rejectReason}
                             onChange={(e) => setRejectReason(e.target.value)}
                             rows={3}

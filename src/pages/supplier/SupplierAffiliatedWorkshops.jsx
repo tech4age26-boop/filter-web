@@ -15,6 +15,7 @@ import {
     exportAffiliatedTransactionLedgerExcel,
     exportAffiliatedTransactionLedgerPdf,
 } from './supplierInventoryExport';
+import { sawT } from '../../utils/supplierAffiliatedWorkshopsI18n';
 
 const logToolbarExportBtnStyle = {
     display: 'inline-flex',
@@ -30,15 +31,15 @@ const logToolbarExportBtnStyle = {
     color: 'var(--color-text-dark)',
 };
 
-function fmtMoney(amount, currencyCode = 'SAR') {
+function fmtMoney(amount, currencyCode = 'SAR', t) {
     const n = Number(amount || 0);
     const formatted = Math.abs(n).toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
-    if (n > 0.005) return `${currencyCode} ${formatted} (they owe you)`;
-    if (n < -0.005) return `−${currencyCode} ${formatted} (you owe them)`;
-    return `${currencyCode} 0.00`;
+    if (n > 0.005) return t('money.theyOwe', { currency: currencyCode, amount: formatted });
+    if (n < -0.005) return t('money.youOwe', { currency: currencyCode, amount: formatted });
+    return t('money.zero', { currency: currencyCode });
 }
 
 function rowIsBranch(row) {
@@ -85,15 +86,38 @@ import {
     formatAffiliatedWorkshopCustomerLabel,
 } from '../../utils/affiliatedCustomerLabels';
 
-function fmtLedgerAmt(value) {
-    if (value == null || Number.isNaN(value)) return '—';
+function fmtLedgerAmt(value, t) {
+    if (value == null || Number.isNaN(value)) return t('emdash');
     return Number(value).toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
 }
 
-export default function SupplierAffiliatedWorkshops() {
+/** Wrap known phrase fragments in <strong> / <code> inside a localized full string. */
+function decoratePhrases(text, specs) {
+    if (!text || !specs?.length) return text;
+    const phrases = specs.map((s) => s.phrase).filter(Boolean);
+    if (!phrases.length) return text;
+    const escaped = phrases.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const re = new RegExp(`(${escaped.join('|')})`, 'g');
+    const tagFor = Object.fromEntries(specs.map((s) => [s.phrase, s.as]));
+    return String(text)
+        .split(re)
+        .map((bit, i) => {
+            const tag = tagFor[bit];
+            if (tag === 'strong') return <strong key={i}>{bit}</strong>;
+            if (tag === 'code') return <code key={i}>{bit}</code>;
+            return bit;
+        });
+}
+
+export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sawT(locale, key, vars), [locale]);
     const navigate = useNavigate();
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -130,12 +154,12 @@ export default function SupplierAffiliatedWorkshops() {
             : formatAffiliatedWorkshopCustomerLabel(
                   logRow.workshopName || logRow.workshopId,
               );
-        let rangeBit = 'All dates';
+        let rangeBit = t('export.allDates');
         if (logFrom && logTo) rangeBit = `${logFrom} → ${logTo}`;
-        else if (logFrom) rangeBit = `From ${logFrom}`;
-        else if (logTo) rangeBit = `To ${logTo}`;
-        return `${scopeLabel} · ${rangeBit} · ${affiliatedLedgerLines.length} row(s)`;
-    }, [logRow, logFrom, logTo, affiliatedLedgerLines.length]);
+        else if (logFrom) rangeBit = t('export.from', { date: logFrom });
+        else if (logTo) rangeBit = t('export.to', { date: logTo });
+        return `${scopeLabel} · ${rangeBit} · ${t('export.rows', { n: affiliatedLedgerLines.length })}`;
+    }, [logRow, logFrom, logTo, affiliatedLedgerLines.length, t]);
 
     const logExportFilenameBase = useMemo(() => {
         if (!logRow) return 'supplier-affiliated-transaction-log';
@@ -153,11 +177,11 @@ export default function SupplierAffiliatedWorkshops() {
             setRows(Array.isArray(res?.rows) ? res.rows : []);
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Failed to load list');
+            setErr(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadList();
@@ -191,7 +215,7 @@ export default function SupplierAffiliatedWorkshops() {
             setPlatform(Array.isArray(res?.workshops) ? res.workshops : []);
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Failed to load workshops');
+            setErr(e?.message || t('err.loadWorkshops'));
         }
     };
 
@@ -267,7 +291,7 @@ export default function SupplierAffiliatedWorkshops() {
             setPickerOpen(false);
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Could not add selections');
+            setErr(e?.message || t('err.add'));
         } finally {
             setAdding(false);
         }
@@ -294,7 +318,7 @@ export default function SupplierAffiliatedWorkshops() {
             });
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Could not update status');
+            setErr(e?.message || t('err.status'));
         } finally {
             activePatchBusyRef.current.delete(k);
             setActivePatchBusyKeys((prev) => {
@@ -317,7 +341,7 @@ export default function SupplierAffiliatedWorkshops() {
             setLogTx(txs.filter(isSupplierCustomerFinancialTx));
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Failed to load transactions');
+            setErr(e?.message || t('err.tx'));
         } finally {
             setLogLoading(false);
         }
@@ -335,7 +359,7 @@ export default function SupplierAffiliatedWorkshops() {
             setLogTx(txs.filter(isSupplierCustomerFinancialTx));
         } catch (e) {
             console.error(e);
-            setErr(e?.message || 'Failed to filter');
+            setErr(e?.message || t('err.filter'));
         } finally {
             setLogLoading(false);
         }
@@ -345,22 +369,24 @@ export default function SupplierAffiliatedWorkshops() {
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Affiliated Filter workshops</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Pin specific branches (or a whole workshop when it has no branches). Use{' '}
-                        <strong>Deactivate</strong> to soft-hide a row without losing history;{' '}
-                        <strong>Activate</strong> to show it again. Balance and logs still reflect real AR.
+                        {decoratePhrases(t('page.sub'), [
+                            { phrase: t('page.sub.deactivate'), as: 'strong' },
+                            { phrase: t('page.sub.activate'), as: 'strong' },
+                        ])}
                     </p>
                     <p className="ws-page-sub" style={{ marginTop: 8, fontSize: '0.85rem', opacity: 0.88 }}>
-                        The same balance is posted to <strong>Accounting → Chart of Accounts → AR Affiliated</strong>.
-                        Open a transaction log row, then use <strong>Chart of Accounts (ledger)</strong> to see matching
-                        GL lines (incl. sales invoices), or go to COA and filter the ledger by party type{' '}
-                        <code>workshop</code> and the workshop id.
+                        {decoratePhrases(t('page.sub2'), [
+                            { phrase: t('page.sub2.coa'), as: 'strong' },
+                            { phrase: t('page.sub2.ledger'), as: 'strong' },
+                            { phrase: t('page.sub2.workshop'), as: 'code' },
+                        ])}
                     </p>
                 </div>
                 <button type="button" className="btn-portal" onClick={openPicker}>
                     <Plus size={16} />
-                    Add workshops / branches
+                    {t('btn.add')}
                 </button>
             </div>
 
@@ -374,21 +400,21 @@ export default function SupplierAffiliatedWorkshops() {
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Workshop</th>
-                            <th>Branch</th>
-                            <th>Balance</th>
-                            <th style={{ width: 220 }}>Actions</th>
+                            <th>{t('th.workshop')}</th>
+                            <th>{t('th.branch')}</th>
+                            <th>{t('th.balance')}</th>
+                            <th style={{ width: 220 }}>{t('th.actions')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={4}>Loading…</td>
+                                <td colSpan={4}>{t('loading')}</td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
                                 <td colSpan={4}>
-                                    No rows yet — use “Add workshops / branches”.
+                                    {t('empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -405,9 +431,9 @@ export default function SupplierAffiliatedWorkshops() {
                                     onClick={() => openLog(r)}
                                 >
                                     <td>
-                                        <div style={{ fontWeight: 700 }}>{r.workshopName || '—'}</div>
+                                        <div style={{ fontWeight: 700 }}>{r.workshopName || t('emdash')}</div>
                                         <div style={{ fontSize: '0.75rem', opacity: 0.65 }}>
-                                            Workshop {r.workshopId}
+                                            {t('workshopId', { id: r.workshopId })}
                                         </div>
                                         {!rowIsActive(r) ? (
                                             <div
@@ -419,7 +445,7 @@ export default function SupplierAffiliatedWorkshops() {
                                                     letterSpacing: '0.04em',
                                                 }}
                                             >
-                                                INACTIVE
+                                                {t('inactive')}
                                             </div>
                                         ) : null}
                                     </td>
@@ -427,26 +453,26 @@ export default function SupplierAffiliatedWorkshops() {
                                         {rowIsBranch(r) ? (
                                             <>
                                                 <div style={{ fontWeight: 600 }}>
-                                                    {r.branchName || '—'}
+                                                    {r.branchName || t('emdash')}
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', opacity: 0.65 }}>
-                                                    Branch {r.branchId}
+                                                    {t('branchId', { id: r.branchId })}
                                                 </div>
                                             </>
                                         ) : (
                                             <span style={{ opacity: 0.7, fontStyle: 'italic' }}>
-                                                Workshop only (no branches)
+                                                {t('workshopOnly')}
                                             </span>
                                         )}
                                     </td>
-                                    <td>{fmtMoney(r.balanceOutstanding, r.currencyCode)}</td>
+                                    <td>{fmtMoney(r.balanceOutstanding, r.currencyCode, t)}</td>
                                     <td onClick={(e) => e.stopPropagation()}>
                                         <div
                                             className="ws-branch-active-toggle"
                                             title={
                                                 rowIsActive(r)
-                                                    ? 'Listed on this page; logs and AR unchanged'
-                                                    : 'Soft-hidden; balance and transaction log still reflect real AR'
+                                                    ? t('toggle.titleOn')
+                                                    : t('toggle.titleOff')
                                             }
                                             onClick={(e) => e.stopPropagation()}
                                             style={{ justifyContent: 'flex-start', flexWrap: 'nowrap' }}
@@ -454,7 +480,7 @@ export default function SupplierAffiliatedWorkshops() {
                                             <span
                                                 className={`ws-branch-active-toggle-label ${!rowIsActive(r) ? 'is-on' : ''}`}
                                             >
-                                                Inactive
+                                                {t('toggle.inactive')}
                                             </span>
                                             <label
                                                 className={`ws-duty-toggle ${patching ? 'ws-duty-toggle--disabled' : ''}`}
@@ -471,8 +497,8 @@ export default function SupplierAffiliatedWorkshops() {
                                                     onClick={(e) => e.stopPropagation()}
                                                     aria-label={
                                                         rowIsActive(r)
-                                                            ? 'Turn off listing (inactive)'
-                                                            : 'Turn on listing (active)'
+                                                            ? t('aria.turnOff')
+                                                            : t('aria.turnOn')
                                                     }
                                                 />
                                                 <span className="ws-toggle-slider" />
@@ -480,7 +506,7 @@ export default function SupplierAffiliatedWorkshops() {
                                             <span
                                                 className={`ws-branch-active-toggle-label ${rowIsActive(r) ? 'is-on' : ''}`}
                                             >
-                                                Active
+                                                {t('toggle.active')}
                                             </span>
                                         </div>
                                     </td>
@@ -494,7 +520,7 @@ export default function SupplierAffiliatedWorkshops() {
 
             {pickerOpen ? (
                 <Modal
-                    title="Add workshops / branches"
+                    title={t('picker.title')}
                     onClose={() => !adding && setPickerOpen(false)}
                     width={600}
                     disableClose={adding}
@@ -506,7 +532,7 @@ export default function SupplierAffiliatedWorkshops() {
                                 onClick={() => setPickerOpen(false)}
                                 disabled={adding}
                             >
-                                Cancel
+                                {t('btn.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -514,20 +540,23 @@ export default function SupplierAffiliatedWorkshops() {
                                 onClick={confirmAdd}
                                 disabled={adding || pickCount === 0}
                             >
-                                {adding ? 'Adding…' : `Add (${pickCount})`}
+                                {adding ? t('btn.adding') : t('btn.addCount', { n: pickCount })}
                             </button>
                         </>
                     }
                 >
                     <p style={{ marginTop: 0, fontSize: '0.85rem', opacity: 0.8 }}>
-                        Only <strong>approved</strong> workshops. Select <strong>branches</strong> individually or
-                        use the workshop checkbox to select <strong>all branches</strong> at once. Workshops with{' '}
-                        <strong>no branches</strong> can be pinned as a whole. Search matches names or IDs.
+                        {decoratePhrases(t('picker.hint'), [
+                            { phrase: t('picker.hint.approved'), as: 'strong' },
+                            { phrase: t('picker.hint.allBranches'), as: 'strong' },
+                            { phrase: t('picker.hint.noBranches'), as: 'strong' },
+                            { phrase: t('picker.hint.branches'), as: 'strong' },
+                        ])}
                     </p>
                     <input
                         type="search"
                         className="ws-input-like"
-                        placeholder="Search name or ID…"
+                        placeholder={t('picker.searchPh')}
                         value={pickerFilter}
                         onChange={(e) => setPickerFilter(e.target.value)}
                         style={{
@@ -592,7 +621,7 @@ export default function SupplierAffiliatedWorkshops() {
                                             </span>
                                             {trackedWo ? (
                                                 <span style={{ fontSize: '0.7rem', fontWeight: 700 }}>
-                                                    Already listed
+                                                    {t('picker.alreadyListed')}
                                                 </span>
                                             ) : null}
                                         </label>
@@ -604,7 +633,7 @@ export default function SupplierAffiliatedWorkshops() {
                                                 fontStyle: 'italic',
                                             }}
                                         >
-                                            No branches — pin whole workshop
+                                            {t('picker.noBranchesPin')}
                                         </div>
                                     </div>
                                 );
@@ -669,11 +698,11 @@ export default function SupplierAffiliatedWorkshops() {
                                         </span>
                                         {workshopAllTracked ? (
                                             <span style={{ fontSize: '0.7rem', fontWeight: 700 }}>
-                                                All branches listed
+                                                {t('picker.allBranchesListed')}
                                             </span>
                                         ) : (
                                             <span style={{ fontSize: '0.65rem', opacity: 0.55 }}>
-                                                Select all branches
+                                                {t('picker.selectAllBranches')}
                                             </span>
                                         )}
                                     </label>
@@ -725,7 +754,7 @@ export default function SupplierAffiliatedWorkshops() {
                                                                     marginLeft: 8,
                                                                 }}
                                                             >
-                                                                Branch {bid}
+                                                                {t('branchId', { id: bid })}
                                                             </span>
                                                             {!b.isActive ? (
                                                                 <span
@@ -736,7 +765,7 @@ export default function SupplierAffiliatedWorkshops() {
                                                                         color: '#b45309',
                                                                     }}
                                                                 >
-                                                                    inactive
+                                                                    {t('inactive.short')}
                                                                 </span>
                                                             ) : null}
                                                             {bTracked ? (
@@ -747,7 +776,7 @@ export default function SupplierAffiliatedWorkshops() {
                                                                         fontWeight: 700,
                                                                     }}
                                                                 >
-                                                                    Listed
+                                                                    {t('picker.listed')}
                                                                 </span>
                                                             ) : null}
                                                         </span>
@@ -765,21 +794,21 @@ export default function SupplierAffiliatedWorkshops() {
 
             {logRow ? (
                 <Modal
-                    title={
-                        rowIsBranch(logRow)
-                            ? `Transaction log — ${formatAffiliatedBranchCustomerLabel(
+                    title={t('log.title', {
+                        name: rowIsBranch(logRow)
+                            ? formatAffiliatedBranchCustomerLabel(
                                   logRow.workshopName,
                                   logRow.branchName || logRow.branchId,
-                              )}`
-                            : `Transaction log — ${formatAffiliatedWorkshopCustomerLabel(
+                              )
+                            : formatAffiliatedWorkshopCustomerLabel(
                                   logRow.workshopName || logRow.workshopId,
-                              )}`
-                    }
+                              ),
+                    })}
                     onClose={() => setLogRow(null)}
                     width={980}
                     footer={
                         <button type="button" className="btn-portal-outline" onClick={() => setLogRow(null)}>
-                            Close
+                            {t('btn.close')}
                         </button>
                     }
                 >
@@ -793,7 +822,7 @@ export default function SupplierAffiliatedWorkshops() {
                         }}
                     >
                         <div>
-                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>From</div>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>{t('log.from')}</div>
                             <input
                                 type="date"
                                 value={logFrom}
@@ -802,7 +831,7 @@ export default function SupplierAffiliatedWorkshops() {
                             />
                         </div>
                         <div>
-                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>To</div>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>{t('log.to')}</div>
                             <input
                                 type="date"
                                 value={logTo}
@@ -811,7 +840,7 @@ export default function SupplierAffiliatedWorkshops() {
                             />
                         </div>
                         <button type="button" className="btn-portal" onClick={applyLogFilter} disabled={logLoading}>
-                            {logLoading ? 'Loading…' : 'Apply range'}
+                            {logLoading ? t('btn.loading') : t('btn.applyRange')}
                         </button>
                         <button
                             type="button"
@@ -831,7 +860,7 @@ export default function SupplierAffiliatedWorkshops() {
                             }}
                             disabled={logLoading}
                         >
-                            Clear filter
+                            {t('btn.clearFilter')}
                         </button>
                         <button
                             type="button"
@@ -857,9 +886,9 @@ export default function SupplierAffiliatedWorkshops() {
                                     ? !logRow?.branchId
                                     : !logRow?.workshopId
                             }
-                            title="Opens Chart of Accounts with AR Affiliated ledger filtered to this customer"
+                            title={t('log.coaTitle')}
                         >
-                            Chart of Accounts (ledger)
+                            {t('btn.coaLedger')}
                         </button>
                         <div
                             style={{
@@ -875,8 +904,8 @@ export default function SupplierAffiliatedWorkshops() {
                                 disabled={logLoading || affiliatedLedgerLines.length === 0}
                                 title={
                                     logLoading || affiliatedLedgerLines.length === 0
-                                        ? 'Nothing to export'
-                                        : 'Download PDF'
+                                        ? t('log.exportNothing')
+                                        : t('log.exportPdf')
                                 }
                                 onClick={() => {
                                     exportAffiliatedTransactionLedgerPdf(
@@ -895,15 +924,15 @@ export default function SupplierAffiliatedWorkshops() {
                                             : 'pointer',
                                 }}
                             >
-                                <FileText size={14} aria-hidden /> PDF
+                                <FileText size={14} aria-hidden /> {t('btn.pdf')}
                             </button>
                             <button
                                 type="button"
                                 disabled={logLoading || affiliatedLedgerLines.length === 0}
                                 title={
                                     logLoading || affiliatedLedgerLines.length === 0
-                                        ? 'Nothing to export for the current range'
-                                        : 'Download spreadsheet (.xlsx)'
+                                        ? t('log.exportNothingRange')
+                                        : t('log.exportExcel')
                                 }
                                 onClick={() => {
                                     exportAffiliatedTransactionLedgerExcel(
@@ -921,7 +950,7 @@ export default function SupplierAffiliatedWorkshops() {
                                             : 'pointer',
                                 }}
                             >
-                                <FileSpreadsheet size={14} aria-hidden /> Excel
+                                <FileSpreadsheet size={14} aria-hidden /> {t('btn.excel')}
                             </button>
                         </div>
                     </div>
@@ -933,52 +962,52 @@ export default function SupplierAffiliatedWorkshops() {
                             lineHeight: 1.45,
                         }}
                     >
-                        Sorted <strong>oldest → newest</strong> for running balance.&nbsp;
-                        <strong>Debt (Dr)</strong> increases collectible AR (sales invoices).&nbsp;
-                        <strong>Credit (Cr)</strong> lowers it (payments, returns). Other activity
-                        (e.g. stock) stays in Title with no Debt/Credit.&nbsp;
-                        Balance is cumulative for rows in this date range only.
+                        {decoratePhrases(t('log.hint'), [
+                            { phrase: t('log.hint.oldest'), as: 'strong' },
+                            { phrase: t('log.hint.debt'), as: 'strong' },
+                            { phrase: t('log.hint.credit'), as: 'strong' },
+                        ])}
                     </p>
                     <div style={{ maxHeight: 420, overflow: 'auto' }}>
                         <table className="ws-table">
                             <thead>
                                 <tr>
-                                    <th>When</th>
-                                    <th>Type</th>
-                                    <th>Title</th>
-                                    <th style={{ whiteSpace: 'nowrap' }}>Debt (Dr)</th>
-                                    <th style={{ whiteSpace: 'nowrap' }}>Credit (Cr)</th>
-                                    <th style={{ whiteSpace: 'nowrap' }}>Balance</th>
+                                    <th>{t('log.th.when')}</th>
+                                    <th>{t('log.th.type')}</th>
+                                    <th>{t('log.th.title')}</th>
+                                    <th style={{ whiteSpace: 'nowrap' }}>{t('log.th.debt')}</th>
+                                    <th style={{ whiteSpace: 'nowrap' }}>{t('log.th.credit')}</th>
+                                    <th style={{ whiteSpace: 'nowrap' }}>{t('log.th.balance')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {logLoading ? (
                                     <tr>
-                                        <td colSpan={6}>Loading…</td>
+                                        <td colSpan={6}>{t('loading')}</td>
                                     </tr>
                                 ) : affiliatedLedgerLines.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6}>No rows in this range.</td>
+                                        <td colSpan={6}>{t('log.empty')}</td>
                                     </tr>
                                 ) : (
                                     affiliatedLedgerLines.map((line) => {
-                                        const t = line.raw;
+                                        const raw = line.raw;
                                         return (
-                                            <tr key={t.id}>
+                                            <tr key={raw.id}>
                                                 <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
-                                                    {new Date(t.createdAt).toLocaleString()}
+                                                    {new Date(raw.createdAt).toLocaleString()}
                                                 </td>
-                                                <td style={{ fontSize: '0.8rem' }}>{t.transactionType}</td>
+                                                <td style={{ fontSize: '0.8rem' }}>{raw.transactionType}</td>
                                                 <td>
-                                                    <div style={{ fontWeight: 600 }}>{t.title}</div>
-                                                    {t.description ? (
+                                                    <div style={{ fontWeight: 600 }}>{raw.title}</div>
+                                                    {raw.description ? (
                                                         <div
                                                             style={{
                                                                 fontSize: '0.78rem',
                                                                 opacity: 0.75,
                                                             }}
                                                         >
-                                                            {t.description}
+                                                            {raw.description}
                                                         </div>
                                                     ) : null}
                                                 </td>
@@ -991,13 +1020,13 @@ export default function SupplierAffiliatedWorkshops() {
                                                 >
                                                     {line.debit != null ? (
                                                         <>
-                                                            {fmtLedgerAmt(line.debit)}{' '}
+                                                            {fmtLedgerAmt(line.debit, t)}{' '}
                                                             <span style={{ opacity: 0.65 }}>
                                                                 {line.currencyCode}
                                                             </span>
                                                         </>
                                                     ) : (
-                                                        '—'
+                                                        t('emdash')
                                                     )}
                                                 </td>
                                                 <td
@@ -1009,13 +1038,13 @@ export default function SupplierAffiliatedWorkshops() {
                                                 >
                                                     {line.credit != null ? (
                                                         <>
-                                                            {fmtLedgerAmt(line.credit)}{' '}
+                                                            {fmtLedgerAmt(line.credit, t)}{' '}
                                                             <span style={{ opacity: 0.65 }}>
                                                                 {line.currencyCode}
                                                             </span>
                                                         </>
                                                     ) : (
-                                                        '—'
+                                                        t('emdash')
                                                     )}
                                                 </td>
                                                 <td
@@ -1026,7 +1055,7 @@ export default function SupplierAffiliatedWorkshops() {
                                                         fontVariantNumeric: 'tabular-nums',
                                                     }}
                                                 >
-                                                    {fmtLedgerAmt(line.balance)}{' '}
+                                                    {fmtLedgerAmt(line.balance, t)}{' '}
                                                     <span style={{ opacity: 0.65 }}>
                                                         {line.currencyCode}
                                                     </span>

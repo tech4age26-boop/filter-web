@@ -5,6 +5,7 @@ import {
     exportVatReportExcel,
     exportVatReportPdf,
 } from '../../../utils/supplierLedgerExport';
+import { saccT } from '../../../utils/supplierAccountingI18n';
 import {
     AcctEmpty,
     AcctError,
@@ -39,7 +40,15 @@ const summaryValueStyle = {
     color: '#0F172A',
 };
 
-export default function SupplierVatReport() {
+export default function SupplierVatReport({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => saccT(locale, key, vars), [locale]);
+    const em = t('emdash');
+    const m = (v) => money(v, 'SAR', { locale });
+
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -57,11 +66,11 @@ export default function SupplierVatReport() {
             const root = res?.data && typeof res.data === 'object' ? res.data : res;
             setData(root);
         } catch (e) {
-            setErr(e?.message || 'Failed to load VAT report');
+            setErr(e?.message || t('vat.err.load'));
         } finally {
             setLoading(false);
         }
-    }, [dateFrom, dateTo]);
+    }, [dateFrom, dateTo, t]);
 
     useEffect(() => {
         void load();
@@ -115,10 +124,10 @@ export default function SupplierVatReport() {
         <div>
             <div style={{ marginBottom: 16 }}>
                 <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0F172A' }}>
-                    VAT Report
+                    {t('vat.title')}
                 </h2>
                 <p style={{ margin: '6px 0 0', color: '#64748B', fontSize: '0.875rem' }}>
-                    Transaction-wise VAT input, output, and net payable to ZATCA
+                    {t('vat.sub')}
                 </p>
             </div>
 
@@ -132,13 +141,13 @@ export default function SupplierVatReport() {
                         background: '#FFFFFF',
                     }}
                 >
-                    <div style={summaryLabelStyle}>Ledger account</div>
+                    <div style={summaryLabelStyle}>{t('vat.ledgerAccount')}</div>
                     <div style={{ ...summaryValueStyle, fontSize: '1.2rem', marginTop: 6 }}>
                         {accountLabel}
                     </div>
                     {periodLabel ? (
                         <div style={{ marginTop: 8, fontSize: '0.875rem', color: '#64748B' }}>
-                            Period: {periodLabel}
+                            {t('vat.period', { period: periodLabel })}
                         </div>
                     ) : null}
                     <div
@@ -150,19 +159,19 @@ export default function SupplierVatReport() {
                         }}
                     >
                         <div>
-                            <div style={summaryLabelStyle}>Opening balance</div>
+                            <div style={summaryLabelStyle}>{t('vat.openingBal')}</div>
                             <div style={{ ...summaryValueStyle, fontSize: '1rem' }}>
-                                {money(data?.openingPayable ?? 0)}
+                                {m(data?.openingPayable ?? 0)}
                             </div>
                         </div>
                         <div>
-                            <div style={summaryLabelStyle}>Net change (period)</div>
+                            <div style={summaryLabelStyle}>{t('vat.netChange')}</div>
                             <div style={{ ...summaryValueStyle, fontSize: '1rem' }}>
-                                {money(periodNetChange)}
+                                {m(periodNetChange)}
                             </div>
                         </div>
                         <div>
-                            <div style={summaryLabelStyle}>Closing payable to ZATCA</div>
+                            <div style={summaryLabelStyle}>{t('vat.closingPayable')}</div>
                             <div
                                 style={{
                                     ...summaryValueStyle,
@@ -170,7 +179,7 @@ export default function SupplierVatReport() {
                                     color: '#0F172A',
                                 }}
                             >
-                                {money(closingPayable)}
+                                {m(closingPayable)}
                             </div>
                         </div>
                     </div>
@@ -186,7 +195,7 @@ export default function SupplierVatReport() {
                     marginBottom: 16,
                 }}
             >
-                <Field label="From">
+                <Field label={t('logs.from')}>
                     <input
                         type="date"
                         style={inputStyle}
@@ -194,7 +203,7 @@ export default function SupplierVatReport() {
                         onChange={(e) => setDateFrom(e.target.value)}
                     />
                 </Field>
-                <Field label="To">
+                <Field label={t('logs.to')}>
                     <input
                         type="date"
                         style={inputStyle}
@@ -203,10 +212,10 @@ export default function SupplierVatReport() {
                     />
                 </Field>
                 <button type="button" style={primaryBtnStyle} onClick={() => void load()} disabled={loading}>
-                    {loading ? 'Loading…' : 'Apply filters'}
+                    {loading ? t('loading') : t('vat.apply')}
                 </button>
                 <button type="button" style={outlineBtnStyle} onClick={clearRange} disabled={loading}>
-                    Clear filters
+                    {t('vat.clear')}
                 </button>
                 <div style={{ flex: 1, minWidth: 12 }} />
                 <button
@@ -216,7 +225,7 @@ export default function SupplierVatReport() {
                     disabled={!data || loading}
                 >
                     <FileText size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
-                    Download PDF
+                    {t('vat.pdf')}
                 </button>
                 <button
                     type="button"
@@ -225,7 +234,7 @@ export default function SupplierVatReport() {
                     disabled={!data || loading}
                 >
                     <FileSpreadsheet size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
-                    Download Excel
+                    {t('vat.excel')}
                 </button>
             </div>
 
@@ -241,42 +250,42 @@ export default function SupplierVatReport() {
                     }}
                 >
                     <div style={summaryCardStyle}>
-                        <div style={summaryLabelStyle}>Total Sales (incl VAT)</div>
-                        <div style={summaryValueStyle}>{money(totals.totalSaleInclVat)}</div>
+                        <div style={summaryLabelStyle}>{t('vat.totalSales')}</div>
+                        <div style={summaryValueStyle}>{m(totals.totalSaleInclVat)}</div>
                     </div>
                     <div style={summaryCardStyle}>
-                        <div style={summaryLabelStyle}>Total Purchases (incl VAT)</div>
-                        <div style={summaryValueStyle}>{money(totals.totalPurchaseInclVat)}</div>
+                        <div style={summaryLabelStyle}>{t('vat.totalPurchases')}</div>
+                        <div style={summaryValueStyle}>{m(totals.totalPurchaseInclVat)}</div>
                     </div>
                     <div style={summaryCardStyle}>
-                        <div style={summaryLabelStyle}>Total VAT Output</div>
+                        <div style={summaryLabelStyle}>{t('vat.totalOutput')}</div>
                         <div style={{ ...summaryValueStyle, color: '#0F766E' }}>
-                            {money(totals.totalVatOutput)}
+                            {m(totals.totalVatOutput)}
                         </div>
                     </div>
                     <div style={summaryCardStyle}>
-                        <div style={summaryLabelStyle}>Total VAT Input</div>
+                        <div style={summaryLabelStyle}>{t('vat.totalInput')}</div>
                         <div style={{ ...summaryValueStyle, color: '#B91C1C' }}>
-                            {money(totals.totalVatInput)}
+                            {m(totals.totalVatInput)}
                         </div>
                     </div>
                     <div style={summaryCardStyle}>
-                        <div style={summaryLabelStyle}>Net change (period)</div>
-                        <div style={summaryValueStyle}>{money(periodNetChange)}</div>
+                        <div style={summaryLabelStyle}>{t('vat.netChange')}</div>
+                        <div style={summaryValueStyle}>{m(periodNetChange)}</div>
                     </div>
                     <div style={{ ...summaryCardStyle, borderColor: '#FED7AA', background: '#FFF7ED' }}>
-                        <div style={summaryLabelStyle}>Closing payable to ZATCA</div>
+                        <div style={summaryLabelStyle}>{t('vat.closingPayable')}</div>
                         <div style={{ ...summaryValueStyle, color: '#9A3412' }}>
-                            {money(closingPayable)}
+                            {m(closingPayable)}
                         </div>
                     </div>
                 </div>
             ) : null}
 
             {loading ? (
-                <AcctLoading />
+                <AcctLoading locale={locale} />
             ) : !rows.length && !data?.openingPayable ? (
-                <AcctEmpty message="No VAT transactions in this period." />
+                <AcctEmpty message={t('vat.empty')} />
             ) : (
                 <div
                     style={{
@@ -288,48 +297,48 @@ export default function SupplierVatReport() {
                     <table className="ws-table" style={{ margin: 0 }}>
                         <thead>
                             <tr>
-                                <th style={{ width: 110 }}>Date</th>
-                                <th style={{ width: 120 }}>Reference</th>
-                                <th>Description</th>
-                                <th style={{ width: 110, textAlign: 'right' }}>Sale incl VAT</th>
-                                <th style={{ width: 110, textAlign: 'right' }}>Purchase incl VAT</th>
-                                <th style={{ width: 100, textAlign: 'right' }}>VAT Output</th>
-                                <th style={{ width: 100, textAlign: 'right' }}>VAT Input</th>
-                                <th style={{ width: 120, textAlign: 'right' }}>Payable to ZATCA</th>
+                                <th style={{ width: 110 }}>{t('vat.th.date')}</th>
+                                <th style={{ width: 120 }}>{t('vat.th.ref')}</th>
+                                <th>{t('vat.th.desc')}</th>
+                                <th style={{ width: 110, textAlign: 'right' }}>{t('vat.th.sale')}</th>
+                                <th style={{ width: 110, textAlign: 'right' }}>{t('vat.th.purchase')}</th>
+                                <th style={{ width: 100, textAlign: 'right' }}>{t('vat.th.output')}</th>
+                                <th style={{ width: 100, textAlign: 'right' }}>{t('vat.th.input')}</th>
+                                <th style={{ width: 120, textAlign: 'right' }}>{t('vat.th.payable')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr style={{ background: '#F8FAFC', fontWeight: 700 }}>
-                                <td>—</td>
-                                <td>—</td>
-                                <td>Opening balance</td>
-                                <td style={{ textAlign: 'right' }}>—</td>
-                                <td style={{ textAlign: 'right' }}>—</td>
-                                <td style={{ textAlign: 'right' }}>—</td>
-                                <td style={{ textAlign: 'right' }}>—</td>
+                                <td>{em}</td>
+                                <td>{em}</td>
+                                <td>{t('vat.openingBal')}</td>
+                                <td style={{ textAlign: 'right' }}>{em}</td>
+                                <td style={{ textAlign: 'right' }}>{em}</td>
+                                <td style={{ textAlign: 'right' }}>{em}</td>
+                                <td style={{ textAlign: 'right' }}>{em}</td>
                                 <td style={{ textAlign: 'right' }}>
-                                    {money(data?.openingPayable ?? 0)}
+                                    {m(data?.openingPayable ?? 0)}
                                 </td>
                             </tr>
                             {rows.map((r) => (
                                 <tr key={r.id}>
                                     <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
-                                    <td>{r.reference || '—'}</td>
-                                    <td>{r.description || '—'}</td>
+                                    <td>{r.reference || em}</td>
+                                    <td>{r.description || em}</td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {r.saleInclVat > 0 ? money(r.saleInclVat) : ''}
+                                        {r.saleInclVat > 0 ? m(r.saleInclVat) : ''}
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {r.purchaseInclVat > 0 ? money(r.purchaseInclVat) : ''}
+                                        {r.purchaseInclVat > 0 ? m(r.purchaseInclVat) : ''}
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {r.vatOutput !== 0 ? money(r.vatOutput) : ''}
+                                        {r.vatOutput !== 0 ? m(r.vatOutput) : ''}
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {r.vatInput !== 0 ? money(r.vatInput) : ''}
+                                        {r.vatInput !== 0 ? m(r.vatInput) : ''}
                                     </td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>
-                                        {money(r.payableToZatca)}
+                                        {m(r.payableToZatca)}
                                     </td>
                                 </tr>
                             ))}
@@ -343,17 +352,17 @@ export default function SupplierVatReport() {
                                 >
                                     <td />
                                     <td />
-                                    <td>Closing summary</td>
+                                    <td>{t('vat.closingSummary')}</td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {money(totals.totalSaleInclVat)}
+                                        {m(totals.totalSaleInclVat)}
                                     </td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {money(totals.totalPurchaseInclVat)}
+                                        {m(totals.totalPurchaseInclVat)}
                                     </td>
-                                    <td style={{ textAlign: 'right' }}>{money(totals.totalVatOutput)}</td>
-                                    <td style={{ textAlign: 'right' }}>{money(totals.totalVatInput)}</td>
+                                    <td style={{ textAlign: 'right' }}>{m(totals.totalVatOutput)}</td>
+                                    <td style={{ textAlign: 'right' }}>{m(totals.totalVatInput)}</td>
                                     <td style={{ textAlign: 'right' }}>
-                                        {money(closingPayable)}
+                                        {m(closingPayable)}
                                     </td>
                                 </tr>
                             ) : null}

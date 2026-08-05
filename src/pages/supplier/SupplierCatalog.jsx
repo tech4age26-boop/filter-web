@@ -22,6 +22,7 @@ import {
 } from '../../services/supplierApi';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { formatUomRule } from '../workshop/workshopUomUtils';
+import { scatT } from '../../utils/supplierCatalogI18n';
 
 // ─── Previously: supplier-owned CRUD listing — replaced by Super Admin master list ─────
 
@@ -38,10 +39,10 @@ function unwrapProducts(res) {
 }
 
 /** Map master product → supplier card row (aligned with Master Catalog grid fields). */
-function mapMasterCatalogRow(p) {
-    const brandName = (p.brandName || p.supplierName || '').trim() || '—';
+function mapMasterCatalogRow(p, t) {
+    const brandName = (p.brandName || p.supplierName || '').trim() || t('emdash');
     const sku = (p.sku || '').trim();
-    const descParts = [sku ? `SKU: ${sku}` : null, (p.description || '').trim()].filter(Boolean);
+    const descParts = [sku ? t('sku.prefix', { sku }) : null, (p.description || '').trim()].filter(Boolean);
     return {
         id: p.id,
         product_name: p.name || '',
@@ -54,7 +55,7 @@ function mapMasterCatalogRow(p) {
         stock_qty: Number(p.currentStock ?? p.stockQty ?? p.quantityOnHand ?? p.stock ?? 0),
         description: descParts.join(' · '),
         isActive: p.isActive !== false,
-        _approval: p.isActive === false ? 'Rejected' : 'Approved',
+        _approval: p.isActive === false ? 'rejected' : 'approved',
     };
 }
 
@@ -62,9 +63,15 @@ function mapMasterCatalogRow(p) {
  * Lists the same approved master products shown in Super Admin → Inventory → Master Catalog,
  * but through supplier endpoint (`/supplier/products/master-catalog`).
  */
-export default function SupplierCatalog() {
-    const branchLabel = 'All branches';
-    const zoneName = 'Central Zone';
+export default function SupplierCatalog({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => scatT(locale, key, vars), [locale]);
+
+    const branchLabel = t('branch.all');
+    const zoneName = t('zone.central');
 
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -143,7 +150,7 @@ export default function SupplierCatalog() {
             })
             .catch((err) => {
                 if (err.name === 'AbortError') return;
-                setApiError(err.message || 'Failed to load master catalog.');
+                setApiError(err.message || t('err.loadCatalog'));
                 setMasterProducts([]);
                 setCategoryRows([]);
             })
@@ -151,7 +158,7 @@ export default function SupplierCatalog() {
                 if (signal.aborted) return;
                 setLoading(false);
             });
-    }, []);
+    }, [t]);
 
     const loadMyInventoryProducts = useCallback(async () => {
         try {
@@ -266,7 +273,10 @@ export default function SupplierCatalog() {
         isAlreadyAdded,
     ]);
 
-    const cardRows = useMemo(() => filteredRaw.map(mapMasterCatalogRow), [filteredRaw]);
+    const cardRows = useMemo(
+        () => filteredRaw.map((p) => mapMasterCatalogRow(p, t)),
+        [filteredRaw, t],
+    );
 
     const brandCountForHeader = brandDropdownSource.length || 0;
 
@@ -293,7 +303,10 @@ export default function SupplierCatalog() {
     const handlePlaceOrder = () => {
         if (orderItem) {
             alert(
-                `Purchase order placed for ${orderItem.product_name} with ${orderSupplier?.name}`,
+                t('order.alert', {
+                    product: orderItem.product_name,
+                    supplier: orderSupplier?.name,
+                }),
             );
             setOrderItem(null);
             setOrderSupplier(null);
@@ -301,14 +314,14 @@ export default function SupplierCatalog() {
     };
     const handleRequestProduct = async () => {
         if (!reqForm.product_name?.trim()) {
-            setRequestError('Product name is required.');
+            setRequestError(t('err.nameRequired'));
             return;
         }
         setRequestSubmitting(true);
         setRequestError('');
         const form = {
             ...reqForm,
-            product_name: reqForm.product_name || 'New Product',
+            product_name: reqForm.product_name || t('fallback.newProduct'),
             quantity_needed: reqForm.quantity_needed || 1,
             unit: reqForm.unit || 'piece',
             status: 'pending',
@@ -352,7 +365,7 @@ export default function SupplierCatalog() {
                 notes: '',
             });
         } catch (err) {
-            setRequestError(err?.message || 'Failed to submit product request.');
+            setRequestError(err?.message || t('err.submit'));
         } finally {
             setRequestSubmitting(false);
         }
@@ -508,20 +521,20 @@ export default function SupplierCatalog() {
                 ? result.skippedMasterProductIds.length
                 : 0;
             const parts = [];
-            if (created > 0) parts.push(`${created} added`);
-            if (already > 0) parts.push(`${already} already in inventory`);
-            if (skipped > 0) parts.push(`${skipped} skipped (inactive/missing)`);
+            if (created > 0) parts.push(t('inv.added', { n: created }));
+            if (already > 0) parts.push(t('inv.already', { n: already }));
+            if (skipped > 0) parts.push(t('inv.skipped', { n: skipped }));
             setInventorySuccess(
                 parts.length > 0
-                    ? `Inventory updated: ${parts.join(', ')}.`
+                    ? t('inv.success', { parts: parts.join(', ') })
                     : result?.message ||
-                          `${selectedMasterProducts.length} product(s) processed.`,
+                          t('inv.processed', { n: selectedMasterProducts.length }),
             );
             setAddInventoryOpen(false);
             setSelectedProductIds(new Set());
             await loadMyInventoryProducts();
         } catch (err) {
-            setInventoryError(err?.message || 'Failed to add selected products to inventory.');
+            setInventoryError(err?.message || t('err.addInventory'));
         } finally {
             setInventorySaving(false);
         }
@@ -531,10 +544,14 @@ export default function SupplierCatalog() {
         <div>
             <div className="ws-page-header">
                 <div>
-                    <h2 className="ws-page-title">Product Catalog</h2>
+                    <h2 className="ws-page-title">{t('page.title')}</h2>
                     <p className="ws-page-sub">
-                        Branch: <strong>{branchLabel}</strong> · {zoneName} · {brandCountForHeader}{' '}
-                        brands · {cardRows.length} products
+                        {t('page.sub', {
+                            branch: branchLabel,
+                            zone: zoneName,
+                            brands: brandCountForHeader,
+                            products: cardRows.length,
+                        })}
                     </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -548,19 +565,19 @@ export default function SupplierCatalog() {
                                 const ctrl = new AbortController();
                                 loadMasterCatalog(ctrl.signal);
                                 await loadMyInventoryProducts();
-                                setSyncMsg('Synced master catalog.');
+                                setSyncMsg(t('msg.synced'));
                                 setTimeout(() => setSyncMsg(''), 2500);
                             } catch (e) {
-                                setSyncMsg(e?.message || 'Sync failed.');
+                                setSyncMsg(e?.message || t('msg.syncFailed'));
                                 setTimeout(() => setSyncMsg(''), 3500);
                             } finally {
                                 setSyncing(false);
                             }
                         }}
                         disabled={syncing}
-                        title="Sync / refresh master catalog"
+                        title={t('btn.syncTitle')}
                     >
-                        {syncing ? 'Syncing…' : 'Sync'}
+                        {syncing ? t('btn.syncing') : t('btn.sync')}
                     </button>
                     <button
                         className="btn-portal-outline"
@@ -568,11 +585,11 @@ export default function SupplierCatalog() {
                         onClick={openAddToInventoryModal}
                         disabled={selectedProductIds.size === 0}
                     >
-                        <Plus size={15} /> Add to Inventory
+                        <Plus size={15} /> {t('btn.addToInventory')}
                         {selectedProductIds.size > 0 ? ` (${selectedProductIds.size})` : ''}
                     </button>
                     <button className="btn-portal" onClick={() => setShowRequestForm(true)}>
-                        <Plus size={15} /> Request New Product
+                        <Plus size={15} /> {t('btn.requestNew')}
                     </button>
                 </div>
             </div>
@@ -594,7 +611,7 @@ export default function SupplierCatalog() {
             ) : null}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-                <div role="tablist" aria-label="Catalog sections" className="theme-segmented">
+                <div role="tablist" aria-label={t('tab.ariaSections')} className="theme-segmented">
                     <button
                         type="button"
                         role="tab"
@@ -605,7 +622,7 @@ export default function SupplierCatalog() {
                             catalogTab === 'browse' ? ' theme-segmented__btn--active' : ''
                         }`}
                     >
-                        Browse catalog
+                        {t('tab.browse')}
                     </button>
                     <button
                         type="button"
@@ -617,13 +634,13 @@ export default function SupplierCatalog() {
                             catalogTab === 'requests' ? ' theme-segmented__btn--active' : ''
                         }`}
                     >
-                        My Product Requests
+                        {t('tab.requests')}
                         {requests.length > 0 ? ` (${requests.length})` : ''}
                     </button>
                 </div>
 
                 {catalogTab === 'browse' ? (
-                    <div role="tablist" aria-label="Catalog filter" className="theme-segmented">
+                    <div role="tablist" aria-label={t('filter.aria')} className="theme-segmented">
                         <button
                             type="button"
                             className={`theme-segmented__btn${
@@ -631,7 +648,7 @@ export default function SupplierCatalog() {
                             }`}
                             onClick={() => setMasterFilterTab('not_added')}
                         >
-                            Not Added Products
+                            {t('filter.notAdded')}
                         </button>
                         <button
                             type="button"
@@ -640,7 +657,7 @@ export default function SupplierCatalog() {
                             }`}
                             onClick={() => setMasterFilterTab('already_added')}
                         >
-                            Already Added Products
+                            {t('filter.alreadyAdded')}
                         </button>
                     </div>
                 ) : null}
@@ -676,8 +693,7 @@ export default function SupplierCatalog() {
                 >
                     {apiError}{' '}
                     <span style={{ color: '#64748B' }}>
-                        Same listing as Super Admin → Master Catalog through
-                        `GET /supplier/products/master-catalog`.
+                        {t('err.loadCatalogHint')}
                     </span>
                 </div>
             ) : null}
@@ -701,7 +717,7 @@ export default function SupplierCatalog() {
                     />
                     <input
                         type="text"
-                        placeholder="Search name, SKU, brand…"
+                        placeholder={t('search.placeholder')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         style={{
@@ -727,7 +743,7 @@ export default function SupplierCatalog() {
                         minWidth: 160,
                     }}
                 >
-                    <option value="all">All Categories</option>
+                    <option value="all">{t('filter.allCategories')}</option>
                     {categoryRows.map((c) => (
                         <option key={c.id} value={c.id}>
                             {c.name}
@@ -745,7 +761,7 @@ export default function SupplierCatalog() {
                         minWidth: 180,
                     }}
                 >
-                    <option value="all">All brands</option>
+                    <option value="all">{t('filter.allBrands')}</option>
                     {brandDropdownSource.map((s) => (
                         <option key={s.id} value={s.id}>
                             {s.name}
@@ -776,7 +792,7 @@ export default function SupplierCatalog() {
                             allFilteredSelected ? clearProductSelection : selectAllFiltered
                         }
                     >
-                        {allFilteredSelected ? 'Deselect all' : 'Select all'}
+                        {allFilteredSelected ? t('select.deselect') : t('select.all')}
                         {filteredRaw.length > 0 ? ` (${filteredRaw.length})` : ''}
                     </button>
                     <button
@@ -785,7 +801,7 @@ export default function SupplierCatalog() {
                         disabled={selectedProductIds.size === 0}
                         onClick={clearProductSelection}
                     >
-                        Clear selection
+                        {t('select.clear')}
                         {selectedProductIds.size > 0 ? ` (${selectedProductIds.size})` : ''}
                     </button>
                     <span
@@ -795,7 +811,7 @@ export default function SupplierCatalog() {
                             marginLeft: 'auto',
                         }}
                     >
-                        Applies to the full filtered list (all pages), not only this page.
+                        {t('select.hint')}
                     </span>
                 </div>
             ) : null}
@@ -816,18 +832,18 @@ export default function SupplierCatalog() {
                     }}
                 >
                     <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-dark)' }}>
-                        Unable to load this catalog section
+                        {t('load.unable')}
                     </p>
                     <p style={{ margin: '8px 0 0', fontSize: '0.8125rem' }}>
-                        Fix the issue above or try again later.
+                        {t('load.fixHint')}
                     </p>
                 </div>
             ) : cardRows.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 48, color: 'var(--color-text-muted)' }}>
                     <Package size={48} style={{ opacity: 0.3, margin: '0 auto 12px' }} />
-                    <p style={{ margin: 0, fontWeight: 600 }}>No products available yet.</p>
+                    <p style={{ margin: 0, fontWeight: 600 }}>{t('empty.title')}</p>
                     <p style={{ margin: '4px 0 0', fontSize: '0.875rem' }}>
-                        Click &quot;Request New Product&quot; or adjust filters.
+                        {t('empty.hint')}
                     </p>
                 </div>
             ) : (
@@ -928,7 +944,7 @@ export default function SupplierCatalog() {
                                                     }}
                                                 >
                                                     <CheckCircle2 size={11} />
-                                                    Ready to add in inventory
+                                                    {t('card.ready')}
                                                 </div>
                                             ) : null}
                                             {item.category ? (
@@ -955,7 +971,7 @@ export default function SupplierCatalog() {
                                                         padding: '2px 6px',
                                                     }}
                                                 >
-                                                    Inactive
+                                                    {t('card.inactive')}
                                                 </span>
                                             ) : null}
                                             <p
@@ -1005,12 +1021,12 @@ export default function SupplierCatalog() {
                                             onClick={(e) => e.stopPropagation()}
                                         >
                                             {isSelected ? <CheckCircle2 size={11} /> : <Circle size={11} />}
-                                            {isSelected ? 'Selected' : 'Select'}
+                                            {isSelected ? t('card.selected') : t('card.select')}
                                             <input
                                                 type="checkbox"
                                                 checked={isSelected}
                                                 onChange={() => toggleSelectProduct(item.id)}
-                                                aria-label={`Select ${item.product_name}`}
+                                                aria-label={t('card.selectAria', { name: item.product_name })}
                                                 style={{ display: 'none' }}
                                             />
                                         </label>
@@ -1040,15 +1056,17 @@ export default function SupplierCatalog() {
                                         >
                                             {added
                                                 ? supplierWhQty > 0
-                                                    ? `${supplierWhQty} in your stock`
-                                                    : 'In your catalog · 0 stock'
+                                                    ? t('card.inYourStock', { qty: supplierWhQty })
+                                                    : t('card.inCatalogZero')
                                                 : inStock
-                                                  ? `${item.stock_qty} in stock`
-                                                  : 'Out'}
+                                                  ? t('card.inStock', { qty: item.stock_qty })
+                                                  : t('card.out')}
                                         </span>
                                         <div style={{ textAlign: 'right', flexShrink: 0 }}>
                                             <p style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0, lineHeight: 1.2 }}>
-                                                SAR {(item.sale_price || 0).toLocaleString()}
+                                                {t('money.sar', {
+                                                    amount: (item.sale_price || 0).toLocaleString(),
+                                                })}
                                             </p>
                                             <p
                                                 style={{
@@ -1058,7 +1076,10 @@ export default function SupplierCatalog() {
                                                     lineHeight: 1.2,
                                                 }}
                                             >
-                                                per {item.unit} · Min: {item.min_order_qty || 1}
+                                                {t('card.perMin', {
+                                                    unit: item.unit,
+                                                    min: item.min_order_qty || 1,
+                                                })}
                                             </p>
                                         </div>
                                     </div>
@@ -1085,10 +1106,14 @@ export default function SupplierCatalog() {
                         disabled={page <= 1 || loading}
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
                     >
-                        Previous
+                        {t('page.prev')}
                     </button>
                     <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                        Page {page} of {totalPages} ({cardRows.length} products)
+                        {t('page.of', {
+                            page,
+                            total: totalPages,
+                            n: cardRows.length,
+                        })}
                     </span>
                     <button
                         type="button"
@@ -1096,7 +1121,7 @@ export default function SupplierCatalog() {
                         disabled={page >= totalPages || loading}
                         onClick={() => setPage((p) => p + 1)}
                     >
-                        Next
+                        {t('page.next')}
                     </button>
                 </div>
             ) : null}
@@ -1129,7 +1154,7 @@ export default function SupplierCatalog() {
                                         color: 'var(--color-text-dark)',
                                     }}
                                 >
-                                    No product requests yet
+                                    {t('req.emptyTitle')}
                                 </p>
                                 <p
                                     style={{
@@ -1138,14 +1163,14 @@ export default function SupplierCatalog() {
                                         maxWidth: 420,
                                     }}
                                 >
-                                    Use <strong>Request New Product</strong> in the header to ask for a new SKU.
+                                    {t('req.emptyBody')}
                                 </p>
                                 <button
                                     type="button"
                                     className="btn-portal"
                                     onClick={() => setShowRequestForm(true)}
                                 >
-                                    <Plus size={15} /> Request New Product
+                                    <Plus size={15} /> {t('btn.requestNew')}
                                 </button>
                             </div>
                         ) : (
@@ -1161,7 +1186,7 @@ export default function SupplierCatalog() {
                                         gap: 8,
                                     }}
                                 >
-                                    <Send size={16} style={{ color: '#2563EB' }} /> My Product Requests
+                                    <Send size={16} style={{ color: '#2563EB' }} /> {t('req.heading')}
                                 </h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                     {requests.map((req) => (
@@ -1185,7 +1210,10 @@ export default function SupplierCatalog() {
                                                         margin: '2px 0 0',
                                                     }}
                                                 >
-                                                    Qty: {req.quantity_needed} {req.unit}
+                                                    {t('req.qty', {
+                                                        qty: req.quantity_needed,
+                                                        unit: req.unit,
+                                                    })}
                                                 </p>
                                             </div>
                                             <span
@@ -1197,7 +1225,11 @@ export default function SupplierCatalog() {
                                                           : 'ws-badge--blue'
                                                 }`}
                                             >
-                                                {req.status}
+                                                {req.status === 'pending'
+                                                    ? t('status.pending')
+                                                    : req.status === 'fulfilled'
+                                                      ? t('status.fulfilled')
+                                                      : req.status}
                                             </span>
                                         </div>
                                     ))}
@@ -1211,22 +1243,20 @@ export default function SupplierCatalog() {
             <AnimatePresence>
                 {showRequestForm && (
                     <Modal
-                        title="Request New Product"
+                        title={t("form.title")}
                         onClose={() => setShowRequestForm(false)}
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                                 <button
                                     className="btn-secondary"
                                     onClick={() => setShowRequestForm(false)}
-                                >
-                                    Cancel
-                                </button>
+                                >{t("form.cancel")}</button>
                                 <button
                                     className="btn-submit"
                                     onClick={handleRequestProduct}
                                     disabled={requestSubmitting}
                                 >
-                                    {requestSubmitting ? 'Submitting...' : 'Submit Request'}
+                                    {requestSubmitting ? t("form.submitting") : t("form.submit")}
                                 </button>
                             </div>
                         }
@@ -1238,9 +1268,9 @@ export default function SupplierCatalog() {
                         ) : null}
                         <div className="ws-form-grid">
                             <div className="ws-field" style={{ gridColumn: '1/-1' }}>
-                                <label>Product Name *</label>
+                                <label>{t("form.productName")}</label>
                                 <input
-                                    placeholder="e.g. 5W-30 Engine Oil 4L"
+                                    placeholder={t("form.productNamePh")}
                                     value={reqForm.product_name}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, product_name: e.target.value }))
@@ -1248,9 +1278,9 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>SKU</label>
+                                <label>{t("form.sku")}</label>
                                 <input
-                                    placeholder="e.g. OIL-5W30-4L"
+                                    placeholder={t("form.skuPh")}
                                     value={reqForm.sku}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, sku: e.target.value }))
@@ -1258,9 +1288,9 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Brand Name</label>
+                                <label>{t("form.brand")}</label>
                                 <input
-                                    placeholder="e.g. AC Delco"
+                                    placeholder={t("form.brandPh")}
                                     value={reqForm.brand_name}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, brand_name: e.target.value }))
@@ -1268,9 +1298,9 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1/-1' }}>
-                                <label>Description</label>
+                                <label>{t("form.desc")}</label>
                                 <input
-                                    placeholder="Short product description"
+                                    placeholder={t("form.descPh")}
                                     value={reqForm.description}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, description: e.target.value }))
@@ -1278,9 +1308,9 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Arabic Name</label>
+                                <label>{t("form.arabic")}</label>
                                 <input
-                                    placeholder="Optional Arabic name"
+                                    placeholder={t("form.arabicPh")}
                                     value={reqForm.arabic_name}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, arabic_name: e.target.value }))
@@ -1288,9 +1318,9 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Branch ID</label>
+                                <label>{t("form.branchId")}</label>
                                 <input
-                                    placeholder="Optional branch id"
+                                    placeholder={t("form.branchIdPh")}
                                     value={reqForm.branch_id}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, branch_id: e.target.value }))
@@ -1298,21 +1328,21 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Department</label>
+                                <label>{t("form.department")}</label>
                                 <select
                                     value={reqForm.department_id}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, department_id: e.target.value }))
                                     }
                                 >
-                                    <option value="">Select department</option>
+                                    <option value="">{t("form.selectDept")}</option>
                                     {departmentOptions.map((d) => (
                                         <option key={d.id} value={d.id}>{d.name}</option>
                                     ))}
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Category</label>
+                                <label>{t("form.category")}</label>
                                 <select
                                     value={reqForm.category_id}
                                     onChange={(e) =>
@@ -1326,14 +1356,14 @@ export default function SupplierCatalog() {
                                         })
                                     }
                                 >
-                                    <option value="">Select category</option>
+                                    <option value="">{t("form.selectCat")}</option>
                                     {categoryRows.map((c) => (
                                         <option key={c.id} value={c.id}>{c.name}</option>
                                     ))}
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Unit</label>
+                                <label>{t("form.unit")}</label>
                                 <select
                                     value={reqForm.unit}
                                     onChange={(e) =>
@@ -1349,7 +1379,7 @@ export default function SupplierCatalog() {
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Quantity Needed</label>
+                                <label>{t("form.qtyNeeded")}</label>
                                 <input
                                     type="number"
                                     value={reqForm.quantity_needed}
@@ -1362,10 +1392,10 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Target Price (SAR)</label>
+                                <label>{t("form.targetPrice")}</label>
                                 <input
                                     type="number"
-                                    placeholder="Optional"
+                                    placeholder={t("form.optional")}
                                     value={reqForm.target_price}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, target_price: e.target.value }))
@@ -1373,9 +1403,9 @@ export default function SupplierCatalog() {
                                 />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1/-1' }}>
-                                <label>Notes</label>
+                                <label>{t("form.notes")}</label>
                                 <input
-                                    placeholder="Any specific requirements..."
+                                    placeholder={t("form.notesPh")}
                                     value={reqForm.notes}
                                     onChange={(e) =>
                                         setReqForm((f) => ({ ...f, notes: e.target.value }))
@@ -1387,7 +1417,7 @@ export default function SupplierCatalog() {
                 )}
                 {orderItem && (
                     <Modal
-                        title="Place Purchase Order"
+                        title={t("order.title")}
                         onClose={() => {
                             setOrderItem(null);
                             setOrderSupplier(null);
@@ -1400,12 +1430,8 @@ export default function SupplierCatalog() {
                                         setOrderItem(null);
                                         setOrderSupplier(null);
                                     }}
-                                >
-                                    Cancel
-                                </button>
-                                <button className="btn-submit" onClick={handlePlaceOrder}>
-                                    Place Order
-                                </button>
+                                >{t("form.cancel")}</button>
+                                <button className="btn-submit" onClick={handlePlaceOrder}>{t("order.place")}</button>
                             </div>
                         }
                     >
@@ -1419,29 +1445,32 @@ export default function SupplierCatalog() {
                         >
                             <p style={{ fontWeight: 700, margin: 0 }}>{orderItem.product_name}</p>
                             <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
-                                Supplier: <strong>{orderSupplier?.name}</strong> · SAR{' '}
-                                {orderItem.sale_price?.toLocaleString()} / {orderItem.unit}
+                                {t("order.supplierLine", {
+                                name: orderSupplier?.name,
+                                price: t("money.sar", { amount: (orderItem.sale_price || 0).toLocaleString() }),
+                                unit: orderItem.unit,
+                            })}
                             </p>
                         </div>
                         <div className="ws-form-grid">
                             <div className="ws-field">
-                                <label>Quantity (min: {orderItem.min_order_qty || 1})</label>
+                                <label>{t("order.qtyMin", { min: orderItem.min_order_qty || 1 })}</label>
                                 <input
                                     type="number"
                                     defaultValue={orderItem.min_order_qty || 1}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Payment Account</label>
+                                <label>{t("order.paymentAccount")}</label>
                                 <select>
-                                    <option>Select account (optional)</option>
-                                    <option>Main Cash</option>
-                                    <option>Al-Rajhi Bank</option>
+                                    <option>{t("order.selectAccount")}</option>
+                                    <option>{t("order.mainCash")}</option>
+                                    <option>{t("order.alRajhi")}</option>
                                 </select>
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1/-1' }}>
-                                <label>Notes</label>
-                                <input placeholder="Delivery instructions, urgency..." />
+                                <label>{t("form.notes")}</label>
+                                <input placeholder={t("order.notesPh")} />
                             </div>
                         </div>
                         <div
@@ -1461,14 +1490,15 @@ export default function SupplierCatalog() {
                                 }}
                             >
                                 <span style={{ color: 'var(--color-text-muted)' }}>
-                                    Subtotal (excl. VAT)
+                                    {t("order.subtotal")}
                                 </span>
                                 <span>
-                                    SAR{' '}
-                                    {(
-                                        ((orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)) /
-                                        1.15
-                                    ).toFixed(2)}
+                                    {t("money.sar", {
+                                        amount: (
+                                            ((orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)) /
+                                            1.15
+                                        ).toFixed(2),
+                                    })}
                                 </span>
                             </div>
                             <div
@@ -1478,14 +1508,15 @@ export default function SupplierCatalog() {
                                     marginBottom: 4,
                                 }}
                             >
-                                <span style={{ color: 'var(--color-text-muted)' }}>VAT (15%)</span>
+                                <span style={{ color: 'var(--color-text-muted)' }}>{t("order.vat")}</span>
                                 <span>
-                                    SAR{' '}
-                                    {(
-                                        (((orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)) *
-                                            0.15) /
-                                        1.15
-                                    ).toFixed(2)}
+                                    {t("money.sar", {
+                                        amount: (
+                                            (((orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)) *
+                                                0.15) /
+                                            1.15
+                                        ).toFixed(2),
+                                    })}
                                 </span>
                             </div>
                             <div
@@ -1499,12 +1530,13 @@ export default function SupplierCatalog() {
                                     marginTop: 8,
                                 }}
                             >
-                                <span>Total</span>
+                                <span>{t("order.total")}</span>
                                 <span>
-                                    SAR{' '}
-                                    {(
-                                        (orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)
-                                    ).toLocaleString()}
+                                    {t("money.sar", {
+                                        amount: (
+                                            (orderItem.sale_price || 0) * (orderItem.min_order_qty || 1)
+                                        ).toLocaleString(),
+                                    })}
                                 </span>
                             </div>
                         </div>
@@ -1512,7 +1544,7 @@ export default function SupplierCatalog() {
                 )}
                 {addInventoryOpen && (
                     <Modal
-                        title="Add Selected Products to Inventory"
+                        title={t("inv.title")}
                         width="1100px"
                         onClose={() => setAddInventoryOpen(false)}
                         footer={
@@ -1522,16 +1554,14 @@ export default function SupplierCatalog() {
                                     className="btn-portal-outline"
                                     onClick={() => setAddInventoryOpen(false)}
                                     disabled={inventorySaving}
-                                >
-                                    Cancel
-                                </button>
+                                >{t("form.cancel")}</button>
                                 <button
                                     type="button"
                                     className="btn-portal"
                                     onClick={handleAddSelectedToInventory}
                                     disabled={inventorySaving || selectedMasterProducts.length === 0}
                                 >
-                                    {inventorySaving ? 'Adding...' : 'Add to Inventory'}
+                                    {inventorySaving ? t("inv.adding") : t("inv.add")}
                                 </button>
                             </div>
                         }
@@ -1554,7 +1584,7 @@ export default function SupplierCatalog() {
                                     color: 'var(--color-text-muted)',
                                 }}
                             >
-                                Inventory location (auto):{' '}
+                                {t("inv.locationAuto")}{' '}
                                 <strong style={{ color: 'var(--color-text-dark)' }}>
                                     {locationOptions.find((loc) => String(loc.id) === String(autoLocationId))?.name || '-'}
                                 </strong>
@@ -1565,11 +1595,11 @@ export default function SupplierCatalog() {
                             <table className="ws-table">
                                 <thead>
                                     <tr>
-                                        <th>Product</th>
-                                        <th>Master UOM</th>
-                                        <th>Opening Qty</th>
-                                        <th>Stock Qty</th>
-                                        <th>Critical stock level</th>
+                                        <th>{t("inv.th.product")}</th>
+                                        <th>{t("inv.th.masterUom")}</th>
+                                        <th>{t("inv.th.opening")}</th>
+                                        <th>{t("inv.th.stock")}</th>
+                                        <th>{t("inv.th.critical")}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1615,7 +1645,7 @@ export default function SupplierCatalog() {
                                                         type="number"
                                                         min="0"
                                                         step="1"
-                                                        placeholder="Optional"
+                                                        placeholder={t("form.optional")}
                                                         value={row.criticalStockLevel}
                                                         onChange={(e) =>
                                                             updateInventoryQty(
@@ -1624,7 +1654,7 @@ export default function SupplierCatalog() {
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        title="When warehouse stock ≤ this value, alerts show as critical (supplierProduct.criticalStockAlert)."
+                                                        title={t("inv.criticalTitle")}
                                                         style={{
                                                             width: 120,
                                                             padding: '6px 8px',

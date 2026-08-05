@@ -10,10 +10,11 @@ import {
 import { sfT } from '../../../utils/storageFacilityI18n';
 import '../../../styles/admin/AccountingPage.css';
 
-export default function SupplierStorageFacilityBrands() {
+export default function SupplierStorageFacilityBrands({ locale: localeProp } = {}) {
     const navigate = useNavigate();
     const outletCtx = useOutletContext() || {};
     const locale =
+        localeProp ||
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
         'en';

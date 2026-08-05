@@ -1,13 +1,17 @@
 import React from 'react';
+import { saccT } from '../../../utils/supplierAccountingI18n';
 
 /** Money formatter — defaults to SAR for the supplier portal. */
-export function money(value, currency = 'SAR', { showSymbol = true } = {}) {
+export function money(value, currency = 'SAR', { showSymbol = true, locale = 'en' } = {}) {
     const n = Number(value || 0);
     const formatted = n.toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
     if (!showSymbol) return formatted;
+    if (locale === 'ar' || currency === 'SAR') {
+        return saccT(locale, 'money.sar', { amount: formatted });
+    }
     return `${currency} ${formatted}`;
 }
 
@@ -23,10 +27,10 @@ export function coaNetBalance(accountType, debit, credit) {
 }
 
 /** Format COA balance column — zero nets render as em dash. */
-export function formatCoaBalance(accountType, debit, credit, currency = 'SAR') {
+export function formatCoaBalance(accountType, debit, credit, currency = 'SAR', locale = 'en') {
     const net = coaNetBalance(accountType, debit, credit);
-    if (Math.abs(net) < 0.005) return '—';
-    return money(net, currency);
+    if (Math.abs(net) < 0.005) return saccT(locale, 'emdash');
+    return money(net, currency, { locale });
 }
 
 /** Format a date or ISO string as `YYYY-MM-DD`. */
@@ -131,9 +135,10 @@ export function AcctEmpty({ message }) {
     );
 }
 
-export function AcctLoading({ label = 'Loading…' }) {
+export function AcctLoading({ label, locale = 'en' }) {
+    const text = label ?? saccT(locale, 'loading');
     return (
-        <div style={{ padding: 24, color: '#64748B', fontSize: 13 }}>{label}</div>
+        <div style={{ padding: 24, color: '#64748B', fontSize: 13 }}>{text}</div>
     );
 }
 
@@ -196,7 +201,7 @@ export const dangerBtnStyle = {
 };
 
 /** Simple paginator. */
-export function Pager({ total, limit, offset, onChange }) {
+export function Pager({ total, limit, offset, onChange, locale = 'en' }) {
     const totalNum = Number(total || 0);
     const limitNum = Math.max(1, Number(limit || 50));
     const page = Math.floor(Number(offset || 0) / limitNum) + 1;
@@ -210,10 +215,14 @@ export function Pager({ total, limit, offset, onChange }) {
                 disabled={page <= 1}
                 onClick={() => onChange(Math.max(0, offset - limitNum))}
             >
-                Prev
+                {saccT(locale, 'btn.prev')}
             </button>
             <span style={{ fontSize: 12, color: '#475569' }}>
-                Page {page} of {pages} · {totalNum.toLocaleString()} total
+                {saccT(locale, 'pager.page', {
+                    page,
+                    pages,
+                    total: totalNum.toLocaleString(),
+                })}
             </span>
             <button
                 type="button"
@@ -221,7 +230,7 @@ export function Pager({ total, limit, offset, onChange }) {
                 disabled={page >= pages}
                 onClick={() => onChange(offset + limitNum)}
             >
-                Next
+                {saccT(locale, 'btn.next')}
             </button>
         </div>
     );

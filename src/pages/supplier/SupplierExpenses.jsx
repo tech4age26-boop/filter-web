@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { AlertTriangle, DollarSign, Plus, Pencil, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, DollarSign, Plus } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import RowActionsMenu from '../../components/RowActionsMenu';
@@ -13,6 +13,8 @@ import {
     updateSupplierExpense,
 } from '../../services/supplierApi';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
+import { sexpT } from '../../utils/supplierExpensesI18n';
+
 const STATUS_BADGE = {
     approved: 'ws-badge--green',
     paid: 'ws-badge--green',
@@ -20,7 +22,13 @@ const STATUS_BADGE = {
     rejected: 'ws-badge--red',
 };
 
-export default function SupplierExpenses() {
+export default function SupplierExpenses({ locale: localeProp }) {
+    const locale =
+        localeProp ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const t = useCallback((key, vars) => sexpT(locale, key, vars), [locale]);
+
     const [list, setList] = useState([]);
     const [modalOpen, setModalOpen] = useState(false);
     const [editExpense, setEditExpense] = useState(null);
@@ -47,6 +55,15 @@ export default function SupplierExpenses() {
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [deleteBusy, setDeleteBusy] = useState(false);
 
+    const money = (amount) =>
+        t('money.sar', { amount: Number(amount || 0).toLocaleString() });
+
+    const statusLabel = (status) => {
+        const key = `status.${status}`;
+        const translated = t(key);
+        return translated !== key ? translated : status;
+    };
+
     const resetForm = () =>
         setForm({
             categoryId: '',
@@ -59,9 +76,9 @@ export default function SupplierExpenses() {
 
     const mapExpense = (e) => ({
         id: e.id,
-        date: e.expenseDate?.slice(0, 10) || e.createdAt?.slice(0, 10) || '-',
-        description: e.description || e.categoryName || 'Expense',
-        category: e.categoryName || '-',
+        date: e.expenseDate?.slice(0, 10) || e.createdAt?.slice(0, 10) || t('emdash'),
+        description: e.description || e.categoryName || t('fallback.expense'),
+        category: e.categoryName || t('emdash'),
         categoryId: e.categoryId || '',
         amount: Number(e.amount || 0),
         vatAmount: Number(e.vatAmount || 0),
@@ -70,7 +87,7 @@ export default function SupplierExpenses() {
         status: e.status || 'pending',
     });
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         setApiError('');
         try {
@@ -111,11 +128,12 @@ export default function SupplierExpenses() {
             }
         } catch (err) {
             console.error('Supplier expenses API failed:', err);
-            setApiError(err?.message || 'Failed to load expenses data.');
+            setApiError(err?.message || t('error.load'));
         } finally {
             setLoading(false);
         }
-    };
+    // mapExpense uses t; reload when locale changes
+    }, [t]);
 
     const resolveCategoryId = async () => {
         if (form.categoryId) return String(form.categoryId);
@@ -150,7 +168,7 @@ export default function SupplierExpenses() {
             categoryId = await resolveCategoryId();
         }
         if (!categoryId) {
-            setSaveError('Category is required.');
+            setSaveError(t('error.categoryRequired'));
             setSaving(false);
             return;
         }
@@ -175,7 +193,7 @@ export default function SupplierExpenses() {
             await loadData();
         } catch (err) {
             console.error('Expense save failed:', err);
-            setSaveError(err?.message || 'Failed to save expense.');
+            setSaveError(err?.message || t('error.save'));
         } finally {
             setSaving(false);
         }
@@ -222,7 +240,7 @@ export default function SupplierExpenses() {
             await loadData();
         } catch (err) {
             console.error('Delete expense failed:', err);
-            setApiError(err?.message || 'Failed to delete expense.');
+            setApiError(err?.message || t('error.delete'));
         } finally {
             setDeleteBusy(false);
         }
@@ -230,18 +248,27 @@ export default function SupplierExpenses() {
 
     useEffect(() => {
         loadData().catch(() => undefined);
-    }, []);
-
-    const currency = stats.currencyCode || 'SAR';
+    }, [loadData]);
 
     const StatCard = ({ label, value }) => (
         <div
             className="ws-section"
             style={{ marginBottom: 0, padding: 14, borderRadius: 10 }}
         >
-            <p style={{ margin: 0, fontSize: '0.6875rem', color: 'var(--color-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</p>
+            <p
+                style={{
+                    margin: 0,
+                    fontSize: '0.6875rem',
+                    color: 'var(--color-text-muted)',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                }}
+            >
+                {label}
+            </p>
             <p style={{ margin: '6px 0 0 0', fontSize: '1rem', fontWeight: 800 }}>
-                {typeof value === 'number' ? `${currency} ${value.toLocaleString()}` : value}
+                {typeof value === 'number' ? money(value) : value}
             </p>
         </div>
     );
@@ -250,10 +277,10 @@ export default function SupplierExpenses() {
 
     const handleAdd = async () => {
         if (!form.categoryId && !form.description?.trim()) {
-            setSaveError('Category is required.');
+            setSaveError(t('error.categoryRequired'));
             return;
         }
-            try {
+        try {
             await handleSubmit();
         } catch {
             // handled in handleSubmit
@@ -263,14 +290,30 @@ export default function SupplierExpenses() {
     return (
         <div>
             <div className="ws-page-header">
-                <div><h2 className="ws-page-title">Expenses ({list.length})</h2><p className="ws-page-sub">Operational expenses</p></div>
-                <button className="btn-portal" style={{ background: '#2563EB', color: '#fff', border: 'none' }} onClick={openAdd}><Plus size={15}/> Add Expense</button>
+                <div>
+                    <h2 className="ws-page-title">{t('title', { count: list.length })}</h2>
+                    <p className="ws-page-sub">{t('subtitle')}</p>
+                </div>
+                <button
+                    className="btn-portal"
+                    style={{ background: '#2563EB', color: '#fff', border: 'none' }}
+                    onClick={openAdd}
+                >
+                    <Plus size={15} /> {t('btn.add')}
+                </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 12 }}>
-                <StatCard label="Records" value={String(stats.totalRecords || 0)} />
-                <StatCard label="Total Expenses" value={stats.totalExpenses || 0} />
-                <StatCard label="Paid" value={stats.paid || 0} />
-                <StatCard label="Pending Approval" value={stats.pendingApproval || 0} />
+            <div
+                style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
+                    gap: 10,
+                    marginBottom: 12,
+                }}
+            >
+                <StatCard label={t('stat.records')} value={String(stats.totalRecords || 0)} />
+                <StatCard label={t('stat.total')} value={stats.totalExpenses || 0} />
+                <StatCard label={t('stat.paid')} value={stats.paid || 0} />
+                <StatCard label={t('stat.pending')} value={stats.pendingApproval || 0} />
             </div>
             {loading ? (
                 <div className="ws-section" style={{ marginBottom: 12, padding: 16 }}>
@@ -278,44 +321,91 @@ export default function SupplierExpenses() {
                 </div>
             ) : null}
             {apiError ? (
-                <div className="ws-section" style={{ marginBottom: 12, padding: 12, fontSize: '0.8125rem', color: '#B91C1C', border: '1px solid #FECACA', background: '#FEF2F2' }}>
-                    API error: {apiError}
+                <div
+                    className="ws-section"
+                    style={{
+                        marginBottom: 12,
+                        padding: 12,
+                        fontSize: '0.8125rem',
+                        color: '#B91C1C',
+                        border: '1px solid #FECACA',
+                        background: '#FEF2F2',
+                    }}
+                >
+                    {t('error.api', { error: apiError })}
                 </div>
             ) : null}
             {!loading && list.length === 0 ? (
                 <div className="ws-section" style={{ textAlign: 'center', padding: 48 }}>
-                    <DollarSign size={48} style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }}/>
-                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>No expenses yet</p>
-                    <button className="btn-portal" style={{ marginTop: 16, background: '#2563EB', color: '#fff', border: 'none' }} onClick={openAdd}><Plus size={15}/> Add First Expense</button>
+                    <DollarSign
+                        size={48}
+                        style={{ opacity: 0.3, margin: '0 auto 16px', display: 'block' }}
+                    />
+                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                        {t('empty')}
+                    </p>
+                    <button
+                        className="btn-portal"
+                        style={{
+                            marginTop: 16,
+                            background: '#2563EB',
+                            color: '#fff',
+                            border: 'none',
+                        }}
+                        onClick={openAdd}
+                    >
+                        <Plus size={15} /> {t('btn.addFirst')}
+                    </button>
                 </div>
             ) : (
                 <div className="ws-section">
                     <table className="ws-table">
-                        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead>
+                            <tr>
+                                <th>{t('th.date')}</th>
+                                <th>{t('th.description')}</th>
+                                <th>{t('th.category')}</th>
+                                <th>{t('th.amount')}</th>
+                                <th>{t('th.status')}</th>
+                                <th>{t('th.actions')}</th>
+                            </tr>
+                        </thead>
                         <tbody>
-                            {list.map(e => (
+                            {list.map((e) => (
                                 <tr key={e.id}>
-                                    <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{e.date}</td>
-                                    <td><strong>{e.description}</strong></td>
+                                    <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                        {e.date}
+                                    </td>
+                                    <td>
+                                        <strong>{e.description}</strong>
+                                    </td>
                                     <td>{e.category}</td>
-                                    <td>SAR {(e.amount || 0).toLocaleString()}</td>
-                                    <td><span className={`ws-badge ${STATUS_BADGE[e.status] || STATUS_BADGE.pending}`}>{e.status}</span></td>
+                                    <td>{money(e.amount || 0)}</td>
+                                    <td>
+                                        <span
+                                            className={`ws-badge ${STATUS_BADGE[e.status] || STATUS_BADGE.pending}`}
+                                        >
+                                            {statusLabel(e.status)}
+                                        </span>
+                                    </td>
                                     <td>
                                         <RowActionsMenu
-                                            ariaLabel={`Actions for ${e.description || 'expense'}`}
+                                            ariaLabel={t('action.aria', {
+                                                name: e.description || t('fallback.expense'),
+                                            })}
                                             items={[
                                                 {
-                                                    label: 'Edit',
+                                                    label: t('btn.edit'),
                                                     onClick: () => openEdit(e),
                                                 },
                                                 {
-                                                    label: 'Delete',
+                                                    label: t('btn.delete'),
                                                     onClick: () => openDeleteModal(e),
                                                     disabled: e.status !== 'pending',
                                                     danger: true,
                                                     title:
                                                         e.status !== 'pending'
-                                                            ? 'Only pending expenses can be deleted'
+                                                            ? t('action.deleteDisabled')
                                                             : undefined,
                                                 },
                                             ]}
@@ -330,12 +420,18 @@ export default function SupplierExpenses() {
             <AnimatePresence>
                 {modalOpen && (
                     <Modal
-                        title={editExpense ? 'Edit Expense' : 'Add Expense'}
-                        onClose={() => { setModalOpen(false); setEditExpense(null); }}
+                        title={editExpense ? t('modal.editTitle') : t('modal.addTitle')}
+                        onClose={() => {
+                            setModalOpen(false);
+                            setEditExpense(null);
+                        }}
                         footer={
                             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                                <button className="btn-portal-outline" onClick={() => setModalOpen(false)}>
-                                    Cancel
+                                <button
+                                    className="btn-portal-outline"
+                                    onClick={() => setModalOpen(false)}
+                                >
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     className="btn-portal"
@@ -343,7 +439,11 @@ export default function SupplierExpenses() {
                                     disabled={!form.amount || saving || isReadOnly}
                                     onClick={handleAdd}
                                 >
-                                    {saving ? 'Saving...' : editExpense ? 'Update Expense' : 'Submit Expense'}
+                                    {saving
+                                        ? t('btn.saving')
+                                        : editExpense
+                                          ? t('btn.update')
+                                          : t('btn.submit')}
                                 </button>
                             </div>
                         }
@@ -355,23 +455,23 @@ export default function SupplierExpenses() {
                         ) : null}
                         {isReadOnly ? (
                             <div style={{ marginBottom: 10, fontSize: '0.75rem', color: '#B45309' }}>
-                                Only pending expenses can be updated or deleted.
+                                {t('modal.readOnly')}
                             </div>
                         ) : null}
                         <div className="ws-form-grid">
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Category *</label>
+                                <label>{t('modal.category')}</label>
                                 <select
                                     value={form.categoryId}
-                                    onChange={e =>
-                                        setForm(f => ({
+                                    onChange={(e) =>
+                                        setForm((f) => ({
                                             ...f,
                                             categoryId: e.target.value,
                                         }))
                                     }
                                     disabled={isReadOnly}
                                 >
-                                    <option value="">Select category</option>
+                                    <option value="">{t('modal.selectCategory')}</option>
                                     {categories.map((cat) => (
                                         <option key={cat.id} value={String(cat.id)}>
                                             {cat.name}
@@ -380,12 +480,12 @@ export default function SupplierExpenses() {
                                 </select>
                             </div>
                             <div className="ws-field">
-                                <label>Amount (SAR) *</label>
+                                <label>{t('modal.amount')}</label>
                                 <input
                                     type="number"
                                     value={form.amount}
-                                    onChange={e =>
-                                        setForm(f => ({
+                                    onChange={(e) =>
+                                        setForm((f) => ({
                                             ...f,
                                             amount: e.target.value,
                                         }))
@@ -394,12 +494,12 @@ export default function SupplierExpenses() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>VAT Amount</label>
+                                <label>{t('modal.vat')}</label>
                                 <input
                                     type="number"
                                     value={form.vatAmount}
-                                    onChange={e =>
-                                        setForm(f => ({
+                                    onChange={(e) =>
+                                        setForm((f) => ({
                                             ...f,
                                             vatAmount: e.target.value,
                                         }))
@@ -408,12 +508,12 @@ export default function SupplierExpenses() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Date</label>
+                                <label>{t('modal.date')}</label>
                                 <input
                                     type="date"
                                     value={form.date}
-                                    onChange={e =>
-                                        setForm(f => ({
+                                    onChange={(e) =>
+                                        setForm((f) => ({
                                             ...f,
                                             date: e.target.value,
                                         }))
@@ -422,13 +522,13 @@ export default function SupplierExpenses() {
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Proof URL</label>
+                                <label>{t('modal.proofUrl')}</label>
                                 <input
                                     type="url"
-                                    placeholder="https://example.com/receipt.jpg"
+                                    placeholder={t('modal.proofPlaceholder')}
                                     value={form.proofUrl}
-                                    onChange={e =>
-                                        setForm(f => ({
+                                    onChange={(e) =>
+                                        setForm((f) => ({
                                             ...f,
                                             proofUrl: e.target.value,
                                         }))
@@ -437,12 +537,12 @@ export default function SupplierExpenses() {
                                 />
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Description</label>
+                                <label>{t('modal.description')}</label>
                                 <textarea
                                     rows={3}
                                     value={form.description}
-                                    onChange={e =>
-                                        setForm(f => ({
+                                    onChange={(e) =>
+                                        setForm((f) => ({
                                             ...f,
                                             description: e.target.value,
                                         }))
@@ -474,15 +574,27 @@ export default function SupplierExpenses() {
                                 >
                                     <AlertTriangle size={22} strokeWidth={2.25} />
                                 </span>
-                                Delete expense?
+                                {t('delete.title')}
                             </span>
                         }
                         width="440px"
                         onClose={closeDeleteModal}
                         footer={
-                            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                <button type="button" className="btn-portal-outline" disabled={deleteBusy} onClick={closeDeleteModal}>
-                                    Cancel
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    gap: 10,
+                                    justifyContent: 'flex-end',
+                                    flexWrap: 'wrap',
+                                }}
+                            >
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    disabled={deleteBusy}
+                                    onClick={closeDeleteModal}
+                                >
+                                    {t('btn.cancel')}
                                 </button>
                                 <button
                                     type="button"
@@ -491,13 +603,20 @@ export default function SupplierExpenses() {
                                     disabled={deleteBusy}
                                     onClick={confirmDeleteExpense}
                                 >
-                                    {deleteBusy ? 'Deleting…' : 'Delete expense'}
+                                    {deleteBusy ? t('btn.deleting') : t('btn.deleteConfirm')}
                                 </button>
                             </div>
                         }
                     >
-                        <p style={{ margin: '0 0 12px', fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--color-text)' }}>
-                            This will permanently remove this expense request. This action cannot be undone.
+                        <p
+                            style={{
+                                margin: '0 0 12px',
+                                fontSize: '0.875rem',
+                                lineHeight: 1.5,
+                                color: 'var(--color-text)',
+                            }}
+                        >
+                            {t('delete.body')}
                         </p>
                         <div
                             style={{
@@ -510,16 +629,18 @@ export default function SupplierExpenses() {
                             }}
                         >
                             <div>
-                                <strong>Description:</strong> {deleteTarget.description || '—'}
+                                <strong>{t('delete.description')}</strong>{' '}
+                                {deleteTarget.description || t('emdash')}
                             </div>
                             <div style={{ marginTop: 6 }}>
-                                <strong>Category:</strong> {deleteTarget.category || '—'}
+                                <strong>{t('delete.category')}</strong>{' '}
+                                {deleteTarget.category || t('emdash')}
                             </div>
                             <div style={{ marginTop: 6 }}>
-                                <strong>Date:</strong> {deleteTarget.date}
+                                <strong>{t('delete.date')}</strong> {deleteTarget.date}
                             </div>
                             <div style={{ marginTop: 6 }}>
-                                <strong>Amount:</strong> SAR {(deleteTarget.amount || 0).toLocaleString()}
+                                <strong>{t('delete.amount')}</strong> {money(deleteTarget.amount || 0)}
                             </div>
                         </div>
                     </Modal>
