@@ -133,9 +133,18 @@ export const WEMP_I18N = {
         'form.selectBranch': 'Select Branch',
         'form.branchNotApplicable': '— Not applicable —',
         'form.role': 'Role',
-        'form.roleHintEditable': 'Job title — controls which workshop sub-flow they’re slotted into.',
+        'form.roleHintEditable':
+            'You can change this job role within the same group (e.g. locker supervisor ↔ collector, or manager ↔ supervisor ↔ team leader).',
+        'form.roleHintCashierConvert':
+            'You can keep Cashier, or convert to Manager / Supervisor / Team leader. Conversion disables POS login (sales history is kept) and needs super-admin approval for workshop portal access.',
+        'form.roleHintPortalConvert':
+            'You can switch Manager / Supervisor / Team leader, or convert to Cashier. Conversion disables workshop portal login; POS login needs super-admin approval. Prior cashier sales history is re-linked when possible.',
         'form.roleHintLocked':
             'Role is set at creation for this employee type and can’t be changed here. Use the Permission Role below to adjust their dashboard access.',
+        'confirm.convertCashierToPortal':
+            'Convert this cashier to {role}?\n\n• POS login will stop immediately\n• Cashier sales history stays intact\n• Workshop portal login needs super-admin approval\n\nThis cannot be undone from here.',
+        'confirm.convertPortalToCashier':
+            'Convert this portal staff member to Cashier?\n\n• Workshop portal login will stop immediately\n• POS login needs super-admin approval\n• Previous cashier sales history is kept / re-linked when possible\n\nThis cannot be undone from here.',
         'form.permissionRole': 'Permission Role',
         'form.noRoleBypass': '— No role (full access via legacy bypass) —',
         'form.noWorkshopRoles':
@@ -390,9 +399,18 @@ export const WEMP_I18N = {
         'form.selectBranch': 'اختر الفرع',
         'form.branchNotApplicable': '— غير منطبق —',
         'form.role': 'الدور الوظيفي',
-        'form.roleHintEditable': 'المسمى الوظيفي — يحدد مسار العمل الفرعي في الورشة.',
+        'form.roleHintEditable':
+            'يمكنك تغيير هذا المسمى الوظيفي داخل نفس المجموعة (مثل مشرف الخزائن ↔ جامع الخزائن، أو مدير ↔ مشرف ↔ قائد فريق).',
+        'form.roleHintCashierConvert':
+            'يمكنك الإبقاء على أمين الصندوق، أو التحويل إلى مدير / مشرف / قائد فريق. التحويل يوقف دخول نقاط البيع (مع الحفاظ على سجل المبيعات) ويحتاج موافقة المشرف العام لدخول بوابة الورشة.',
+        'form.roleHintPortalConvert':
+            'يمكنك التبديل بين مدير / مشرف / قائد فريق، أو التحويل إلى أمين صندوق. التحويل يوقف دخول بوابة الورشة؛ دخول نقاط البيع يحتاج موافقة المشرف العام. يُعاد ربط سجل مبيعات أمين الصندوق السابق عند الإمكان.',
         'form.roleHintLocked':
             'يُحدَّد الدور عند الإنشاء لهذا النوع من الموظفين ولا يمكن تغييره هنا. استخدم دور الصلاحيات أدناه لضبط وصول لوحة التحكم.',
+        'confirm.convertCashierToPortal':
+            'تحويل أمين الصندوق هذا إلى {role}؟\n\n• سيتوقف دخول نقاط البيع فوراً\n• يبقى سجل مبيعات أمين الصندوق كما هو\n• دخول بوابة الورشة يحتاج موافقة المشرف العام\n\nلا يمكن التراجع عن هذا من هنا.',
+        'confirm.convertPortalToCashier':
+            'تحويل موظف البوابة هذا إلى أمين صندوق؟\n\n• سيتوقف دخول بوابة الورشة فوراً\n• دخول نقاط البيع يحتاج موافقة المشرف العام\n• يُحفظ / يُعاد ربط سجل مبيعات أمين الصندوق السابق عند الإمكان\n\nلا يمكن التراجع عن هذا من هنا.',
         'form.permissionRole': 'دور الصلاحيات',
         'form.noRoleBypass': '— بدون دور (وصول كامل عبر التجاوز القديم) —',
         'form.noWorkshopRoles':
