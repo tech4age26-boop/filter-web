@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import {
     ArrowLeft,
     Building2,
+    CheckCircle2,
     FileSpreadsheet,
     FileText,
     Loader,
@@ -21,9 +22,11 @@ import {
     exportCorporateGeneratedBillPdf,
     formatLedgerTypeShort,
 } from '../../utils/corporateArLedgerExport';
+import { exportRowsToExcel, exportRowsToPdf } from '../../utils/tableExport';
 import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingDateRange } from '../../pages/admin/saAccountingDateRange';
 import { cbT } from '../../utils/corporateBillingI18n';
 import CorporateGenerateBillModal from './CorporateGenerateBillModal';
+import CorporateMarkBillPaidModal from './CorporateMarkBillPaidModal';
 import '../../styles/admin/AccountingPage.css';
 
 function fmt(n) {
@@ -38,16 +41,10 @@ function fmtCell(v, t) {
     return t('money.sar', { amount: fmt(v) });
 }
 
-function dateToIsoStart(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(`${dateStr}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
-}
-
-function dateToIsoEnd(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(`${dateStr}T23:59:59`);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+/** Calendar YYYY-MM-DD only — never local→UTC (that shifts the day, e.g. Jul 1 KSA → Jun 30). */
+function billingPeriodDateParam(dateStr) {
+    const s = String(dateStr || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
 }
 
 function billStatusLabel(status, t) {
@@ -195,6 +192,7 @@ export default function CorporateBillingSection() {
     const [billDetail, setBillDetail] = useState(null);
     const [billDetailLoading, setBillDetailLoading] = useState(false);
     const [billPdfExporting, setBillPdfExporting] = useState(false);
+    const [markPaidOpen, setMarkPaidOpen] = useState(false);
 
     const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
     const [invoiceModalData, setInvoiceModalData] = useState(null);
@@ -360,6 +358,56 @@ export default function CorporateBillingSection() {
         setBillDetail(null);
     };
 
+    const exportCustomersTable = useCallback((kind) => {
+        if (!customers.length) return;
+        const dueLabel = dateFrom && dateTo ? t('th.periodDue') : t('th.dueBalance');
+        const headers = [
+            t('th.company'),
+            t('th.vat'),
+            t('th.contact'),
+            t('th.mobile'),
+            t('th.workshop'),
+            dueLabel,
+        ];
+        const rows = customers.map((c) => [
+            c.companyName || '',
+            c.vatNumber || '',
+            c.contactPerson || '',
+            c.mobile || '',
+            c.workshopName || '',
+            Number(c.dueBalance ?? 0).toFixed(2),
+        ]);
+        const periodBit =
+            dateFrom && dateTo
+                ? t('label.period', { from: dateFrom, to: dateTo })
+                : '';
+        const subtitle = [
+            t('export.rows', { n: rows.length }),
+            periodBit,
+            listSummary?.totalDue != null
+                ? t('money.sar', { amount: fmt(listSummary.totalDue) })
+                : '',
+        ]
+            .filter(Boolean)
+            .join(' · ');
+        if (kind === 'pdf') {
+            exportRowsToPdf({
+                title: t('export.listTitle'),
+                subtitle,
+                headers,
+                rows,
+                filenameBase: 'corporate-billing-customers',
+            });
+        } else {
+            exportRowsToExcel({
+                sheetName: t('export.listSheet'),
+                headers,
+                rows,
+                filenameBase: 'corporate-billing-customers',
+            });
+        }
+    }, [customers, dateFrom, dateTo, listSummary, t]);
+
     const openInvoicePdf = async (ctx) => {
         const key = ctx?.invoiceId || ctx?.invoiceNo;
         if (!key) return;
@@ -402,6 +450,9 @@ export default function CorporateBillingSection() {
             : Array.isArray(opts)
               ? opts
               : [];
+        const excludeInvoiceIds = Array.isArray(opts?.excludeInvoiceIds)
+            ? opts.excludeInvoiceIds
+            : [];
         const includeOpeningBalance = opts?.includeOpeningBalance !== false;
 
         if (!selectedAccountId || !generateDueDate.trim()) return;
@@ -414,10 +465,11 @@ export default function CorporateBillingSection() {
         try {
             const res = await generateCorporateBill({
                 corporateAccountId: selectedAccountId,
-                startDate: dateToIsoStart(dateFrom),
-                endDate: dateToIsoEnd(dateTo),
+                startDate: billingPeriodDateParam(dateFrom),
+                endDate: billingPeriodDateParam(dateTo),
                 dueDate: generateDueDate.trim(),
                 lineOverrides,
+                excludeInvoiceIds,
                 includeOpeningBalance,
             });
             setDueDate(generateDueDate.trim());
@@ -504,14 +556,34 @@ export default function CorporateBillingSection() {
                             />
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        className="btn-portal-outline corporate-billing-list-toolbar__refresh"
-                        onClick={loadCustomers}
-                        disabled={customersLoading}
-                    >
-                        <RefreshCw size={16} /> {t('btn.refresh')}
-                    </button>
+                    <div className="corporate-billing-list-toolbar__actions">
+                        <button
+                            type="button"
+                            className="btn-portal-outline corporate-billing-list-toolbar__refresh"
+                            onClick={() => exportCustomersTable('pdf')}
+                            disabled={customersLoading || customers.length === 0}
+                            title={t('btn.downloadPdf')}
+                        >
+                            <FileText size={16} /> {t('btn.downloadPdf')}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-portal-outline corporate-billing-list-toolbar__refresh"
+                            onClick={() => exportCustomersTable('excel')}
+                            disabled={customersLoading || customers.length === 0}
+                            title={t('btn.downloadExcel')}
+                        >
+                            <FileSpreadsheet size={16} /> {t('btn.downloadExcel')}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-portal-outline corporate-billing-list-toolbar__refresh"
+                            onClick={loadCustomers}
+                            disabled={customersLoading}
+                        >
+                            <RefreshCw size={16} /> {t('btn.refresh')}
+                        </button>
+                    </div>
                 </div>
 
                 {listSummary ? (
@@ -801,6 +873,16 @@ export default function CorporateBillingSection() {
                                             <FileText size={16} style={{ marginRight: 6 }} />
                                             {billPdfExporting ? t('btn.generating') : t('btn.downloadBillPdf')}
                                         </button>
+                                        {billDetail.status !== 'paid' && Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0) > 0.05 ? (
+                                            <button
+                                                type="button"
+                                                className="btn-portal"
+                                                onClick={() => setMarkPaidOpen(true)}
+                                            >
+                                                <CheckCircle2 size={16} style={{ marginRight: 6 }} />
+                                                {t('btn.markPaid')}
+                                            </button>
+                                        ) : null}
                                     </div>
 
                                     <div className="cash-bank-stats cash-bank-register-kpis billing-stats">
@@ -1091,6 +1173,24 @@ export default function CorporateBillingSection() {
                     onGenerate={handleGenerateBill}
                 />
             )}
+
+            {markPaidOpen && billDetail ? (
+                <CorporateMarkBillPaidModal
+                    open={markPaidOpen}
+                    onClose={() => setMarkPaidOpen(false)}
+                    t={t}
+                    billId={billDetail.id || selectedBillId}
+                    billNo={billDetail.billNo}
+                    balanceDue={Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0)}
+                    onPaid={async () => {
+                        setMarkPaidOpen(false);
+                        await loadGeneratedBills();
+                        const id = billDetail.id || selectedBillId;
+                        if (id) await openBillDetail(id);
+                        alert(t('alert.markedPaid', { no: billDetail.billNo }));
+                    }}
+                />
+            ) : null}
 
             <InvoiceDetailsModal
                 invoice={invoiceModalData}
