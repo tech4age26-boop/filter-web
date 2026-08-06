@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import {
   CalendarDays,
   Bot,
@@ -20,7 +21,27 @@ import {
   marketingGetCampaignReport,
   marketingGetAiCampaignReport,
 } from '../../services/superAdminMarketingApi';
+import {
+  mktCampReportT,
+  mktCampReportMoney,
+  mktCampReportPercent,
+} from '../../utils/marketingCampaignReportsI18n';
+import {
+  mktCampPlatformLabel,
+  mktCampStatusLabel,
+  mktCampTypeLabel,
+} from '../../utils/marketingCampaignsI18n';
 import './MarketingUniversal.css';
+
+function useMarketingLocale() {
+  const outletCtx = useOutletContext() || {};
+  return (
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    'en'
+  );
+}
 
 const EMPTY_SUMMARY = {
   totalBudget: 0,
@@ -42,14 +63,6 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function formatSar(value) {
-  const n = toNumber(value);
-
-  return `${n.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  })} SAR`;
-}
-
 function calcPercent(part, total) {
   const p = toNumber(part);
   const t = toNumber(total);
@@ -57,14 +70,6 @@ function calcPercent(part, total) {
   if (t <= 0) return 0;
 
   return (p / t) * 100;
-}
-
-function formatPercent(value) {
-  const n = toNumber(value);
-
-  return `${Number(n).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-  })}%`;
 }
 
 function humanize(value) {
@@ -101,7 +106,7 @@ function calculateRoi(spent, revenue) {
   return Math.round(((r - s) / s) * 10000) / 100;
 }
 
-function normalizeCampaign(item) {
+function normalizeCampaign(item, defaultName) {
   const spent = toNumber(
     item?.spent ??
       item?.totalSpent ??
@@ -129,7 +134,7 @@ function normalizeCampaign(item) {
       item?.campaignName ||
       item?.title ||
       item?.campaign ||
-      'Campaign',
+      defaultName,
     platform: item?.platform || 'meta',
     type: item?.type || item?.campaignType || 'campaign',
     budget: toNumber(
@@ -162,7 +167,7 @@ function normalizeCampaign(item) {
   };
 }
 
-function extractCampaigns(payload) {
+function extractCampaigns(payload, defaultName) {
   const root = payload?.data || payload || {};
 
   const rows = asArray(root, [
@@ -173,7 +178,7 @@ function extractCampaigns(payload) {
     'items',
   ]);
 
-  return rows.map(normalizeCampaign);
+  return rows.map((item) => normalizeCampaign(item, defaultName));
 }
 
 function normalizeSummary(payload, campaigns) {
@@ -327,28 +332,28 @@ function getDateRange(period) {
   return {};
 }
 
-function makeCsv(campaigns) {
+function makeCsv(campaigns, locale, t) {
   const header = [
-    'Campaign',
-    'Platform',
-    'Type',
-    'Budget',
-    'Spent',
-    'Revenue',
-    'ROI %',
-    'Impressions',
-    'Clicks',
-    'CTR %',
-    'Leads',
-    'Conversions',
-    'Conv. Rate %',
-    'Status',
+    t('csv.campaign'),
+    t('csv.platform'),
+    t('csv.type'),
+    t('csv.budget'),
+    t('csv.spent'),
+    t('csv.revenue'),
+    t('csv.roi'),
+    t('csv.impressions'),
+    t('csv.clicks'),
+    t('csv.ctr'),
+    t('csv.leads'),
+    t('csv.conversions'),
+    t('csv.convRate'),
+    t('csv.status'),
   ];
 
   const rows = campaigns.map((item) => [
     item.name,
-    humanize(item.platform),
-    humanize(item.type),
+    mktCampPlatformLabel(locale, item.platform),
+    mktCampTypeLabel(locale, item.type),
     item.budget,
     item.spent,
     item.revenue,
@@ -359,7 +364,7 @@ function makeCsv(campaigns) {
     item.leads,
     item.conversions,
     item.conversionRate,
-    item.status,
+    mktCampStatusLabel(locale, item.status),
   ]);
 
   return [header, ...rows]
@@ -371,8 +376,8 @@ function makeCsv(campaigns) {
     .join('\n');
 }
 
-function downloadCsv(campaigns) {
-  const csv = makeCsv(campaigns);
+function downloadCsv(campaigns, locale, t) {
+  const csv = makeCsv(campaigns, locale, t);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -391,18 +396,18 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;');
 }
 
-function downloadPdf(campaigns, summary, periodLabel) {
-  const generatedAt = new Date().toLocaleString();
+function downloadPdf(campaigns, summary, periodLabel, locale, t) {
+  const generatedAt = new Date().toLocaleString(locale === 'ar' ? 'ar-SA' : undefined);
 
   const summaryRows = [
-    ['Budget Allocated', `${toNumber(summary.totalBudget).toLocaleString()} SAR`],
-    ['Total Spent', `${toNumber(summary.totalSpent).toLocaleString()} SAR`],
-    ['Revenue', `${toNumber(summary.totalRevenue).toLocaleString()} SAR`],
-    ['ROI', `${toNumber(summary.roiPercent).toFixed(2)}%`],
-    ['Leads', toNumber(summary.totalLeads).toLocaleString()],
-    ['Conversions', toNumber(summary.totalConversions).toLocaleString()],
-    ['Impressions', toNumber(summary.totalImpressions).toLocaleString()],
-    ['Clicks', toNumber(summary.totalClicks).toLocaleString()],
+    [t('pdf.budgetAllocated'), mktCampReportMoney(locale, summary.totalBudget)],
+    [t('pdf.totalSpent'), mktCampReportMoney(locale, summary.totalSpent)],
+    [t('pdf.revenue'), mktCampReportMoney(locale, summary.totalRevenue)],
+    [t('pdf.roi'), mktCampReportPercent(locale, summary.roiPercent)],
+    [t('pdf.leads'), toNumber(summary.totalLeads).toLocaleString()],
+    [t('pdf.conversions'), toNumber(summary.totalConversions).toLocaleString()],
+    [t('pdf.impressions'), toNumber(summary.totalImpressions).toLocaleString()],
+    [t('pdf.clicks'), toNumber(summary.totalClicks).toLocaleString()],
   ]
     .map(
       ([k, v]) =>
@@ -415,20 +420,20 @@ function downloadPdf(campaigns, summary, periodLabel) {
       (item) => `
       <tr>
         <td>${escapeHtml(item.name)}</td>
-        <td>${escapeHtml(humanize(item.platform))}</td>
+        <td>${escapeHtml(mktCampPlatformLabel(locale, item.platform))}</td>
         <td class="num">${toNumber(item.budget).toLocaleString()}</td>
         <td class="num">${toNumber(item.spent).toLocaleString()}</td>
         <td class="num">${toNumber(item.revenue).toLocaleString()}</td>
         <td class="num">${toNumber(item.roiPercent).toFixed(1)}%</td>
         <td class="num">${toNumber(item.leads).toLocaleString()}</td>
         <td class="num">${toNumber(item.conversions).toLocaleString()}</td>
-        <td>${escapeHtml(humanize(item.status))}</td>
+        <td>${escapeHtml(mktCampStatusLabel(locale, item.status))}</td>
       </tr>`,
     )
     .join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8" />
-  <title>Campaign Report</title>
+  <title>${escapeHtml(t('pdf.title'))}</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 24px; }
@@ -443,15 +448,15 @@ function downloadPdf(campaigns, summary, periodLabel) {
     .summary-table td.lbl { color: #64748b; }
     @media print { body { margin: 12mm; } }
   </style></head><body>
-    <h1>Campaign Performance Report</h1>
-    <div class="meta">Period: ${escapeHtml(periodLabel)} &nbsp;|&nbsp; Generated: ${escapeHtml(generatedAt)} &nbsp;|&nbsp; ${campaigns.length} campaigns</div>
-    <h2>Summary</h2>
+    <h1>${escapeHtml(t('pdf.h1'))}</h1>
+    <div class="meta">${escapeHtml(t('pdf.meta', { period: periodLabel, generated: generatedAt, count: campaigns.length }))}</div>
+    <h2>${escapeHtml(t('pdf.summary'))}</h2>
     <table class="summary-table">${summaryRows}</table>
-    <h2>Campaigns</h2>
+    <h2>${escapeHtml(t('pdf.campaigns'))}</h2>
     <table>
       <thead><tr>
-        <th>Campaign</th><th>Platform</th><th>Budget</th><th>Spent</th>
-        <th>Revenue</th><th>ROI</th><th>Leads</th><th>Conv.</th><th>Status</th>
+        <th>${escapeHtml(t('pdf.th.campaign'))}</th><th>${escapeHtml(t('pdf.th.platform'))}</th><th>${escapeHtml(t('pdf.th.budget'))}</th><th>${escapeHtml(t('pdf.th.spent'))}</th>
+        <th>${escapeHtml(t('pdf.th.revenue'))}</th><th>${escapeHtml(t('pdf.th.roi'))}</th><th>${escapeHtml(t('pdf.th.leads'))}</th><th>${escapeHtml(t('pdf.th.conv'))}</th><th>${escapeHtml(t('pdf.th.status'))}</th>
       </tr></thead>
       <tbody>${bodyRows}</tbody>
     </table>
@@ -460,7 +465,7 @@ function downloadPdf(campaigns, summary, periodLabel) {
 
   const win = window.open('', '_blank');
   if (!win) {
-    alert('Please allow pop-ups to export the PDF.');
+    alert(t('pdf.popupBlocked'));
     return;
   }
   win.document.open();
@@ -521,11 +526,15 @@ function scoreColor(score) {
   return '#dc2626';
 }
 
-function aiReportToHtml(report, meta) {
+function aiReportToHtml(report, meta, locale, t) {
   const km = report.keyMetrics || {};
   const list = (arr, render) => (arr || []).map(render).join('');
+  const analysis = meta.llmUsed ? t('ai.analysisLlm') : t('ai.analysisData');
+  const generated = new Date(meta.generatedAt || Date.now()).toLocaleString(
+    locale === 'ar' ? 'ar-SA' : undefined,
+  );
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-  <title>${escapeHtml(report.title || 'Campaign Report')}</title>
+  <title>${escapeHtml(report.title || t('ai.pdfTitle'))}</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: Arial, Helvetica, sans-serif; color:#1e293b; margin:28px; line-height:1.5; }
@@ -544,35 +553,35 @@ function aiReportToHtml(report, meta) {
     .hi { background:#fee2e2; color:#b91c1c; } .med{ background:#fef3c7;color:#b45309;} .low{background:#dbeafe;color:#1d4ed8;}
     @media print { body { margin:12mm; } }
   </style></head><body>
-    <h1>${escapeHtml(report.title || 'Campaign Performance Report')}</h1>
-    <div class="meta">Period: ${escapeHtml(report.period || '')} &nbsp;|&nbsp; Generated: ${escapeHtml(new Date(meta.generatedAt || Date.now()).toLocaleString())} &nbsp;|&nbsp; ${meta.llmUsed ? 'AI (LLM) analysis' : 'Data-driven analysis'} &nbsp;|&nbsp; Health score: ${report.healthScore ?? '-'} /100</div>
-    <h2>Executive Summary</h2>
+    <h1>${escapeHtml(report.title || t('ai.pdfH1'))}</h1>
+    <div class="meta">${escapeHtml(t('ai.pdfMeta', { period: report.period || '', generated, analysis, score: report.healthScore ?? '-' }))}</div>
+    <h2>${escapeHtml(t('ai.execSummary'))}</h2>
     <div class="summary">${escapeHtml(report.executiveSummary || '')}</div>
     <div class="km">
-      <div><span>Budget</span><b>${toNumber(km.budgetAllocated).toLocaleString()} SAR</b></div>
-      <div><span>Spent</span><b>${toNumber(km.totalSpent).toLocaleString()} SAR</b></div>
-      <div><span>Revenue</span><b>${toNumber(km.totalRevenue).toLocaleString()} SAR</b></div>
-      <div><span>ROI</span><b>${toNumber(km.roi)}%</b></div>
-      <div><span>Leads</span><b>${toNumber(km.leads)}</b></div>
-      <div><span>Conversions</span><b>${toNumber(km.conversions)}</b></div>
-      <div><span>Cost / Lead</span><b>${toNumber(km.costPerLead)} SAR</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.budget'))}</span><b>${escapeHtml(mktCampReportMoney(locale, km.budgetAllocated))}</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.spent'))}</span><b>${escapeHtml(mktCampReportMoney(locale, km.totalSpent))}</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.revenue'))}</span><b>${escapeHtml(mktCampReportMoney(locale, km.totalRevenue))}</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.roi'))}</span><b>${toNumber(km.roi)}%</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.leads'))}</span><b>${toNumber(km.leads)}</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.conversions'))}</span><b>${toNumber(km.conversions)}</b></div>
+      <div><span>${escapeHtml(t('ai.kpi.cpl'))}</span><b>${escapeHtml(mktCampReportMoney(locale, km.costPerLead))}</b></div>
     </div>
-    <h2>Performance Analysis</h2>
+    <h2>${escapeHtml(t('ai.perfAnalysis'))}</h2>
     <table><tbody>${list(report.performanceAnalysis, (a) => `<tr><td style="width:160px"><b>${escapeHtml(a.title)}</b></td><td>${escapeHtml(a.detail)}</td></tr>`)}</tbody></table>
-    <h2>Platform Insights</h2>
-    <table><tbody>${list(report.platformInsights, (p) => `<tr><td style="width:140px"><b>${escapeHtml(humanize(p.platform))}</b></td><td>${escapeHtml(p.detail)}</td></tr>`)}</tbody></table>
-    <h2>Predictions (Next Period)</h2>
-    <table><thead><tr><th>Metric</th><th>Current</th><th>Projected</th><th>Trend</th><th>Rationale</th></tr></thead>
+    <h2>${escapeHtml(t('ai.platformInsights'))}</h2>
+    <table><tbody>${list(report.platformInsights, (p) => `<tr><td style="width:140px"><b>${escapeHtml(mktCampPlatformLabel(locale, p.platform))}</b></td><td>${escapeHtml(p.detail)}</td></tr>`)}</tbody></table>
+    <h2>${escapeHtml(t('ai.predictions'))}</h2>
+    <table><thead><tr><th>${escapeHtml(t('ai.pred.metric'))}</th><th>${escapeHtml(t('ai.pred.current'))}</th><th>${escapeHtml(t('ai.pred.projected'))}</th><th>${escapeHtml(t('ai.pred.trend'))}</th><th>${escapeHtml(t('ai.pred.rationale'))}</th></tr></thead>
     <tbody>${list(report.predictions, (p) => `<tr><td><b>${escapeHtml(p.metric)}</b></td><td>${escapeHtml(String(p.current))}</td><td>${escapeHtml(String(p.projectedNextPeriod))}</td><td>${escapeHtml(p.trend)}</td><td>${escapeHtml(p.rationale)}</td></tr>`)}</tbody></table>
-    <h2>Recommendations</h2>
-    <table><thead><tr><th>Priority</th><th>Action</th><th>Expected Impact</th></tr></thead>
+    <h2>${escapeHtml(t('ai.recommendations'))}</h2>
+    <table><thead><tr><th>${escapeHtml(t('ai.rec.priority'))}</th><th>${escapeHtml(t('ai.rec.action'))}</th><th>${escapeHtml(t('ai.rec.impact'))}</th></tr></thead>
     <tbody>${list(report.recommendations, (r) => `<tr><td><span class="pill ${r.priority === 'high' ? 'hi' : r.priority === 'medium' ? 'med' : 'low'}">${escapeHtml(r.priority)}</span></td><td><b>${escapeHtml(r.title)}</b><br/>${escapeHtml(r.action)}</td><td>${escapeHtml(r.expectedImpact || '')}</td></tr>`)}</tbody></table>
-    ${(report.risks || []).length ? `<h2>Risk Alerts</h2><table><thead><tr><th>Severity</th><th>Risk</th></tr></thead><tbody>${list(report.risks, (r) => `<tr><td><span class="pill ${r.severity === 'high' ? 'hi' : 'med'}">${escapeHtml(r.severity)}</span></td><td><b>${escapeHtml(r.title)}</b><br/>${escapeHtml(r.message)}</td></tr>`)}</tbody></table>` : ''}
+    ${(report.risks || []).length ? `<h2>${escapeHtml(t('ai.risks'))}</h2><table><thead><tr><th>${escapeHtml(t('ai.risk.severity'))}</th><th>${escapeHtml(t('ai.risk.risk'))}</th></tr></thead><tbody>${list(report.risks, (r) => `<tr><td><span class="pill ${r.severity === 'high' ? 'hi' : 'med'}">${escapeHtml(r.severity)}</span></td><td><b>${escapeHtml(r.title)}</b><br/>${escapeHtml(r.message)}</td></tr>`)}</tbody></table>` : ''}
     <script>window.onload=function(){window.print();};</script>
   </body></html>`;
   const win = window.open('', '_blank');
   if (!win) {
-    alert('Please allow pop-ups to export the PDF.');
+    alert(t('pdf.popupBlocked'));
     return;
   }
   win.document.open();
@@ -581,8 +590,11 @@ function aiReportToHtml(report, meta) {
 }
 
 const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampReportT(locale, key, vars), [locale]);
   const report = data?.report;
   const km = report?.keyMetrics || {};
+  const analysisLabel = data?.llmUsed ? t('ai.analysisLlm') : t('ai.analysisData');
 
   return (
     <div className="mk-ai-overlay" role="dialog" aria-modal="true">
@@ -591,13 +603,16 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
           <div className="mk-ai-head-title">
             <Sparkles size={18} />
             <div>
-              <h2>AI Campaign Report</h2>
+              <h2>{t('ai.modalTitle')}</h2>
               <span>
                 {loading
-                  ? 'Analyzing your marketing data...'
+                  ? t('ai.analyzing')
                   : data
-                    ? `${report?.period || ''} · ${data.llmUsed ? 'AI (LLM) analysis' : 'Data-driven analysis'}`
-                    : 'Professional analysis & recommendations'}
+                    ? t('ai.subtitleMeta', {
+                        period: report?.period || '',
+                        analysis: analysisLabel,
+                      })
+                    : t('ai.subtitleDefault')}
               </span>
             </div>
           </div>
@@ -607,13 +622,18 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
                 type="button"
                 className="mk-ai-pdf-btn"
                 onClick={() =>
-                  aiReportToHtml(report, {
-                    generatedAt: data.generatedAt,
-                    llmUsed: data.llmUsed,
-                  })
+                  aiReportToHtml(
+                    report,
+                    {
+                      generatedAt: data.generatedAt,
+                      llmUsed: data.llmUsed,
+                    },
+                    locale,
+                    t,
+                  )
                 }
               >
-                <FileText size={14} /> PDF
+                <FileText size={14} /> {t('ai.pdfBtn')}
               </button>
             ) : null}
             <button type="button" className="mk-ai-close" onClick={onClose}>
@@ -626,14 +646,14 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
           {loading ? (
             <div className="mk-ai-loading">
               <Loader2 size={34} className="mk-ai-spin" />
-              <p>Reading configuration & analyzing performance...</p>
+              <p>{t('ai.loadingBody')}</p>
             </div>
           ) : error ? (
             <div className="mk-ai-error">
               <AlertTriangle size={24} />
               <p>{error}</p>
               <button type="button" className="mk-report-ai-btn" onClick={onRetry}>
-                Retry
+                {t('ai.retry')}
               </button>
             </div>
           ) : report ? (
@@ -651,24 +671,24 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
                   >
                     {report.healthScore ?? '-'}
                   </div>
-                  <div className="mk-ai-score-label">Health Score</div>
+                  <div className="mk-ai-score-label">{t('ai.healthScore')}</div>
                 </div>
                 <div className="mk-ai-summary">
-                  <h3>Executive Summary</h3>
+                  <h3>{t('ai.execSummary')}</h3>
                   <p>{report.executiveSummary}</p>
                 </div>
               </div>
 
               <div className="mk-ai-kpis">
                 {[
-                  ['Budget', `${toNumber(km.budgetAllocated).toLocaleString()} SAR`],
-                  ['Spent', `${toNumber(km.totalSpent).toLocaleString()} SAR`],
-                  ['Revenue', `${toNumber(km.totalRevenue).toLocaleString()} SAR`],
-                  ['ROI', `${toNumber(km.roi)}%`],
-                  ['Leads', toNumber(km.leads).toLocaleString()],
-                  ['Conversions', toNumber(km.conversions).toLocaleString()],
-                  ['CPL', `${toNumber(km.costPerLead)} SAR`],
-                  ['Conv. Rate', `${toNumber(km.conversionRate)}%`],
+                  [t('ai.kpi.budget'), mktCampReportMoney(locale, km.budgetAllocated)],
+                  [t('ai.kpi.spent'), mktCampReportMoney(locale, km.totalSpent)],
+                  [t('ai.kpi.revenue'), mktCampReportMoney(locale, km.totalRevenue)],
+                  [t('ai.kpi.roi'), `${toNumber(km.roi)}%`],
+                  [t('ai.kpi.leads'), toNumber(km.leads).toLocaleString()],
+                  [t('ai.kpi.conversions'), toNumber(km.conversions).toLocaleString()],
+                  [t('ai.kpiShort.cpl'), mktCampReportMoney(locale, km.costPerLead)],
+                  [t('ai.kpi.convRate'), `${toNumber(km.conversionRate)}%`],
                 ].map(([label, value]) => (
                   <div key={label} className="mk-ai-kpi">
                     <span>{label}</span>
@@ -680,7 +700,7 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
               {report.performanceAnalysis?.length ? (
                 <section className="mk-ai-section">
                   <h3>
-                    <Target size={15} /> Performance Analysis
+                    <Target size={15} /> {t('ai.perfAnalysis')}
                   </h3>
                   <div className="mk-ai-rows">
                     {report.performanceAnalysis.map((a, i) => (
@@ -695,11 +715,11 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
 
               {report.platformInsights?.length ? (
                 <section className="mk-ai-section">
-                  <h3>Platform Insights</h3>
+                  <h3>{t('ai.platformInsights')}</h3>
                   <div className="mk-ai-rows">
                     {report.platformInsights.map((p, i) => (
                       <div key={i} className="mk-ai-row">
-                        <b>{humanize(p.platform)}</b>
+                        <b>{mktCampPlatformLabel(locale, p.platform)}</b>
                         <span>{p.detail}</span>
                       </div>
                     ))}
@@ -712,22 +732,22 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
                 <div className="mk-ai-two-col">
                   {report.topPerformers?.length ? (
                     <section className="mk-ai-section">
-                      <h3 className="mk-ai-good">Top Performers</h3>
-                      {report.topPerformers.map((t, i) => (
+                      <h3 className="mk-ai-good">{t('ai.topPerformers')}</h3>
+                      {report.topPerformers.map((item, i) => (
                         <div key={i} className="mk-ai-perf">
-                          <b>{t.name}</b>
-                          <span>{t.reason}</span>
+                          <b>{item.name}</b>
+                          <span>{item.reason}</span>
                         </div>
                       ))}
                     </section>
                   ) : null}
                   {report.underperformers?.length ? (
                     <section className="mk-ai-section">
-                      <h3 className="mk-ai-bad">Underperformers</h3>
-                      {report.underperformers.map((t, i) => (
+                      <h3 className="mk-ai-bad">{t('ai.underperformers')}</h3>
+                      {report.underperformers.map((item, i) => (
                         <div key={i} className="mk-ai-perf">
-                          <b>{t.name}</b>
-                          <span>{t.reason}</span>
+                          <b>{item.name}</b>
+                          <span>{item.reason}</span>
                         </div>
                       ))}
                     </section>
@@ -738,7 +758,7 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
               {report.predictions?.length ? (
                 <section className="mk-ai-section">
                   <h3>
-                    <TrendingUp size={15} /> Predictions — Next Period
+                    <TrendingUp size={15} /> {t('ai.predictionsNext')}
                   </h3>
                   <div className="mk-ai-pred-grid">
                     {report.predictions.map((p, i) => (
@@ -762,7 +782,7 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
               {report.recommendations?.length ? (
                 <section className="mk-ai-section">
                   <h3>
-                    <Lightbulb size={15} /> Recommendations
+                    <Lightbulb size={15} /> {t('ai.recommendations')}
                   </h3>
                   {report.recommendations.map((r, i) => (
                     <div key={i} className="mk-ai-rec">
@@ -773,7 +793,7 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
                         <b>{r.title}</b>
                         <p>{r.action}</p>
                         {r.expectedImpact ? (
-                          <em>Impact: {r.expectedImpact}</em>
+                          <em>{t('ai.impact', { value: r.expectedImpact })}</em>
                         ) : null}
                       </div>
                     </div>
@@ -784,7 +804,7 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
               {report.risks?.length ? (
                 <section className="mk-ai-section">
                   <h3 className="mk-ai-bad">
-                    <AlertTriangle size={15} /> Risk Alerts
+                    <AlertTriangle size={15} /> {t('ai.risks')}
                   </h3>
                   {report.risks.map((r, i) => (
                     <div key={i} className={`mk-ai-risk sev-${r.severity}`}>
@@ -803,6 +823,8 @@ const AiReportModal = ({ data, loading, error, onClose, onRetry }) => {
 };
 
 const PerformanceChart = ({ campaigns }) => {
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampReportT(locale, key, vars), [locale]);
   const width = 1000;
   const height = 170;
   const left = 38;
@@ -826,7 +848,7 @@ const PerformanceChart = ({ campaigns }) => {
   return (
     <div className="mk-report-chart-body">
       {rows.length === 0 ? (
-        <div className="mk-report-empty-chart">No campaign data found</div>
+        <div className="mk-report-empty-chart">{t('chart.empty')}</div>
       ) : (
         <>
           <svg
@@ -910,11 +932,11 @@ const PerformanceChart = ({ campaigns }) => {
           <div className="mk-report-chart-legend">
             <span>
               <i className="mk-report-dot-spent" />
-              Spent
+              {t('chart.spent')}
             </span>
             <span>
               <i className="mk-report-dot-revenue" />
-              Revenue
+              {t('chart.revenue')}
             </span>
           </div>
         </>
@@ -923,19 +945,23 @@ const PerformanceChart = ({ campaigns }) => {
   );
 };
 
-const PerformanceTable = ({ campaigns }) => (
+const PerformanceTable = ({ campaigns }) => {
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampReportT(locale, key, vars), [locale]);
+
+  return (
   <div className="mk-report-table-wrap">
     <table className="mk-table mk-report-table">
       <thead>
         <tr>
-          <th>Campaign</th>
-          <th>Platform</th>
-          <th>Spent (SAR)</th>
-          <th>Revenue (SAR)</th>
-          <th>ROI %</th>
-          <th>Leads</th>
-          <th>Conv.</th>
-          <th>CTR %</th>
+          <th>{t('table.th.campaign')}</th>
+          <th>{t('table.th.platform')}</th>
+          <th>{t('table.th.spent')}</th>
+          <th>{t('table.th.revenue')}</th>
+          <th>{t('table.th.roi')}</th>
+          <th>{t('table.th.leads')}</th>
+          <th>{t('table.th.conv')}</th>
+          <th>{t('table.th.ctr')}</th>
         </tr>
       </thead>
 
@@ -943,29 +969,34 @@ const PerformanceTable = ({ campaigns }) => (
         {campaigns.length === 0 ? (
           <tr>
             <td colSpan={8} className="mk-empty-table">
-              No campaign report data found
+              {t('table.empty')}
             </td>
           </tr>
         ) : (
           campaigns.map((item) => (
             <tr key={item.id || item.name}>
               <td className="mk-td-bold">{item.name}</td>
-              <td>{humanize(item.platform)}</td>
-              <td>{formatSar(item.spent)}</td>
-              <td>{formatSar(item.revenue)}</td>
-              <td>{formatPercent(item.roiPercent)}</td>
+              <td>{mktCampPlatformLabel(locale, item.platform)}</td>
+              <td>{mktCampReportMoney(locale, item.spent)}</td>
+              <td>{mktCampReportMoney(locale, item.revenue)}</td>
+              <td>{mktCampReportPercent(locale, item.roiPercent)}</td>
               <td>{item.leads}</td>
               <td>{item.conversions}</td>
-              <td>{formatPercent(item.ctr)}</td>
+              <td>{mktCampReportPercent(locale, item.ctr)}</td>
             </tr>
           ))
         )}
       </tbody>
     </table>
   </div>
-);
+  );
+};
 
 export const CampaignReports = () => {
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampReportT(locale, key, vars), [locale]);
+  const defaultCampaignName = t('campaign.default');
+
   const [campaigns, setCampaigns] = useState([]);
   const [allCampaigns, setAllCampaigns] = useState([]);
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
@@ -1010,7 +1041,7 @@ export const CampaignReports = () => {
         ...dateRange,
       });
 
-      const normalizedCampaigns = extractCampaigns(res);
+      const normalizedCampaigns = extractCampaigns(res, defaultCampaignName);
       const normalizedSummary = normalizeSummary(res, normalizedCampaigns);
 
       setCampaigns(normalizedCampaigns);
@@ -1022,11 +1053,11 @@ export const CampaignReports = () => {
     } catch (err) {
       setCampaigns([]);
       setSummary(EMPTY_SUMMARY);
-      setLoadError(err?.message || 'Failed to load campaign report.');
+      setLoadError(err?.message || t('err.load'));
     } finally {
       setLoading(false);
     }
-  }, [campaignFilter, period, compareTo, customStart, customEnd]);
+  }, [campaignFilter, period, compareTo, customStart, customEnd, defaultCampaignName, t]);
 
   useEffect(() => {
     loadReports();
@@ -1042,43 +1073,43 @@ export const CampaignReports = () => {
     const source = allCampaigns.length > 0 ? allCampaigns : campaigns;
 
     return [
-      { value: 'all', label: 'All Campaigns' },
+      { value: 'all', label: t('config.allCampaigns') },
       ...source.map((item) => ({
         value: String(item.id),
         label: item.name,
       })),
     ];
-  }, [allCampaigns, campaigns]);
+  }, [allCampaigns, campaigns, t]);
 
   const campaignsInScope = campaigns.length;
 
   const periodLabel = useMemo(() => {
     const map = {
-      all_time: 'All Time',
-      today: 'Today',
-      this_week: 'This Week',
-      this_month: 'This Month',
-      last_month: 'Last Month',
+      all_time: t('config.period.all_time'),
+      today: t('config.period.today'),
+      this_week: t('config.period.this_week'),
+      this_month: t('config.period.this_month'),
+      last_month: t('config.period.last_month'),
     };
     return map[period] || humanize(period);
-  }, [period]);
+  }, [period, t]);
 
   const exportCsv = () => {
     if (campaigns.length === 0) {
-      alert('No report data available to export.');
+      alert(t('err.exportEmpty'));
       return;
     }
 
-    downloadCsv(campaigns);
+    downloadCsv(campaigns, locale, t);
   };
 
   const exportPdf = () => {
     if (campaigns.length === 0) {
-      alert('No report data available to export.');
+      alert(t('err.exportEmpty'));
       return;
     }
 
-    downloadPdf(campaigns, summary, periodLabel);
+    downloadPdf(campaigns, summary, periodLabel, locale, t);
   };
 
   const runAiReport = async () => {
@@ -1109,62 +1140,58 @@ export const CampaignReports = () => {
       });
 
       if (!res?.report) {
-        throw new Error('No report returned by the server.');
+        throw new Error(t('err.aiEmpty'));
       }
 
       setAiReport(res);
     } catch (err) {
-      setAiError(err?.message || 'Failed to generate AI report.');
+      setAiError(err?.message || t('err.aiFail'));
     } finally {
       setAiLoading(false);
     }
   };
 
   const saveSchedule = () => {
-    alert(
-      scheduleOn
-        ? 'Scheduled report delivery saved.'
-        : 'Scheduled report delivery is off.',
-    );
+    alert(scheduleOn ? t('schedule.savedOn') : t('schedule.savedOff'));
   };
 
   return (
     <div className="mk-page mk-report-page">
       <section className="mk-card mk-report-config-card">
         <div className="mk-report-config-header">
-          <h3 className="mk-report-section-title">Report Configuration</h3>
+          <h3 className="mk-report-section-title">{t('config.title')}</h3>
 
           <span className="mk-report-scope-badge">
-            {campaignsInScope} campaigns in scope
+            {t('config.scope', { count: campaignsInScope })}
           </span>
         </div>
 
         <div className="mk-report-config-grid">
           <SelectField
-            label="Campaign"
+            label={t('config.campaign')}
             value={campaignFilter}
             onChange={setCampaignFilter}
             options={campaignOptions}
           />
 
           <SelectField
-            label="Period"
+            label={t('config.period')}
             value={period}
             onChange={setPeriod}
             options={[
-              { value: 'all_time', label: 'All Time' },
-              { value: 'today', label: 'Today' },
-              { value: 'this_week', label: 'This Week' },
-              { value: 'this_month', label: 'This Month' },
-              { value: 'last_month', label: 'Last Month' },
-              { value: 'custom', label: 'Custom Range' },
+              { value: 'all_time', label: t('config.period.all_time') },
+              { value: 'today', label: t('config.period.today') },
+              { value: 'this_week', label: t('config.period.this_week') },
+              { value: 'this_month', label: t('config.period.this_month') },
+              { value: 'last_month', label: t('config.period.last_month') },
+              { value: 'custom', label: t('config.period.custom') },
             ]}
           />
 
           {period === 'custom' ? (
             <>
               <div className="mk-report-filter">
-                <label className="mk-report-filter-label">From</label>
+                <label className="mk-report-filter-label">{t('config.from')}</label>
                 <input
                   type="date"
                   className="mk-input mk-report-select"
@@ -1175,7 +1202,7 @@ export const CampaignReports = () => {
               </div>
 
               <div className="mk-report-filter">
-                <label className="mk-report-filter-label">To</label>
+                <label className="mk-report-filter-label">{t('config.to')}</label>
                 <input
                   type="date"
                   className="mk-input mk-report-select"
@@ -1188,13 +1215,13 @@ export const CampaignReports = () => {
           ) : null}
 
           <SelectField
-            label="Compare To"
+            label={t('config.compareTo')}
             value={compareTo}
             onChange={setCompareTo}
             options={[
-              { value: 'none', label: 'No Comparison' },
-              { value: 'previous_period', label: 'Previous Period' },
-              { value: 'last_month', label: 'Last Month' },
+              { value: 'none', label: t('config.compare.none') },
+              { value: 'previous_period', label: t('config.compare.previous_period') },
+              { value: 'last_month', label: t('config.compare.last_month') },
             ]}
           />
 
@@ -1205,7 +1232,7 @@ export const CampaignReports = () => {
             disabled={aiLoading}
           >
             <Bot size={14} />
-            {aiLoading ? 'Generating...' : 'AI Report'}
+            {aiLoading ? t('config.aiGenerating') : t('config.aiReport')}
           </button>
         </div>
       </section>
@@ -1216,70 +1243,79 @@ export const CampaignReports = () => {
 
       <div className="mk-report-metrics-grid">
         <MetricCard
-          title="Budget Allocated"
-          value={formatSar(summary.totalBudget)}
-          sub={`${formatPercent(calcPercent(summary.totalSpent, summary.totalBudget))} utilized`}
+          title={t('metric.budgetAllocated')}
+          value={mktCampReportMoney(locale, summary.totalBudget)}
+          sub={t('metric.utilized', {
+            pct: mktCampReportPercent(
+              locale,
+              calcPercent(summary.totalSpent, summary.totalBudget),
+            ),
+          })}
           tone="dark"
         />
 
         <MetricCard
-          title="Total Spent"
-          value={formatSar(summary.totalSpent)}
-          sub="Marketing spend"
+          title={t('metric.totalSpent')}
+          value={mktCampReportMoney(locale, summary.totalSpent)}
+          sub={t('metric.marketingSpend')}
           tone="red"
         />
 
         <MetricCard
-          title="Revenue"
-          value={formatSar(summary.totalRevenue)}
-          sub={`ROI: ${formatPercent(summary.roiPercent)}`}
+          title={t('metric.revenue')}
+          value={mktCampReportMoney(locale, summary.totalRevenue)}
+          sub={t('metric.roiSub', {
+            pct: mktCampReportPercent(locale, summary.roiPercent),
+          })}
           tone="green"
         />
 
         <MetricCard
-          title="Leads"
+          title={t('metric.leads')}
           value={summary.totalLeads || 0}
-          sub={`${summary.totalConversions || 0} conversions`}
+          sub={t('metric.conversionsSub', { count: summary.totalConversions || 0 })}
           tone="blue"
         />
 
         <MetricCard
-          title="Impressions"
+          title={t('metric.impressions')}
           value={summary.totalImpressions || 0}
-          sub={`CTR: ${formatPercent(summary.ctr)}`}
+          sub={t('metric.ctrSub', {
+            pct: mktCampReportPercent(locale, summary.ctr),
+          })}
           tone="purple"
         />
 
         <MetricCard
-          title="Clicks"
+          title={t('metric.clicks')}
           value={summary.totalClicks || 0}
-          sub="Total ad clicks"
+          sub={t('metric.totalClicks')}
           tone="yellow"
         />
 
         <MetricCard
-          title="Cost Per Lead"
-          value={formatSar(summary.costPerLead)}
-          sub="Acquisition cost"
+          title={t('metric.costPerLead')}
+          value={mktCampReportMoney(locale, summary.costPerLead)}
+          sub={t('metric.acquisitionCost')}
           tone="orange"
         />
 
         <MetricCard
-          title="Conv. Rate"
-          value={formatPercent(summary.conversionRate)}
-          sub={`${summary.activeCampaigns || 0} active campaigns`}
+          title={t('metric.convRate')}
+          value={mktCampReportPercent(locale, summary.conversionRate)}
+          sub={t('metric.activeCampaigns', { count: summary.activeCampaigns || 0 })}
           tone="green"
         />
       </div>
 
       <section className="mk-card mk-report-chart-card">
         <div className="mk-report-chart-header">
-          <h3 className="mk-report-section-title">Performance Visualization</h3>
+          <h3 className="mk-report-section-title">{t('viz.title')}</h3>
 
           <div className="mk-report-icon-actions">
             <ReportIconButton
               active={false}
-              title="Download CSV"
+              title={t('viz.csv')}
               onClick={exportCsv}
               disabled={campaigns.length === 0}
             >
@@ -1288,7 +1324,7 @@ export const CampaignReports = () => {
 
             <ReportIconButton
               active={false}
-              title="Export PDF"
+              title={t('viz.pdf')}
               onClick={exportPdf}
               disabled={campaigns.length === 0}
             >
@@ -1296,7 +1332,7 @@ export const CampaignReports = () => {
             </ReportIconButton>
 
             <ReportIconButton
-              title="Refresh"
+              title={t('viz.refresh')}
               onClick={loadReports}
               disabled={loading}
             >
@@ -1308,7 +1344,7 @@ export const CampaignReports = () => {
 
             <ReportIconButton
               active={viewMode === 'chart'}
-              title="Trend / Chart View"
+              title={t('viz.chart')}
               onClick={() => setViewMode('chart')}
             >
               <TrendingUp size={13} />
@@ -1316,7 +1352,7 @@ export const CampaignReports = () => {
 
             <ReportIconButton
               active={viewMode === 'table'}
-              title="Table View"
+              title={t('viz.table')}
               onClick={() => setViewMode('table')}
             >
               <Table2 size={13} />
@@ -1325,7 +1361,7 @@ export const CampaignReports = () => {
         </div>
 
         {loading ? (
-          <div className="mk-report-empty-chart">Loading report...</div>
+          <div className="mk-report-empty-chart">{t('viz.loading')}</div>
         ) : viewMode === 'chart' ? (
           <PerformanceChart campaigns={campaigns} />
         ) : (
@@ -1337,10 +1373,10 @@ export const CampaignReports = () => {
         <div className="mk-report-schedule-header">
           <CalendarDays size={14} color="#D5AD27" />
 
-          <h3 className="mk-report-section-title">Scheduled Report Delivery</h3>
+          <h3 className="mk-report-section-title">{t('schedule.title')}</h3>
 
           <span className={scheduleOn ? 'mk-report-on-badge' : 'mk-report-off-badge'}>
-            {scheduleOn ? 'On' : 'Off'}
+            {scheduleOn ? t('schedule.on') : t('schedule.off')}
           </span>
         </div>
 
@@ -1354,7 +1390,7 @@ export const CampaignReports = () => {
           </button>
 
           <span className="mk-report-schedule-text">
-            Auto-generate &amp; email report
+            {t('schedule.auto')}
           </span>
 
           <button
@@ -1362,7 +1398,7 @@ export const CampaignReports = () => {
             className="mk-report-save-btn"
             onClick={saveSchedule}
           >
-            Save Schedule
+            {t('schedule.save')}
           </button>
         </div>
       </section>

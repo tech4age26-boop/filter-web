@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useLocation,
   useNavigate,
@@ -19,6 +19,11 @@ import {
   marketingGetPromotion,
   marketingUpdatePromotion,
 } from "../../services/superAdminMarketingApi";
+import {
+  mktPromoSelectOptions,
+  mktPromoT,
+  resolveMarketingLocale,
+} from "../../utils/marketingPromotionsI18n";
 import {
   alignStoredIdsWithOptions,
   buildPromotionPayload,
@@ -54,9 +59,9 @@ function isBuyGetPromotionType(promotionType) {
   return BUY_GET_STRATEGIES.includes(String(promotionType || ""));
 }
 
-function validatePromotionForm(form) {
+function validatePromotionForm(form, t) {
   if (!form.name.trim()) {
-    alert("Promotion name is required.");
+    alert(t("err.nameRequired"));
     return false;
   }
 
@@ -64,7 +69,7 @@ function validatePromotionForm(form) {
     form.promotionType === "Free Service at another workshop / branch";
 
   if (!form.discountValue && form.promotionType !== "Free Service" && !isVoucherType) {
-    alert("Discount value is required.");
+    alert(t("err.discountRequired"));
     return false;
   }
 
@@ -75,17 +80,17 @@ function validatePromotionForm(form) {
     Number.isFinite(discountNum) &&
     discountNum > 100
   ) {
-    alert("Percentage discount cannot exceed 100%.");
+    alert(t("err.pctMax"));
     return false;
   }
 
   if (!form.startDate || !form.endDate) {
-    alert("Start date and end date are required.");
+    alert(t("err.datesRequired"));
     return false;
   }
 
   if (new Date(form.endDate) < new Date(form.startDate)) {
-    alert("End date must be after start date.");
+    alert(t("err.endAfterStart"));
     return false;
   }
 
@@ -94,7 +99,7 @@ function validatePromotionForm(form) {
     !(form.productTriggerIds || []).length &&
     !(form.productCategoryTriggerIds || []).length
   ) {
-    alert('Select at least one product/category when Products is set to "Specific only".');
+    alert(t("err.productSelected"));
     return false;
   }
 
@@ -103,12 +108,12 @@ function validatePromotionForm(form) {
     !(form.serviceTriggerIds || []).length &&
     !(form.serviceCategoryTriggerIds || []).length
   ) {
-    alert('Select at least one service/category when Services is set to "Specific only".');
+    alert(t("err.serviceSelected"));
     return false;
   }
 
   if (form.productScope === "none" && form.serviceScope === "none") {
-    alert("At least one of Products or Services must apply.");
+    alert(t("err.scopeNone"));
     return false;
   }
 
@@ -118,11 +123,11 @@ function validatePromotionForm(form) {
       !(form.rewardProductCategoryIds || []).length &&
       !(form.rewardServiceCategoryIds || []).length
     ) {
-      alert("Select at least one reward product/service/category the customer will get.");
+      alert(t("err.rewardItems"));
       return false;
     }
     if (form.rewardBenefitType !== "free" && !Number(form.rewardDiscountValue)) {
-      alert("Enter a reward value for the percentage/fixed reward.");
+      alert(t("err.rewardValue"));
       return false;
     }
   }
@@ -137,7 +142,26 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
   const isEdit = Boolean(id) && !readOnly && /\/edit$/.test(location.pathname);
   const basePath = resolvePromotionBasePath(location.pathname);
   const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => mktPromoT(locale, key, vars), [locale]);
   const embeddedInPortal = Boolean(outletCtx.setShowAddModal);
+
+  const strategySelectOptions = useMemo(
+    () => mktPromoSelectOptions(locale, strategyOptions),
+    [locale],
+  );
+  const typeSelectOptions = useMemo(
+    () => mktPromoSelectOptions(locale, promotionTypeOptions),
+    [locale],
+  );
+  const discountSelectOptions = useMemo(
+    () => mktPromoSelectOptions(locale, discountTypeOptions),
+    [locale],
+  );
+  const segmentSelectOptions = useMemo(
+    () => mktPromoSelectOptions(locale, customerSegmentOptions),
+    [locale],
+  );
 
   const [form, setForm] = useState(EMPTY_PROMOTION_FORM);
   const [workflowStatus, setWorkflowStatus] = useState("draft");
@@ -233,7 +257,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
         setRewardItems(data.rewardItems);
       } catch (error) {
         if (!cancelled) {
-          setDropdownError(error?.message || "Could not load dropdown data.");
+          setDropdownError(error?.message || t('err.dropdown'));
         }
       } finally {
         if (!cancelled) setLoadingDropdowns(false);
@@ -297,7 +321,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
           response?.item ||
           response;
         if (!raw || !raw.id) {
-          throw new Error("Promotion not found.");
+          throw new Error(t('err.notFound'));
         }
         if (!cancelled) {
           const normalized = normalizePromotion(raw);
@@ -306,7 +330,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
         }
       } catch (error) {
         if (!cancelled) {
-          setPageError(error?.message || "Could not load promotion.");
+          setPageError(error?.message || t('err.loadOne'));
         }
       } finally {
         if (!cancelled) setLoadingPage(false);
@@ -333,7 +357,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
   };
 
   const runAction = async (action) => {
-    if (!validatePromotionForm(form)) return;
+    if (!validatePromotionForm(form, t)) return;
 
     try {
       setSubmitting(true);
@@ -358,8 +382,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
     } catch (error) {
       console.error("Promotion action error:", error);
       alert(
-        error?.message ||
-          "Could not save promotion. Check the console and network tab."
+        error?.message || t('err.save')
       );
     } finally {
       setSubmitting(false);
@@ -376,14 +399,13 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
     >
       <button type="button" className="mkp-back-btn" onClick={goBack}>
         <ArrowLeft size={16} strokeWidth={2} />
-        Back to Promotions
+        {t('form.back')}
       </button>
 
       <header className="mkp-form-page-header">
-        <h1>{readOnly ? 'View Promotion' : isEdit ? 'Edit Promotion' : 'New Promotion'}</h1>
+        <h1>{readOnly ? t('form.titleView') : isEdit ? t('form.titleEdit') : t('form.titleNew')}</h1>
         <p>
-          Save as draft, submit for approval, then activate on POS after
-          approval.
+          {t('form.subtitle')}
         </p>
       </header>
 
@@ -398,7 +420,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
       {loadingPage ? (
         <div className="mkp-empty">
           <Loader2 size={30} className="mkp-spin" />
-          <div>Loading promotion...</div>
+          <div>{t('form.loading')}</div>
         </div>
       ) : (
         <form
@@ -415,76 +437,78 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
         >
           <fieldset disabled={readOnly} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
           <div className="mkp-section">
-            <div className="mkp-section-title">Basic Information</div>
+            <div className="mkp-section-title">{t('form.section.basic')}</div>
 
             {isEdit ? (
               <div className="mkp-form-group">
-                <label className="mkp-label">Workflow Status</label>
+                <label className="mkp-label">{t('form.label.workflowStatus')}</label>
                 <div
                   className={`mkp-status-badge status-${normalizedWorkflowStatus.replace(
                     /_/g,
                     "-"
                   )}`}
                 >
-                  {formatStatusLabel(workflowStatus)}
+                  {formatStatusLabel(workflowStatus, locale)}
                 </div>
                 <p className="mkp-field-hint">
                     {isDraft
-                    ? "Save as draft or submit for Super Admin approval."
+                    ? t('form.hint.draft')
                     : isPendingApproval
-                      ? "Waiting for approval on the Super Admin Approvals page."
-                      : "Use the POS status toggle on the list to activate or deactivate."}
+                      ? t('form.hint.pending')
+                      : t('form.hint.other')}
                 </p>
               </div>
             ) : null}
 
             <div className="mkp-form-group">
-              <label className="mkp-label">Promotion Name *</label>
+              <label className="mkp-label">{t('form.label.name')}</label>
               <input
                 autoFocus
                 value={form.name}
                 onChange={(event) => updateForm("name", event.target.value)}
-                placeholder="e.g. Ramadan Special Offer"
+                placeholder={t('form.placeholder.name')}
                 className="mkp-input"
               />
             </div>
 
             <div className="mkp-two-col">
               <div className="mkp-form-group">
-                <label className="mkp-label">Marketing Strategy</label>
+                <label className="mkp-label">{t('form.label.strategy')}</label>
                 <SelectField
                   value={form.strategy}
                   onChange={(value) => updateForm("strategy", value)}
-                  options={strategyOptions}
+                  options={strategySelectOptions}
+                  locale={locale}
                 />
               </div>
 
               <div className="mkp-form-group">
-                <label className="mkp-label">Promotion Type</label>
+                <label className="mkp-label">{t('form.label.type')}</label>
                 <SelectField
                   value={form.promotionType}
                   onChange={(value) => updateForm("promotionType", value)}
-                  options={promotionTypeOptions}
+                  options={typeSelectOptions}
+                  locale={locale}
                 />
               </div>
             </div>
 
             <div className="mkp-two-col">
               <div className="mkp-form-group">
-                <label className="mkp-label">Discount Type</label>
+                <label className="mkp-label">{t('form.label.discountType')}</label>
                 <SelectField
                   value={form.discountType}
                   onChange={(value) => updateForm("discountType", value)}
-                  options={discountTypeOptions}
+                  options={discountSelectOptions}
+                  locale={locale}
                 />
               </div>
 
               <div className="mkp-form-group">
                 <label className="mkp-label">
-                  Discount Value
                   {String(form.discountType).toLowerCase().includes("fixed")
-                    ? " (SAR)"
-                    : " (%)"}
+                    ? t('form.label.discountValueSar')
+                    : t('form.label.discountValuePct')}
                 </label>
                 <input
                   value={form.discountValue}
@@ -493,8 +517,8 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
                   }
                   placeholder={
                     String(form.discountType).toLowerCase().includes("fixed")
-                      ? "e.g. 100"
-                      : "e.g. 15"
+                      ? t('form.placeholder.discountFixed')
+                      : t('form.placeholder.discountPct')
                   }
                   className="mkp-input"
                 />
@@ -503,34 +527,37 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
           </div>
 
           <div className="mkp-section">
-            <div className="mkp-section-title">Targeting</div>
+            <div className="mkp-section-title">{t('form.section.targeting')}</div>
 
             <div className="mkp-two-col">
               <SingleSelectApiField
-                label="Source Workshop"
+                label={t('form.label.sourceWorkshop')}
                 icon={Building2}
                 options={workshops}
                 value={form.sourceWorkshopId}
                 onChange={(value) => updateForm("sourceWorkshopId", value)}
                 loading={loadingDropdowns}
                 error={dropdownError}
-                placeholder="Select source workshop"
+                placeholder={t('form.placeholder.sourceWorkshop')}
+                locale={locale}
               />
 
               <SingleSelectApiField
-                label="Target Workshop"
+                label={t('form.label.targetWorkshop')}
                 icon={Building2}
                 options={workshops}
                 value={form.targetWorkshopId}
                 onChange={(value) => updateForm("targetWorkshopId", value)}
                 loading={loadingDropdowns}
                 error={dropdownError}
-                placeholder="Select target workshop"
+                placeholder={t('form.placeholder.targetWorkshop')}
+                locale={locale}
               />
             </div>
 
             <MultiSelectApiField
-              label="Source Branch / Store — Created From (select multiple)"
+              label={t('form.label.sourceBranches')}
+              locale={locale}
               icon={Building2}
               options={branches}
               selectedIds={form.sourceBranchIds}
@@ -540,7 +567,8 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
             />
 
             <MultiSelectApiField
-              label="Target Branches (Where Applicable — select multiple)"
+              label={t('form.label.targetBranches')}
+              locale={locale}
               icon={Building2}
               options={branches}
               selectedIds={form.targetBranchIds}
@@ -550,7 +578,8 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
             />
 
             <MultiSelectApiField
-              label="Target Zones (select multiple)"
+              label={t('form.label.targetZones')}
+              locale={locale}
               icon={MapPin}
               options={zones}
               selectedIds={form.targetZoneIds}
@@ -579,20 +608,21 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
           </div>
 
           <div className="mkp-section">
-            <div className="mkp-section-title">Rules & Validity</div>
+            <div className="mkp-section-title">{t('form.section.rules')}</div>
 
             <div className="mkp-two-col">
               <div className="mkp-form-group">
-                <label className="mkp-label">Customer Segment</label>
+                <label className="mkp-label">{t('form.label.segment')}</label>
                 <SelectField
                   value={form.customerSegment}
                   onChange={(value) => updateForm("customerSegment", value)}
-                  options={customerSegmentOptions}
+                  options={segmentSelectOptions}
+                  locale={locale}
                 />
               </div>
 
               <div className="mkp-form-group">
-                <label className="mkp-label">Min. Purchase Amount (SAR)</label>
+                <label className="mkp-label">{t('form.label.minPurchase')}</label>
                 <input
                   type="number"
                   value={form.minPurchase}
@@ -606,7 +636,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
 
             <div className="mkp-form-group">
               <label className="mkp-label">
-                Max Usage Count (0 = unlimited)
+                {t('form.label.maxUsage')}
               </label>
               <input
                 type="number"
@@ -618,7 +648,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
 
             <div className="mkp-two-col">
               <div className="mkp-form-group">
-                <label className="mkp-label">Start Date & Time</label>
+                <label className="mkp-label">{t('form.label.start')}</label>
                 <input
                   type="datetime-local"
                   value={form.startDate}
@@ -630,7 +660,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
               </div>
 
               <div className="mkp-form-group">
-                <label className="mkp-label">End Date & Time</label>
+                <label className="mkp-label">{t('form.label.end')}</label>
                 <input
                   type="datetime-local"
                   value={form.endDate}
@@ -644,22 +674,22 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
           </div>
 
           <div className="mkp-section">
-            <div className="mkp-section-title">Customer Display</div>
+            <div className="mkp-section-title">{t('form.section.display')}</div>
 
             <div className="mkp-form-group">
-              <label className="mkp-label">Invoice Banner Text</label>
+              <label className="mkp-label">{t('form.label.banner')}</label>
               <input
                 value={form.bannerText}
                 onChange={(event) =>
                   updateForm("bannerText", event.target.value)
                 }
-                placeholder="e.g. You saved SAR 50 with Ramadan Offer!"
+                placeholder={t('form.placeholder.banner')}
                 className="mkp-input"
               />
             </div>
 
             <div className="mkp-form-group">
-              <label className="mkp-label">Description</label>
+              <label className="mkp-label">{t('form.label.description')}</label>
               <textarea
                 value={form.description}
                 onChange={(event) =>
@@ -670,11 +700,11 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
             </div>
 
             <div className="mkp-form-group">
-              <label className="mkp-label">Terms & Conditions</label>
+              <label className="mkp-label">{t('form.label.terms')}</label>
               <textarea
                 value={form.terms}
                 onChange={(event) => updateForm("terms", event.target.value)}
-                placeholder="T&Cs printed on invoice..."
+                placeholder={t('form.placeholder.terms')}
                 className="mkp-textarea"
               />
             </div>
@@ -682,20 +712,19 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
             <div className="mkp-form-group">
               <label className="mkp-label">
                 <Image size={13} strokeWidth={2} />
-                Advertising / Marketing Banners
-                <span>(displayed on Customer Portal & App)</span>
+                {t('form.label.banners')}
+                <span>{t('form.label.bannersHint')}</span>
               </label>
 
               <div className="mkp-upload-row">
                 <button type="button" className="mkp-upload-box">
                   <Upload size={15} />
-                  <span>Upload</span>
+                  <span>{t('common.upload')}</span>
                 </button>
               </div>
 
               <div className="mkp-upload-hint">
-                Upload PNG, JPG, or WebP. Banners will be displayed to customers
-                in the portal and POS.
+                {t('form.uploadHint')}
               </div>
             </div>
 
@@ -703,19 +732,19 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
               <Toggle
                 checked={form.autoClose}
                 onChange={(value) => updateForm("autoClose", value)}
-                label="Auto-close on end date"
+                label={t('form.toggle.autoClose')}
               />
 
               <Toggle
                 checked={form.showPos}
                 onChange={(value) => updateForm("showPos", value)}
-                label="Show on POS Invoice"
+                label={t('form.toggle.showPos')}
               />
 
               <Toggle
                 checked={form.showCustomerPortal}
                 onChange={(value) => updateForm("showCustomerPortal", value)}
-                label="Show on Customer Portal"
+                label={t('form.toggle.showPortal')}
               />
             </div>
           </div>
@@ -723,9 +752,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
           {(canSaveDraft || canSubmitForApproval) && !isEdit ? (
             <div className="mkp-approval-note">
               <Hourglass size={14} />
-              <b>Save Draft</b> keeps the promotion private.{" "}
-              <b>Submit for Approval</b> sends it to Super Admin before it can go
-              live on POS.
+              {t('form.approvalNote')}
             </div>
           ) : null}
 
@@ -736,7 +763,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
               className="mkp-cancel-btn"
               disabled={submitting}
             >
-              Cancel
+              {t('common.cancel')}
             </button>
 
             {readOnly ? (
@@ -745,7 +772,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
                 className="mkp-cancel-btn"
                 onClick={() => navigate(`${basePath}/marketing-promotions`)}
               >
-                Close
+                {t('common.close')}
               </button>
             ) : null}
 
@@ -756,7 +783,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
                 disabled={submitting}
                 onClick={() => runAction("draft")}
               >
-                {submitting ? "Saving..." : "Save Draft"}
+                {submitting ? t('form.btn.saving') : t('form.btn.saveDraft')}
               </button>
             ) : null}
 
@@ -769,10 +796,10 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
                 {submitting ? (
                   <>
                     <Loader2 size={15} className="mkp-spin" />
-                    Submitting...
+                    {t('form.btn.submitting')}
                   </>
                 ) : (
-                  "Submit for Approval"
+                  t('form.btn.submit')
                 )}
               </button>
             ) : null}
@@ -789,7 +816,7 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
                     Saving...
                   </>
                 ) : (
-                  "Update Promotion"
+                  t('form.btn.update')
                 )}
               </button>
             ) : null}

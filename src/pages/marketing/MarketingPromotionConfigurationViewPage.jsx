@@ -1,9 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Gift, Layers3, Loader2, Megaphone, ReceiptText } from 'lucide-react';
 import { marketingGetPromotion } from '../../services/superAdminMarketingApi';
 import { PROMO_APPLICATION_RULES } from '../../components/promo/PromoCodeFormFields';
 import { buildPromoApplicationRequirements } from '../../components/promo/promoApplicationRequirements';
+import {
+  mktPromoOptionLabel,
+  mktPromoT,
+  resolveMarketingLocale,
+} from '../../utils/marketingPromotionsI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import {
   alignStoredIdsWithOptions,
@@ -93,17 +98,17 @@ function ChipList({ values, empty }) {
   );
 }
 
-function ScopeList({ scope, labels, categoryLabels = [], allText }) {
-  if (scope === 'none') return <p className="mk-config-muted">Does not apply.</p>;
+function ScopeList({ scope, labels, categoryLabels = [], allText, t }) {
+  if (scope === 'none') return <p className="mk-config-muted">{t('config.doesNotApply')}</p>;
   if (scope !== 'selected') return <p className="mk-config-muted">{allText}</p>;
   const allLabels = [
     ...categoryLabels.map((label) =>
-      labels.length > 0 ? `Category scope: ${label}` : `Complete category: ${label}`,
+      labels.length > 0 ? t('config.categoryScope', { label }) : t('config.completeCategory', { label }),
     ),
     ...labels,
   ];
   return (
-    <ChipList values={allLabels} empty="No selected items/categories found." />
+    <ChipList values={allLabels} empty={t('config.emptyItems')} />
   );
 }
 
@@ -111,6 +116,9 @@ export default function MarketingPromotionConfigurationViewPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = (key, vars) => mktPromoT(locale, key, vars);
   const basePath = resolvePromotionBasePath(location.pathname);
 
   const [loading, setLoading] = useState(true);
@@ -188,16 +196,16 @@ export default function MarketingPromotionConfigurationViewPage() {
 
   if (loading) {
     return (
-      <MarketingFormShell title="Promotion Configuration" onBack={() => navigate(basePath)} backLabel="Back to Promotions">
-        <div className="mk-config-loading"><Loader2 className="mk-code-spin" size={28} /> Loading configuration...</div>
+      <MarketingFormShell title={t('config.title')} onBack={() => navigate(basePath)} backLabel={t('common.backPromotions')}>
+        <div className="mk-config-loading"><Loader2 className="mk-code-spin" size={28} /> {t('config.loading')}</div>
       </MarketingFormShell>
     );
   }
 
   if (error || !record || !form) {
     return (
-      <MarketingFormShell title="Promotion Configuration" onBack={() => navigate(basePath)} backLabel="Back to Promotions">
-        <div className="mk-code-error-banner">{error || 'Promotion not found.'}</div>
+      <MarketingFormShell title={t('config.title')} onBack={() => navigate(basePath)} backLabel={t('common.backPromotions')}>
+        <div className="mk-code-error-banner">{error || t('err.notFound')}</div>
       </MarketingFormShell>
     );
   }
@@ -232,35 +240,35 @@ export default function MarketingPromotionConfigurationViewPage() {
 
   return (
     <MarketingFormShell
-      title="Promotion Configuration"
-      subtitle="Professional read-only summary of eligibility, reward logic, and publishing settings."
-      backLabel="Back to Promotions"
+      title={t('config.title')}
+      subtitle={t('config.subtitle')}
+      backLabel={t('common.backPromotions')}
       onBack={() => navigate(basePath)}
       className="mk-page mkp-form-page mk-config-page"
     >
       <div className="mk-config-hero">
         <div>
-          <span className="mk-config-eyebrow">Marketing Promotion</span>
+          <span className="mk-config-eyebrow">{t('config.eyebrow')}</span>
           <h2>{record.name}</h2>
-          <p>{record.description || 'No description added.'}</p>
+          <p>{record.description || t('config.noDescription')}</p>
         </div>
         <div className="mk-config-hero-badges">
           <span className={`mk-config-status status-${String(record.status).toLowerCase().replace(/\s+/g, '-')}`}>
-            {formatStatusLabel(record.status)}
+            {formatStatusLabel(record.status, locale)}
           </span>
           <span className={record.isActive ? 'mk-config-live' : 'mk-config-muted-pill'}>
-            {record.isActive ? 'Live on POS' : 'Not live on POS'}
+            {record.isActive ? t('config.live') : t('config.notLive')}
           </span>
         </div>
       </div>
 
       <div className="mk-config-layout">
-        <ConfigCard icon={Megaphone} title="Promotion Logic">
+        <ConfigCard icon={Megaphone} title={t('config.card.logic')}>
           <FieldGrid
             rows={[
               { label: 'Strategy', value: form.strategy },
               { label: 'Promotion Type', value: form.promotionType },
-              { label: 'Discount', value: formatPromotionDiscountDisplay(record) },
+              { label: 'Discount', value: formatPromotionDiscountDisplay(record, locale) },
               { label: 'Customer Segment', value: form.customerSegment },
             ]}
           />
@@ -302,7 +310,7 @@ export default function MarketingPromotionConfigurationViewPage() {
           ) : null}
         </ConfigCard>
 
-        <ConfigCard icon={CalendarDays} title="Schedule & Limits">
+        <ConfigCard icon={CalendarDays} title={t('config.card.schedule')}>
           <FieldGrid
             rows={[
               { label: 'Start Date', value: formatDateTime(form.startDate) },
@@ -313,7 +321,7 @@ export default function MarketingPromotionConfigurationViewPage() {
           />
         </ConfigCard>
 
-        <ConfigCard icon={Layers3} title="Location Scope">
+        <ConfigCard icon={Layers3} title={t('config.card.location')}>
           <FieldGrid
             rows={[
               { label: 'Source Workshop', value: workshopMap.get(String(form.sourceWorkshopId)) || 'All / not restricted' },
@@ -326,26 +334,28 @@ export default function MarketingPromotionConfigurationViewPage() {
           <ChipList values={labelsFromIds(form.targetZoneIds, zoneMap)} empty="No zone restriction." />
         </ConfigCard>
 
-        <ConfigCard icon={ReceiptText} title="Products Applied">
+        <ConfigCard icon={ReceiptText} title={t('config.card.products')}>
           <ScopeList
+            t={t}
             scope={form.productScope}
             labels={productLabels}
             categoryLabels={productCategoryLabels}
-            allText="All products in the master catalog are eligible."
+            allText={t('config.allProducts')}
           />
         </ConfigCard>
 
-        <ConfigCard icon={ReceiptText} title="Services Applied">
+        <ConfigCard icon={ReceiptText} title={t('config.card.services')}>
           <ScopeList
+            t={t}
             scope={form.serviceScope}
             labels={serviceLabels}
             categoryLabels={serviceCategoryLabels}
-            allText="All services in the master catalog are eligible."
+            allText={t('config.allServices')}
           />
         </ConfigCard>
 
         {form.rewardBenefitType && form.rewardBenefitType !== 'none' ? (
-          <ConfigCard icon={Gift} title="Reward Configuration">
+          <ConfigCard icon={Gift} title={t('config.card.reward')}>
             <FieldGrid
               rows={[
                 { label: 'Reward Type', value: form.rewardBenefitType },
@@ -363,7 +373,7 @@ export default function MarketingPromotionConfigurationViewPage() {
           </ConfigCard>
         ) : null}
 
-        <ConfigCard icon={CheckCircle2} title="Publishing & Customer Display">
+        <ConfigCard icon={CheckCircle2} title={t('config.card.publish')}>
           <FieldGrid
             rows={[
               { label: 'Show on POS Invoice', value: form.showPos ? 'Yes' : 'No' },

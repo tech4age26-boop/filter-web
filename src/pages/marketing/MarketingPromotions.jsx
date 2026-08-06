@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -12,12 +12,18 @@ import {
   Clock3,
   Eye,
   FileBarChart,
-} from "lucide-react";
+} from 'lucide-react';
 import {
   marketingDeletePromotion,
   marketingListPromotions,
   marketingSetPromotionActivation,
-} from "../../services/superAdminMarketingApi";
+} from '../../services/superAdminMarketingApi';
+import {
+  mktPromoOptionLabel,
+  mktPromoSelectOptions,
+  mktPromoT,
+  resolveMarketingLocale,
+} from '../../utils/marketingPromotionsI18n';
 import {
   activationToggleHint,
   canTogglePromotionActivation,
@@ -32,25 +38,31 @@ import {
   resolvePromotionBasePath,
   safeArray,
   SelectField,
-} from "./marketingPromotionShared";
-import "./MarketingUniversal.css";
+} from './marketingPromotionShared';
+import './MarketingUniversal.css';
 
 export const MarketingPromotions = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => mktPromoT(locale, key, vars), [locale]);
   const embeddedInPortal = Boolean(outletCtx.setShowAddModal);
-  const marketingWorkshopId = outletCtx.marketingWorkshopId ?? "";
+  const marketingWorkshopId = outletCtx.marketingWorkshopId ?? '';
 
   const [promotions, setPromotions] = useState([]);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All Statuses");
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All Statuses');
   const [loadingPage, setLoadingPage] = useState(false);
   const [togglingActivationId, setTogglingActivationId] = useState(null);
-  const [pageError, setPageError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [pageError, setPageError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const listPath = resolvePromotionBasePath(location.pathname);
+  const statusSelectOptions = useMemo(
+    () => mktPromoSelectOptions(locale, filterStatusOptions),
+    [locale],
+  );
 
   const filteredPromotions = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -58,20 +70,20 @@ export const MarketingPromotions = () => {
     return promotions.filter((item) => {
       const matchesWorkshop =
         !marketingWorkshopId ||
-        String(item.sourceWorkshopId || item.workshopId || "") ===
+        String(item.sourceWorkshopId || item.workshopId || '') ===
           String(marketingWorkshopId);
 
       const matchesSearch = !q || item.name.toLowerCase().includes(q);
       const uiStatus =
-        String(item.status || "").charAt(0).toUpperCase() +
-        String(item.status || "").slice(1);
+        String(item.status || '').charAt(0).toUpperCase() +
+        String(item.status || '').slice(1);
 
       const matchesStatus =
-        statusFilter === "All Statuses" ||
+        statusFilter === 'All Statuses' ||
         item.status === statusFilter ||
         uiStatus === statusFilter ||
-        String(item.status || "").toLowerCase() ===
-          statusFilter.toLowerCase().replace(/\s+/g, "_");
+        String(item.status || '').toLowerCase() ===
+          statusFilter.toLowerCase().replace(/\s+/g, '_');
 
       return matchesWorkshop && matchesSearch && matchesStatus;
     });
@@ -80,22 +92,20 @@ export const MarketingPromotions = () => {
   const loadPromotions = async () => {
     try {
       setLoadingPage(true);
-      setPageError("");
+      setPageError('');
 
       const data = await marketingListPromotions({
         limit: 200,
         offset: 0,
-        status: "all",
+        status: 'all',
       });
 
       setPromotions(
-        safeArray(data, ["promotions", "items", "data"]).map(normalizePromotion)
+        safeArray(data, ['promotions', 'items', 'data']).map(normalizePromotion),
       );
     } catch (error) {
-      console.error("Promotion API error:", error);
-      setPageError(
-        error?.message || "Could not load promotions. Check the network/API."
-      );
+      console.error('Promotion API error:', error);
+      setPageError(error?.message || t('err.load'));
       setPromotions([]);
     } finally {
       setLoadingPage(false);
@@ -113,19 +123,16 @@ export const MarketingPromotions = () => {
   const openAutoReportPage = (id) => navigate(`${listPath}/${id}/auto-report`);
 
   const handleDelete = async (id) => {
-    const ok = window.confirm("Are you sure you want to delete this promotion?");
+    const ok = window.confirm(t('confirm.delete'));
     if (!ok) return;
 
     try {
       await marketingDeletePromotion(id);
       await loadPromotions();
-      setSuccessMessage("Promotion delete ho gai.");
+      setSuccessMessage(t('msg.deleted'));
     } catch (error) {
-      console.error("Delete promotion error:", error);
-      alert(
-        error?.message ||
-          "Could not delete promotion. Check the console and network tab."
-      );
+      console.error('Delete promotion error:', error);
+      alert(error?.message || t('err.delete'));
     }
   };
 
@@ -136,7 +143,7 @@ export const MarketingPromotions = () => {
 
     try {
       setTogglingActivationId(item.id);
-      setPageError("");
+      setPageError('');
 
       const response = await marketingSetPromotionActivation(item.id, nextActive);
       const updated =
@@ -145,30 +152,25 @@ export const MarketingPromotions = () => {
       if (updated && updated.id) {
         const normalized = normalizePromotion(updated);
         setPromotions((prev) =>
-          prev.map((row) => (row.id === normalized.id ? normalized : row))
+          prev.map((row) => (row.id === normalized.id ? normalized : row)),
         );
       } else {
         await loadPromotions();
       }
 
       setSuccessMessage(
-        nextActive
-          ? "Promotion is active and will apply on POS invoices."
-          : "Promotion is inactive and will not apply on POS invoices."
+        nextActive ? t('msg.activated') : t('msg.deactivated'),
       );
     } catch (error) {
-      console.error("Toggle promotion activation error:", error);
-      alert(
-        error?.message ||
-          "Could not update promotion activation. Check console and network tab."
-      );
+      console.error('Toggle promotion activation error:', error);
+      alert(error?.message || t('err.activation'));
     } finally {
       setTogglingActivationId(null);
     }
   };
 
   return (
-    <div className={embeddedInPortal ? "mk-page" : "mkp-page"}>
+    <div className={embeddedInPortal ? 'mk-page' : 'mkp-page'}>
       {embeddedInPortal ? (
         <div className="mk-page-actions">
           <label className="mk-search-field">
@@ -176,20 +178,21 @@ export const MarketingPromotions = () => {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search promotions..."
+              placeholder={t('search.placeholder')}
             />
           </label>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <SelectField
               value={statusFilter}
               onChange={setStatusFilter}
-              options={filterStatusOptions}
+              options={statusSelectOptions}
+              locale={locale}
               small
             />
             <button type="button" className="mk-btn-primary" onClick={openNewPage}>
               <Plus size={16} strokeWidth={2.5} />
-              New Promotion
+              {t('btn.new')}
             </button>
           </div>
         </div>
@@ -197,16 +200,13 @@ export const MarketingPromotions = () => {
         <>
           <div className="mkp-header">
             <div>
-              <h1>Promotions</h1>
-              <p>
-                Create and manage marketing promotions with banners, multi-branch,
-                multi-zone & multi-product support
-              </p>
+              <h1>{t('page.title')}</h1>
+              <p>{t('page.subtitle')}</p>
             </div>
 
             <button type="button" onClick={openNewPage} className="mkp-new-btn">
               <Plus size={15} strokeWidth={2.5} />
-              New Promotion
+              {t('btn.new')}
             </button>
           </div>
 
@@ -216,14 +216,15 @@ export const MarketingPromotions = () => {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search promotions..."
+                placeholder={t('search.placeholder')}
               />
             </label>
 
             <SelectField
               value={statusFilter}
               onChange={setStatusFilter}
-              options={filterStatusOptions}
+              options={statusSelectOptions}
+              locale={locale}
               small
             />
           </div>
@@ -248,19 +249,19 @@ export const MarketingPromotions = () => {
         {loadingPage ? (
           <div className="mkp-empty">
             <Loader2 size={30} className="mkp-spin" />
-            <div>Loading promotions...</div>
+            <div>{t('empty.loading')}</div>
           </div>
         ) : filteredPromotions.length === 0 ? (
           <div className="mkp-empty">
             <Tag size={38} />
-            <div>No promotions found</div>
+            <div>{t('empty.none')}</div>
           </div>
         ) : (
           <div className="mkp-card-list">
             {filteredPromotions.map((item) => (
               <div
                 key={item.id}
-                className={`mkp-card ${isPromotionLiveOnPos(item) ? "mkp-card-live" : ""}`}
+                className={`mkp-card ${isPromotionLiveOnPos(item) ? 'mkp-card-live' : ''}`}
               >
                 <div
                   className="mkp-card-top mkp-card-clickable"
@@ -268,7 +269,7 @@ export const MarketingPromotions = () => {
                   role="button"
                   tabIndex={0}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
+                    if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
                       openDetailsPage(item.id);
                     }
@@ -282,8 +283,10 @@ export const MarketingPromotions = () => {
                     <div className="mkp-card-title">{item.name}</div>
 
                     <div className="mkp-card-sub">
-                      {item.strategy} • {item.promotionType} • Value:{" "}
-                      {formatPromotionDiscountDisplay(item)}
+                      {mktPromoOptionLabel(locale, item.strategy)} •{' '}
+                      {mktPromoOptionLabel(locale, item.promotionType)} •{' '}
+                      {t('label.value')}{' '}
+                      {formatPromotionDiscountDisplay(item, locale)}
                     </div>
                   </div>
 
@@ -291,13 +294,13 @@ export const MarketingPromotions = () => {
                     <span
                       className={`mkp-status status-${String(item.status)
                         .toLowerCase()
-                        .replace(/\s+/g, "-")}`}
+                        .replace(/\s+/g, '-')}`}
                     >
-                      {formatStatusLabel(item.status)}
+                      {formatStatusLabel(item.status, locale)}
                     </span>
 
-                    {String(item.status).toLowerCase() === "rejected" ? (
-                      <span className="mkp-rejected-chip">✕ Rejected</span>
+                    {String(item.status).toLowerCase() === 'rejected' ? (
+                      <span className="mkp-rejected-chip">{t('chip.rejected')}</span>
                     ) : null}
                   </div>
                 </div>
@@ -309,7 +312,7 @@ export const MarketingPromotions = () => {
                     onClick={() => openAutoReportPage(item.id)}
                   >
                     <FileBarChart size={14} />
-                    Auto Report
+                    {t('btn.autoReport')}
                   </button>
                 </div>
 
@@ -317,44 +320,48 @@ export const MarketingPromotions = () => {
 
                 <div className="mkp-card-date">
                   <Clock3 size={13} />
-                  {formatEndDate(item.endDate)}
+                  {formatEndDate(item.endDate, locale)}
                 </div>
 
                 <div className="mkp-card-stats">
                   <div className="mkp-card-stat">
-                    <span className="mkp-card-stat-label">Usage</span>
-                    <strong>{formatPromotionUsageLabel(item)}</strong>
+                    <span className="mkp-card-stat-label">{t('stat.usage')}</span>
+                    <strong>{formatPromotionUsageLabel(item, locale)}</strong>
                   </div>
                   <div className="mkp-card-stat">
-                    <span className="mkp-card-stat-label">Discount given</span>
-                    <strong>{formatPromotionSar(item.totalDiscountProvided)}</strong>
+                    <span className="mkp-card-stat-label">{t('stat.discountGiven')}</span>
+                    <strong>
+                      {formatPromotionSar(item.totalDiscountProvided, locale)}
+                    </strong>
                   </div>
                   <div className="mkp-card-stat">
-                    <span className="mkp-card-stat-label">Revenue</span>
-                    <strong>{formatPromotionSar(item.totalRevenue)}</strong>
+                    <span className="mkp-card-stat-label">{t('stat.revenue')}</span>
+                    <strong>{formatPromotionSar(item.totalRevenue, locale)}</strong>
                   </div>
                 </div>
 
                 <div className="mkp-card-activation">
                   <div className="mkp-card-activation-label">
-                    <span className="mkp-card-activation-title">POS status</span>
+                    <span className="mkp-card-activation-title">
+                      {t('activation.posStatus')}
+                    </span>
                     <span className="mkp-card-activation-hint">
-                      {activationToggleHint(item)}
+                      {activationToggleHint(item, locale)}
                     </span>
                   </div>
 
                   <button
                     type="button"
                     className={`mkp-card-activation-toggle ${
-                      item.isActive ? "on" : "off"
-                    } ${!canTogglePromotionActivation(item) ? "disabled" : ""}`}
+                      item.isActive ? 'on' : 'off'
+                    } ${!canTogglePromotionActivation(item) ? 'disabled' : ''}`}
                     onClick={() => handleToggleActivation(item)}
                     disabled={
                       !canTogglePromotionActivation(item) ||
                       togglingActivationId === item.id
                     }
                     aria-pressed={item.isActive}
-                    title={activationToggleHint(item)}
+                    title={activationToggleHint(item, locale)}
                   >
                     {togglingActivationId === item.id ? (
                       <Loader2 size={14} className="mkp-spin" />
@@ -363,24 +370,28 @@ export const MarketingPromotions = () => {
                         <span />
                       </span>
                     )}
-                    <span>{item.isActive ? "Active" : "Inactive"}</span>
+                    <span>
+                      {item.isActive
+                        ? t('activation.active')
+                        : t('activation.inactive')}
+                    </span>
                   </button>
                 </div>
 
                 <div className="mkp-card-footer">
                   <button type="button" onClick={() => openDetailsPage(item.id)}>
                     <Eye size={14} />
-                    View
+                    {t('btn.view')}
                   </button>
 
                   <button type="button" onClick={() => openViewPage(item.id)}>
                     <FileBarChart size={14} />
-                    Report
+                    {t('btn.report')}
                   </button>
 
                   <button type="button" onClick={() => openEditPage(item.id)}>
                     <Edit3 size={14} />
-                    Edit
+                    {t('btn.edit')}
                   </button>
 
                   <button
@@ -389,7 +400,7 @@ export const MarketingPromotions = () => {
                     onClick={() => handleDelete(item.id)}
                   >
                     <Trash2 size={14} />
-                    Delete
+                    {t('btn.delete')}
                   </button>
                 </div>
               </div>

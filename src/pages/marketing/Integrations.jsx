@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Plug,
   Sparkles,
@@ -10,11 +10,13 @@ import {
   ShieldCheck,
   KeyRound,
 } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
 import {
   marketingGetIntegrations,
   marketingSaveIntegrations,
   marketingTestIntegration,
 } from '../../services/superAdminMarketingApi';
+import { mktIntT } from '../../utils/marketingIntegrationsI18n';
 import './MarketingUniversal.css';
 
 const groupIcon = (id) => {
@@ -23,14 +25,21 @@ const groupIcon = (id) => {
 };
 
 export const Integrations = () => {
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktIntT(locale, key, vars), [locale]);
+
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  // edits: { KEY: value } — only keys the user typed are sent.
   const [edits, setEdits] = useState({});
-  const [testState, setTestState] = useState({}); // { groupId: {loading,ok,msg} }
+  const [testState, setTestState] = useState({});
 
   const load = async () => {
     try {
@@ -40,7 +49,7 @@ export const Integrations = () => {
       setData(res);
       setEdits({});
     } catch (err) {
-      setError(err?.message || 'Failed to load integrations.');
+      setError(err?.message || t('err.load'));
     } finally {
       setLoading(false);
     }
@@ -48,7 +57,8 @@ export const Integrations = () => {
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
   const setField = (key, value) => {
     setEdits((prev) => ({ ...prev, [key]: value }));
@@ -57,7 +67,7 @@ export const Integrations = () => {
 
   const handleSave = async () => {
     if (Object.keys(edits).length === 0) {
-      setSuccess('Nothing changed.');
+      setSuccess(t('msg.nothingChanged'));
       return;
     }
     try {
@@ -68,9 +78,9 @@ export const Integrations = () => {
       if (res?.status) setData(res.status);
       setEdits({});
       const n = (res?.changed?.length || 0) + (res?.cleared?.length || 0);
-      setSuccess(`Saved & applied ${n} setting(s). Changes are live immediately.`);
+      setSuccess(t('msg.saved', { n }));
     } catch (err) {
-      setError(err?.message || 'Failed to save integrations.');
+      setError(err?.message || t('err.save'));
     } finally {
       setSaving(false);
     }
@@ -82,7 +92,6 @@ export const Integrations = () => {
       [group.id]: { loading: true },
     }));
     try {
-      // Save any pending edits first so the test uses the latest values.
       if (Object.keys(edits).length > 0) {
         const res = await marketingSaveIntegrations(edits);
         if (res?.status) setData(res.status);
@@ -101,15 +110,20 @@ export const Integrations = () => {
           ok: !!res?.ok,
           msg: res?.ok
             ? group.id === 'llm'
-              ? `Connected to ${res.provider}. Test reply: "${res.sample || 'OK'}"`
-              : `${res.label || 'Provider'} credentials are configured.`
-            : res?.reason || 'Test failed.',
+              ? t('test.llmOk', {
+                  provider: res.provider,
+                  sample: res.sample || t('test.sampleOk'),
+                })
+              : t('test.platformOk', {
+                  label: res.label || t('test.providerFallback'),
+                })
+            : res?.reason || t('test.failed'),
         },
       }));
     } catch (err) {
       setTestState((prev) => ({
         ...prev,
-        [group.id]: { loading: false, ok: false, msg: err?.message || 'Test failed.' },
+        [group.id]: { loading: false, ok: false, msg: err?.message || t('test.failed') },
       }));
     }
   };
@@ -117,16 +131,13 @@ export const Integrations = () => {
   const groups = data?.groups || [];
 
   return (
-    <div className="mk-page mk-intg-page">
+    <div className="mk-page mk-intg-page" dir={locale === 'ar' ? 'rtl' : undefined}>
       <div className="mk-intg-header">
         <div>
           <h1 className="mk-intg-title">
-            <KeyRound size={20} /> Integrations & API Keys
+            <KeyRound size={20} /> {t('title')}
           </h1>
-          <p className="mk-intg-subtitle">
-            Add your API keys and credentials here. They are encrypted, applied
-            instantly (no restart), and never shown again.
-          </p>
+          <p className="mk-intg-subtitle">{t('subtitle')}</p>
         </div>
         <button
           type="button"
@@ -136,11 +147,11 @@ export const Integrations = () => {
         >
           {saving ? (
             <>
-              <Loader2 size={15} className="mk-intg-spin" /> Saving...
+              <Loader2 size={15} className="mk-intg-spin" /> {t('btn.saving')}
             </>
           ) : (
             <>
-              <Save size={15} /> Save All
+              <Save size={15} /> {t('btn.saveAll')}
             </>
           )}
         </button>
@@ -152,13 +163,13 @@ export const Integrations = () => {
         >
           {data.llm.configured ? (
             <>
-              <CheckCircle2 size={16} /> AI engine active via{' '}
-              <b>&nbsp;{data.llm.provider}</b>. AI reports & optimizer are enabled.
+              <CheckCircle2 size={16} /> {t('banner.aiActive')}{' '}
+              <b>&nbsp;{data.llm.provider}</b>
+              {t('banner.aiActiveSuffix')}
             </>
           ) : (
             <>
-              <AlertCircle size={16} /> AI engine not configured yet. Add an
-              OpenAI or Anthropic key below and click Save.
+              <AlertCircle size={16} /> {t('banner.aiInactive')}
             </>
           )}
         </div>
@@ -178,7 +189,7 @@ export const Integrations = () => {
       {loading ? (
         <div className="mk-intg-loading">
           <Loader2 size={32} className="mk-intg-spin" />
-          <p>Loading integrations...</p>
+          <p>{t('loading')}</p>
         </div>
       ) : (
         <div className="mk-intg-grid">
@@ -202,10 +213,10 @@ export const Integrations = () => {
                   >
                     {group.configured ? (
                       <>
-                        <ShieldCheck size={12} /> Configured
+                        <ShieldCheck size={12} /> {t('badge.configured')}
                       </>
                     ) : (
-                      'Not set'
+                      t('badge.notSet')
                     )}
                   </span>
                 </div>
@@ -224,19 +235,19 @@ export const Integrations = () => {
                     const placeholder = field.secret
                       ? field.last4
                         ? `•••• •••• ${field.last4}`
-                        : field.placeholder || 'Enter value'
-                      : field.placeholder || 'Enter value';
+                        : field.placeholder || t('ph.enterValue')
+                      : field.placeholder || t('ph.enterValue');
 
                     return (
                       <div key={field.key} className="mk-intg-field">
                         <label>
                           {field.label}
                           {field.secret ? (
-                            <span className="mk-intg-secret-tag">secret</span>
+                            <span className="mk-intg-secret-tag">{t('tag.secret')}</span>
                           ) : null}
                           {field.configured ? (
                             <span className="mk-intg-set-tag">
-                              {field.source === 'env' ? 'from env' : 'saved'}
+                              {field.source === 'env' ? t('tag.fromEnv') : t('tag.saved')}
                             </span>
                           ) : null}
                         </label>
@@ -248,10 +259,7 @@ export const Integrations = () => {
                           onChange={(e) => setField(field.key, e.target.value)}
                         />
                         {field.secret && field.configured ? (
-                          <small>
-                            A key is saved. Leave blank to keep it, type to
-                            replace, or clear &amp; save to remove.
-                          </small>
+                          <small>{t('hint.secretSaved')}</small>
                         ) : null}
                       </div>
                     );
@@ -267,11 +275,11 @@ export const Integrations = () => {
                   >
                     {ts.loading ? (
                       <>
-                        <Loader2 size={13} className="mk-intg-spin" /> Testing...
+                        <Loader2 size={13} className="mk-intg-spin" /> {t('btn.testing')}
                       </>
                     ) : (
                       <>
-                        <Zap size={13} /> Save &amp; Test
+                        <Zap size={13} /> {t('btn.test')}
                       </>
                     )}
                   </button>

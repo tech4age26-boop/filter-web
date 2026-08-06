@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Plus,
   Search,
@@ -26,6 +26,13 @@ import {
   marketingRejectCampaign,
   marketingGetCampaign,
 } from '../../services/superAdminMarketingApi';
+import {
+  mktCampT,
+  mktCampMoney,
+  mktCampStatusLabel,
+  mktCampPlatformLabel,
+  mktCampTypeLabel,
+} from '../../utils/marketingCampaignsI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import { loadPromotionDropdownData } from './marketingPromotionShared';
 import { useAuth } from '../../context/AuthContext';
@@ -36,17 +43,14 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function formatSar(value) {
-  return `${toNumber(value).toLocaleString(undefined, { maximumFractionDigits: 0 })} SAR`;
-}
-
-function humanize(value) {
-  return String(value || '')
-    .replace(/_/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ');
+function useMarketingLocale() {
+  const outletCtx = useOutletContext() || {};
+  return (
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    'en'
+  );
 }
 
 function statusBadgeClass(status) {
@@ -59,13 +63,13 @@ function statusBadgeClass(status) {
   return 'mk-camp-status';
 }
 
-function normalizeCampaign(row) {
+function normalizeCampaign(row, defaultName) {
   const branchIds = Array.isArray(row?.targetBranchIds)
     ? row.targetBranchIds.map(String)
     : [];
   return {
     id: String(row?.id ?? ''),
-    name: row?.campaignName || row?.name || row?.title || 'Campaign',
+    name: row?.campaignName || row?.name || row?.title || defaultName,
     platform: row?.platform || 'unknown',
     type: row?.campaignType || row?.type || 'brand_awareness',
     budget: toNumber(row?.budgetAllocated ?? row?.budget),
@@ -88,21 +92,25 @@ function normalizeCampaign(row) {
   };
 }
 
-function resolveBranchLabels(branchIds, branchOptions) {
-  if (!branchIds?.length) return '—';
+function resolveBranchLabels(branchIds, branchOptions, t) {
+  if (!branchIds?.length) return t('dash');
   const labels = branchIds
     .map((id) => branchOptions.find((b) => b.id === id || b.realId === id)?.label)
     .filter(Boolean);
-  if (!labels.length) return `${branchIds.length} branch(es)`;
+  if (!labels.length) return t('list.branchCount', { count: branchIds.length });
   if (labels.length <= 2) return labels.join(', ');
-  return `${labels.length} branches`;
+  return t('list.branchesCount', { count: labels.length });
 }
 
-function formatCampaignDate(value) {
-  if (!value) return '—';
+function formatCampaignDate(value, locale, t) {
+  if (!value) return t('dash');
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
-  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString(locale === 'ar' ? 'ar-SA' : 'en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+  });
 }
 
 const CampaignApprovalModal = ({
@@ -114,14 +122,16 @@ const CampaignApprovalModal = ({
   onReject,
   acting,
 }) => {
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampT(locale, key, vars), [locale]);
   const c = campaign || {};
-  const branchLabels = resolveBranchLabels(c.targetBranchIds, branches);
+  const branchLabels = resolveBranchLabels(c.targetBranchIds, branches, t);
 
   return (
     <div className="mk-camp-modal-overlay" role="dialog" aria-modal="true">
       <div className="mk-camp-modal mk-camp-modal-wide mk-camp-review-modal">
         <div className="mk-camp-modal-head">
-          <h3>Review campaign for approval</h3>
+          <h3>{t('review.title')}</h3>
           <button type="button" onClick={onClose} className="mk-camp-modal-close">
             <X size={16} />
           </button>
@@ -130,34 +140,31 @@ const CampaignApprovalModal = ({
         {loading ? (
           <div className="mk-camp-form-loading">
             <Loader2 className="mk-camp-spin" size={24} />
-            <p>Loading campaign details...</p>
+            <p>{t('review.loading')}</p>
           </div>
         ) : (
           <>
-            <p className="mk-camp-review-lead">
-              Marketing submitted this campaign. Review complete details before approving
-              or rejecting.
-            </p>
+            <p className="mk-camp-review-lead">{t('review.lead')}</p>
             <div className="mk-camp-review-grid">
-              <div><span>Campaign</span><strong>{c.name}</strong></div>
-              <div><span>Status</span><strong>{humanize(c.status)}</strong></div>
-              <div><span>Workshop</span><strong>{c.workshopName || '—'}</strong></div>
-              <div><span>Branches</span><strong>{branchLabels}</strong></div>
-              <div><span>Platform</span><strong>{humanize(c.platform)}</strong></div>
-              <div><span>Type</span><strong>{humanize(c.type)}</strong></div>
-              <div><span>Budget</span><strong>{formatSar(c.budget)}</strong></div>
-              <div><span>Spent / Revenue</span><strong>{formatSar(c.spent)} / {formatSar(c.revenue)}</strong></div>
-              <div><span>Start date</span><strong>{formatCampaignDate(c.startDate)}</strong></div>
-              <div><span>End date</span><strong>{formatCampaignDate(c.endDate)}</strong></div>
-              <div className="mk-camp-review-full"><span>Created by</span><strong>{c.createdByName || c.submittedByName || '—'}</strong></div>
-              <div className="mk-camp-review-full"><span>Notes</span><strong>{c.notes || c.description || '—'}</strong></div>
+              <div><span>{t('review.campaign')}</span><strong>{c.name}</strong></div>
+              <div><span>{t('review.status')}</span><strong>{mktCampStatusLabel(locale, c.status)}</strong></div>
+              <div><span>{t('review.workshop')}</span><strong>{c.workshopName || t('dash')}</strong></div>
+              <div><span>{t('review.branches')}</span><strong>{branchLabels}</strong></div>
+              <div><span>{t('review.platform')}</span><strong>{mktCampPlatformLabel(locale, c.platform)}</strong></div>
+              <div><span>{t('review.type')}</span><strong>{mktCampTypeLabel(locale, c.type)}</strong></div>
+              <div><span>{t('review.budget')}</span><strong>{mktCampMoney(locale, c.budget)}</strong></div>
+              <div><span>{t('review.spentRevenue')}</span><strong>{mktCampMoney(locale, c.spent)} / {mktCampMoney(locale, c.revenue)}</strong></div>
+              <div><span>{t('review.startDate')}</span><strong>{formatCampaignDate(c.startDate, locale, t)}</strong></div>
+              <div><span>{t('review.endDate')}</span><strong>{formatCampaignDate(c.endDate, locale, t)}</strong></div>
+              <div className="mk-camp-review-full"><span>{t('review.createdBy')}</span><strong>{c.createdByName || c.submittedByName || t('dash')}</strong></div>
+              <div className="mk-camp-review-full"><span>{t('review.notes')}</span><strong>{c.notes || c.description || t('dash')}</strong></div>
             </div>
           </>
         )}
 
         <div className="mk-camp-modal-foot">
           <button type="button" onClick={onClose} disabled={acting}>
-            Cancel
+            {t('review.cancel')}
           </button>
           <button
             type="button"
@@ -165,7 +172,7 @@ const CampaignApprovalModal = ({
             onClick={onReject}
             disabled={acting || loading}
           >
-            <XCircle size={14} /> Reject
+            <XCircle size={14} /> {t('review.reject')}
           </button>
           <button
             type="button"
@@ -173,7 +180,7 @@ const CampaignApprovalModal = ({
             onClick={onApprove}
             disabled={acting || loading}
           >
-            <CheckCircle size={14} /> Approve campaign
+            <CheckCircle size={14} /> {t('review.approve')}
           </button>
         </div>
       </div>
@@ -182,6 +189,8 @@ const CampaignApprovalModal = ({
 };
 
 const MetricsModal = ({ campaign, onClose, onSaved }) => {
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampT(locale, key, vars), [locale]);
   const [form, setForm] = useState({
     budgetSpent: campaign?.spent ?? 0,
     revenueGenerated: campaign?.revenue ?? 0,
@@ -215,7 +224,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
       const res = await marketingGetCampaignErpMetrics(campaign.id);
       applyErpMetrics(res?.metrics || res?.data?.metrics, res?.summary || res?.message);
     } catch (err) {
-      setError(err?.message || 'Could not load POS/ERP revenue.');
+      setError(err?.message || t('metrics.errPreview'));
       setErpInfo('');
     } finally {
       setPreviewing(false);
@@ -231,7 +240,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
       applyErpMetrics(metrics, res?.summary || res?.message);
       onSaved();
     } catch (err) {
-      setError(err?.message || 'POS/ERP sync failed.');
+      setError(err?.message || t('metrics.errSync'));
     } finally {
       setSyncing(false);
     }
@@ -253,7 +262,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
       onSaved();
       onClose();
     } catch (err) {
-      setError(err?.message || 'Failed to update metrics.');
+      setError(err?.message || t('metrics.errSave'));
     } finally {
       setSaving(false);
     }
@@ -262,20 +271,20 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
   const updateField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (['budgetSpent', 'revenueGenerated', 'leadsCount', 'conversionsCount'].includes(key)) {
-      setErpInfo('Manual POS/ERP values — click Save Metrics to apply (same as sync).');
+      setErpInfo(t('metrics.manualNote'));
     }
   };
 
   const erpFields = [
-    ['budgetSpent', 'Spent (SAR)', 'Campaign spend / linked expenses'],
-    ['revenueGenerated', 'POS/ERP Revenue (SAR)', 'Invoice sales total for this campaign'],
-    ['leadsCount', 'Leads (customers)', 'Unique customers — manual if ERP unavailable'],
-    ['conversionsCount', 'Conversions (orders)', 'Invoice/order count — manual if ERP unavailable'],
+    ['budgetSpent', 'metrics.field.budgetSpent', 'metrics.hint.budgetSpent'],
+    ['revenueGenerated', 'metrics.field.revenueGenerated', 'metrics.hint.revenueGenerated'],
+    ['leadsCount', 'metrics.field.leadsCount', 'metrics.hint.leadsCount'],
+    ['conversionsCount', 'metrics.field.conversionsCount', 'metrics.hint.conversionsCount'],
   ];
 
   const adFields = [
-    ['impressions', 'Impressions', 'From Meta / Google Ads dashboard'],
-    ['clicks', 'Clicks', 'From ad platform dashboard'],
+    ['impressions', 'metrics.field.impressions', 'metrics.hint.impressions'],
+    ['clicks', 'metrics.field.clicks', 'metrics.hint.clicks'],
   ];
 
   const hasTargeting =
@@ -286,7 +295,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
       <div className="mk-camp-modal mk-camp-modal-wide">
         <div className="mk-camp-modal-head">
           <h3>
-            <BarChart3 size={16} /> Campaign Metrics — {campaign.name}
+            <BarChart3 size={16} /> {t('metrics.title', { name: campaign.name })}
           </h3>
           <button type="button" onClick={onClose} className="mk-camp-modal-close">
             <X size={16} />
@@ -295,16 +304,10 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
 
         <div className="mk-camp-erp-panel">
           <div>
-            <strong>POS / ERP revenue — auto sync</strong>
-            <p>
-              Pull invoice totals from ERP for this campaign&apos;s workshop/branches and
-              date range. Or skip sync and type the same values manually in the section below.
-            </p>
+            <strong>{t('metrics.erpTitle')}</strong>
+            <p>{t('metrics.erpBody')}</p>
             {!hasTargeting ? (
-              <p className="mk-camp-erp-warn">
-                Sync needs workshop/branches on the campaign. You can still enter POS/ERP
-                revenue manually below.
-              </p>
+              <p className="mk-camp-erp-warn">{t('metrics.erpWarn')}</p>
             ) : null}
             {erpInfo ? <p className="mk-camp-erp-summary">{erpInfo}</p> : null}
           </div>
@@ -316,7 +319,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
               disabled={previewing || syncing || !hasTargeting}
             >
               <RefreshCw size={14} className={previewing ? 'mk-camp-spin' : ''} />
-              {previewing ? 'Loading...' : 'Preview ERP'}
+              {previewing ? t('metrics.previewLoading') : t('metrics.preview')}
             </button>
             <button
               type="button"
@@ -325,22 +328,20 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
               disabled={syncing || previewing || !hasTargeting}
             >
               <RefreshCw size={14} className={syncing ? 'mk-camp-spin' : ''} />
-              {syncing ? 'Syncing...' : 'Sync from POS/ERP'}
+              {syncing ? t('metrics.syncing') : t('metrics.sync')}
             </button>
           </div>
         </div>
 
         <div className="mk-camp-metrics-section">
           <div className="mk-camp-metrics-section-head">
-            <span className="mk-camp-metrics-section-title">Manual POS / ERP entry</span>
-            <span className="mk-camp-metrics-section-hint">
-              Use when sync is unavailable — saves to the same campaign fields
-            </span>
+            <span className="mk-camp-metrics-section-title">{t('metrics.manualTitle')}</span>
+            <span className="mk-camp-metrics-section-hint">{t('metrics.manualHint')}</span>
           </div>
           <div className="mk-camp-modal-grid">
-            {erpFields.map(([key, label, hint]) => (
+            {erpFields.map(([key, labelKey, hintKey]) => (
               <label key={key} className="mk-camp-field">
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
                 <input
                   type="number"
                   min="0"
@@ -349,7 +350,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
                   onChange={(e) => updateField(key, e.target.value)}
                   placeholder="0"
                 />
-                <small className="mk-camp-field-hint">{hint}</small>
+                <small className="mk-camp-field-hint">{t(hintKey)}</small>
               </label>
             ))}
           </div>
@@ -357,13 +358,13 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
 
         <div className="mk-camp-metrics-section">
           <div className="mk-camp-metrics-section-head">
-            <span className="mk-camp-metrics-section-title">Ad platform metrics</span>
-            <span className="mk-camp-metrics-section-hint">Meta, Google Ads, TikTok, etc.</span>
+            <span className="mk-camp-metrics-section-title">{t('metrics.adTitle')}</span>
+            <span className="mk-camp-metrics-section-hint">{t('metrics.adHint')}</span>
           </div>
           <div className="mk-camp-modal-grid mk-camp-modal-grid-2">
-            {adFields.map(([key, label, hint]) => (
+            {adFields.map(([key, labelKey, hintKey]) => (
               <label key={key} className="mk-camp-field">
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
                 <input
                   type="number"
                   min="0"
@@ -371,7 +372,7 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
                   onChange={(e) => updateField(key, e.target.value)}
                   placeholder="0"
                 />
-                <small className="mk-camp-field-hint">{hint}</small>
+                <small className="mk-camp-field-hint">{t(hintKey)}</small>
               </label>
             ))}
           </div>
@@ -380,10 +381,10 @@ const MetricsModal = ({ campaign, onClose, onSaved }) => {
         {error ? <div className="mk-camp-error">{error}</div> : null}
         <div className="mk-camp-modal-foot">
           <button type="button" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('metrics.cancel')}
           </button>
           <button type="button" className="primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Metrics'}
+            {saving ? t('metrics.saving') : t('metrics.save')}
           </button>
         </div>
       </div>
@@ -395,7 +396,10 @@ export const MarketingCampaigns = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const locale = useMarketingLocale();
+  const t = useCallback((key, vars) => mktCampT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'campaigns');
+  const defaultCampaignName = t('campaign.default');
 
   const canApproveCampaigns = user?.userType === 'platform_admin';
   const isMarketingStaff = user?.userType === 'marketing_user';
@@ -455,18 +459,22 @@ export const MarketingCampaigns = () => {
         branchId: branchFilter || undefined,
       });
       const rows = res?.campaigns || res?.items || res?.data || [];
-      setCampaigns(Array.isArray(rows) ? rows.map(normalizeCampaign) : []);
+      setCampaigns(
+        Array.isArray(rows)
+          ? rows.map((row) => normalizeCampaign(row, defaultCampaignName))
+          : [],
+      );
     } catch (err) {
-      setError(err?.message || 'Failed to load campaigns.');
+      setError(err?.message || t('list.errLoad'));
       setCampaigns([]);
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, workshopFilter, branchFilter]);
+  }, [search, statusFilter, workshopFilter, branchFilter, defaultCampaignName, t]);
 
   useEffect(() => {
-    const t = setTimeout(loadCampaigns, search ? 300 : 0);
-    return () => clearTimeout(t);
+    const timer = setTimeout(loadCampaigns, search ? 300 : 0);
+    return () => clearTimeout(timer);
   }, [loadCampaigns, search]);
 
   const togglePause = async (campaign) => {
@@ -476,17 +484,17 @@ export const MarketingCampaigns = () => {
       await marketingChangeCampaignStatus(campaign.id, { status: next });
       await loadCampaigns();
     } catch (err) {
-      alert(err?.message || 'Status change failed.');
+      alert(err?.message || t('list.errStatus'));
     }
   };
 
   const handleDelete = async (campaign) => {
-    if (!window.confirm(`Delete campaign "${campaign.name}"?`)) return;
+    if (!window.confirm(t('list.confirmDelete', { name: campaign.name }))) return;
     try {
       await marketingDeleteCampaign(campaign.id);
       await loadCampaigns();
     } catch (err) {
-      alert(err?.message || 'Delete failed.');
+      alert(err?.message || t('list.errDelete'));
     }
   };
 
@@ -504,7 +512,7 @@ export const MarketingCampaigns = () => {
       const row = res?.campaign || res?.data || res;
       if (row) {
         setReviewDetail({
-          ...normalizeCampaign(row),
+          ...normalizeCampaign(row, defaultCampaignName),
           notes: row.notes || row.description,
           description: row.description,
           createdByName: row.createdByUserName || row.submittedByName,
@@ -534,7 +542,7 @@ export const MarketingCampaigns = () => {
       closeReview();
       await loadCampaigns();
     } catch (err) {
-      alert(err?.message || 'Approve failed.');
+      alert(err?.message || t('list.errApprove'));
     } finally {
       setActionLoadingId(null);
     }
@@ -542,7 +550,7 @@ export const MarketingCampaigns = () => {
 
   const confirmReject = async () => {
     if (!reviewCampaign) return;
-    const reason = window.prompt(`Reject reason for "${reviewCampaign.name}":`);
+    const reason = window.prompt(t('list.rejectReason', { name: reviewCampaign.name }));
     if (!reason?.trim()) return;
     try {
       setActionLoadingId(reviewCampaign.id);
@@ -552,7 +560,7 @@ export const MarketingCampaigns = () => {
       closeReview();
       await loadCampaigns();
     } catch (err) {
-      alert(err?.message || 'Reject failed.');
+      alert(err?.message || t('list.errReject'));
     } finally {
       setActionLoadingId(null);
     }
@@ -571,7 +579,7 @@ export const MarketingCampaigns = () => {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search campaigns..."
+            placeholder={t('list.searchPlaceholder')}
           />
         </label>
 
@@ -580,14 +588,14 @@ export const MarketingCampaigns = () => {
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
-          <option value="all">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="pending_approval">Pending Approval</option>
-          <option value="approved">Approved</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="completed">Completed</option>
-          <option value="rejected">Rejected</option>
+          <option value="all">{t('status.all')}</option>
+          <option value="draft">{t('status.draft')}</option>
+          <option value="pending_approval">{t('status.pending_approval')}</option>
+          <option value="approved">{t('status.approved')}</option>
+          <option value="active">{t('status.active')}</option>
+          <option value="paused">{t('status.paused')}</option>
+          <option value="completed">{t('status.completed')}</option>
+          <option value="rejected">{t('status.rejected')}</option>
         </select>
 
         <select
@@ -598,7 +606,7 @@ export const MarketingCampaigns = () => {
             setBranchFilter('');
           }}
         >
-          <option value="">All Workshops</option>
+          <option value="">{t('list.allWorkshops')}</option>
           {workshops.map((w) => (
             <option key={w.id} value={w.id}>
               {w.label}
@@ -611,7 +619,7 @@ export const MarketingCampaigns = () => {
           value={branchFilter}
           onChange={(e) => setBranchFilter(e.target.value)}
         >
-          <option value="">All Branches</option>
+          <option value="">{t('list.allBranches')}</option>
           {branchFilterOptions.map((b) => (
             <option key={b.id} value={b.id}>
               {b.label}
@@ -624,7 +632,7 @@ export const MarketingCampaigns = () => {
           className="mk-camp-new-btn"
           onClick={() => navigate(`${listPath}/new`)}
         >
-          <Plus size={15} /> New Campaign
+          <Plus size={15} /> {t('list.newCampaign')}
         </button>
       </div>
 
@@ -638,8 +646,10 @@ export const MarketingCampaigns = () => {
         <div className="mk-camp-pending-banner">
           <AlertCircle size={15} />
           <span>
-            <strong>{pendingCount}</strong> campaign{pendingCount === 1 ? '' : 's'} awaiting
-            <strong> Super Admin approval</strong> — open review from Actions to see full details.
+            {t('list.pendingAdmin', {
+              count: pendingCount,
+              plural: pendingCount === 1 ? '' : 's',
+            })}
           </span>
         </div>
       ) : null}
@@ -647,10 +657,7 @@ export const MarketingCampaigns = () => {
       {isMarketingStaff && pendingCount > 0 ? (
         <div className="mk-camp-pending-banner mk-camp-marketing-banner">
           <AlertCircle size={15} />
-          <span>
-            <strong>{pendingCount}</strong> of your campaigns are pending Super Admin approval.
-            You cannot approve your own campaigns.
-          </span>
+          <span>{t('list.pendingMarketing', { count: pendingCount })}</span>
         </div>
       ) : null}
 
@@ -658,17 +665,17 @@ export const MarketingCampaigns = () => {
         {loading ? (
           <div className="mk-camp-empty">
             <Loader2 size={28} className="mk-camp-spin" />
-            <p>Loading campaigns...</p>
+            <p>{t('list.loading')}</p>
           </div>
         ) : campaigns.length === 0 ? (
           <div className="mk-camp-empty">
-            <p>No campaigns found</p>
+            <p>{t('list.empty')}</p>
             <button
               type="button"
               className="mk-camp-new-btn"
               onClick={() => navigate(`${listPath}/new`)}
             >
-              <Plus size={14} /> Create your first campaign
+              <Plus size={14} /> {t('list.createFirst')}
             </button>
           </div>
         ) : (
@@ -676,16 +683,16 @@ export const MarketingCampaigns = () => {
             <table className="mk-camp-table">
               <thead>
                 <tr>
-                  <th>Campaign</th>
-                  <th>Workshop</th>
-                  <th>Branches</th>
-                  <th>Platform</th>
-                  <th>Type</th>
-                  <th>Budget</th>
-                  <th>Spent</th>
-                  <th>Revenue</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th>{t('list.th.campaign')}</th>
+                  <th>{t('list.th.workshop')}</th>
+                  <th>{t('list.th.branches')}</th>
+                  <th>{t('list.th.platform')}</th>
+                  <th>{t('list.th.type')}</th>
+                  <th>{t('list.th.budget')}</th>
+                  <th>{t('list.th.spent')}</th>
+                  <th>{t('list.th.revenue')}</th>
+                  <th>{t('list.th.status')}</th>
+                  <th>{t('list.th.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -699,16 +706,16 @@ export const MarketingCampaigns = () => {
                       <td>
                         <strong>{c.name}</strong>
                       </td>
-                      <td>{c.workshopName || '—'}</td>
-                      <td>{resolveBranchLabels(c.targetBranchIds, branches)}</td>
-                      <td>{humanize(c.platform)}</td>
-                      <td>{humanize(c.type)}</td>
-                      <td>{formatSar(c.budget)}</td>
-                      <td>{formatSar(c.spent)}</td>
-                      <td>{formatSar(c.revenue)}</td>
+                      <td>{c.workshopName || t('dash')}</td>
+                      <td>{resolveBranchLabels(c.targetBranchIds, branches, t)}</td>
+                      <td>{mktCampPlatformLabel(locale, c.platform)}</td>
+                      <td>{mktCampTypeLabel(locale, c.type)}</td>
+                      <td>{mktCampMoney(locale, c.budget)}</td>
+                      <td>{mktCampMoney(locale, c.spent)}</td>
+                      <td>{mktCampMoney(locale, c.revenue)}</td>
                       <td>
                         <span className={statusBadgeClass(c.status)}>
-                          {humanize(c.status)}
+                          {mktCampStatusLabel(locale, c.status)}
                         </span>
                       </td>
                       <td>
@@ -717,7 +724,7 @@ export const MarketingCampaigns = () => {
                             <>
                               <button
                                 type="button"
-                                title="Review & approve"
+                                title={t('list.action.reviewApprove')}
                                 className="approve"
                                 disabled={acting}
                                 onClick={() => openReview(c)}
@@ -726,7 +733,7 @@ export const MarketingCampaigns = () => {
                               </button>
                               <button
                                 type="button"
-                                title="Review & reject"
+                                title={t('list.action.reviewReject')}
                                 className="reject"
                                 disabled={acting}
                                 onClick={() => openReview(c)}
@@ -736,20 +743,20 @@ export const MarketingCampaigns = () => {
                             </>
                           ) : null}
                           {!canApproveCampaigns && pending ? (
-                            <span className="mk-camp-awaiting-pill" title="Awaiting Super Admin">
-                              Awaiting SA
+                            <span className="mk-camp-awaiting-pill" title={t('list.awaitingSaTitle')}>
+                              {t('list.awaitingSa')}
                             </span>
                           ) : null}
                           <button
                             type="button"
-                            title="Edit"
+                            title={t('list.action.edit')}
                             onClick={() => navigate(`${listPath}/${c.id}/edit`)}
                           >
                             <Pencil size={14} />
                           </button>
                           <button
                             type="button"
-                            title="Update metrics"
+                            title={t('list.action.metrics')}
                             onClick={() => setMetricsCampaign(c)}
                           >
                             <BarChart3 size={14} />
@@ -757,7 +764,7 @@ export const MarketingCampaigns = () => {
                           {(isActive || isPaused) && (
                             <button
                               type="button"
-                              title={isActive ? 'Pause' : 'Activate'}
+                              title={isActive ? t('list.action.pause') : t('list.action.activate')}
                               onClick={() => togglePause(c)}
                             >
                               {isActive ? (
@@ -769,7 +776,7 @@ export const MarketingCampaigns = () => {
                           )}
                           <button
                             type="button"
-                            title="Delete"
+                            title={t('list.action.delete')}
                             className="danger"
                             onClick={() => handleDelete(c)}
                           >

@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import {
   marketingCreateLoyaltyProgram,
   marketingGetLoyaltyProgram,
   marketingUpdateLoyaltyProgram,
 } from '../../services/superAdminMarketingApi';
+import { loyT } from '../../utils/loyaltyProgramsI18n';
+import { resolveMarketingLocale } from '../../utils/marketingPromotionsI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
@@ -13,7 +15,7 @@ import {
   EMPTY_LOYALTY_FORM,
   PointsRuleField,
   SelectField,
-  statusOptions,
+  localizedStatusOptions,
   tierMeta,
   TierConfigCard,
 } from './loyaltyProgramShared';
@@ -68,6 +70,9 @@ const programToForm = (item) => {
 export default function LoyaltyProgramFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => loyT(locale, key, vars), [locale]);
   const params = useParams();
   const editId = params?.id || null;
   const isEdit = Boolean(editId);
@@ -87,7 +92,7 @@ export default function LoyaltyProgramFormPage() {
         const item = data?.loyaltyProgram || data?.data || data;
         if (active && item) setForm(programToForm(item));
       } catch (error) {
-        alert(error?.message || 'Could not load loyalty program.');
+        alert(error?.message || t('err.loadOne'));
       } finally {
         if (active) setLoading(false);
       }
@@ -95,7 +100,7 @@ export default function LoyaltyProgramFormPage() {
     return () => {
       active = false;
     };
-  }, [editId, isEdit]);
+  }, [editId, isEdit, t]);
 
   const goBack = () => navigate(listPath);
 
@@ -113,7 +118,7 @@ export default function LoyaltyProgramFormPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) {
-      alert('Program Name is required.');
+      alert(t('err.nameRequired'));
       return;
     }
 
@@ -127,7 +132,7 @@ export default function LoyaltyProgramFormPage() {
       }
       goBack();
     } catch (error) {
-      alert(error?.message || 'Could not save loyalty program.');
+      alert(error?.message || t('err.save'));
     } finally {
       setSubmitting(false);
     }
@@ -135,26 +140,26 @@ export default function LoyaltyProgramFormPage() {
 
   return (
     <MarketingFormShell
-      title={isEdit ? 'Edit Loyalty Program' : 'New Loyalty Program'}
-      subtitle="Configure points rules and tiers. Sent to Super Admin for approval before activation."
-      backLabel="Back to Loyalty Programs"
+      title={isEdit ? t('form.titleEdit') : t('form.titleNew')}
+      subtitle={t('form.subtitle')}
+      backLabel={t('form.back')}
       onBack={goBack}
       className="mk-page mk-loyalty-page mkp-form-page"
     >
       <form onSubmit={handleSubmit} className="mkp-form-page-body mk-loyalty-modal-form">
         <div className="mk-loyalty-form-group">
-          <label className="mk-loyalty-label">Program Name *</label>
+          <label className="mk-loyalty-label">{t('form.name')}</label>
           <input
             autoFocus
             value={form.name}
             onChange={(e) => updateField('name', e.target.value)}
-            placeholder="e.g. FILTER Rewards"
+            placeholder={t('form.placeholder.name')}
             className="mk-loyalty-input mk-loyalty-focus-input"
           />
         </div>
 
         <div className="mk-loyalty-form-group">
-          <label className="mk-loyalty-label">Description</label>
+          <label className="mk-loyalty-label">{t('form.description')}</label>
           <textarea
             value={form.description}
             onChange={(e) => updateField('description', e.target.value)}
@@ -162,49 +167,48 @@ export default function LoyaltyProgramFormPage() {
           />
         </div>
 
-        <div className="mk-loyalty-section-heading">Points Rules</div>
+        <div className="mk-loyalty-section-heading">{t('form.section.points')}</div>
         <div className="mk-loyalty-points-grid">
           <PointsRuleField
-            label="Points earned per SAR spent"
+            label={t('form.pointsPerSar')}
             value={form.pointsPerSar}
             onChange={(value) => updateField('pointsPerSar', value)}
           />
           <PointsRuleField
-            label="Points needed per SAR discount"
+            label={t('form.pointsForDiscount')}
             value={form.pointsForDiscount}
             onChange={(value) => updateField('pointsForDiscount', value)}
           />
           <PointsRuleField
-            label="Minimum points to redeem"
+            label={t('form.minRedeem')}
             value={form.minRedeemPoints}
             onChange={(value) => updateField('minRedeemPoints', value)}
           />
         </div>
 
-        <div className="mk-loyalty-section-heading">Tier Configuration</div>
+        <div className="mk-loyalty-section-heading">{t('form.section.tiers')}</div>
         {tierMeta.map((tier) => (
           <TierConfigCard
             key={tier.key}
             tier={tier}
             values={form[tier.key]}
             onChange={updateTierField}
+            locale={locale}
           />
         ))}
 
         <div className="mk-loyalty-form-group">
-          <label className="mk-loyalty-label">Status</label>
+          <label className="mk-loyalty-label">{t('form.status')}</label>
           <SelectField
             value={form.status}
             onChange={(value) => updateField('status', value)}
-            options={statusOptions}
+            options={localizedStatusOptions(locale)}
           />
         </div>
 
         <div className="mk-loyalty-approval-note">
           <AlertTriangle size={14} strokeWidth={2} />
-          <span>
-            This program will be sent to <b>Super Admin</b> for approval before activation.
-          </span>
+          <span>{t('form.approvalNote')}</span>
         </div>
 
         <div className="mkp-form-page-footer">
@@ -214,7 +218,7 @@ export default function LoyaltyProgramFormPage() {
             className="mk-loyalty-cancel-btn"
             disabled={submitting}
           >
-            Cancel
+            {t('form.cancel')}
           </button>
           <button
             type="submit"
@@ -224,12 +228,12 @@ export default function LoyaltyProgramFormPage() {
             {submitting ? (
               <>
                 <Loader2 size={14} className="mk-loyalty-spin" />
-                Saving...
+                {t('form.saving')}
               </>
             ) : isEdit ? (
-              'Save Changes'
+              t('form.save')
             ) : (
-              'Submit for Approval'
+              t('form.submit')
             )}
           </button>
         </div>

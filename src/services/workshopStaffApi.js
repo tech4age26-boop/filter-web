@@ -497,6 +497,41 @@ export const updateWorkshopCashier = async (id, body) => {
     }
 };
 
+/**
+ * Convert cashier → manager | supervisor | team_leader (same login user).
+ * Keeps the cashiers row deactivated for POS history; unlinks POS login.
+ * POST /workshop-staff/cashiers/:id/convert-to-portal-staff
+ */
+export const convertCashierToPortalStaff = async (id, body) => {
+    const sid = encodeURIComponent(String(id));
+    try {
+        return await apiFetch(`/workshop-staff/cashiers/${sid}/convert-to-portal-staff`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    } catch (primaryErr) {
+        try {
+            return await apiFetch(`/workshop-staff/cashier/${sid}/convert-to-portal-staff`, {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+        } catch {
+            throw primaryErr;
+        }
+    }
+};
+
+/**
+ * Convert manager | supervisor | team_leader → cashier (same login user).
+ * Re-links a previously converted cashier row when possible; otherwise creates one.
+ * POST /workshop-staff/portal-staff/:id/convert-to-cashier
+ */
+export const convertPortalStaffToCashier = (id, body) =>
+    apiFetch(`/workshop-staff/portal-staff/${encodeURIComponent(String(id))}/convert-to-cashier`, {
+        method: 'POST',
+        body: JSON.stringify(body || {}),
+    });
+
 export const deleteWorkshopTechnician = (id) =>
     apiFetch(`/workshop-staff/technicians/${id}`, { method: 'DELETE' });
 

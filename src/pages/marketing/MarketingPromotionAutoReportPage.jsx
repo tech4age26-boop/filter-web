@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Loader2,
@@ -19,6 +19,10 @@ import {
   FileText,
 } from "lucide-react";
 import { marketingGetPromotionAutoReport } from "../../services/superAdminMarketingApi";
+import {
+  mktPromoT,
+  resolveMarketingLocale,
+} from "../../utils/marketingPromotionsI18n";
 import {
   formatPromotionSar,
   formatStatusLabel,
@@ -74,7 +78,7 @@ function ProgressBar({ percent, label, tone = "amber" }) {
   );
 }
 
-function HealthBadge({ score, label }) {
+function HealthBadge({ score, label, t }) {
   let tone = "mid";
   if (score >= 80) tone = "high";
   else if (score < 45) tone = "low";
@@ -83,7 +87,7 @@ function HealthBadge({ score, label }) {
     <div className={`mkp-ar-health mkp-ar-health-${tone}`}>
       <div className="mkp-ar-health-score">{score}</div>
       <div>
-        <strong>Campaign Health</strong>
+        <strong>{t('auto.health')}</strong>
         <span>{label}</span>
       </div>
     </div>
@@ -105,6 +109,9 @@ export default function MarketingPromotionAutoReportPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = (key, vars) => mktPromoT(locale, key, vars);
   const listPath = resolvePromotionBasePath(location.pathname);
 
   const [loading, setLoading] = useState(true);
@@ -195,7 +202,7 @@ export default function MarketingPromotionAutoReportPage() {
       <div className="mkp-page mkp-auto-report-page">
         <div className="mkp-empty">
           <Loader2 size={30} className="mkp-spin" />
-          <div>Building analyst report...</div>
+          <div>{t('auto.loading')}</div>
         </div>
       </div>
     );
@@ -210,7 +217,7 @@ export default function MarketingPromotionAutoReportPage() {
           onClick={() => navigate(listPath)}
         >
           <ArrowLeft size={16} />
-          Back to Promotions
+          {t('common.backPromotions')}
         </button>
         <div className="mkp-error">{error || "Report could not be generated."}</div>
       </div>
@@ -226,16 +233,16 @@ export default function MarketingPromotionAutoReportPage() {
           onClick={() => navigate(listPath)}
         >
           <ArrowLeft size={16} />
-          Back to Promotions
+          {t('common.backPromotions')}
         </button>
         <div className="mkp-report-topbar-actions">
           <button type="button" onClick={loadAutoReport} disabled={loading}>
             <RefreshCw size={15} />
-            Refresh
+            {t('common.refresh')}
           </button>
           <button type="button" onClick={handlePrint}>
             <Printer size={15} />
-            Print / PDF
+            {t('auto.print')}
           </button>
         </div>
       </div>
@@ -244,7 +251,7 @@ export default function MarketingPromotionAutoReportPage() {
         <header className="mkp-ar-doc-header">
           <div className="mkp-ar-doc-brand">
             <Sparkles size={20} />
-            <span>Marketing Intelligence Report</span>
+            <span>{t('auto.brand')}</span>
           </div>
           <h1>{promotion.name}</h1>
           <p className="mkp-ar-doc-subtitle">
@@ -259,7 +266,7 @@ export default function MarketingPromotionAutoReportPage() {
                 .toLowerCase()
                 .replace(/\s+/g, "-")}`}
             >
-              {formatStatusLabel(promotion.status)}
+              {formatStatusLabel(promotion.status, locale)}
             </span>
             <span className="mkp-auto-report-badge">Auto Report</span>
           </div>
@@ -268,13 +275,14 @@ export default function MarketingPromotionAutoReportPage() {
         <section className="mkp-ar-section mkp-ar-executive">
           <div className="mkp-ar-section-head">
             <FileText size={18} />
-            <h2>Executive Summary</h2>
+            <h2>{t('auto.section.executive')}</h2>
           </div>
           <div className="mkp-ar-executive-grid">
             <p className="mkp-ar-narrative">{analytics.executiveSummary}</p>
             <HealthBadge
               score={analytics.healthScore}
               label={analytics.healthLabel}
+              t={t}
             />
           </div>
         </section>
@@ -282,7 +290,7 @@ export default function MarketingPromotionAutoReportPage() {
         <section className="mkp-ar-section">
           <div className="mkp-ar-section-head">
             <BarChart3 size={18} />
-            <h2>Performance Dashboard</h2>
+            <h2>{t('auto.section.dashboard')}</h2>
           </div>
           <div className="mkp-ar-kpi-grid">
             {analytics.kpis?.map((kpi) => (
@@ -299,7 +307,7 @@ export default function MarketingPromotionAutoReportPage() {
         <section className="mkp-ar-section">
           <div className="mkp-ar-section-head">
             <Clock size={18} />
-            <h2>Campaign Timeline & Adoption Pace</h2>
+            <h2>{t('auto.section.timeline')}</h2>
           </div>
           <div className="mkp-ar-timeline-grid">
             <div className="mkp-ar-timeline-stats">
@@ -352,7 +360,7 @@ export default function MarketingPromotionAutoReportPage() {
         <section className="mkp-ar-section">
           <div className="mkp-ar-section-head">
             <TrendingUp size={18} />
-            <h2>Financial Impact Analysis</h2>
+            <h2>{t('auto.section.financial')}</h2>
           </div>
           <table className="mkp-report-table mkp-ar-fin-table">
             <thead>
@@ -366,54 +374,54 @@ export default function MarketingPromotionAutoReportPage() {
               <tr>
                 <td>Gross revenue (pre-discount view)</td>
                 <td className="mkp-report-money">
-                  {formatPromotionSar(financial.grossRevenue)}
+                  {formatPromotionSar(financial.grossRevenue, locale)}
                 </td>
                 <td>Total invoice value including promotional discount</td>
               </tr>
               <tr>
                 <td>Net revenue (post-promotion)</td>
                 <td className="mkp-report-money">
-                  {formatPromotionSar(financial.totalRevenue)}
+                  {formatPromotionSar(financial.totalRevenue, locale)}
                 </td>
                 <td>What the business collected after discount</td>
               </tr>
               <tr>
                 <td>Promotional cost (discount given)</td>
                 <td className="mkp-report-money discount">
-                  {formatPromotionSar(financial.totalDiscount)}
+                  {formatPromotionSar(financial.totalDiscount, locale)}
                 </td>
                 <td>Direct marketing spend on this campaign</td>
               </tr>
               <tr>
                 <td>Trigger sales (A)</td>
-                <td>{formatPromotionSar(financial.triggerSalesTotal)}</td>
+                <td>{formatPromotionSar(financial.triggerSalesTotal, locale)}</td>
                 <td>Qualifying purchase lines that triggered the offer</td>
               </tr>
               <tr>
                 <td>Reward value (B)</td>
-                <td>{formatPromotionSar(financial.rewardValueTotal)}</td>
+                <td>{formatPromotionSar(financial.rewardValueTotal, locale)}</td>
                 <td>Free or discounted reward lines before promo discount</td>
               </tr>
               <tr>
                 <td>HQ payable (2215)</td>
                 <td className="mkp-report-money payable">
-                  {formatPromotionSar(financial.payableTotal)}
+                  {formatPromotionSar(financial.payableTotal, locale)}
                 </td>
                 <td>Settlement liability to workshops / HQ accounts</td>
               </tr>
               <tr>
                 <td>Net difference (A vs B economics)</td>
-                <td>{formatPromotionSar(financial.netDifference)}</td>
+                <td>{formatPromotionSar(financial.netDifference, locale)}</td>
                 <td>Sale vs reward economics gap</td>
               </tr>
               <tr>
                 <td>Average order value</td>
-                <td>{formatPromotionSar(financial.avgOrderValue)}</td>
+                <td>{formatPromotionSar(financial.avgOrderValue, locale)}</td>
                 <td>Revenue per redemption — basket depth indicator</td>
               </tr>
               <tr>
                 <td>Avg discount per redemption</td>
-                <td>{formatPromotionSar(financial.avgDiscountPerRedemption)}</td>
+                <td>{formatPromotionSar(financial.avgDiscountPerRedemption, locale)}</td>
                 <td>Cost efficiency per transaction</td>
               </tr>
               <tr>
@@ -434,7 +442,7 @@ export default function MarketingPromotionAutoReportPage() {
               </tr>
               <tr>
                 <td>Cost per unique customer</td>
-                <td>{formatPromotionSar(financial.costPerCustomer)}</td>
+                <td>{formatPromotionSar(financial.costPerCustomer, locale)}</td>
                 <td>Promotional spend per distinct customer reached</td>
               </tr>
             </tbody>
@@ -444,7 +452,7 @@ export default function MarketingPromotionAutoReportPage() {
         <section className="mkp-ar-section">
           <div className="mkp-ar-section-head">
             <Target size={18} />
-            <h2>Configuration vs Actual Performance</h2>
+            <h2>{t('auto.section.configVs')}</h2>
           </div>
           <p className="mkp-ar-section-intro">
             Each row compares what was configured at promotion setup against
@@ -478,7 +486,7 @@ export default function MarketingPromotionAutoReportPage() {
           <section className="mkp-ar-section">
             <div className="mkp-ar-section-head">
               <Building2 size={18} />
-              <h2>Branch / Workshop Performance</h2>
+              <h2>{t('auto.section.branches')}</h2>
             </div>
             <table className="mkp-report-table">
               <thead>
@@ -498,13 +506,13 @@ export default function MarketingPromotionAutoReportPage() {
                     <td>{branch.branchName || branch.name || "—"}</td>
                     <td>{branch.workshopName || "—"}</td>
                     <td>{branch.redemptionCount ?? branch.orderCount ?? 0}</td>
-                    <td>{formatPromotionSar(branch.triggerSalesTotal)}</td>
-                    <td>{formatPromotionSar(branch.rewardValueTotal)}</td>
+                    <td>{formatPromotionSar(branch.triggerSalesTotal, locale)}</td>
+                    <td>{formatPromotionSar(branch.rewardValueTotal, locale)}</td>
                     <td className="mkp-report-money discount">
-                      {formatPromotionSar(branch.promoDiscountTotal)}
+                      {formatPromotionSar(branch.promoDiscountTotal, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(branch.revenueTotal)}
+                      {formatPromotionSar(branch.revenueTotal, locale)}
                     </td>
                   </tr>
                 ))}
@@ -517,7 +525,7 @@ export default function MarketingPromotionAutoReportPage() {
           <section className="mkp-ar-section">
             <div className="mkp-ar-section-head">
               <Package size={18} />
-              <h2>Product & Service Line Analysis</h2>
+              <h2>{t('auto.section.items')}</h2>
             </div>
             <table className="mkp-report-table">
               <thead>
@@ -546,8 +554,8 @@ export default function MarketingPromotionAutoReportPage() {
                     <td>{item.itemType || "—"}</td>
                     <td>{item.lineCount ?? 0}</td>
                     <td>{item.totalQty ?? 0}</td>
-                    <td>{formatPromotionSar(item.saleValue)}</td>
-                    <td>{formatPromotionSar(item.rewardValueBefore)}</td>
+                    <td>{formatPromotionSar(item.saleValue, locale)}</td>
+                    <td>{formatPromotionSar(item.rewardValueBefore, locale)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -559,7 +567,7 @@ export default function MarketingPromotionAutoReportPage() {
           <section className="mkp-ar-section">
             <div className="mkp-ar-section-head">
               <Users size={18} />
-              <h2>Customer Impact (Top 5)</h2>
+              <h2>{t('auto.section.customers')}</h2>
             </div>
             <table className="mkp-report-table">
               <thead>
@@ -579,10 +587,10 @@ export default function MarketingPromotionAutoReportPage() {
                     <td>{customer.customerMobile || "—"}</td>
                     <td>{customer.orderCount ?? 0}</td>
                     <td className="mkp-report-money discount">
-                      {formatPromotionSar(customer.totalDiscount)}
+                      {formatPromotionSar(customer.totalDiscount, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(customer.totalRevenue)}
+                      {formatPromotionSar(customer.totalRevenue, locale)}
                     </td>
                     <td>{formatShortDate(customer.lastRedeemedAt)}</td>
                   </tr>
@@ -596,7 +604,7 @@ export default function MarketingPromotionAutoReportPage() {
           <section className="mkp-ar-section">
             <div className="mkp-ar-section-head">
               <Lightbulb size={18} />
-              <h2>Key Insights</h2>
+              <h2>{t('auto.section.insights')}</h2>
             </div>
             <div className="mkp-ar-insight-grid">
               {analytics.insights.map((insight) => (
@@ -616,7 +624,7 @@ export default function MarketingPromotionAutoReportPage() {
           <section className="mkp-ar-section">
             <div className="mkp-ar-section-head">
               <Target size={18} />
-              <h2>Strategic Recommendations</h2>
+              <h2>{t('auto.section.recs')}</h2>
             </div>
             <ol className="mkp-ar-recommendations">
               {analytics.recommendations.map((rec, index) => (
@@ -637,7 +645,7 @@ export default function MarketingPromotionAutoReportPage() {
           <section className="mkp-ar-section mkp-ar-risks">
             <div className="mkp-ar-section-head">
               <ShieldAlert size={18} />
-              <h2>Risks & Watchlist</h2>
+              <h2>{t('auto.section.risks')}</h2>
             </div>
             <div className="mkp-ar-risk-list">
               {analytics.risks.map((risk) => (
@@ -656,7 +664,7 @@ export default function MarketingPromotionAutoReportPage() {
         <section className="mkp-ar-section mkp-ar-appendix">
           <div className="mkp-ar-section-head">
             <FileText size={18} />
-            <h2>Appendix — Promotion Configuration (Form Snapshot)</h2>
+            <h2>{t('auto.section.appendix')}</h2>
           </div>
           <p className="mkp-ar-section-intro">
             Full record of settings defined when the promotion was created.

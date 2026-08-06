@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { Hourglass, Loader2 } from 'lucide-react';
 import PromoCodeFormFields from '../../components/promo/PromoCodeFormFields';
 import {
@@ -23,6 +23,8 @@ import {
   marketingListPromotions,
   marketingUpdatePromoCode,
 } from '../../services/superAdminMarketingApi';
+import { promoT } from '../../utils/promoCodesI18n';
+import { resolveMarketingLocale } from '../../utils/marketingPromotionsI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import { normalizePromoCode, safeArray } from './promoCodeShared';
@@ -74,6 +76,9 @@ function normalizeCatalogRows(rows, kind) {
 export default function PromoCodeFormPage({ readOnly = false }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => promoT(locale, key, vars), [locale]);
   const { id } = useParams();
   const isEdit = Boolean(id) && !readOnly && /\/edit$/.test(location.pathname);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
@@ -143,7 +148,7 @@ export default function PromoCodeFormPage({ readOnly = false }) {
         setCatalogServices(normalizeCatalogRows(data.services, 'services'));
       } catch (error) {
         if (!cancelled) {
-          setOptionsError(error?.message || 'Failed to load form options.');
+          setOptionsError(error?.message || t('form.err.options'));
         }
       } finally {
         if (!cancelled) setLoadingOptions(false);
@@ -220,6 +225,7 @@ export default function PromoCodeFormPage({ readOnly = false }) {
 
         const item = normalizePromoCode(
           data?.promoCode || data?.data || data?.item || data,
+          locale,
         );
 
         setForm(reconcilePromoFormWithWorkshops(item, workshops));
@@ -227,7 +233,7 @@ export default function PromoCodeFormPage({ readOnly = false }) {
         ruleSnapshotRef.current = null;
       } catch (error) {
         if (!cancelled) {
-          setRecordError(error?.message || 'Promo code load failed.');
+          setRecordError(error?.message || t('form.err.load'));
         }
       } finally {
         if (!cancelled) setLoadingRecord(false);
@@ -337,19 +343,18 @@ export default function PromoCodeFormPage({ readOnly = false }) {
       if (isEdit) {
         await marketingUpdatePromoCode(id, payload);
         navigate(listPath, {
-          state: { successMessage: 'Promo code updated successfully.' },
+          state: { successMessage: t('form.msg.updated') },
         });
       } else {
         await marketingCreatePromoCode(payload);
         navigate(listPath, {
           state: {
-            successMessage:
-              'Promo code submitted for Super Admin approval. It will appear on POS after approval.',
+            successMessage: t('form.msg.created'),
           },
         });
       }
     } catch (error) {
-      setFormError(error?.message || 'Promo code save failed.');
+      setFormError(error?.message || t('form.err.save'));
     } finally {
       setSubmitting(false);
     }
@@ -363,22 +368,22 @@ export default function PromoCodeFormPage({ readOnly = false }) {
 
   return (
     <MarketingFormShell
-      title={readOnly ? 'View Promo Code' : isEdit ? 'Edit Promo Code' : 'Create Promo Code'}
+      title={readOnly ? t('form.titleView') : isEdit ? t('form.titleEdit') : t('form.titleNew')}
       subtitle={
         readOnly
-          ? 'Full promo code configuration (read-only).'
+          ? t('form.subtitleView')
           : isEdit
-            ? 'Discount rules, branch scope, and catalog eligibility.'
-            : 'Requires cashier to enter this code at POS. Does not auto-apply on invoices.'
+            ? t('form.subtitleEdit')
+            : t('form.subtitleNew')
       }
-      backLabel="Back to Promo Codes"
+      backLabel={t('form.back')}
       onBack={goBack}
       className="mk-page mk-code-page mkp-form-page ws-promo-sub-screen"
     >
       {loadingRecord || loadingOptions ? (
         <div className="mk-code-empty-state">
           <Loader2 size={28} className="mk-code-spin" />
-          <div>Loading promo code form...</div>
+          <div>{t('form.loading')}</div>
         </div>
       ) : recordError ? (
         <div className="mk-code-error-banner">{recordError}</div>
@@ -413,10 +418,7 @@ export default function PromoCodeFormPage({ readOnly = false }) {
             {!isEdit ? (
               <div className="mk-code-approval-note" style={{ marginTop: 16 }}>
                 <Hourglass size={14} strokeWidth={2} />
-                <span>
-                  Cashier must enter this code at POS. It does <b>not</b> auto-apply.
-                  Super Admin approval is required before activation.
-                </span>
+                <span>{t('form.approvalNote')}</span>
               </div>
             ) : null}
 
@@ -427,7 +429,7 @@ export default function PromoCodeFormPage({ readOnly = false }) {
                 className="btn-secondary"
                 disabled={submitting}
               >
-                {readOnly ? 'Close' : 'Cancel'}
+                {readOnly ? t('form.btn.close') : t('form.btn.cancel')}
               </button>
               {!readOnly ? (
               <button
@@ -438,14 +440,14 @@ export default function PromoCodeFormPage({ readOnly = false }) {
                 {submitting ? (
                   <>
                     <Loader2 size={14} className="mk-code-spin" />
-                    {isEdit ? 'Saving...' : 'Submitting...'}
+                    {isEdit ? t('form.btn.saving') : t('form.btn.submitting')}
                   </>
                 ) : saveBlockedByCatalog ? (
-                  'Loading catalog...'
+                  t('form.btn.loadingCatalog')
                 ) : isEdit ? (
-                  'Update Promo'
+                  t('form.btn.update')
                 ) : (
-                  'Create Promo'
+                  t('form.btn.create')
                 )}
               </button>
               ) : null}

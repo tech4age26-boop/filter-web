@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Layers3, Loader2, ReceiptText, Tags } from 'lucide-react';
 import { marketingGetPromoCode, marketingGetPromoCodeOptions } from '../../services/superAdminMarketingApi';
 import {
@@ -11,6 +11,8 @@ import { PROMO_APPLICATION_RULES } from '../../components/promo/PromoCodeFormFie
 import { buildPromoApplicationRequirements } from '../../components/promo/promoApplicationRequirements';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
+import { promoStatusLabel, promoT } from '../../utils/promoCodesI18n';
+import { resolveMarketingLocale } from '../../utils/marketingPromotionsI18n';
 import { mapDiscountTypeToUi, normalizePromoCode } from './promoCodeShared';
 import './MarketingUniversal.css';
 
@@ -48,15 +50,19 @@ function createLabelMap(rows) {
   return map;
 }
 
-function formatDate(value) {
-  if (!value) return 'Not set';
+function formatDate(value, locale, t) {
+  if (!value) return t('config.notSet');
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' });
+  return d.toLocaleDateString(locale === 'ar' ? 'ar-SA' : undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  });
 }
 
-function renderValue(value) {
-  if (value === null || value === undefined || value === '') return 'Not configured';
+function renderValue(value, t) {
+  if (value === null || value === undefined || value === '') return t('config.notConfigured');
   return String(value);
 }
 
@@ -72,22 +78,22 @@ function ConfigCard({ icon: Icon, title, children }) {
   );
 }
 
-function FieldGrid({ rows }) {
+function FieldGrid({ rows, t }) {
   return (
     <div className="mk-config-grid">
       {rows.map((row) => (
         <div key={row.label} className="mk-config-field">
           <span>{row.label}</span>
-          <strong>{renderValue(row.value)}</strong>
+          <strong>{renderValue(row.value, t)}</strong>
         </div>
       ))}
     </div>
   );
 }
 
-function ItemList({ scope, ids, categoryIds = [], items, emptyLabel }) {
+function ItemList({ scope, ids, categoryIds = [], items, emptyLabel, t }) {
   if (scope === 'none') {
-    return <p className="mk-config-muted">Does not apply.</p>;
+    return <p className="mk-config-muted">{t('config.doesNotApply')}</p>;
   }
   if (scope !== 'selected') {
     return <p className="mk-config-muted">{emptyLabel}</p>;
@@ -102,18 +108,18 @@ function ItemList({ scope, ids, categoryIds = [], items, emptyLabel }) {
     }
   });
   const selectedCategories = categoryIds
-    .map((id) => ({ id: String(id), name: categoryMap.get(String(id)) || `Category ${id}` }))
+    .map((id) => ({ id: String(id), name: categoryMap.get(String(id)) || t('config.categoryFallback', { id }) }))
     .filter((item) => item.id);
 
   if (selected.length === 0 && selectedCategories.length === 0) {
-    return <p className="mk-config-muted">No selected items/categories found.</p>;
+    return <p className="mk-config-muted">{t('config.emptyItems')}</p>;
   }
 
   return (
     <div className="mk-config-chip-list">
       {selectedCategories.map((item) => (
         <span key={`category-${item.id}`} className="mk-config-chip">
-          {selected.length > 0 ? 'Category scope' : 'Complete category'}
+          {selected.length > 0 ? t('config.categoryScope') : t('config.completeCategory')}
           <small>{item.name}</small>
         </span>
       ))}
@@ -131,6 +137,9 @@ export default function PromoCodeConfigurationViewPage() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => promoT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
   const [loading, setLoading] = useState(true);
@@ -164,13 +173,13 @@ export default function PromoCodeConfigurationViewPage() {
         );
         const products = normalizeRows(options?.products, 'products');
         const services = normalizeRows(options?.services, 'services');
-        const promo = normalizePromoCode(detail?.promoCode || detail?.data || detail?.item || detail);
+        const promo = normalizePromoCode(detail?.promoCode || detail?.data || detail?.item || detail, locale);
 
         setRecord(promo);
         setForm(reconcilePromoFormWithWorkshops(promo, workshops));
         setLookups({ workshops, branches, products, services });
       } catch (err) {
-        if (!cancelled) setError(err?.message || 'Promo code configuration load failed.');
+        if (!cancelled) setError(err?.message || t('config.errLoad'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -208,71 +217,89 @@ export default function PromoCodeConfigurationViewPage() {
 
   if (loading) {
     return (
-      <MarketingFormShell title="Promo Code Configuration" onBack={() => navigate(listPath)} backLabel="Back to Promo Codes">
-        <div className="mk-config-loading"><Loader2 className="mk-code-spin" size={28} /> Loading configuration...</div>
+      <MarketingFormShell title={t('config.title')} onBack={() => navigate(listPath)} backLabel={t('config.back')}>
+        <div className="mk-config-loading"><Loader2 className="mk-code-spin" size={28} /> {t('config.loading')}</div>
       </MarketingFormShell>
     );
   }
 
   if (error || !record || !form) {
     return (
-      <MarketingFormShell title="Promo Code Configuration" onBack={() => navigate(listPath)} backLabel="Back to Promo Codes">
-        <div className="mk-code-error-banner">{error || 'Promo code not found.'}</div>
+      <MarketingFormShell title={t('config.title')} onBack={() => navigate(listPath)} backLabel={t('config.back')}>
+        <div className="mk-code-error-banner">{error || t('config.notFound')}</div>
       </MarketingFormShell>
     );
   }
 
   return (
     <MarketingFormShell
-      title="Promo Code Configuration"
-      subtitle="Professional read-only summary of the active rule set and selected eligibility."
-      backLabel="Back to Promo Codes"
+      title={t('config.title')}
+      subtitle={t('config.subtitle')}
+      backLabel={t('config.back')}
       onBack={() => navigate(listPath)}
       className="mk-page mkp-form-page mk-config-page"
     >
       <div className="mk-config-hero">
         <div>
-          <span className="mk-config-eyebrow">Promo Code</span>
+          <span className="mk-config-eyebrow">{t('config.eyebrow')}</span>
           <h2>{record.code}</h2>
-          <p>{record.promotion || form.description || 'Standalone promo code'}</p>
+          <p>{record.promotion || form.description || t('config.standalone')}</p>
         </div>
         <div className="mk-config-hero-badges">
           <span className={`mk-config-status status-${String(record.status).toLowerCase().replace(/\s+/g, '-')}`}>
-            {record.status}
+            {promoStatusLabel(locale, record.status)}
           </span>
           <span className={record.isActive ? 'mk-config-live' : 'mk-config-muted-pill'}>
-            {record.isActive ? 'Live on POS' : 'Not live on POS'}
+            {record.isActive ? t('config.live') : t('config.notLive')}
           </span>
         </div>
       </div>
 
       <div className="mk-config-layout">
-        <ConfigCard icon={Tags} title="Discount & POS Logic">
+        <ConfigCard icon={Tags} title={t('config.card.discount')}>
           <FieldGrid
+            t={t}
             rows={[
-              { label: 'Discount Type', value: mapDiscountTypeToUi(form.discountType) },
-              { label: 'Discount Value', value: form.discountType === 'percent' ? `${form.discountValue}%` : `SAR ${form.discountValue}` },
-              { label: 'Minimum Order', value: form.minOrderAmount ? `SAR ${form.minOrderAmount}` : 'No minimum' },
-              { label: 'Usage Limit', value: form.usageLimit || 'Unlimited' },
+              { label: t('config.label.discountType'), value: mapDiscountTypeToUi(form.discountType, locale) },
+              {
+                label: t('config.label.discountValue'),
+                value:
+                  form.discountType === 'percent'
+                    ? t('config.valuePct', { value: form.discountValue })
+                    : t('config.valueSar', { value: form.discountValue }),
+              },
+              {
+                label: t('config.label.minOrder'),
+                value: form.minOrderAmount
+                  ? t('config.minSar', { value: form.minOrderAmount })
+                  : t('config.noMinimum'),
+              },
+              {
+                label: t('config.label.usageLimit'),
+                value: form.usageLimit || t('config.unlimited'),
+              },
             ]}
           />
           <div className="mk-config-rule">
             <CheckCircle2 size={16} />
             <div>
-              <strong>{rule?.title || 'Selected item rule'}</strong>
-              <p>{rule?.summary || 'Default selected item matching rule is applied.'}</p>
+              <strong>{rule?.title || t('config.ruleDefault')}</strong>
+              <p>{rule?.summary || t('config.ruleDefaultSummary')}</p>
             {form.productScope === 'selected' && form.serviceScope === 'selected' ? (
               <p>
-                Selected service is{' '}
-                <b>{form.selectedServiceRequired === false ? 'optional' : 'mandatory'}</b>
-                {' '}with selected product/category.
+                {t('config.serviceWithProduct', {
+                  mode:
+                    form.selectedServiceRequired === false
+                      ? t('config.serviceOptional')
+                      : t('config.serviceMandatory'),
+                })}
               </p>
             ) : null}
             </div>
           </div>
           {requirementLines.length > 0 ? (
             <div className="mk-config-requirements">
-              <strong>Requirements to apply this promo</strong>
+              <strong>{t('config.requirements')}</strong>
               <ul className="mk-config-requirements-list">
                 {requirementLines.map((line, index) => {
                   if (line.type === 'heading') {
@@ -294,22 +321,39 @@ export default function PromoCodeConfigurationViewPage() {
           ) : null}
         </ConfigCard>
 
-        <ConfigCard icon={CalendarDays} title="Validity">
+        <ConfigCard icon={CalendarDays} title={t('config.card.validity')}>
           <FieldGrid
+            t={t}
             rows={[
-              { label: 'Valid From', value: formatDate(form.validFrom) },
-              { label: 'Valid To', value: formatDate(form.validTo) },
-              { label: 'Current Usage', value: record.currentUsage ?? 0 },
-              { label: 'Remaining Usage', value: record.remainingUsage ?? 'Auto calculated' },
+              { label: t('config.label.validFrom'), value: formatDate(form.validFrom, locale, t) },
+              { label: t('config.label.validTo'), value: formatDate(form.validTo, locale, t) },
+              { label: t('config.label.usage'), value: record.currentUsage ?? 0 },
+              {
+                label: t('config.label.remaining'),
+                value: record.remainingUsage ?? t('config.remainingAuto'),
+              },
             ]}
           />
         </ConfigCard>
 
-        <ConfigCard icon={Layers3} title="Workshop & Branch Scope">
+        <ConfigCard icon={Layers3} title={t('config.card.scope')}>
           <FieldGrid
+            t={t}
             rows={[
-              { label: 'Workshops', value: form.workshopMode === 'all' ? 'All workshops' : `${selectedWorkshops.length} selected` },
-              { label: 'Branches', value: form.branchMode === 'all' ? 'All branches' : `${selectedBranches.length} selected` },
+              {
+                label: t('config.label.workshops'),
+                value:
+                  form.workshopMode === 'all'
+                    ? t('config.workshopsAll')
+                    : t('config.nSelected', { n: selectedWorkshops.length }),
+              },
+              {
+                label: t('config.label.branches'),
+                value:
+                  form.branchMode === 'all'
+                    ? t('config.branchesAll')
+                    : t('config.nSelected', { n: selectedBranches.length }),
+              },
             ]}
           />
           {selectedWorkshops.length > 0 ? (
@@ -320,28 +364,30 @@ export default function PromoCodeConfigurationViewPage() {
           ) : null}
         </ConfigCard>
 
-        <ConfigCard icon={ReceiptText} title="Products Applied">
+        <ConfigCard icon={ReceiptText} title={t('config.card.products')}>
           <ItemList
+            t={t}
             scope={form.productScope}
             ids={form.productIds}
             categoryIds={form.productCategoryIds}
             items={lookups.products}
-            emptyLabel="All products in the master catalog are eligible."
+            emptyLabel={t('config.allProducts')}
           />
         </ConfigCard>
 
-        <ConfigCard icon={ReceiptText} title="Services Applied">
+        <ConfigCard icon={ReceiptText} title={t('config.card.services')}>
           <ItemList
+            t={t}
             scope={form.serviceScope}
             ids={form.serviceIds}
             categoryIds={form.serviceCategoryIds}
             items={lookups.services}
-            emptyLabel="All services in the master catalog are eligible."
+            emptyLabel={t('config.allServices')}
           />
         </ConfigCard>
 
         {form.description ? (
-          <ConfigCard icon={ReceiptText} title="Description / Notes">
+          <ConfigCard icon={ReceiptText} title={t('config.card.description')}>
             <p className="mk-config-note">{form.description}</p>
           </ConfigCard>
         ) : null}

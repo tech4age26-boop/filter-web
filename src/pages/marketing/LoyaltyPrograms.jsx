@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Plus,
   Trophy,
@@ -18,6 +18,8 @@ import {
   marketingListLoyaltyPrograms,
   marketingSimulateLoyaltyPoints,
 } from '../../services/superAdminMarketingApi';
+import { loyT, loyTierName } from '../../utils/loyaltyProgramsI18n';
+import { resolveMarketingLocale } from '../../utils/marketingPromotionsI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 
 import './MarketingUniversal.css';
@@ -213,7 +215,7 @@ const TierPreviewCard = ({ tier, programName }) => {
   );
 };
 
-const PointsSimulatorModal = ({ program, onClose }) => {
+const PointsSimulatorModal = ({ program, onClose, t }) => {
   const [spendAmount, setSpendAmount] = useState('1000');
   const [currentPoints, setCurrentPoints] = useState('0');
   const [running, setRunning] = useState(false);
@@ -244,7 +246,7 @@ const PointsSimulatorModal = ({ program, onClose }) => {
         <div className="mk-loyalty-sim-head">
           <div>
             <div className="mk-loyalty-sim-title">
-              <Calculator size={16} /> Points Simulator
+              <Calculator size={16} /> {t('sim.title')}
             </div>
             <div className="mk-loyalty-sim-sub">{program?.name}</div>
           </div>
@@ -252,6 +254,7 @@ const PointsSimulatorModal = ({ program, onClose }) => {
             type="button"
             className="mk-loyalty-sim-close"
             onClick={onClose}
+            aria-label={t('sim.close')}
           >
             <X size={16} />
           </button>
@@ -259,7 +262,7 @@ const PointsSimulatorModal = ({ program, onClose }) => {
 
         <div className="mk-loyalty-sim-fields">
           <div className="mk-loyalty-form-group">
-            <label className="mk-loyalty-label">Spend amount (SAR)</label>
+            <label className="mk-loyalty-label">{t('sim.spend')}</label>
             <input
               type="number"
               min="0"
@@ -269,7 +272,7 @@ const PointsSimulatorModal = ({ program, onClose }) => {
             />
           </div>
           <div className="mk-loyalty-form-group">
-            <label className="mk-loyalty-label">Existing points</label>
+            <label className="mk-loyalty-label">{t('sim.existing')}</label>
             <input
               type="number"
               min="0"
@@ -288,10 +291,10 @@ const PointsSimulatorModal = ({ program, onClose }) => {
         >
           {running ? (
             <>
-              <Loader2 size={14} className="mk-loyalty-spin" /> Calculating...
+              <Loader2 size={14} className="mk-loyalty-spin" /> {t('sim.calculating')}
             </>
           ) : (
-            'Calculate'
+            t('sim.calculate')
           )}
         </button>
 
@@ -304,35 +307,29 @@ const PointsSimulatorModal = ({ program, onClose }) => {
         {result ? (
           <div className="mk-loyalty-sim-result">
             <div className="mk-loyalty-sim-stat">
-              <span>Points earned</span>
+              <span>{t('sim.pointsEarned')}</span>
               <b>{result.pointsEarned}</b>
             </div>
             <div className="mk-loyalty-sim-stat">
-              <span>Total points</span>
+              <span>{t('sim.totalPoints')}</span>
               <b>{result.totalPoints}</b>
             </div>
             <div className="mk-loyalty-sim-stat">
-              <span>Tier</span>
+              <span>{t('sim.tier')}</span>
               <b>{result.tier}</b>
             </div>
             <div className="mk-loyalty-sim-stat">
-              <span>Tier discount</span>
-              <b>{result.tierDiscountPct}%</b>
+              <span>{t('sim.tierDiscount')}</span>
+              <b>{result.tierDiscount}</b>
             </div>
             <div className="mk-loyalty-sim-stat">
-              <span>Redeemable value</span>
-              <b>SAR {result.redeemableValueSar}</b>
+              <span>{t('sim.redeemable')}</span>
+              <b>{result.redeemableValue}</b>
             </div>
             <div className="mk-loyalty-sim-stat">
-              <span>Can redeem</span>
-              <b>{result.canRedeem ? 'Yes' : `No (min ${result.minPointsToRedeem})`}</b>
+              <span>{t('sim.canRedeem')}</span>
+              <b>{result.canRedeem ? t('sim.yes') : t('sim.no')}</b>
             </div>
-            {result.nextTier ? (
-              <div className="mk-loyalty-sim-next">
-                {result.nextTier.pointsNeeded} more points to reach{' '}
-                <b>{result.nextTier.tier}</b>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </div>
@@ -343,6 +340,9 @@ const PointsSimulatorModal = ({ program, onClose }) => {
 export const LoyaltyPrograms = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => loyT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'loyalty-programs');
 
   const [programs, setPrograms] = useState([]);
@@ -375,7 +375,7 @@ export const LoyaltyPrograms = () => {
       );
     } catch (error) {
       console.error('Loyalty programs load error:', error);
-      setPageError(error?.message || 'Could not load loyalty programs.');
+      setPageError(error?.message || t('err.load'));
       setPrograms([]);
     } finally {
       setLoadingPrograms(false);
@@ -387,19 +387,16 @@ export const LoyaltyPrograms = () => {
   }, []);
 
   const handleDelete = async (id) => {
-    const ok = window.confirm(
-      'Are you sure you want to delete this loyalty program?'
-    );
-
+    const ok = window.confirm(t('confirm.delete', { name: id }));
     if (!ok) return;
 
     try {
       await marketingDeleteLoyaltyProgram(id);
       await loadPrograms();
-      setSuccessMessage('Loyalty program delete ho gaya.');
+      setSuccessMessage(t('msg.deleted'));
     } catch (error) {
       console.error('Loyalty program delete error:', error);
-      alert(error?.message || 'Could not delete loyalty program.');
+      alert(error?.message || t('err.delete'));
     }
   };
 
@@ -407,10 +404,8 @@ export const LoyaltyPrograms = () => {
     <div className="mk-page mk-loyalty-page">
       <div className="mk-loyalty-header">
         <div>
-          <h1 className="mk-loyalty-title">Loyalty Programs</h1>
-          <p className="mk-loyalty-subtitle">
-            Reward returning customers with points &amp; tier benefits
-          </p>
+          <h1 className="mk-loyalty-title">{t('page.title')}</h1>
+          <p className="mk-loyalty-subtitle">{t('page.subtitle')}</p>
         </div>
 
         <button
@@ -419,7 +414,7 @@ export const LoyaltyPrograms = () => {
           className="mk-loyalty-new-btn"
         >
           <Plus size={15} strokeWidth={2.5} />
-          New Program
+          {t('btn.new')}
         </button>
       </div>
 
@@ -441,7 +436,7 @@ export const LoyaltyPrograms = () => {
         {tierMeta.map((tier) => (
           <TierPreviewCard
             key={tier.key}
-            tier={tier}
+            tier={{ ...tier, name: loyTierName(locale, tier.key) }}
             programName={latestProgram?.name || ''}
           />
         ))}
@@ -451,19 +446,13 @@ export const LoyaltyPrograms = () => {
         {loadingPrograms ? (
           <div className="mk-loyalty-empty-state">
             <Loader2 size={38} className="mk-loyalty-spin" />
-            <div className="mk-loyalty-empty-title">
-              Loading loyalty programs...
-            </div>
+            <div className="mk-loyalty-empty-title">{t('empty.loading')}</div>
           </div>
         ) : programs.length === 0 ? (
           <div className="mk-loyalty-empty-state">
             <Trophy size={38} strokeWidth={1.8} />
-            <div className="mk-loyalty-empty-title">
-              No loyalty programs yet
-            </div>
-            <div className="mk-loyalty-empty-sub">
-              Create your first loyalty program to reward customers
-            </div>
+            <div className="mk-loyalty-empty-title">{t('empty.none')}</div>
+            <div className="mk-loyalty-empty-sub">{t('empty.hint')}</div>
           </div>
         ) : (
           <div className="mk-loyalty-program-list">
@@ -475,7 +464,7 @@ export const LoyaltyPrograms = () => {
                       {program.name}
                     </div>
                     <div className="mk-loyalty-program-desc">
-                      {program.description || 'No description'}
+                      {program.description || t('untitled')}
                     </div>
                   </div>
 
@@ -488,8 +477,8 @@ export const LoyaltyPrograms = () => {
                         .replace(/\s+/g, '-')}`}
                     >
                       {program.status === 'Active'
-                        ? 'Active'
-                        : 'Pending Approval'}
+                        ? t('status.active')
+                        : t('status.inactive')}
                     </div>
 
                     <button
@@ -498,7 +487,7 @@ export const LoyaltyPrograms = () => {
                       onClick={() => setSimulatorProgram(program)}
                     >
                       <Calculator size={13} />
-                      Simulate
+                      {t('btn.simulate')}
                     </button>
 
                     <button
@@ -507,7 +496,7 @@ export const LoyaltyPrograms = () => {
                       onClick={() => navigate(`${listPath}/${program.id}/edit`)}
                     >
                       <Pencil size={13} />
-                      Edit
+                      {t('btn.edit')}
                     </button>
 
                     <button
@@ -516,34 +505,28 @@ export const LoyaltyPrograms = () => {
                       onClick={() => handleDelete(program.id)}
                     >
                       <Trash2 size={13} />
-                      Delete
+                      {t('btn.delete')}
                     </button>
                   </div>
                 </div>
 
                 <div className="mk-loyalty-rules-grid">
                   <div className="mk-loyalty-rule-card">
-                    <div className="mk-loyalty-rule-label">
-                      Points earned per SAR spent
-                    </div>
+                    <div className="mk-loyalty-rule-label">{t('rule.earn')}</div>
                     <div className="mk-loyalty-rule-value">
                       {program.pointsPerSar}
                     </div>
                   </div>
 
                   <div className="mk-loyalty-rule-card">
-                    <div className="mk-loyalty-rule-label">
-                      Points needed per SAR discount
-                    </div>
+                    <div className="mk-loyalty-rule-label">{t('rule.redeem')}</div>
                     <div className="mk-loyalty-rule-value">
                       {program.pointsForDiscount}
                     </div>
                   </div>
 
                   <div className="mk-loyalty-rule-card">
-                    <div className="mk-loyalty-rule-label">
-                      Minimum points to redeem
-                    </div>
+                    <div className="mk-loyalty-rule-label">{t('rule.minRedeem')}</div>
                     <div className="mk-loyalty-rule-value">
                       {program.minRedeemPoints}
                     </div>
@@ -556,10 +539,10 @@ export const LoyaltyPrograms = () => {
                       key={tier.key}
                       className={`mk-loyalty-tier-mini ${tier.className}`}
                     >
-                      <span>{tier.name}</span>
+                      <span>{loyTierName(locale, tier.key)}</span>
                       <b>
-                        {program[tier.key]?.minPoints || 0} pts /{' '}
-                        {program[tier.key]?.discount || 0}%
+                        {t('tier.minPoints', { n: program[tier.key]?.minPoints || 0 })} /{' '}
+                        {t('tier.discount', { n: program[tier.key]?.discount || 0 })}
                       </b>
                     </div>
                   ))}
@@ -573,6 +556,7 @@ export const LoyaltyPrograms = () => {
       {simulatorProgram ? (
         <PointsSimulatorModal
           program={simulatorProgram}
+          t={t}
           onClose={() => setSimulatorProgram(null)}
         />
       ) : null}

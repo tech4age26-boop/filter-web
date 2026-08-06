@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { CheckCircle, Eye, Search, XCircle, AlertCircle } from 'lucide-react';
 import './MarketingUniversal.css';
 
@@ -8,6 +9,7 @@ import {
   marketingListCampaignRequests,
   marketingRejectCampaignRequest,
 } from '../../services/superAdminMarketingApi';
+import { mktCampT, mktCampStatusLabel } from '../../utils/marketingCampaignsI18n';
 import { useAuth } from '../../context/AuthContext';
 
 const getId = (item) =>
@@ -21,12 +23,12 @@ const text = (value, fallback = '-') => {
   return String(value);
 };
 
-const formatDate = (value) => {
+const formatDate = (value, locale) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
 
-  return date.toLocaleDateString('en-US', {
+  return date.toLocaleDateString(locale === 'ar' ? 'ar-SA' : 'en-US', {
     month: 'short',
     day: '2-digit',
     year: 'numeric',
@@ -50,12 +52,7 @@ const statusClass = (status) => {
   return 'mk-status';
 };
 
-const cleanStatus = (status) =>
-  String(status || 'pending')
-    .replace(/_/g, ' ')
-    .toLowerCase();
-
-const normalizeRequests = (payload) => {
+const normalizeRequests = (payload, defaultTitle) => {
   const list =
     payload?.marketingRequests ||
     payload?.campaignRequests ||
@@ -83,7 +80,7 @@ const normalizeRequests = (payload) => {
         item?.title ||
         item?.name ||
         item?.requestTitle ||
-        'Marketing Request',
+        defaultTitle,
 
       description:
         item?.description ||
@@ -190,6 +187,14 @@ const normalizeRequests = (payload) => {
 export const CampaignRequests = () => {
   const { user } = useAuth();
   const isSuperAdmin = user?.userType === 'platform_admin';
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktCampT(locale, key, vars), [locale]);
+
   const [search, setSearch] = useState('');
   const [requests, setRequests] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -210,15 +215,15 @@ export const CampaignRequests = () => {
         search: search.trim() || undefined,
       });
 
-      setRequests(normalizeRequests(res));
+      setRequests(normalizeRequests(res, t('req.defaultTitle')));
     } catch (err) {
       console.error('Campaign requests error:', err);
-      setError(err?.message || 'Failed to load campaign requests');
+      setError(err?.message || t('req.errLoad'));
       setRequests([]);
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, t]);
 
   useEffect(() => {
     loadRequests();
@@ -266,9 +271,10 @@ export const CampaignRequests = () => {
         res?.data ||
         item;
 
-      const normalized = normalizeRequests({
-        marketingRequests: [request],
-      });
+      const normalized = normalizeRequests(
+        { marketingRequests: [request] },
+        t('req.defaultTitle'),
+      );
 
       setSelected(normalized[0] || item);
     } catch (err) {
@@ -283,8 +289,8 @@ export const CampaignRequests = () => {
     if (!id) return;
 
     const notes =
-      window.prompt('Approval notes?', 'Approved by marketing team') ||
-      'Approved by marketing team';
+      window.prompt(t('req.prompt.approveNotes'), t('req.prompt.approveDefault')) ||
+      t('req.prompt.approveDefault');
 
     try {
       setActionLoadingId(id);
@@ -294,15 +300,13 @@ export const CampaignRequests = () => {
         notes,
       });
 
-      alert(
-        'Request approved. A campaign draft was created and sent to Super Admin for final campaign approval.',
-      );
+      alert(t('req.alert.approved'));
 
       setSelected(null);
       await loadRequests();
     } catch (err) {
       console.error('Approve request error:', err);
-      alert(err?.message || 'Failed to approve request');
+      alert(err?.message || t('req.errApprove'));
     } finally {
       setActionLoadingId(null);
     }
@@ -312,7 +316,7 @@ export const CampaignRequests = () => {
     const id = getId(item);
     if (!id) return;
 
-    const reason = window.prompt('Reject reason?');
+    const reason = window.prompt(t('req.prompt.rejectReason'));
     if (!reason || !reason.trim()) return;
 
     try {
@@ -328,7 +332,7 @@ export const CampaignRequests = () => {
       await loadRequests();
     } catch (err) {
       console.error('Reject request error:', err);
-      alert(err?.message || 'Failed to reject request');
+      alert(err?.message || t('req.errReject'));
     } finally {
       setActionLoadingId(null);
     }
@@ -343,7 +347,7 @@ export const CampaignRequests = () => {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search requests..."
+            placeholder={t('req.searchPlaceholder')}
           />
         </label>
       </div>
@@ -353,40 +357,37 @@ export const CampaignRequests = () => {
       <div className="mk-camp-pending-banner" style={{ marginBottom: 14 }}>
         <AlertCircle size={15} />
         <span>
-          Workshop campaign requests appear here for <strong>Marketing</strong> and{' '}
-          <strong>Super Admin</strong>. Marketing reviews the request; after approval the
-          linked campaign still requires <strong>Super Admin approval</strong> on the
-          Campaigns page.
-          {isSuperAdmin ? ' You can process requests and approve campaigns.' : ''}
+          {t('req.banner')}
+          {isSuperAdmin ? t('req.bannerAdminExtra') : ''}
         </span>
       </div>
 
       <section className="mk-card mk-campaign-requests-card">
         {loading ? (
           <div className="mk-empty-card mk-empty-card-requests">
-            <div className="mk-empty-card-text">Loading campaign requests...</div>
+            <div className="mk-empty-card-text">{t('req.loading')}</div>
           </div>
         ) : filteredRequests.length === 0 ? (
           <div className="mk-empty-card mk-empty-card-requests">
-            <div className="mk-empty-card-text">No campaign requests</div>
+            <div className="mk-empty-card-text">{t('req.empty')}</div>
           </div>
         ) : (
           <div className="mk-table-wrap">
             <table className="mk-table mk-campaign-requests-table">
               <thead>
                 <tr>
-                  <th>Request #</th>
-                  <th>Title</th>
-                  <th>Portal</th>
-                  <th>Tenant</th>
-                  <th>User</th>
-                  <th>Type</th>
-                  <th>Audience</th>
-                  <th>Budget</th>
-                  <th>Start</th>
-                  <th>End</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th>{t('req.th.requestNumber')}</th>
+                  <th>{t('req.th.title')}</th>
+                  <th>{t('req.th.portal')}</th>
+                  <th>{t('req.th.tenant')}</th>
+                  <th>{t('req.th.user')}</th>
+                  <th>{t('req.th.type')}</th>
+                  <th>{t('req.th.audience')}</th>
+                  <th>{t('req.th.budget')}</th>
+                  <th>{t('req.th.start')}</th>
+                  <th>{t('req.th.end')}</th>
+                  <th>{t('req.th.status')}</th>
+                  <th>{t('req.th.actions')}</th>
                 </tr>
               </thead>
 
@@ -412,12 +413,12 @@ export const CampaignRequests = () => {
                       <td>{text(item.requestType)}</td>
                       <td>{text(item.targetAudience)}</td>
                       <td>{formatBudget(item.budgetRequested)}</td>
-                      <td>{formatDate(item.desiredStartDate)}</td>
-                      <td>{formatDate(item.desiredEndDate)}</td>
+                      <td>{formatDate(item.desiredStartDate, locale)}</td>
+                      <td>{formatDate(item.desiredEndDate, locale)}</td>
 
                       <td>
                         <span className={statusClass(item.status)}>
-                          {cleanStatus(item.status)}
+                          {mktCampStatusLabel(locale, item.status)}
                         </span>
                       </td>
 
@@ -426,7 +427,7 @@ export const CampaignRequests = () => {
                           <button
                             type="button"
                             className="mk-icon-btn"
-                            title="View details"
+                            title={t('req.action.view')}
                             onClick={() => openDetail(item)}
                           >
                             <Eye size={15} />
@@ -437,7 +438,7 @@ export const CampaignRequests = () => {
                               <button
                                 type="button"
                                 className="mk-icon-btn mk-icon-btn-success"
-                                title="Approve"
+                                title={t('req.action.approve')}
                                 disabled={actionLoadingId === id}
                                 onClick={() => approveRequest(item)}
                               >
@@ -447,7 +448,7 @@ export const CampaignRequests = () => {
                               <button
                                 type="button"
                                 className="mk-icon-btn mk-icon-btn-danger"
-                                title="Reject"
+                                title={t('req.action.reject')}
                                 disabled={actionLoadingId === id}
                                 onClick={() => rejectRequest(item)}
                               >
@@ -489,107 +490,107 @@ export const CampaignRequests = () => {
 
             {detailLoading ? (
               <div className="mk-empty-card">
-                <p>Loading details...</p>
+                <p>{t('req.detail.loading')}</p>
               </div>
             ) : (
               <>
                 <div className="mk-detail-grid">
                   <div>
-                    <span>Request Number</span>
+                    <span>{t('req.detail.requestNumber')}</span>
                     <strong>{text(selected.requestNumber)}</strong>
                   </div>
 
                   <div>
-                    <span>Portal</span>
+                    <span>{t('req.detail.portal')}</span>
                     <strong>{text(selected.requestingPortal)}</strong>
                   </div>
 
                   <div>
-                    <span>Tenant ID</span>
+                    <span>{t('req.detail.tenantId')}</span>
                     <strong>{text(selected.requestingTenantId)}</strong>
                   </div>
 
                   <div>
-                    <span>Tenant Name</span>
+                    <span>{t('req.detail.tenantName')}</span>
                     <strong>{text(selected.requestingTenantName)}</strong>
                   </div>
 
                   <div>
-                    <span>User ID</span>
+                    <span>{t('req.detail.userId')}</span>
                     <strong>{text(selected.requestingUserId)}</strong>
                   </div>
 
                   <div>
-                    <span>User Name</span>
+                    <span>{t('req.detail.userName')}</span>
                     <strong>{text(selected.requestingUserName)}</strong>
                   </div>
 
                   <div>
-                    <span>Request Type</span>
+                    <span>{t('req.detail.requestType')}</span>
                     <strong>{text(selected.requestType)}</strong>
                   </div>
 
                   <div>
-                    <span>Target Audience</span>
+                    <span>{t('req.detail.targetAudience')}</span>
                     <strong>{text(selected.targetAudience)}</strong>
                   </div>
 
                   <div>
-                    <span>Budget Requested</span>
+                    <span>{t('req.detail.budgetRequested')}</span>
                     <strong>{formatBudget(selected.budgetRequested)}</strong>
                   </div>
 
                   <div>
-                    <span>Linked Campaign ID</span>
+                    <span>{t('req.detail.linkedCampaignId')}</span>
                     <strong>{text(selected.linkedCampaignId)}</strong>
                   </div>
 
                   <div>
-                    <span>Desired Start Date</span>
-                    <strong>{formatDate(selected.desiredStartDate)}</strong>
+                    <span>{t('req.detail.desiredStart')}</span>
+                    <strong>{formatDate(selected.desiredStartDate, locale)}</strong>
                   </div>
 
                   <div>
-                    <span>Desired End Date</span>
-                    <strong>{formatDate(selected.desiredEndDate)}</strong>
+                    <span>{t('req.detail.desiredEnd')}</span>
+                    <strong>{formatDate(selected.desiredEndDate, locale)}</strong>
                   </div>
 
                   <div>
-                    <span>Status</span>
-                    <strong>{cleanStatus(selected.status)}</strong>
+                    <span>{t('req.detail.status')}</span>
+                    <strong>{mktCampStatusLabel(locale, selected.status)}</strong>
                   </div>
 
                   <div>
-                    <span>Created At</span>
-                    <strong>{formatDate(selected.createdAt)}</strong>
+                    <span>{t('req.detail.createdAt')}</span>
+                    <strong>{formatDate(selected.createdAt, locale)}</strong>
                   </div>
 
                   <div>
-                    <span>Reviewed By</span>
+                    <span>{t('req.detail.reviewedBy')}</span>
                     <strong>{text(selected.reviewedBy)}</strong>
                   </div>
 
                   <div>
-                    <span>Review Date</span>
-                    <strong>{formatDate(selected.reviewDate)}</strong>
+                    <span>{t('req.detail.reviewDate')}</span>
+                    <strong>{formatDate(selected.reviewDate, locale)}</strong>
                   </div>
                 </div>
 
                 <div className="mk-detail-section">
-                  <h3>Description</h3>
-                  <p>{selected.description || 'No description provided.'}</p>
+                  <h3>{t('req.detail.description')}</h3>
+                  <p>{selected.description || t('req.detail.noDescription')}</p>
                 </div>
 
                 {selected.marketingNotes ? (
                   <div className="mk-detail-section">
-                    <h3>Marketing Notes</h3>
+                    <h3>{t('req.detail.marketingNotes')}</h3>
                     <p>{selected.marketingNotes}</p>
                   </div>
                 ) : null}
 
                 {selected.rejectionReason ? (
                   <div className="mk-detail-section">
-                    <h3>Rejection Reason</h3>
+                    <h3>{t('req.detail.rejectionReason')}</h3>
                     <p>{selected.rejectionReason}</p>
                   </div>
                 ) : null}
@@ -601,7 +602,7 @@ export const CampaignRequests = () => {
                       className="mk-btn mk-btn-light"
                       onClick={() => setSelected(null)}
                     >
-                      Cancel
+                      {t('req.detail.cancel')}
                     </button>
 
                     <button
@@ -609,7 +610,7 @@ export const CampaignRequests = () => {
                       className="mk-btn mk-btn-danger"
                       onClick={() => rejectRequest(selected)}
                     >
-                      Reject
+                      {t('req.detail.reject')}
                     </button>
 
                     <button
@@ -617,7 +618,7 @@ export const CampaignRequests = () => {
                       className="mk-btn mk-btn-primary"
                       onClick={() => approveRequest(selected)}
                     >
-                      Approve
+                      {t('req.detail.approve')}
                     </button>
                   </div>
                 ) : null}

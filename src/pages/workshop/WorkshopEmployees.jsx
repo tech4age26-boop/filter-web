@@ -17,6 +17,8 @@ import {
     updateWorkshopPortalStaff,
     updateWorkshopTechnician,
     updateWorkshopCashier,
+    convertCashierToPortalStaff,
+    convertPortalStaffToCashier,
     deleteWorkshopCashier,
     deleteWorkshopPortalStaff,
     getWorkshopBranches,
@@ -193,23 +195,46 @@ function WorkshopEmployees({
     // Job-role editing rules.
     //   • Create → any role is allowed.
     //   • Edit a portal-staff member → may switch within {manager, supervisor,
-    //     team_leader} (same `users` row; safe column change).
-    //   • Edit anyone else (cashier / technician / locker) → role is LOCKED,
-    //     because changing it would move the person between database tables.
+    //     team_leader}, or convert to cashier via dedicated convert API.
+    //   • Edit a locker portal user → may switch within {locker_supervisor,
+    //     locker_collector} (same `users` row; lockerPortalRole flip).
+    //   • Edit cashier → may convert to manager/supervisor/team_leader via a
+    //     dedicated convert API (cashier row kept deactivated for POS history).
+    //   • Edit technician → role stays LOCKED.
     const PORTAL_STAFF_JOB_ROLES = ['manager', 'supervisor', 'team_leader'];
+    const LOCKER_JOB_ROLES = ['locker_supervisor', 'locker_collector'];
     const editingRoleKey = editing
         ? String(editing.role || '').toLowerCase().replace(/\s+/g, '_')
         : '';
     const editingIsPortalStaffGroup =
         !!editing && isPortalEmployeeRow(editing) && PORTAL_STAFF_JOB_ROLES.includes(editingRoleKey);
-    const roleSelectEditable = !editing || editingIsPortalStaffGroup;
+    const editingIsLockerGroup =
+        !!editing && isPortalEmployeeRow(editing) && LOCKER_JOB_ROLES.includes(editingRoleKey);
+    const editingIsCashier =
+        !!editing &&
+        !isPortalEmployeeRow(editing) &&
+        editing._source !== 'technician' &&
+        (editingRoleKey === 'cashier' || editingRoleKey === 'staff' || editing.recordType === 'cashier');
+    const roleSelectEditable =
+        !editing || editingIsPortalStaffGroup || editingIsLockerGroup || editingIsCashier;
     const roleSelectOptions = !editing
         ? ROLE_OPTIONS
         : editingIsPortalStaffGroup
-            ? PORTAL_STAFF_JOB_ROLES
-            : ROLE_OPTIONS.includes(editingRoleKey)
-                ? [editingRoleKey]
-                : [form.role];
+            ? [...PORTAL_STAFF_JOB_ROLES, 'cashier']
+            : editingIsLockerGroup
+                ? LOCKER_JOB_ROLES
+                : editingIsCashier
+                    ? ['cashier', ...PORTAL_STAFF_JOB_ROLES]
+                    : ROLE_OPTIONS.includes(editingRoleKey)
+                        ? [editingRoleKey]
+                        : [form.role];
+    const roleHintKey = editingIsCashier
+        ? 'form.roleHintCashierConvert'
+        : editingIsPortalStaffGroup
+            ? 'form.roleHintPortalConvert'
+            : roleSelectEditable
+                ? 'form.roleHintEditable'
+                : 'form.roleHintLocked';
     const toggleDepartmentId = (id) =>
         setForm((f) => {
             const s = String(id);
@@ -694,28 +719,103 @@ function WorkshopEmployees({
             // create.
             const isTech = isEdit ? editing._source === 'technician' : asTechnician;
             const body = buildStaffPayload({ asTechnician: isTech, isEdit });
+            let permissionUserId = editing?.userId ? String(editing.userId) : '';
+            let forcePortalAfterConvert = null; // 'workshop' | 'cashier' | null
 
             if (isEdit) {
                 if (isTech) {
                     await updateWorkshopTechnician(editing.id, body);
                 } else if (isPortalEmployeeRow(editing)) {
-                    // Pass the NEW role so department fields aren't stripped when
-                    // switching TO team_leader, and send staffRole so the job role
-                    // can change within the portal-staff group (manager /
-                    // supervisor / team_leader).
-                    const patch = buildPortalStaffPatchPayload(body, form.role);
-                    patch.staffRole = form.role;
-                    const portalUserId = String(editing.userId ?? editing.id);
-                    await updateWorkshopPortalStaff(portalUserId, patch);
+                    const nextRole = String(form.role || '').toLowerCase().replace(/\s+/g, '_');
+                    const convertingToCashier = nextRole === 'cashier' || nextRole === 'staff';
+                    if (convertingToCashier) {
+                        if (!window.confirm(t('confirm.convertPortalToCashier'))) {
+                            setSaving(false);
+                            return;
+                        }
+                        const convertBody = {
+                            name: body.name,
+                            mobile: body.mobile,
+                            email: body.email,
+                            branchId: body.branchId || form.branchId,
+                            iqama: body.iqama,
+                            basicSalary: body.basicSalary,
+                            commissionPercent: body.commissionPercent,
+                            commissionType: body.commissionType,
+                        };
+                        if (body.password) convertBody.password = body.password;
+                        const portalUserId = String(editing.userId ?? editing.id);
+                        const convertRes = await convertPortalStaffToCashier(portalUserId, convertBody);
+                        permissionUserId = String(
+                            convertRes?.data?.userId ?? portalUserId,
+                        );
+                        forcePortalAfterConvert = 'cashier';
+                    } else {
+                        // Pass the NEW role so department fields aren't stripped when
+                        // switching TO team_leader, and send staffRole / lockerRole so
+                        // the job role can change within the same portal group
+                        // (manager/supervisor/team_leader or locker_supervisor/collector).
+                        const patch = buildPortalStaffPatchPayload(body, form.role);
+                        if (isLockerPortalRole(nextRole)) {
+                            patch.lockerRole =
+                                nextRole === 'locker_collector' ? 'collector' : 'supervisor';
+                            delete patch.staffRole;
+                        } else {
+                            patch.staffRole = form.role;
+                            delete patch.lockerRole;
+                        }
+                        const portalUserId = String(editing.userId ?? editing.id);
+                        await updateWorkshopPortalStaff(portalUserId, patch);
+                        permissionUserId = portalUserId;
+                    }
                 } else {
-                    await updateWorkshopCashier(editing.id, body);
+                    const nextRole = String(form.role || '').toLowerCase().replace(/\s+/g, '_');
+                    const convertingToPortal = PORTAL_STAFF_JOB_ROLES.includes(nextRole);
+                    if (convertingToPortal) {
+                        if (
+                            !window.confirm(
+                                t('confirm.convertCashierToPortal', {
+                                    role: jobRoleLabel(t, nextRole),
+                                }),
+                            )
+                        ) {
+                            setSaving(false);
+                            return;
+                        }
+                        const convertBody = {
+                            staffRole: nextRole,
+                            name: body.name,
+                            mobile: body.mobile,
+                            email: body.email,
+                            branchId: body.branchId || form.branchId,
+                            iqama: body.iqama,
+                            basicSalary: body.basicSalary,
+                            commissionPercent: body.commissionPercent,
+                            commissionType: body.commissionType,
+                        };
+                        if (nextRole === 'team_leader') {
+                            convertBody.departmentId =
+                                body.departmentId || form.teamLeaderDepartmentId;
+                        }
+                        if (body.password) convertBody.password = body.password;
+                        const convertRes = await convertCashierToPortalStaff(editing.id, convertBody);
+                        permissionUserId = String(
+                            convertRes?.data?.userId ??
+                                convertRes?.data?.id ??
+                                editing.userId ??
+                                '',
+                        );
+                        forcePortalAfterConvert = 'workshop';
+                    } else {
+                        await updateWorkshopCashier(editing.id, body);
+                    }
                 }
 
                 // Permission Role assignment — only if the dropdown was visible
                 // (employee has a User account) AND the value actually changed.
                 // Re-uses the workshop's portal-access endpoint to swap the
                 // role without touching userType or password.
-                if (editing.userId && canManagePermissions) {
+                if (permissionUserId && canManagePermissions) {
                     const currentRoleId = editing.permissionRole?.id ? String(editing.permissionRole.id) : '';
                     const nextRoleId = String(form.permissionRoleId || '');
                     if (currentRoleId !== nextRoleId) {
@@ -725,13 +825,14 @@ function WorkshopEmployees({
                         const selectedRole = nextRoleId
                             ? workshopRoles.find((r) => String(r.id) === nextRoleId)
                             : null;
-                        const currentPortal = selectedRole?.portal
+                        const currentPortal = forcePortalAfterConvert
+                            || selectedRole?.portal
                             || editing.permissionRole?.portal
                             || (editing.userType === 'cashier_user' ? 'cashier'
                                 : editing.role === 'technician'      ? 'technician'
                                 : 'workshop');
                         try {
-                            await workshopPermsApi.grantPortalAccess(editing.userId, {
+                            await workshopPermsApi.grantPortalAccess(permissionUserId, {
                                 portal: currentPortal,
                                 roleId: nextRoleId || null,
                                 password: null, // keep existing password
@@ -993,9 +1094,7 @@ function WorkshopEmployees({
                                             ))}
                                         </select>
                                         <small style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
-                                            {roleSelectEditable
-                                                ? t('form.roleHintEditable')
-                                                : t('form.roleHintLocked')}
+                                            {t(roleHintKey)}
                                         </small>
                                     </div>
 

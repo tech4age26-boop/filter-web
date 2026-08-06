@@ -11,10 +11,11 @@ export const initialReferrerForm = {
   notes: '',
 };
 
-export function formatSar(value) {
+/** @deprecated Prefer mktRefFormatSar(locale, value) from marketingReferrersI18n. */
+export function formatSar(value, locale = 'en') {
   const n = Number(value);
-  if (!Number.isFinite(n)) return 'SAR 0.00';
-  return `SAR ${n.toFixed(2)}`;
+  const amount = Number.isFinite(n) ? n.toFixed(2) : '0.00';
+  return locale === 'ar' ? `ر.س ${amount}` : `SAR ${amount}`;
 }
 
 export function humanize(value) {

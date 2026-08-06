@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { marketingGetReferralCommissionsDashboard } from '../../services/superAdminMarketingApi';
+import { mktRefFormatSar, mktRefT } from '../../utils/marketingReferrersI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
-import { formatSar, InputField, SelectField, TextAreaField } from './referrerFormShared';
+import { InputField, SelectField, TextAreaField } from './referrerFormShared';
 import './MarketingUniversal.css';
 
-function extractPayableRows(payload) {
+function extractPayableRows(payload, locale) {
   const rows = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.payableSummary)
@@ -17,7 +18,7 @@ function extractPayableRows(payload) {
 
   return rows.map((row) => ({
     id: String(row.id || row.referrerId || ''),
-    name: row.name || row.referrerName || 'Referrer',
+    name: row.name || row.referrerName || mktRefT(locale, 'fallback.referrer'),
     available: Number(row.available ?? row.availableCommission ?? 0),
   }));
 }
@@ -25,6 +26,13 @@ function extractPayableRows(payload) {
 export default function ReferrerPayoutFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktRefT(locale, key, vars), [locale]);
   const listPath = `${marketingSectionPath(location.pathname, 'referrer-management')}?tab=payout`;
 
   const [payableSummary, setPayableSummary] = useState([]);
@@ -41,60 +49,67 @@ export default function ReferrerPayoutFormPage() {
 
   useEffect(() => {
     marketingGetReferralCommissionsDashboard({ tableLimit: 100 })
-      .then((res) => setPayableSummary(extractPayableRows(res)))
+      .then((res) => setPayableSummary(extractPayableRows(res, locale)))
       .catch(() => setPayableSummary([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [locale]);
 
   const referrerOptions = [
-    { label: 'Select referrer...', value: '' },
+    { label: t('payoutForm.selectReferrer'), value: '' },
     ...payableSummary.map((item) => ({
-      label: `${item.name} - ${formatSar(item.available)}`,
+      label: t('payoutForm.optionLabel', {
+        name: item.name,
+        amount: mktRefFormatSar(locale, item.available),
+      }),
       value: item.id,
     })),
   ];
 
   return (
     <MarketingFormShell
-      title="New Payout Request"
-      subtitle="Create a payout request for a referrer."
-      backLabel="Back to Payout Queue"
+      title={t('payoutForm.title')}
+      subtitle={t('payoutForm.subtitle')}
+      backLabel={t('payoutForm.back')}
       onBack={goBack}
       className="mk-page mkp-form-page"
     >
       {loading ? (
-        <div className="mk-panel-empty">Loading...</div>
+        <div className="mk-panel-empty">{t('form.loading')}</div>
       ) : (
-        <div className="mkp-form-page-body">
+        <div className="mkp-form-page-body" dir={locale === 'ar' ? 'rtl' : undefined}>
           <div className="mk-ref-form-grid">
             <SelectField
-              label="Referrer"
+              label={t('payoutForm.referrer')}
               required
               value={form.referrer}
               onChange={(value) => setForm((prev) => ({ ...prev, referrer: value }))}
               options={referrerOptions}
             />
             <InputField
-              label="Amount (SAR)"
+              label={t('payoutForm.amount')}
               required
               value={form.amount}
               onChange={(value) => setForm((prev) => ({ ...prev, amount: value }))}
-              placeholder="0.00"
+              placeholder={t('payoutForm.amountPh')}
             />
             <SelectField
-              label="Payment Method"
+              label={t('payoutForm.method')}
               value={form.method}
               onChange={(value) => setForm((prev) => ({ ...prev, method: value }))}
-              options={['Bank Transfer', 'Cash', 'Cheque']}
+              options={[
+                { value: 'Bank Transfer', label: t('payoutForm.bankTransfer') },
+                { value: 'Cash', label: t('payoutForm.cash') },
+                { value: 'Cheque', label: t('payoutForm.cheque') },
+              ]}
             />
             <SelectField
-              label="Payment Account (COA)"
+              label={t('payoutForm.coa')}
               value={form.coa}
               onChange={(value) => setForm((prev) => ({ ...prev, coa: value }))}
-              options={[{ label: 'Select account...', value: '' }]}
+              options={[{ label: t('payoutForm.selectAccount'), value: '' }]}
             />
             <TextAreaField
-              label="Notes"
+              label={t('form.notes')}
               value={form.notes}
               onChange={(value) => setForm((prev) => ({ ...prev, notes: value }))}
             />
@@ -102,17 +117,17 @@ export default function ReferrerPayoutFormPage() {
 
           <div className="mkp-form-page-footer">
             <button type="button" className="mk-ref-secondary-btn" onClick={goBack}>
-              Cancel
+              {t('form.cancel')}
             </button>
             <button
               type="button"
               className="mk-ref-primary-btn"
               onClick={() => {
-                alert('Payout create/process endpoint is not exposed yet.');
+                alert(t('payoutForm.notExposed'));
                 goBack();
               }}
             >
-              Create Request
+              {t('payoutForm.create')}
             </button>
           </div>
         </div>

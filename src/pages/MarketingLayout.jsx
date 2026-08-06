@@ -37,10 +37,15 @@ import MarketingPlatformChatPage from './marketing/MarketingPlatformChatPage';
 import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
 import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
 import { isPlatformChatNavId } from '../utils/platformChatForUser';
+import { marketingT } from '../utils/marketingI18n';
 
-function resolveSessionUserLabel(user) {
+function resolveSessionUserLabel(user, locale) {
     if (!user) {
-        return { name: 'User', role: '—', initial: 'U' };
+        return {
+            name: marketingT(locale, 'session.user'),
+            role: '—',
+            initial: 'U',
+        };
     }
     const name =
         user.name ||
@@ -48,12 +53,12 @@ function resolveSessionUserLabel(user) {
         user.email ||
         user.username ||
         user.mobile ||
-        'User';
+        marketingT(locale, 'session.user');
     const role =
         user.role?.name ||
         (user.userType === 'platform_admin'
-            ? 'Super Admin'
-            : String(user.userType || 'User').replace(/_/g, ' '));
+            ? marketingT(locale, 'session.superAdmin')
+            : String(user.userType || marketingT(locale, 'session.user')).replace(/_/g, ' '));
     const initial = String(name).trim().charAt(0).toUpperCase() || 'U';
     return { name, role, initial };
 }
@@ -108,126 +113,136 @@ function formatWalletBalance(value, currency = 'SAR') {
     })} ${currency}`;
 }
 
-const PAGE_TITLES = {
-    dashboard: 'Dashboard',
-    campaigns: 'Campaigns',
-    'campaign-requests': 'Campaign Requests',
-    'referral-management': 'Marketing Wallet',
-    expenses: 'Expenses',
-    'referral-types-rules': 'Expenses',
-    'analytics-roi': 'Analytics & ROI',
-    'campaign-reports': 'Campaign Reports',
-    'ad-platforms': 'Ad Platforms',
-    'budget-optimizer': 'Budget Optimizer',
-    integrations: 'Integrations & API Keys',
-    'influencer-referrers': 'Influencer / Referrers',
-    'customer-insights': 'Customer Insight',
-    'referrer-management': 'Referrer Management',
-    'marketing-promotions': 'Promotions',
-    'promo-codes': 'Promo Codes',
-    'tier-management': 'Tier Management',
-    chat: 'Chat',
-    'sales-reports': 'Sales Reports',
-    'sales-orders': 'Sales Orders',
+const PAGE_TITLE_KEYS = {
+    dashboard: 'title.dashboard',
+    campaigns: 'title.campaigns',
+    'campaign-requests': 'title.campaignRequests',
+    'referral-management': 'title.marketingWallet',
+    expenses: 'title.expenses',
+    'referral-types-rules': 'title.expenses',
+    'analytics-roi': 'title.analyticsRoi',
+    'campaign-reports': 'title.campaignReports',
+    'ad-platforms': 'title.adPlatforms',
+    'budget-optimizer': 'title.budgetOptimizer',
+    integrations: 'title.integrations',
+    'influencer-referrers': 'title.influencerReferrers',
+    'customer-insights': 'title.customerInsights',
+    'referrer-management': 'title.referrerManagement',
+    'marketing-promotions': 'title.promotions',
+    'promo-codes': 'title.promoCodes',
+    'tier-management': 'title.tierManagement',
+    chat: 'title.chat',
+    'sales-reports': 'title.salesReports',
+    'sales-orders': 'title.salesOrders',
 };
 
-function getPageTitle(pathname) {
+function getPageTitle(pathname, locale) {
     const parts = pathname.split('/').filter(Boolean);
     const last = parts[parts.length - 1] || 'dashboard';
     const prev = parts[parts.length - 2] || '';
 
     if (last === 'new') {
-        if (prev === 'promo-codes') return 'Generate Promo Code';
-        if (prev === 'campaigns') return 'New Campaign';
-        if (prev === 'marketing-promotions' || (prev === 'promotions' && parts.includes('marketing'))) return 'New Promotion';
-        if (prev === 'expenses' || prev === 'referral-types-rules') return 'New Expense';
-        if (prev === 'influencer-referrers') return 'Add Influencer';
-        if (prev === 'referrers') return 'Add Referrer';
-        if (prev === 'rules') return 'New Commission Rule';
-        if (prev === 'payouts') return 'New Payout Request';
-        if (last === 'budget-request' || prev === 'budget-request') return 'Request Budget Top-up';
-        return 'New';
+        if (prev === 'promo-codes') return marketingT(locale, 'title.newPromoCode');
+        if (prev === 'campaigns') return marketingT(locale, 'title.newCampaign');
+        if (prev === 'marketing-promotions' || (prev === 'promotions' && parts.includes('marketing'))) {
+            return marketingT(locale, 'title.newPromotion');
+        }
+        if (prev === 'expenses' || prev === 'referral-types-rules') {
+            return marketingT(locale, 'title.newExpense');
+        }
+        if (prev === 'influencer-referrers') return marketingT(locale, 'title.addInfluencer');
+        if (prev === 'referrers') return marketingT(locale, 'title.addReferrer');
+        if (prev === 'rules') return marketingT(locale, 'title.newCommissionRule');
+        if (prev === 'payouts') return marketingT(locale, 'title.newPayoutRequest');
+        if (last === 'budget-request' || prev === 'budget-request') {
+            return marketingT(locale, 'title.requestBudgetTopup');
+        }
+        return marketingT(locale, 'title.new');
     }
     if (last === 'edit') {
-        if (prev === 'campaigns') return 'Edit Campaign';
-        if (prev === 'influencer-referrers') return 'Edit Influencer';
-        if (prev === 'referrers') return 'Edit Referrer';
-        if (prev === 'expenses' || prev === 'referral-types-rules') return 'Edit Expense';
-        return 'Edit Promotion';
+        if (prev === 'campaigns') return marketingT(locale, 'title.editCampaign');
+        if (prev === 'influencer-referrers') return marketingT(locale, 'title.editInfluencer');
+        if (prev === 'referrers') return marketingT(locale, 'title.editReferrer');
+        if (prev === 'expenses' || prev === 'referral-types-rules') {
+            return marketingT(locale, 'title.editExpense');
+        }
+        return marketingT(locale, 'title.editPromotion');
     }
-    if (last === 'configure') return 'Configure Platform';
-    if (last === 'budget-request') return 'Request Budget Top-up';
+    if (last === 'configure') return marketingT(locale, 'title.configurePlatform');
+    if (last === 'budget-request') return marketingT(locale, 'title.requestBudgetTopup');
 
-    return PAGE_TITLES[last] || 'Dashboard';
+    const key = PAGE_TITLE_KEYS[last] || 'title.dashboard';
+    return marketingT(locale, key);
 }
 
 const NAV_CONFIG = [
     {
-        section: null,
+        sectionKey: null,
         items: [
-            { label: 'Dashboard', path: 'dashboard', icon: LayoutDashboard },
-            { label: 'My Wallet', path: 'my-wallet', icon: Wallet, walletRequired: true },
-            { label: 'Chat', path: 'chat', icon: MessageCircle, navId: 'chat' },
+            { labelKey: 'nav.dashboard', path: 'dashboard', icon: LayoutDashboard },
+            { labelKey: 'nav.myWallet', path: 'my-wallet', icon: Wallet, walletRequired: true },
+            { labelKey: 'nav.chat', path: 'chat', icon: MessageCircle, navId: 'chat' },
         ],
     },
     {
-        section: 'CAMPAIGNS',
+        sectionKey: 'section.campaigns',
         items: [
-            { label: 'Campaigns', path: 'campaigns', icon: Megaphone },
-            { label: 'Campaign Requests', path: 'campaign-requests', icon: Ticket },
+            { labelKey: 'nav.campaigns', path: 'campaigns', icon: Megaphone },
+            { labelKey: 'nav.campaignRequests', path: 'campaign-requests', icon: Ticket },
         ],
     },
     {
-        section: 'FINANCE',
+        sectionKey: 'section.finance',
         items: [
-            { label: 'Marketing Wallet', path: 'referral-management', icon: Wallet },
-            { label: 'Expenses', path: 'expenses', icon: FileText },
+            { labelKey: 'nav.marketingWallet', path: 'referral-management', icon: Wallet },
+            { labelKey: 'nav.expenses', path: 'expenses', icon: FileText },
             {
-                label: 'Sales',
+                labelKey: 'nav.sales',
                 path: 'sales',
                 icon: BadgeDollarSign,
                 subItems: [
-                    { label: 'Sales Reports', path: 'sales-reports' },
-                    { label: 'Sales Orders', path: 'sales-orders' },
+                    { labelKey: 'nav.salesReports', path: 'sales-reports' },
+                    { labelKey: 'nav.salesOrders', path: 'sales-orders' },
                 ],
             },
         ],
     },
     {
-        section: 'ANALYTICS',
+        sectionKey: 'section.analytics',
         items: [
-            { label: 'Analytics & ROI', path: 'analytics-roi', icon: LineChart },
-            { label: 'Campaign Reports', path: 'campaign-reports', icon: FileText },
-            { label: 'Ad Platforms', path: 'ad-platforms', icon: Shield },
-            { label: 'Budget Optimizer', path: 'budget-optimizer', icon: Gift },
-            { label: 'Influencer / Referrers', path: 'influencer-referrers', icon: Users },
-            { label: 'Referrer Management', path: 'referrer-management', icon: Star },
-            { label: 'Customer Insight', path: 'customer-insights', icon: Eye },
+            { labelKey: 'nav.analyticsRoi', path: 'analytics-roi', icon: LineChart },
+            { labelKey: 'nav.campaignReports', path: 'campaign-reports', icon: FileText },
+            { labelKey: 'nav.adPlatforms', path: 'ad-platforms', icon: Shield },
+            { labelKey: 'nav.budgetOptimizer', path: 'budget-optimizer', icon: Gift },
+            { labelKey: 'nav.influencerReferrers', path: 'influencer-referrers', icon: Users },
+            { labelKey: 'nav.referrerManagement', path: 'referrer-management', icon: Star },
+            { labelKey: 'nav.customerInsights', path: 'customer-insights', icon: Eye },
         ],
     },
     {
-        section: 'PROMOTIONS',
+        sectionKey: 'section.promotions',
         items: [
-            { label: 'Promotions', path: 'marketing-promotions', icon: Tags },
-            { label: 'Promo Codes', path: 'promo-codes', icon: Gift },
-            { label: 'Tier Management', path: 'tier-management', icon: Award },
+            { labelKey: 'nav.promotions', path: 'marketing-promotions', icon: Tags },
+            { labelKey: 'nav.promoCodes', path: 'promo-codes', icon: Gift },
+            { labelKey: 'nav.tierManagement', path: 'tier-management', icon: Award },
         ],
     },
     {
-        section: 'SETTINGS',
+        sectionKey: 'section.settings',
         items: [
-            { label: 'Integrations & API Keys', path: 'integrations', icon: Plug },
+            { labelKey: 'nav.integrations', path: 'integrations', icon: Plug },
         ],
     },
 ];
 
-const SidebarNavItem = ({ item, basePath }) => {
+const SidebarNavItem = ({ item, basePath, locale }) => {
     const location = useLocation();
     const [open, setOpen] = useState(false);
     const hasSub = Array.isArray(item.subItems) && item.subItems.length > 0;
     const isParentActive = hasSub
         ? item.subItems.some((sub) => location.pathname.startsWith(`${basePath}/${sub.path}`))
         : location.pathname.startsWith(`${basePath}/${item.path}`);
+    const label = marketingT(locale, item.labelKey);
 
     useEffect(() => {
         if (isParentActive) setOpen(true);
@@ -250,7 +265,7 @@ const SidebarNavItem = ({ item, basePath }) => {
                 >
                     <div className="flex items-center gap-4">
                         <item.icon size={20} />
-                        <span className="nav-label">{item.label}</span>
+                        <span className="nav-label">{label}</span>
                     </div>
                     {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </div>
@@ -270,7 +285,9 @@ const SidebarNavItem = ({ item, basePath }) => {
                                         `nav-sub-link ${isActive ? 'active' : ''}`
                                     }
                                 >
-                                    <span className="sub-nav-label">{sub.label}</span>
+                                    <span className="sub-nav-label">
+                                        {marketingT(locale, sub.labelKey)}
+                                    </span>
                                 </NavLink>
                             ))}
                         </motion.div>
@@ -287,7 +304,7 @@ const SidebarNavItem = ({ item, basePath }) => {
                 className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
             >
                 <item.icon size={20} />
-                <span className="nav-label">{item.label}</span>
+                <span className="nav-label">{label}</span>
                 {isPlatformChatNavId(item.navId || item.path) && <PlatformChatNavBadge />}
             </NavLink>
         </div>
@@ -298,11 +315,12 @@ export default function MarketingLayout() {
     const location = useLocation();
     const navigate = useNavigate();
     const { user, logout } = useAuth();
-    const sessionUser = resolveSessionUserLabel(user);
 
     const [locale, setLocale] = useState(
         () => localStorage.getItem('marketing-locale') || 'en'
     );
+    const sessionUser = resolveSessionUserLabel(user, locale);
+
     const [showAddModal, setShowAddModal] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -376,6 +394,7 @@ export default function MarketingLayout() {
         document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
         document.documentElement.lang = locale === 'ar' ? 'ar' : 'en';
         localStorage.setItem('marketing-locale', locale);
+        localStorage.setItem('portal-locale', locale);
     }, [locale]);
 
     const handleLogout = () => {
@@ -385,7 +404,7 @@ export default function MarketingLayout() {
         navigate('/');
     };
 
-    const pageTitle = getPageTitle(location.pathname);
+    const pageTitle = getPageTitle(location.pathname, locale);
     const marketingBasePath = location.pathname.startsWith('/admin/marketing')
         ? '/admin/marketing'
         : '/marketing';
@@ -432,16 +451,18 @@ export default function MarketingLayout() {
                     <h2 className="logo-main">
                         FILTER <span className="logo-sub">ERP</span>
                     </h2>
-                    <p className="logo-desc">Marketing &amp; Care Portal</p>
+                    <p className="logo-desc">{marketingT(locale, 'layout.logoDesc')}</p>
                 </div>
 
                 <div className="marketing-sidebar-wallet">
-                    <div className="marketing-sidebar-wallet-label">Wallet Balance</div>
+                    <div className="marketing-sidebar-wallet-label">
+                        {marketingT(locale, 'layout.walletBalance')}
+                    </div>
                     <div className="marketing-sidebar-wallet-value">
                         <Wallet size={16} strokeWidth={2} />
                         <span>
                             {walletLoading
-                                ? 'Loading…'
+                                ? marketingT(locale, 'layout.loading')
                                 : formatWalletBalance(walletBalance, walletCurrency)}
                         </span>
                     </div>
@@ -449,15 +470,18 @@ export default function MarketingLayout() {
 
                 <nav className="sidebar-nav">
                     {visibleNavConfig.map((sec, index) => (
-                        <div key={sec.section || `main-${index}`}>
-                            {sec.section ? (
-                                <div className="sidebar-section-label">{sec.section}</div>
+                        <div key={sec.sectionKey || `main-${index}`}>
+                            {sec.sectionKey ? (
+                                <div className="sidebar-section-label">
+                                    {marketingT(locale, sec.sectionKey)}
+                                </div>
                             ) : null}
                             {sec.items.map((item) => (
                                 <SidebarNavItem
-                                    key={`${sec.section || 'main'}-${item.path}-${item.label}`}
+                                    key={`${sec.sectionKey || 'main'}-${item.path}-${item.labelKey}`}
                                     item={item}
                                     basePath={marketingBasePath}
+                                    locale={locale}
                                 />
                             ))}
                         </div>
@@ -498,7 +522,7 @@ export default function MarketingLayout() {
                             </button>
                             <div>
                                 <h1 className="page-title">{pageTitle.toUpperCase()}</h1>
-                                <p className="page-subtitle">Marketing &amp; Care Portal</p>
+                                <p className="page-subtitle">{marketingT(locale, 'layout.logoDesc')}</p>
                             </div>
                         </div>
                     </div>

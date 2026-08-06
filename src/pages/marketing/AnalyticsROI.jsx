@@ -1,32 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { marketingGetAnalyticsRoi } from '../../services/superAdminMarketingApi';
+import {
+  mktCampT,
+  mktCampMoney,
+  mktCampPlatformLabel,
+} from '../../utils/marketingCampaignsI18n';
 import './MarketingUniversal.css';
 
-function formatSar(value) {
+function formatPercent(locale, value) {
   const n = Number(value);
-
-  if (!Number.isFinite(n)) return '0 SAR';
-
-  return `${n.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  })} SAR`;
-}
-
-function formatPercent(value) {
-  const n = Number(value);
-
-  if (!Number.isFinite(n)) return '0%';
-
-  return `${Math.round(n)}%`;
-}
-
-function humanize(value) {
-  return String(value || '')
-    .replace(/_/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
+  const raw = Number.isFinite(n) ? Math.round(n) : 0;
+  return mktCampT(locale, 'roi.percent', { value: raw });
 }
 
 function calcRoi(spent, revenue) {
@@ -38,13 +23,13 @@ function calcRoi(spent, revenue) {
   return ((r - s) / s) * 100;
 }
 
-function normalizeCampaign(row) {
+function normalizeCampaign(row, defaultName) {
   const spent = Number(row.spend ?? row.budgetSpent ?? row.budgetSpent ?? 0);
   const revenue = Number(row.revenue ?? row.revenueGenerated ?? 0);
 
   return {
     id: String(row.id || ''),
-    name: row.name || row.campaignName || 'Campaign',
+    name: row.name || row.campaignName || defaultName,
     platform: row.platform || 'meta',
     spent,
     revenue,
@@ -54,14 +39,14 @@ function normalizeCampaign(row) {
   };
 }
 
-function extractCampaigns(payload) {
+function extractCampaigns(payload, defaultName) {
   const rows = Array.isArray(payload?.campaigns)
     ? payload.campaigns
     : Array.isArray(payload?.data?.campaigns)
       ? payload.data.campaigns
       : [];
 
-  return rows.map(normalizeCampaign);
+  return rows.map((row) => normalizeCampaign(row, defaultName));
 }
 
 const AnalyticsStatCard = ({ title, value, color }) => {
@@ -76,7 +61,7 @@ const AnalyticsStatCard = ({ title, value, color }) => {
   );
 };
 
-const RoiChart = ({ platforms }) => {
+const RoiChart = ({ platforms, title }) => {
   const yTicks = [0, 1, 2, 3, 4];
   const platformRows = Array.isArray(platforms) && platforms.length > 0
     ? platforms
@@ -84,7 +69,7 @@ const RoiChart = ({ platforms }) => {
 
   return (
     <section className="mk-card mk-analytics-chart-card mk-roi-chart-card">
-      <h3 className="mk-card-title">ROI by Platform (%)</h3>
+      <h3 className="mk-card-title">{title}</h3>
 
       <div className="mk-analytics-chart-wrap">
         <svg
@@ -165,6 +150,14 @@ const RoiChart = ({ platforms }) => {
 };
 
 export const AnalyticsROI = () => {
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktCampT(locale, key, vars), [locale]);
+
   const [campaigns, setCampaigns] = useState([]);
   const [platforms, setPlatforms] = useState([]);
   const [summary, setSummary] = useState({
@@ -175,7 +168,7 @@ export const AnalyticsROI = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -184,7 +177,7 @@ export const AnalyticsROI = () => {
         status: 'all',
       });
 
-      const rows = extractCampaigns(res);
+      const rows = extractCampaigns(res, t('campaign.default'));
       const apiSummary = res?.summary || {};
 
       setCampaigns(rows);
@@ -202,17 +195,17 @@ export const AnalyticsROI = () => {
         roiPercent,
       });
     } catch (err) {
-      setError(err?.message || 'Failed to load ROI analytics.');
+      setError(err?.message || t('roi.errLoad'));
       setCampaigns([]);
       setPlatforms([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     loadAnalytics();
-  }, []);
+  }, [loadAnalytics]);
 
   const tableRows = useMemo(() => campaigns, [campaigns]);
 
@@ -222,41 +215,41 @@ export const AnalyticsROI = () => {
 
       <div className="mk-analytics-stats-grid mk-roi-three-stats">
         <AnalyticsStatCard
-          title="Total Spent"
-          value={formatSar(summary.totalSpend)}
+          title={t('roi.totalSpent')}
+          value={mktCampMoney(locale, summary.totalSpend)}
           color="#EF4444"
         />
 
         <AnalyticsStatCard
-          title="Total Revenue"
-          value={formatSar(summary.totalRevenue)}
+          title={t('roi.totalRevenue')}
+          value={mktCampMoney(locale, summary.totalRevenue)}
           color="#059669"
         />
 
         <AnalyticsStatCard
-          title="Overall ROI"
-          value={formatPercent(summary.roiPercent)}
+          title={t('roi.overallRoi')}
+          value={formatPercent(locale, summary.roiPercent)}
           color="#059669"
         />
       </div>
 
-      <RoiChart platforms={platforms} />
+      <RoiChart platforms={platforms} title={t('roi.chartTitle')} />
 
       <section className="mk-card mk-analytics-performance-card">
         <div className="mk-analytics-performance-header">
-          <h3 className="mk-card-title">Campaign Performance</h3>
+          <h3 className="mk-card-title">{t('roi.performance')}</h3>
         </div>
 
         <table className="mk-table mk-analytics-table mk-roi-performance-table">
           <thead>
             <tr>
-              <th>Campaign</th>
-              <th>Platform</th>
-              <th>Spent (SAR)</th>
-              <th>Revenue (SAR)</th>
-              <th>ROI %</th>
-              <th>Leads</th>
-              <th>Conversions</th>
+              <th>{t('roi.th.campaign')}</th>
+              <th>{t('roi.th.platform')}</th>
+              <th>{t('roi.th.spent')}</th>
+              <th>{t('roi.th.revenue')}</th>
+              <th>{t('roi.th.roi')}</th>
+              <th>{t('roi.th.leads')}</th>
+              <th>{t('roi.th.conversions')}</th>
             </tr>
           </thead>
 
@@ -264,23 +257,23 @@ export const AnalyticsROI = () => {
             {loading ? (
               <tr>
                 <td colSpan={7} className="mk-empty-table">
-                  Loading analytics...
+                  {t('roi.loading')}
                 </td>
               </tr>
             ) : tableRows.length === 0 ? (
               <tr>
                 <td colSpan={7} className="mk-empty-table">
-                  No campaign performance found
+                  {t('roi.empty')}
                 </td>
               </tr>
             ) : (
               tableRows.map((item) => (
                 <tr key={item.id}>
                   <td className="mk-td-bold">{item.name}</td>
-                  <td>{humanize(item.platform)}</td>
+                  <td>{mktCampPlatformLabel(locale, item.platform)}</td>
                   <td>{Number(item.spent || 0).toLocaleString()}</td>
                   <td>{Number(item.revenue || 0).toLocaleString()}</td>
-                  <td className="mk-td-bold">{formatPercent(item.roi)}</td>
+                  <td className="mk-td-bold">{formatPercent(locale, item.roi)}</td>
                   <td>{item.leads}</td>
                   <td>{item.conversions}</td>
                 </tr>

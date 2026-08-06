@@ -1,5 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from 'react-router-dom';
+
 import { Building2, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -7,6 +13,7 @@ import {
   marketingGetCampaign,
   marketingUpdateCampaign,
 } from '../../services/superAdminMarketingApi';
+import { mktCampT } from '../../utils/marketingCampaignsI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
@@ -16,23 +23,6 @@ import {
   MultiSelectApiField,
 } from './marketingPromotionShared';
 import './MarketingUniversal.css';
-
-const PLATFORMS = [
-  { value: 'meta', label: 'Meta' },
-  { value: 'google_ads', label: 'Google Ads' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'snapchat', label: 'Snapchat' },
-  { value: 'influencer', label: 'Influencer' },
-  { value: 'offline', label: 'Offline' },
-];
-
-const TYPES = [
-  { value: 'brand_awareness', label: 'Brand Awareness' },
-  { value: 'lead_generation', label: 'Lead Generation' },
-  { value: 'conversion', label: 'Conversion' },
-  { value: 'retention', label: 'Retention' },
-  { value: 'seasonal', label: 'Seasonal' },
-];
 
 const EMPTY = {
   campaignName: '',
@@ -60,6 +50,36 @@ export default function MarketingCampaignFormPage() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const listPath = marketingSectionPath(location.pathname, 'campaigns');
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktCampT(locale, key, vars), [locale]);
+
+  const PLATFORMS = useMemo(
+    () => [
+      { value: 'meta', label: t('platform.meta') },
+      { value: 'google_ads', label: t('platform.google_ads') },
+      { value: 'tiktok', label: t('platform.tiktok') },
+      { value: 'snapchat', label: t('platform.snapchat') },
+      { value: 'influencer', label: t('platform.influencer') },
+      { value: 'offline', label: t('platform.offline') },
+    ],
+    [t],
+  );
+
+  const TYPES = useMemo(
+    () => [
+      { value: 'brand_awareness', label: t('type.brand_awareness') },
+      { value: 'lead_generation', label: t('type.lead_generation') },
+      { value: 'conversion', label: t('type.conversion') },
+      { value: 'retention', label: t('type.retention') },
+      { value: 'seasonal', label: t('type.seasonal') },
+    ],
+    [t],
+  );
 
   const [form, setForm] = useState(EMPTY);
   const [loading, setLoading] = useState(isEdit);
@@ -80,7 +100,7 @@ export default function MarketingCampaignFormPage() {
         setWorkshops(data.workshops);
         setBranches(data.branches);
       } catch (err) {
-        if (active) setDropdownError(err?.message || 'Failed to load workshops/branches.');
+        if (active) setDropdownError(err?.message || t('form.errDropdowns'));
       } finally {
         if (active) setLoadingDropdowns(false);
       }
@@ -88,7 +108,7 @@ export default function MarketingCampaignFormPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -114,7 +134,7 @@ export default function MarketingCampaignFormPage() {
           targetBranchIds: branchIds,
         });
       } catch (err) {
-        alert(err?.message || 'Campaign load failed.');
+        alert(err?.message || t('form.errLoad'));
       } finally {
         if (active) setLoading(false);
       }
@@ -122,7 +142,7 @@ export default function MarketingCampaignFormPage() {
     return () => {
       active = false;
     };
-  }, [id, isEdit]);
+  }, [id, isEdit, t]);
 
   const branchOptions = useMemo(() => {
     if (!form.workshopId) return branches;
@@ -176,11 +196,11 @@ export default function MarketingCampaignFormPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.campaignName.trim()) {
-      alert('Campaign name is required.');
+      alert(t('form.errName'));
       return;
     }
     if (form.startDate && form.endDate && form.endDate < form.startDate) {
-      alert('End date must be on or after start date.');
+      alert(t('form.errDates'));
       return;
     }
 
@@ -191,12 +211,12 @@ export default function MarketingCampaignFormPage() {
       else {
         await marketingCreateCampaign(payload);
         if (user?.userType === 'marketing_user') {
-          alert('Campaign submitted for Super Admin approval.');
+          alert(t('form.submitted'));
         }
       }
       navigate(listPath);
     } catch (err) {
-      alert(err?.message || 'Save failed.');
+      alert(err?.message || t('form.errSave'));
     } finally {
       setSubmitting(false);
     }
@@ -204,9 +224,9 @@ export default function MarketingCampaignFormPage() {
 
   return (
     <MarketingFormShell
-      title={isEdit ? 'Edit Campaign' : 'New Campaign'}
-      subtitle="Create a marketing ad campaign with platform, budget, dates and branch targeting."
-      backLabel="Back to Campaigns"
+      title={isEdit ? t('form.titleEdit') : t('form.titleNew')}
+      subtitle={t('form.subtitle')}
+      backLabel={t('form.back')}
       onBack={() => navigate(listPath)}
       className="mk-page mkp-form-page mk-camp-form-page"
     >
@@ -217,19 +237,19 @@ export default function MarketingCampaignFormPage() {
       ) : (
         <form onSubmit={handleSubmit} className="mkp-form-page-body mk-camp-form-card">
           <div className="mkp-form-group">
-            <label className="mkp-label">Campaign Name *</label>
+            <label className="mkp-label">{t('form.name')}</label>
             <input
               className="mkp-input"
               value={form.campaignName}
               onChange={(e) => update('campaignName', e.target.value)}
-              placeholder="Campaign name"
+              placeholder={t('form.namePlaceholder')}
               autoFocus
             />
           </div>
 
           <div className="mkp-two-col">
             <div className="mkp-form-group">
-              <label className="mkp-label">Platform</label>
+              <label className="mkp-label">{t('form.platform')}</label>
               <SelectField
                 value={form.platform}
                 onChange={(value) => update('platform', value)}
@@ -238,7 +258,7 @@ export default function MarketingCampaignFormPage() {
             </div>
 
             <div className="mkp-form-group">
-              <label className="mkp-label">Type</label>
+              <label className="mkp-label">{t('form.type')}</label>
               <SelectField
                 value={form.campaignType}
                 onChange={(value) => update('campaignType', value)}
@@ -249,7 +269,7 @@ export default function MarketingCampaignFormPage() {
 
           <div className="mkp-two-col">
             <div className="mkp-form-group">
-              <label className="mkp-label">Start Date</label>
+              <label className="mkp-label">{t('form.startDate')}</label>
               <input
                 type="date"
                 className="mkp-input"
@@ -259,7 +279,7 @@ export default function MarketingCampaignFormPage() {
             </div>
 
             <div className="mkp-form-group">
-              <label className="mkp-label">End Date</label>
+              <label className="mkp-label">{t('form.endDate')}</label>
               <input
                 type="date"
                 className="mkp-input"
@@ -270,7 +290,7 @@ export default function MarketingCampaignFormPage() {
           </div>
 
           <div className="mkp-form-group">
-            <label className="mkp-label">Budget Allocated (SAR)</label>
+            <label className="mkp-label">{t('form.budget')}</label>
             <input
               type="number"
               min="0"
@@ -282,21 +302,21 @@ export default function MarketingCampaignFormPage() {
           </div>
 
           <div className="mkp-section">
-            <div className="mkp-section-title">Targeting</div>
+            <div className="mkp-section-title">{t('form.targeting')}</div>
 
             <SingleSelectApiField
-              label="Workshop"
+              label={t('form.workshop')}
               icon={Building2}
               options={workshops}
               value={form.workshopId}
               onChange={handleWorkshopChange}
               loading={loadingDropdowns}
               error={dropdownError}
-              placeholder="Search and select workshop"
+              placeholder={t('form.workshopPlaceholder')}
             />
 
             <MultiSelectApiField
-              label="Branches (select one or more for this campaign)"
+              label={t('form.branches')}
               icon={Building2}
               options={branchOptions}
               selectedIds={form.targetBranchIds}
@@ -305,20 +325,20 @@ export default function MarketingCampaignFormPage() {
               error={dropdownError}
               placeholder={
                 form.workshopId
-                  ? 'Search branches for selected workshop'
-                  : 'Select a workshop first'
+                  ? t('form.branchesPlaceholderWorkshop')
+                  : t('form.branchesPlaceholderFirst')
               }
             />
           </div>
 
           <div className="mkp-form-group">
-            <label className="mkp-label">Notes</label>
+            <label className="mkp-label">{t('form.notes')}</label>
             <textarea
               className="mkp-textarea"
               value={form.notes}
               onChange={(e) => update('notes', e.target.value)}
               rows={4}
-              placeholder="Optional notes for this campaign"
+              placeholder={t('form.notesPlaceholder')}
             />
           </div>
 
@@ -329,14 +349,14 @@ export default function MarketingCampaignFormPage() {
               className="mkp-cancel-btn"
               disabled={submitting}
             >
-              Cancel
+              {t('form.cancel')}
             </button>
             <button
               type="submit"
               className="mk-camp-submit-btn"
               disabled={submitting}
             >
-              {submitting ? 'Saving...' : isEdit ? 'Save Campaign' : 'Save Campaign'}
+              {submitting ? t('form.saving') : t('form.save')}
             </button>
           </div>
         </form>
