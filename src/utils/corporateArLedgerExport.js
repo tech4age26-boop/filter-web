@@ -484,11 +484,25 @@ function getLedgerInvoiceLines(ledgerStatement, statement) {
     });
 }
 
+/** Calendar date as UTC midnight so month splits don't shift with local TZ. */
 function parseIsoDate(s) {
     if (!s) return null;
     const raw = String(s).trim();
-    const d = new Date(raw.includes('T') ? raw : `${raw}T00:00:00`);
+    const ymd = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (ymd) {
+        const d = new Date(`${ymd[1]}T00:00:00.000Z`);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(raw);
     return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function utcYmdParts(d) {
+    return {
+        y: d.getUTCFullYear(),
+        m: d.getUTCMonth(),
+        day: d.getUTCDate(),
+    };
 }
 
 function ordinalSuffix(n) {
@@ -510,34 +524,34 @@ const MONTH_NAMES_AR = [
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ];
 
-/** Bill summary date column — e.g. 1-Mar-26 */
+/** Bill summary date column — e.g. 1-Mar-26 (UTC calendar day). */
 function formatBillGeneratedDateLabel(d) {
-    const day = d.getDate();
-    const mon = MONTH_NAMES_EN_SHORT[d.getMonth()];
-    const yr = String(d.getFullYear()).slice(-2);
+    const { y, m, day } = utcYmdParts(d);
+    const mon = MONTH_NAMES_EN_SHORT[m];
+    const yr = String(y).slice(-2);
     return `${day}-${mon}-${yr}`;
 }
 
 function formatPeriodPhraseStart(d) {
-    const day = d.getDate();
+    const { m, day } = utcYmdParts(d);
     const pad = String(day).padStart(2, '0');
-    return `${pad}${ordinalSuffix(day)} ${MONTH_NAMES_EN[d.getMonth()]}`;
+    return `${pad}${ordinalSuffix(day)} ${MONTH_NAMES_EN[m]}`;
 }
 
 function formatPeriodPhraseEnd(d) {
-    const day = d.getDate();
+    const { y, m, day } = utcYmdParts(d);
     const pad = String(day).padStart(2, '0');
-    return `${pad}${ordinalSuffix(day)} ${MONTH_NAMES_EN[d.getMonth()]} ${d.getFullYear()}`;
+    return `${pad}${ordinalSuffix(day)} ${MONTH_NAMES_EN[m]} ${y}`;
 }
 
 function formatPeriodPhraseStartAr(d) {
-    const day = d.getDate();
-    return `${day} ${MONTH_NAMES_AR[d.getMonth()]}`;
+    const { m, day } = utcYmdParts(d);
+    return `${day} ${MONTH_NAMES_AR[m]}`;
 }
 
 function formatPeriodPhraseEndAr(d) {
-    const day = d.getDate();
-    return `${day} ${MONTH_NAMES_AR[d.getMonth()]} ${d.getFullYear()}`;
+    const { y, m, day } = utcYmdParts(d);
+    return `${day} ${MONTH_NAMES_AR[m]} ${y}`;
 }
 
 function buildMonthlyBillDescriptionEn(start, end) {
@@ -548,24 +562,24 @@ function buildMonthlyBillDescriptionAr(start, end) {
     return `فاتورة غيار زيت وغسيل سيارات للفترة من ${formatPeriodPhraseStartAr(start)} حتى ${formatPeriodPhraseEndAr(end)}`;
 }
 
-/** Split selected bill period into calendar-month chunks (e.g. May 1–Jun 20 → May + Jun partial). */
+/** Split selected bill period into calendar-month chunks (UTC dates). */
 function splitPeriodIntoMonthChunks(startStr, endStr) {
     const start = parseIsoDate(startStr);
     const end = parseIsoDate(endStr);
     if (!start || !end || start > end) return [];
 
     const chunks = [];
-    let y = start.getFullYear();
-    let m = start.getMonth();
+    let y = start.getUTCFullYear();
+    let m = start.getUTCMonth();
 
     while (true) {
         const chunkStart =
             chunks.length === 0
-                ? new Date(y, m, start.getDate())
-                : new Date(y, m, 1);
+                ? new Date(Date.UTC(y, m, start.getUTCDate()))
+                : new Date(Date.UTC(y, m, 1));
         if (chunkStart > end) break;
 
-        const lastOfMonth = new Date(y, m + 1, 0);
+        const lastOfMonth = new Date(Date.UTC(y, m + 1, 0));
         const chunkEnd = lastOfMonth > end ? new Date(end.getTime()) : lastOfMonth;
         chunks.push({ start: chunkStart, end: chunkEnd });
 
@@ -642,7 +656,7 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
         ];
     }
 
-    return chunks.map((chunk) => {
+    const rows = chunks.map((chunk) => {
         let excl = 0;
         let vat = 0;
         let incl = 0;
@@ -666,6 +680,10 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
             invoiceInclusiveVat: Number(incl.toFixed(2)),
         };
     });
+
+    // Drop empty month slices (e.g. timezone-shifted stray day with 0.00).
+    const withAmount = rows.filter((r) => Math.abs(Number(r.invoiceInclusiveVat ?? 0)) > 0.005);
+    return withAmount.length > 0 ? withAmount : rows;
 }
 
 function computeSummaryTotals(summaryRows, statement, bill) {

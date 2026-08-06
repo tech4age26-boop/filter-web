@@ -41,16 +41,10 @@ function fmtCell(v, t) {
     return t('money.sar', { amount: fmt(v) });
 }
 
-function dateToIsoStart(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(`${dateStr}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
-}
-
-function dateToIsoEnd(dateStr) {
-    if (!dateStr) return '';
-    const d = new Date(`${dateStr}T23:59:59`);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+/** Calendar YYYY-MM-DD only — never local→UTC (that shifts the day, e.g. Jul 1 KSA → Jun 30). */
+function billingPeriodDateParam(dateStr) {
+    const s = String(dateStr || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
 }
 
 function billStatusLabel(status, t) {
@@ -471,8 +465,8 @@ export default function CorporateBillingSection() {
         try {
             const res = await generateCorporateBill({
                 corporateAccountId: selectedAccountId,
-                startDate: dateToIsoStart(dateFrom),
-                endDate: dateToIsoEnd(dateTo),
+                startDate: billingPeriodDateParam(dateFrom),
+                endDate: billingPeriodDateParam(dateTo),
                 dueDate: generateDueDate.trim(),
                 lineOverrides,
                 excludeInvoiceIds,
