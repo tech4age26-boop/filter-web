@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader } from 'lucide-react';
+import { Loader, Trash2 } from 'lucide-react';
 import Modal from '../Modal';
 
 function r2(n) {
@@ -40,7 +40,7 @@ function buildDraftLines(ledger) {
  *  1) review snapshot (+ due date)
  *  2) include previous opening balance? yes/no
  *  3) ask edit?
- *  4) optional edit invoice amounts (bill-only)
+ *  4) optional edit invoice amounts / remove lines (bill-only)
  *  5) confirm generate
  */
 export default function CorporateGenerateBillModal({
@@ -58,6 +58,8 @@ export default function CorporateGenerateBillModal({
 }) {
     const [step, setStep] = useState('review'); // review | askOpening | askEdit | edit | confirm
     const [draftLines, setDraftLines] = useState([]);
+    const [originalInvoiceIds, setOriginalInvoiceIds] = useState([]);
+    const [selectedKeys, setSelectedKeys] = useState(() => new Set());
     const [includeOpeningBalance, setIncludeOpeningBalance] = useState(true);
     const [stepError, setStepError] = useState('');
 
@@ -68,11 +70,16 @@ export default function CorporateGenerateBillModal({
         if (!open) {
             setStep('review');
             setDraftLines([]);
+            setOriginalInvoiceIds([]);
+            setSelectedKeys(new Set());
             setIncludeOpeningBalance(true);
             setStepError('');
             return;
         }
-        setDraftLines(buildDraftLines(ledger));
+        const lines = buildDraftLines(ledger);
+        setDraftLines(lines);
+        setOriginalInvoiceIds(lines.map((l) => l.invoiceId).filter(Boolean));
+        setSelectedKeys(new Set());
         setIncludeOpeningBalance(true);
         setStep('review');
         setStepError('');
@@ -112,6 +119,15 @@ export default function CorporateGenerateBillModal({
             }));
     }, [draftLines]);
 
+    const excludeInvoiceIds = useMemo(() => {
+        const kept = new Set(draftLines.map((l) => l.invoiceId).filter(Boolean));
+        return originalInvoiceIds.filter((id) => !kept.has(id));
+    }, [originalInvoiceIds, draftLines]);
+
+    const hasBillEdits = dirtyOverrides.length > 0 || excludeInvoiceIds.length > 0;
+    const allSelected =
+        draftLines.length > 0 && draftLines.every((l) => selectedKeys.has(l.key));
+
     if (!open) return null;
 
     const updateLine = (key, patch) => {
@@ -140,6 +156,34 @@ export default function CorporateGenerateBillModal({
         );
     };
 
+    const toggleSelect = (key) => {
+        setSelectedKeys((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleSelectAll = () => {
+        if (allSelected) {
+            setSelectedKeys(new Set());
+            return;
+        }
+        setSelectedKeys(new Set(draftLines.map((l) => l.key)));
+    };
+
+    const removeSelectedLines = () => {
+        if (!selectedKeys.size) return;
+        if (selectedKeys.size >= draftLines.length) {
+            setStepError(t('err.keepOneInvoice'));
+            return;
+        }
+        setStepError('');
+        setDraftLines((prev) => prev.filter((l) => !selectedKeys.has(l.key)));
+        setSelectedKeys(new Set());
+    };
+
     const ensureDueDate = () => {
         if ((dueDate || '').trim()) return true;
         if (dateTo) {
@@ -162,11 +206,25 @@ export default function CorporateGenerateBillModal({
         setStep('askOpening');
     };
 
+    const goContinueFromEdit = () => {
+        setStepError('');
+        if (!draftLines.length) {
+            setStepError(t('err.keepOneInvoice'));
+            return;
+        }
+        setStep('confirm');
+    };
+
     const fireGenerate = () => {
         setStepError('');
         if (!ensureDueDate()) return;
+        if (!draftLines.length) {
+            setStepError(t('err.keepOneInvoice'));
+            return;
+        }
         onGenerate({
             lineOverrides: dirtyOverrides,
+            excludeInvoiceIds,
             includeOpeningBalance,
         });
     };
@@ -260,8 +318,8 @@ export default function CorporateGenerateBillModal({
                     <button
                         type="button"
                         className="btn-submit"
-                        disabled={generating}
-                        onClick={() => setStep('confirm')}
+                        disabled={generating || !draftLines.length}
+                        onClick={goContinueFromEdit}
                     >
                         {t('btn.continueToGenerate')}
                     </button>
@@ -273,7 +331,7 @@ export default function CorporateGenerateBillModal({
                 <button
                     type="button"
                     className="btn-secondary"
-                    onClick={() => setStep(dirtyOverrides.length ? 'edit' : 'askEdit')}
+                    onClick={() => setStep(hasBillEdits ? 'edit' : 'askEdit')}
                     disabled={generating}
                 >
                     {t('btn.wizardBack')}
@@ -281,7 +339,7 @@ export default function CorporateGenerateBillModal({
                 <button
                     type="button"
                     className="btn-submit"
-                    disabled={generating}
+                    disabled={generating || !draftLines.length}
                     onClick={fireGenerate}
                 >
                     {generating ? (
@@ -295,6 +353,8 @@ export default function CorporateGenerateBillModal({
             </>
         );
     })();
+
+    const colSpan = step === 'edit' ? 8 : 7;
 
     return (
         <Modal title={title} onClose={generating ? undefined : onClose} footer={footer} size="large" disableClose={generating}>
@@ -374,9 +434,30 @@ export default function CorporateGenerateBillModal({
                     </div>
 
                     {step === 'edit' ? (
-                        <p style={{ fontSize: '0.85rem', color: '#1d4ed8', background: '#eff6ff', padding: '8px 10px', borderRadius: 8, marginBottom: 10 }}>
-                            {t('modal.editModeBanner')}
-                        </p>
+                        <div
+                            style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                                marginBottom: 10,
+                            }}
+                        >
+                            <p style={{ fontSize: '0.85rem', color: '#1d4ed8', background: '#eff6ff', padding: '8px 10px', borderRadius: 8, margin: 0, flex: '1 1 220px' }}>
+                                {t('modal.editModeBanner')}
+                            </p>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                disabled={generating || selectedKeys.size === 0}
+                                onClick={removeSelectedLines}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36 }}
+                            >
+                                <Trash2 size={14} /> {t('btn.removeSelected')}
+                                {selectedKeys.size > 0 ? ` (${selectedKeys.size})` : ''}
+                            </button>
+                        </div>
                     ) : null}
 
                     {step === 'confirm' ? (
@@ -396,10 +477,27 @@ export default function CorporateGenerateBillModal({
                         </p>
                     ) : null}
 
+                    {step === 'confirm' && excludeInvoiceIds.length > 0 ? (
+                        <p style={{ fontSize: '0.8rem', color: '#92400e', background: '#fffbeb', padding: '8px 10px', borderRadius: 8, marginTop: dirtyOverrides.length ? 6 : 0 }}>
+                            {t('modal.removedNotice', { n: excludeInvoiceIds.length })}
+                        </p>
+                    ) : null}
+
                     <div style={{ overflowX: 'auto', maxHeight: 360, border: '1px solid #e2e8f0', borderRadius: 10 }}>
                         <table className="ws-table" style={{ width: '100%', fontSize: '0.8rem' }}>
                             <thead>
                                 <tr>
+                                    {step === 'edit' ? (
+                                        <th style={{ width: 42, textAlign: 'center' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={allSelected}
+                                                onChange={toggleSelectAll}
+                                                disabled={!draftLines.length || generating}
+                                                aria-label={t('btn.selectAll')}
+                                            />
+                                        </th>
+                                    ) : null}
                                     <th>{t('th.date')}</th>
                                     <th>{t('th.invNo')}</th>
                                     <th>{t('th.vehicle')}</th>
@@ -412,13 +510,24 @@ export default function CorporateGenerateBillModal({
                             <tbody>
                                 {draftLines.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} style={{ padding: 16, textAlign: 'center', color: '#64748b' }}>
+                                        <td colSpan={colSpan} style={{ padding: 16, textAlign: 'center', color: '#64748b' }}>
                                             {t('empty.period')}
                                         </td>
                                     </tr>
                                 ) : (
                                     draftLines.map((l) => (
                                         <tr key={l.key}>
+                                            {step === 'edit' ? (
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedKeys.has(l.key)}
+                                                        onChange={() => toggleSelect(l.key)}
+                                                        disabled={generating}
+                                                        aria-label={t('btn.selectInvoice', { no: l.invoiceNo })}
+                                                    />
+                                                </td>
+                                            ) : null}
                                             <td>{l.date}</td>
                                             <td style={{ fontWeight: 700 }}>{l.invoiceNo}</td>
                                             <td>{l.vehicleNo}</td>
