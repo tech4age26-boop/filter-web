@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Star,
   DollarSign,
@@ -13,54 +13,17 @@ import {
   marketingDeleteReferrer,
   marketingListReferrers,
 } from '../../services/superAdminMarketingApi';
+import {
+  mktInfFormatSar,
+  mktInfPlatformLabel,
+  mktInfStatusLabel,
+  mktInfT,
+} from '../../utils/marketingInfluencersI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
+import { platformOptions } from './influencerReferrerShared';
 import './MarketingUniversal.css';
 
-const initialForm = {
-  id: '',
-  name: '',
-  email: '',
-  phone: '',
-  platform: 'instagram',
-  handle: '',
-  commissionRate: '',
-  activeCampaigns: '',
-  status: 'active',
-  notes: '',
-};
-
-const platformOptions = [
-  'instagram',
-  'tiktok',
-  'youtube',
-  'snapchat',
-  'facebook',
-  'x',
-  'blog',
-  'offline',
-  'other',
-];
-
-function formatSar(value) {
-  const n = Number(value);
-
-  if (!Number.isFinite(n)) return '0 SAR';
-
-  return `${n.toLocaleString(undefined, {
-    maximumFractionDigits: 0,
-  })} SAR`;
-}
-
-function humanize(value) {
-  return String(value || '')
-    .replace(/_/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function normalizeReferrer(row) {
+function normalizeReferrer(row, locale) {
   const name =
     row.name ||
     row.fullName ||
@@ -68,7 +31,7 @@ function normalizeReferrer(row) {
     row.referrerName ||
     row.referrer_name ||
     row.displayName ||
-    'Referrer';
+    mktInfT(locale, 'fallback.name');
 
   const commission =
     row.commission ||
@@ -121,7 +84,7 @@ function normalizeReferrer(row) {
   };
 }
 
-function extractReferrers(payload) {
+function extractReferrers(payload, locale) {
   const rows = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.referrers)
@@ -136,7 +99,7 @@ function extractReferrers(payload) {
               ? payload.data.items
               : [];
 
-  return rows.map(normalizeReferrer);
+  return rows.map((row) => normalizeReferrer(row, locale));
 }
 
 const StatCard = ({ icon, title, value, iconBg = '#F8FAFC', iconColor = '#D5AD27' }) => {
@@ -158,7 +121,7 @@ const StatCard = ({ icon, title, value, iconBg = '#F8FAFC', iconColor = '#D5AD27
   );
 };
 
-const StatusBadge = ({ status }) => {
+const StatusBadge = ({ status, locale }) => {
   const value = String(status || 'active').toLowerCase();
 
   const classNameMap = {
@@ -170,7 +133,7 @@ const StatusBadge = ({ status }) => {
 
   return (
     <span className={`mk-status ${classNameMap[value] || 'mk-status-draft'}`}>
-      {humanize(value)}
+      {mktInfStatusLabel(locale, value)}
     </span>
   );
 };
@@ -178,6 +141,13 @@ const StatusBadge = ({ status }) => {
 export const InfluencerReferrers = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktInfT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'influencer-referrers');
 
   const [search, setSearch] = useState('');
@@ -199,7 +169,7 @@ export const InfluencerReferrers = () => {
         search: search.trim(),
       });
 
-      const rows = extractReferrers(res);
+      const rows = extractReferrers(res, locale);
 
       const influencerRows = rows.filter((item) => {
         const typeText = String(item.type || '').toLowerCase();
@@ -216,7 +186,7 @@ export const InfluencerReferrers = () => {
 
       setInfluencers(influencerRows);
     } catch (err) {
-      setError(err?.message || 'Failed to load influencer referrers.');
+      setError(err?.message || t('err.load'));
       setInfluencers([]);
     } finally {
       setLoading(false);
@@ -226,7 +196,7 @@ export const InfluencerReferrers = () => {
   useEffect(() => {
     loadInfluencers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [locale]);
 
   const filteredInfluencers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -266,25 +236,27 @@ export const InfluencerReferrers = () => {
   const openEditPage = (id) => navigate(`${listPath}/${id}/edit`);
 
   const handleDelete = async (item) => {
-    if (!window.confirm(`Delete ${item.name}?`)) return;
+    if (!window.confirm(t('confirm.delete', { name: item.name }))) return;
 
     try {
       setActionLoadingId(item.id);
       await marketingDeleteReferrer(item.id);
       await loadInfluencers();
     } catch (err) {
-      alert(err?.message || 'Failed to delete influencer referrer.');
+      alert(err?.message || t('err.delete'));
     } finally {
       setActionLoadingId('');
     }
   };
 
   return (
-    <div className="mk-page">
+    <div className="mk-page" dir={locale === 'ar' ? 'rtl' : undefined}>
+      {error ? <div className="mk-error-text">{error}</div> : null}
+
       <div className="mk-influencer-stats-grid">
         <StatCard
           icon={<Star />}
-          title="Influencers"
+          title={t('stat.influencers')}
           value={totalInfluencers}
           iconBg="#FFFBEB"
           iconColor="#D5AD27"
@@ -292,15 +264,15 @@ export const InfluencerReferrers = () => {
 
         <StatCard
           icon={<DollarSign />}
-          title="Total Commissions"
-          value={formatSar(totalCommissions)}
+          title={t('stat.commissions')}
+          value={mktInfFormatSar(locale, totalCommissions)}
           iconBg="#ECFDF5"
           iconColor="#10B981"
         />
 
         <StatCard
           icon={<TrendingUp />}
-          title="Active Campaigns w / Influencers"
+          title={t('stat.campaigns')}
           value={activeCampaigns}
           iconBg="#EFF6FF"
           iconColor="#3B82F6"
@@ -309,7 +281,7 @@ export const InfluencerReferrers = () => {
 
       <section className="mk-card mk-influencer-card">
         <div className="mk-influencer-card-header">
-          <h3 className="mk-card-title">Influencer Referrers</h3>
+          <h3 className="mk-card-title">{t('card.title')}</h3>
 
           <div className="mk-influencer-actions">
             <label className="mk-search-field mk-influencer-search">
@@ -322,7 +294,7 @@ export const InfluencerReferrers = () => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') loadInfluencers();
                 }}
-                placeholder="Search..."
+                placeholder={t('search.placeholder')}
               />
             </label>
 
@@ -332,7 +304,7 @@ export const InfluencerReferrers = () => {
               onClick={openCreatePage}
             >
               <Plus size={16} strokeWidth={2.5} />
-              Add Influencer
+              {t('btn.add')}
             </button>
           </div>
         </div>
@@ -340,14 +312,14 @@ export const InfluencerReferrers = () => {
         <table className="mk-table mk-influencer-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Platform</th>
-              <th>Handle</th>
-              <th>Commission</th>
-              <th>Rate</th>
-              <th>Campaigns</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th>{t('th.name')}</th>
+              <th>{t('th.platform')}</th>
+              <th>{t('th.handle')}</th>
+              <th>{t('th.commission')}</th>
+              <th>{t('th.rate')}</th>
+              <th>{t('th.campaigns')}</th>
+              <th>{t('th.status')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
           </thead>
 
@@ -355,13 +327,13 @@ export const InfluencerReferrers = () => {
             {loading ? (
               <tr>
                 <td colSpan={8} className="mk-empty-table">
-                  Loading influencer referrers...
+                  {t('empty.loading')}
                 </td>
               </tr>
             ) : filteredInfluencers.length === 0 ? (
               <tr>
                 <td colSpan={8} className="mk-empty-table">
-                  No influencer referrers found
+                  {t('empty.none')}
                 </td>
               </tr>
             ) : (
@@ -373,23 +345,23 @@ export const InfluencerReferrers = () => {
                     <td>
                       <div className="mk-table-title">{item.name}</div>
                       <div className="mk-table-subtitle">
-                        {item.email || item.phone || '—'}
+                        {item.email || item.phone || t('dash')}
                       </div>
                     </td>
 
-                    <td>{humanize(item.platform)}</td>
-                    <td>{item.handle || '—'}</td>
-                    <td>{formatSar(item.commission)}</td>
+                    <td>{mktInfPlatformLabel(locale, item.platform)}</td>
+                    <td>{item.handle || t('dash')}</td>
+                    <td>{mktInfFormatSar(locale, item.commission)}</td>
                     <td>{Number(item.commissionRate || 0)}%</td>
                     <td>{item.activeCampaigns}</td>
                     <td>
-                      <StatusBadge status={item.status} />
+                      <StatusBadge status={item.status} locale={locale} />
                     </td>
                     <td>
                       <div className="mk-icon-actions">
                         <button
                           type="button"
-                          title="Edit"
+                          title={t('action.edit')}
                           disabled={busy}
                           onClick={() => openEditPage(item.id)}
                         >
@@ -398,7 +370,7 @@ export const InfluencerReferrers = () => {
 
                         <button
                           type="button"
-                          title="Delete"
+                          title={t('action.delete')}
                           disabled={busy}
                           onClick={() => handleDelete(item)}
                         >

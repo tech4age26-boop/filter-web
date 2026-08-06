@@ -327,6 +327,9 @@ export default function SalesReports({ portal = 'admin' }) {
     const locale =
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        (portal === 'marketing' && typeof localStorage !== 'undefined'
+            ? localStorage.getItem('marketing-locale')
+            : null) ||
         'en';
     const t = useCallback((key, vars) => srT(locale, key, vars), [locale]);
 

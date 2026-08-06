@@ -360,7 +360,7 @@ const SelectField = ({ value, onChange, options }) => {
   );
 };
 
-const PromotionSelect = ({ value, onChange, options, loading, error }) => {
+const PromotionSelect = ({ value, onChange, options, loading, error, locale = 'en' }) => {
   const wrapRef = useRef(null);
   const searchInputRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -441,7 +441,9 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
         aria-expanded={open}
       >
         <span>
-          {loading ? 'Loading...' : selected?.label || CLEAR_PROMOTION_OPTION.label}
+          {loading
+            ? promoT(locale, 'dd.loading')
+            : selected?.label || promoT(locale, 'dd.selectPromotion')}
         </span>
         <ChevronDown size={14} />
       </button>
@@ -455,7 +457,7 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={handleListKeyDown}
-              placeholder="Search promotions..."
+              placeholder={promoT(locale, 'dd.searchPromotions')}
               autoComplete="off"
               spellCheck={false}
             />
@@ -465,7 +467,7 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
             {loading ? (
               <div className="mk-code-dd-empty">
                 <Loader2 size={14} className="mk-code-spin" />
-                Loading promotions...
+                {promoT(locale, 'dd.loadingPromotions')}
               </div>
             ) : error ? (
               <div className="mk-code-dd-empty error">
@@ -473,7 +475,7 @@ const PromotionSelect = ({ value, onChange, options, loading, error }) => {
                 {error}
               </div>
             ) : filteredOptions.length === 0 ? (
-              <div className="mk-code-dd-empty">No promotions found</div>
+              <div className="mk-code-dd-empty">{promoT(locale, 'dd.noPromotions')}</div>
             ) : (
               filteredOptions.map((item, index) => (
                 <button

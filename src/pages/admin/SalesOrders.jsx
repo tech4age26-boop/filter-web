@@ -128,6 +128,9 @@ export default function SalesOrders({ portal = 'admin' }) {
     const locale =
         outletCtx.locale ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        (portal === 'marketing' && typeof localStorage !== 'undefined'
+            ? localStorage.getItem('marketing-locale')
+            : null) ||
         'en';
     const t = useCallback((key, vars) => soT(locale, key, vars), [locale]);
 

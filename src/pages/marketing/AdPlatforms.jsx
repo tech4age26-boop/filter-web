@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   RefreshCw,
   Link2,
@@ -18,8 +18,12 @@ import {
   marketingSyncAdPlatform,
   marketingUpdateAdPlatform,
 } from '../../services/superAdminMarketingApi';
+import {
+  localizePlatformDefinition,
+  mktAdT,
+} from '../../utils/marketingAdPlatformsI18n';
 import './MarketingUniversal.css';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { marketingSectionPath } from './marketingRouteUtils';
 import { PLATFORM_DEFINITIONS, extractPlatforms } from './adPlatformShared';
 
@@ -63,9 +67,9 @@ const PlatformIcon = ({ definition }) => {
   );
 };
 
-function formatTime(value) {
+function formatTime(value, locale = 'en') {
   try {
-    return new Date(value).toLocaleTimeString([], {
+    return new Date(value).toLocaleTimeString(locale === 'ar' ? 'ar-SA' : undefined, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -88,7 +92,19 @@ const Toggle = ({ enabled, onClick }) => (
 export const AdPlatforms = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktAdT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'ad-platforms');
+
+  const localizedDefs = useMemo(
+    () => PLATFORM_DEFINITIONS.map((d) => localizePlatformDefinition(d, locale)),
+    [locale],
+  );
 
   const [platforms, setPlatforms] = useState([]);
   const [logs, setLogs] = useState([]);
@@ -123,7 +139,7 @@ export const AdPlatforms = () => {
     setLogs((prev) => [
       {
         id: `${now.getTime()}-${Math.random()}`,
-        time: formatTime(now),
+        time: formatTime(now, locale),
         text,
       },
       ...prev,
@@ -147,7 +163,7 @@ export const AdPlatforms = () => {
       setAutoSync(rows.some((item) => item.autoSync));
     } catch (err) {
       setPlatforms([]);
-      setError(err?.message || 'Failed to load ad platforms.');
+      setError(err?.message || t('err.load'));
     } finally {
       setLoading(false);
     }
@@ -155,13 +171,14 @@ export const AdPlatforms = () => {
 
   useEffect(() => {
     loadPlatforms();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
   const openConfigurePage = (definition) => {
     navigate(`${listPath}/${definition.key}/configure`);
   };
 
-  const handleDisconnect = async (definition) => {
+  const handleDisconnect = async (definition, displayTitle) => {
     const existing = platformMap.get(definition.key);
 
     if (!existing?.id) return;
@@ -174,16 +191,16 @@ export const AdPlatforms = () => {
         notes: `${definition.title} disconnected from Marketing Portal`,
       });
 
-      addLog(`${definition.title} disconnected`);
+      addLog(t('log.disconnected', { title: displayTitle }));
       await loadPlatforms();
     } catch (err) {
-      alert(err?.message || 'Failed to disconnect platform.');
+      alert(err?.message || t('err.disconnect'));
     } finally {
       setActionLoading('');
     }
   };
 
-  const handleSyncOne = async (definition) => {
+  const handleSyncOne = async (definition, displayTitle) => {
     const existing = platformMap.get(definition.key);
 
     if (!existing?.id) {
@@ -192,7 +209,7 @@ export const AdPlatforms = () => {
     }
 
     if (existing.status !== 'connected') {
-      alert('Connect this platform first.');
+      alert(t('err.connectFirst'));
       return;
     }
 
@@ -207,20 +224,30 @@ export const AdPlatforms = () => {
       });
 
       if (res?.success === false) {
-        addLog(`${definition.title}: ${res?.message || 'sync skipped'}`);
-        alert(res?.message || 'Sync could not pull metrics for this platform.');
+        addLog(
+          t('log.syncSkipped', {
+            title: displayTitle,
+            message: res?.message || t('log.syncSkippedDefault'),
+          }),
+        );
+        alert(res?.message || t('err.syncMetrics'));
       } else {
         const m = res?.sync?.metrics;
         addLog(
           m
-            ? `${definition.title} synced — ${m.impressions} impressions, ${m.clicks} clicks, ${m.conversions} conversions`
-            : `${definition.title} synced`,
+            ? t('log.syncedMetrics', {
+                title: displayTitle,
+                impressions: m.impressions,
+                clicks: m.clicks,
+                conversions: m.conversions,
+              })
+            : t('log.synced', { title: displayTitle }),
         );
       }
 
       await loadPlatforms();
     } catch (err) {
-      alert(err?.message || 'Failed to sync platform.');
+      alert(err?.message || t('err.sync'));
     } finally {
       setActionLoading('');
     }
@@ -240,22 +267,23 @@ export const AdPlatforms = () => {
           marketingUpdateAdPlatform(item.id, { autoSync: next }),
         ),
       );
-      addLog(`Auto-sync ${next ? 'enabled' : 'disabled'}`);
+      addLog(next ? t('log.autoSyncOn') : t('log.autoSyncOff'));
       await loadPlatforms();
     } catch (err) {
       setAutoSync(!next);
-      alert(err?.message || 'Failed to update auto-sync.');
+      alert(err?.message || t('err.autoSync'));
     }
   };
 
   const handleSyncAll = async () => {
     const connected = PLATFORM_DEFINITIONS.map((definition) => ({
       definition,
+      localized: localizePlatformDefinition(definition, locale),
       existing: platformMap.get(definition.key),
     })).filter((item) => item.existing?.status === 'connected');
 
     if (connected.length === 0) {
-      alert('No connected platforms available to sync.');
+      alert(t('err.syncAllNone'));
       return;
     }
 
@@ -271,27 +299,37 @@ export const AdPlatforms = () => {
         });
 
         if (res?.success === false) {
-          addLog(`${item.definition.title}: ${res?.message || 'sync skipped'}`);
+          addLog(
+            t('log.syncSkipped', {
+              title: item.localized.title,
+              message: res?.message || t('log.syncSkippedDefault'),
+            }),
+          );
         }
       }
 
-      addLog(`${connected.length} platforms synced`);
+      addLog(t('log.syncedCount', { count: connected.length }));
       await loadPlatforms();
     } catch (err) {
-      alert(err?.message || 'Failed to sync all platforms.');
+      alert(err?.message || t('err.syncAll'));
     } finally {
       setActionLoading('');
     }
   };
 
+  const numberLocale = locale === 'ar' ? 'ar-SA' : undefined;
+
   return (
-    <div className="mk-page adp-page">
+    <div className="mk-page adp-page" dir={locale === 'ar' ? 'rtl' : undefined}>
       <section className="adp-header-card">
         <div className="adp-header-main">
           <div>
-            <h3>Ad Platform Integrations</h3>
+            <h3>{t('title')}</h3>
             <p>
-              {connectedCount} of {PLATFORM_DEFINITIONS.length} platforms connected
+              {t('connectedOf', {
+                connected: connectedCount,
+                total: PLATFORM_DEFINITIONS.length,
+              })}
             </p>
           </div>
 
@@ -305,7 +343,7 @@ export const AdPlatforms = () => {
               size={14}
               className={actionLoading === 'sync_all' ? 'adp-spin' : ''}
             />
-            Sync All Now
+            {t('btn.syncAll')}
           </button>
         </div>
 
@@ -313,7 +351,7 @@ export const AdPlatforms = () => {
 
         <div className="adp-auto-sync-row">
           <Zap size={14} />
-          <span>Auto-Sync (hourly)</span>
+          <span>{t('autoSync')}</span>
           <Toggle enabled={autoSync} onClick={handleToggleAutoSync} />
         </div>
       </section>
@@ -321,7 +359,8 @@ export const AdPlatforms = () => {
       {error ? <div className="mk-error-text">{error}</div> : null}
 
       <div className="adp-grid">
-        {PLATFORM_DEFINITIONS.map((definition) => {
+        {localizedDefs.map((definition) => {
+          const raw = PLATFORM_DEFINITIONS.find((d) => d.key === definition.key);
           const existing = platformMap.get(definition.key);
           const connected = existing?.status === 'connected';
           const busy = actionLoading === definition.key;
@@ -337,10 +376,10 @@ export const AdPlatforms = () => {
                   {connected ? (
                     <p className="adp-connected">
                       <ShieldCheck size={11} />
-                      Connected
+                      {t('status.connected')}
                     </p>
                   ) : (
-                    <p className="adp-not-connected">Not connected</p>
+                    <p className="adp-not-connected">{t('status.notConnected')}</p>
                   )}
                 </div>
 
@@ -348,8 +387,8 @@ export const AdPlatforms = () => {
                   {connected ? (
                     <button
                       type="button"
-                      title="Sync"
-                      onClick={() => handleSyncOne(definition)}
+                      title={t('title.sync')}
+                      onClick={() => handleSyncOne(raw, definition.title)}
                       disabled={busy}
                     >
                       <RefreshCw size={13} className={busy ? 'adp-spin' : ''} />
@@ -358,8 +397,8 @@ export const AdPlatforms = () => {
 
                   <button
                     type="button"
-                    title="Configure"
-                    onClick={() => openConfigurePage(definition)}
+                    title={t('title.configure')}
+                    onClick={() => openConfigurePage(raw)}
                     disabled={busy}
                   >
                     <Settings size={13} />
@@ -372,9 +411,17 @@ export const AdPlatforms = () => {
                   <>
                     {existing?.lastSyncMetrics ? (
                       <div className="adp-metrics-line">
-                        {Number(existing.lastSyncMetrics.impressions || 0).toLocaleString()} impr ·{' '}
-                        {Number(existing.lastSyncMetrics.clicks || 0).toLocaleString()} clicks ·{' '}
-                        {Number(existing.lastSyncMetrics.conversions || 0).toLocaleString()} conv
+                        {t('metrics.line', {
+                          impr: Number(existing.lastSyncMetrics.impressions || 0).toLocaleString(
+                            numberLocale,
+                          ),
+                          clicks: Number(existing.lastSyncMetrics.clicks || 0).toLocaleString(
+                            numberLocale,
+                          ),
+                          conv: Number(existing.lastSyncMetrics.conversions || 0).toLocaleString(
+                            numberLocale,
+                          ),
+                        })}
                       </div>
                     ) : null}
 
@@ -385,32 +432,32 @@ export const AdPlatforms = () => {
                     <button
                       type="button"
                       className="adp-outline-action"
-                      onClick={() => handleSyncOne(definition)}
+                      onClick={() => handleSyncOne(raw, definition.title)}
                       disabled={busy}
                     >
                       <RefreshCw size={13} className={busy ? 'adp-spin' : ''} />
-                      Sync Now
+                      {t('btn.syncNow')}
                     </button>
 
                     <button
                       type="button"
                       className="adp-danger-link"
-                      onClick={() => handleDisconnect(definition)}
+                      onClick={() => handleDisconnect(raw, definition.title)}
                       disabled={busy}
                     >
                       <Unlink size={13} />
-                      Disconnect
+                      {t('btn.disconnect')}
                     </button>
                   </>
                 ) : (
                   <button
                     type="button"
                     className="adp-connect-btn"
-                    onClick={() => openConfigurePage(definition)}
+                    onClick={() => openConfigurePage(raw)}
                     disabled={busy}
                   >
                     <Link2 size={13} />
-                    Connect {definition.title}
+                    {t('btn.connect', { title: definition.title })}
                   </button>
                 )}
               </div>
@@ -423,17 +470,17 @@ export const AdPlatforms = () => {
         <div className="adp-log-header">
           <div>
             <RefreshCw size={13} />
-            <strong>Sync Activity Log</strong>
+            <strong>{t('log.title')}</strong>
           </div>
 
           <button type="button" onClick={() => setLogs([])}>
-            Clear
+            {t('log.clear')}
           </button>
         </div>
 
         <div className="adp-log-list">
           {logs.length === 0 ? (
-            <p className="adp-log-empty">No sync activity yet</p>
+            <p className="adp-log-empty">{t('log.empty')}</p>
           ) : (
             logs.map((log) => (
               <div key={log.id} className="adp-log-row">

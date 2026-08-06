@@ -175,7 +175,7 @@ function normalizePlatform(row) {
       row.account_name ||
       row.platformName ||
       row.name ||
-      'Ad Account',
+      '',
     accountId: row.accountId || row.account_id || '',
     maskedToken:
       row.maskedToken ||
@@ -210,13 +210,13 @@ function extractPlatforms(payload) {
   return rows.map(normalizePlatform);
 }
 
-function formatTime(value) {
-  if (!value) return 'Never';
+function formatTime(value, locale = 'en', neverLabel = 'Never') {
+  if (!value) return neverLabel;
 
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return 'Never';
+  if (Number.isNaN(d.getTime())) return neverLabel;
 
-  return d.toLocaleTimeString([], {
+  return d.toLocaleTimeString(locale === 'ar' ? 'ar-SA' : undefined, {
     hour: '2-digit',
     minute: '2-digit',
   });

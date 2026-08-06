@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import {
   BarChart3,
   Users,
@@ -17,12 +17,9 @@ import {
   Search,
   Plus,
   Pencil,
-  XCircle,
   Info,
-  CalendarDays,
   NotebookTabs,
   Scale,
-  ChevronDown,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -32,38 +29,29 @@ import {
   marketingGetReferralManagementDashboard,
   marketingListReferrers,
 } from '../../services/superAdminMarketingApi';
+import {
+  mktRefCategoryLabel,
+  mktRefFormatSar,
+  mktRefStatusLabel,
+  mktRefT,
+} from '../../utils/marketingReferrersI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
-const tabs = [
-  { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-  { id: 'referrers', label: 'Referrers', icon: Users },
-  { id: 'tracker', label: 'Referral Tracker', icon: ListChecks },
-  { id: 'rules', label: 'Commission Rules', icon: SlidersHorizontal },
-  { id: 'payout', label: 'Payout Queue', icon: CreditCard },
-  { id: 'journals', label: 'Journals & Ledger', icon: BookOpen },
+const TAB_IDS = [
+  { id: 'dashboard', icon: BarChart3, labelKey: 'tab.dashboard' },
+  { id: 'referrers', icon: Users, labelKey: 'tab.referrers' },
+  { id: 'tracker', icon: ListChecks, labelKey: 'tab.tracker' },
+  { id: 'rules', icon: SlidersHorizontal, labelKey: 'tab.rules' },
+  { id: 'payout', icon: CreditCard, labelKey: 'tab.payout' },
+  { id: 'journals', icon: BookOpen, labelKey: 'tab.journals' },
 ];
 
-const journalTabs = [
-  { id: 'entries', label: 'Journal Entries', icon: NotebookTabs },
-  { id: 'ledger', label: 'Referrer Ledger', icon: BookOpen },
-  { id: 'pl', label: 'P&L Summary', icon: Scale },
+const JOURNAL_TAB_IDS = [
+  { id: 'entries', icon: NotebookTabs, labelKey: 'jtab.entries' },
+  { id: 'ledger', icon: BookOpen, labelKey: 'jtab.ledger' },
+  { id: 'pl', icon: Scale, labelKey: 'jtab.pl' },
 ];
-
-function formatSar(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 'SAR 0.00';
-  return `SAR ${n.toFixed(2)}`;
-}
-
-function humanize(value) {
-  return String(value || '')
-    .replace(/_/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 function normalizeStatus(value) {
   const raw = String(value || 'active').toLowerCase();
@@ -74,7 +62,7 @@ function normalizeStatus(value) {
   return raw;
 }
 
-function normalizeReferrer(row) {
+function normalizeReferrer(row, locale) {
   return {
     id: String(row.id ?? row._id ?? row.referrerId ?? ''),
     name:
@@ -83,13 +71,13 @@ function normalizeReferrer(row) {
       row.full_name ||
       row.referrerName ||
       row.referrer_name ||
-      'Referrer',
+      mktRefT(locale, 'fallback.referrer'),
     type:
       row.type ||
       row.category ||
       row.referrerType ||
       row.referrer_type ||
-      'Individual',
+      mktRefT(locale, 'fallback.individual'),
     mobile:
       row.mobile ||
       row.phone ||
@@ -109,7 +97,7 @@ function normalizeReferrer(row) {
   };
 }
 
-function extractReferrers(payload) {
+function extractReferrers(payload, locale) {
   const rows = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.referrers)
@@ -124,10 +112,10 @@ function extractReferrers(payload) {
               ? payload.data.referrers
               : [];
 
-  return rows.map(normalizeReferrer);
+  return rows.map((row) => normalizeReferrer(row, locale));
 }
 
-function normalizePayable(row) {
+function normalizePayable(row, locale) {
   const referrer = row.referrer || row.referrerPerson || {};
 
   return {
@@ -138,14 +126,14 @@ function normalizePayable(row) {
       row.referrer_name ||
       referrer.name ||
       referrer.fullName ||
-      'Referrer',
+      mktRefT(locale, 'fallback.referrer'),
     type:
       row.type ||
       row.category ||
       row.referrerType ||
       row.referrer_type ||
       referrer.category ||
-      'Individual',
+      mktRefT(locale, 'fallback.individual'),
     pending: Number(row.pending ?? row.pendingCommission ?? row.pending_commission ?? 0),
     available: Number(row.available ?? row.availableForPayout ?? row.available_for_payout ?? 0),
     paid: Number(row.paid ?? row.paidCommission ?? row.paid_commission ?? 0),
@@ -154,7 +142,7 @@ function normalizePayable(row) {
   };
 }
 
-function extractPayableRows(payload) {
+function extractPayableRows(payload, locale) {
   const rows = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.rows)
@@ -171,15 +159,15 @@ function extractPayableRows(payload) {
                 ? payload.data.referrers
                 : [];
 
-  return rows.map(normalizePayable);
+  return rows.map((row) => normalizePayable(row, locale));
 }
 
-function normalizeReferral(row) {
+function normalizeReferral(row, locale) {
   return {
     id: String(row.id ?? row.referralId ?? row.referral_id ?? ''),
-    orderNo: row.orderNo || row.order_no || row.invoiceNo || row.invoice_no || row.id || '—',
-    customer: row.customerName || row.customer_name || row.customer || row.leadName || '—',
-    referrer: row.referrerName || row.referrer_name || row.referrer || '—',
+    orderNo: row.orderNo || row.order_no || row.invoiceNo || row.invoice_no || row.id || mktRefT(locale, 'dash'),
+    customer: row.customerName || row.customer_name || row.customer || row.leadName || mktRefT(locale, 'dash'),
+    referrer: row.referrerName || row.referrer_name || row.referrer || mktRefT(locale, 'dash'),
     invoiceValue: Number(row.invoiceValue ?? row.invoice_value ?? row.amount ?? 0),
     commission: Number(row.commission ?? row.commissionAmount ?? row.commission_amount ?? 0),
     status: row.status || 'pending',
@@ -187,7 +175,7 @@ function normalizeReferral(row) {
   };
 }
 
-function extractReferrals(payload) {
+function extractReferrals(payload, locale) {
   const rows = Array.isArray(payload?.recentReferrals)
     ? payload.recentReferrals
     : Array.isArray(payload?.referrals)
@@ -196,7 +184,7 @@ function extractReferrals(payload) {
         ? payload.data.recentReferrals
         : [];
 
-  return rows.map(normalizeReferral);
+  return rows.map((row) => normalizeReferral(row, locale));
 }
 
 const StatCard = ({ icon: Icon, title, value, sub, tone = 'blue' }) => (
@@ -221,7 +209,7 @@ const MetricCard = ({ label, value, subtitle, tone }) => (
   </div>
 );
 
-const TabButton = ({ item, active, onClick }) => {
+const TabButton = ({ item, active, onClick, label }) => {
   const Icon = item.icon;
 
   return (
@@ -231,12 +219,12 @@ const TabButton = ({ item, active, onClick }) => {
       className={active ? 'mk-ref-tab active' : 'mk-ref-tab'}
     >
       <Icon size={13} strokeWidth={2} />
-      {item.label}
+      {label}
     </button>
   );
 };
 
-const JournalTabButton = ({ item, active, onClick }) => {
+const JournalTabButton = ({ item, active, onClick, label }) => {
   const Icon = item.icon;
 
   return (
@@ -246,76 +234,21 @@ const JournalTabButton = ({ item, active, onClick }) => {
       className={active ? 'mk-ref-subtab active' : 'mk-ref-subtab'}
     >
       <Icon size={13} strokeWidth={2} />
-      {item.label}
+      {label}
     </button>
   );
 };
 
-const SelectField = ({ label, value, onChange, options = [], required = false }) => (
-  <div className="mk-ref-form-group">
-    <label className="mk-ref-form-label">
-      {label}
-      {required && <span> *</span>}
-    </label>
-
-    <div className="mk-ref-select-wrap">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mk-ref-input mk-ref-select"
-      >
-        {options.map((option) => (
-          <option key={option.value || option.label || option} value={option.value || option}>
-            {option.label || option}
-          </option>
-        ))}
-      </select>
-
-      <ChevronDown size={15} strokeWidth={2} className="mk-ref-select-icon" />
-    </div>
-  </div>
-);
-
-const InputField = ({
-  label,
-  value,
-  onChange,
-  placeholder = '',
-  type = 'text',
-  required = false,
-}) => (
-  <div className="mk-ref-form-group">
-    <label className="mk-ref-form-label">
-      {label}
-      {required && <span> *</span>}
-    </label>
-
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="mk-ref-input"
-    />
-  </div>
-);
-
-const TextAreaField = ({ label, value, onChange, placeholder = '' }) => (
-  <div className="mk-ref-form-group mk-ref-form-group-full">
-    <label className="mk-ref-form-label">{label}</label>
-
-    <textarea
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="mk-ref-textarea"
-    />
-  </div>
-);
-
 export const ReferrerManagement = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktRefT(locale, key, vars), [locale]);
   const [searchParams] = useSearchParams();
   const basePath = marketingSectionPath(location.pathname, 'referrer-management');
 
@@ -328,7 +261,6 @@ export const ReferrerManagement = () => {
   const [referrersData, setReferrersData] = useState([]);
   const [payableSummary, setPayableSummary] = useState([]);
   const [referrals, setReferrals] = useState([]);
-  const [journalEntries] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState('');
@@ -336,7 +268,7 @@ export const ReferrerManagement = () => {
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && tabs.some((item) => item.id === tab)) {
+    if (tab && TAB_IDS.some((item) => item.id === tab)) {
       setActiveTab(tab);
     }
   }, [searchParams]);
@@ -363,20 +295,20 @@ export const ReferrerManagement = () => {
         }).catch(() => null),
       ]);
 
-      const referrers = extractReferrers(referrersRes);
-      const recentReferrers = extractReferrers(dashboardRes);
-      const payable = extractPayableRows(commissionsRes);
-      const recentReferrals = extractReferrals(dashboardRes);
+      const referrers = extractReferrers(referrersRes, locale);
+      const recentReferrers = extractReferrers(dashboardRes, locale);
+      const payable = extractPayableRows(commissionsRes, locale);
+      const recentReferrals = extractReferrals(dashboardRes, locale);
 
       setReferrersData(referrers.length ? referrers : recentReferrers);
       setPayableSummary(payable);
       setReferrals(recentReferrals);
     } catch (err) {
-      setError(err?.message || 'Failed to load referrer management.');
+      setError(err?.message || t('err.load'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [locale, t]);
 
   useEffect(() => {
     loadReferrerManagement();
@@ -449,53 +381,96 @@ export const ReferrerManagement = () => {
   const openEditReferrer = (item) => navigate(`${basePath}/referrers/${item.id}/edit`);
 
   const deleteReferrer = async (item) => {
-    if (!window.confirm(`Delete ${item.name}?`)) return;
+    if (!window.confirm(t('confirm.delete', { name: item.name }))) return;
 
     try {
       setActionLoadingId(item.id);
       await marketingDeleteReferrer(item.id);
       await loadReferrerManagement();
     } catch (err) {
-      alert(err?.message || 'Failed to delete referrer.');
+      alert(err?.message || t('err.delete'));
     } finally {
       setActionLoadingId('');
     }
   };
 
+  const formatSar = (value) => mktRefFormatSar(locale, value);
+  const dateLocale = locale === 'ar' ? 'ar-SA' : undefined;
+
   const renderDashboard = () => (
     <>
       <section className="mk-ref-section">
-        <h2 className="mk-ref-section-title">Commission Overview</h2>
-        <p className="mk-ref-section-subtitle">
-          Real-time summary of referrer commission accounting
-        </p>
+        <h2 className="mk-ref-section-title">{t('dash.overview')}</h2>
+        <p className="mk-ref-section-subtitle">{t('dash.overviewSub')}</p>
 
         <div className="mk-ref-grid-top">
-          <StatCard icon={UserRound} title="Total Referrers" value={overview.totalReferrers} sub={`${overview.activeReferrers} active`} tone="blue" />
-          <StatCard icon={TrendingUp} title="Total Commission Expense" value={formatSar(overview.totalCommissionExpense)} sub="All time accrued" tone="yellow" />
-          <StatCard icon={DollarSign} title="Total Payable (Liability)" value={formatSar(overview.totalPayable)} sub="Available balance" tone="gold" />
-          <StatCard icon={CheckCircle2} title="Total Paid" value={formatSar(overview.totalPaid)} sub="Settled commissions" tone="green" />
+          <StatCard
+            icon={UserRound}
+            title={t('stat.totalReferrers')}
+            value={overview.totalReferrers}
+            sub={t('stat.activeSub', { n: overview.activeReferrers })}
+            tone="blue"
+          />
+          <StatCard
+            icon={TrendingUp}
+            title={t('stat.commissionExpense')}
+            value={formatSar(overview.totalCommissionExpense)}
+            sub={t('stat.allTime')}
+            tone="yellow"
+          />
+          <StatCard
+            icon={DollarSign}
+            title={t('stat.totalPayable')}
+            value={formatSar(overview.totalPayable)}
+            sub={t('stat.availableBal')}
+            tone="gold"
+          />
+          <StatCard
+            icon={CheckCircle2}
+            title={t('stat.totalPaid')}
+            value={formatSar(overview.totalPaid)}
+            sub={t('stat.settled')}
+            tone="green"
+          />
         </div>
 
         <div className="mk-ref-grid-bottom">
-          <StatCard icon={Clock} title="Pending Commission" value={formatSar(overview.pendingCommission)} sub="Awaiting approval" tone="gray" />
-          <StatCard icon={AlertCircle} title="Pending Payout Requests" value={overview.pendingPayoutRequests} sub="Awaiting your approval" tone="red" />
-          <StatCard icon={Timer} title="Referrals Under Review" value={overview.referralsUnderReview} sub="Need approval" tone="purple" />
+          <StatCard
+            icon={Clock}
+            title={t('stat.pendingCommission')}
+            value={formatSar(overview.pendingCommission)}
+            sub={t('stat.awaitingApproval')}
+            tone="gray"
+          />
+          <StatCard
+            icon={AlertCircle}
+            title={t('stat.pendingPayouts')}
+            value={overview.pendingPayoutRequests}
+            sub={t('stat.awaitingYourApproval')}
+            tone="red"
+          />
+          <StatCard
+            icon={Timer}
+            title={t('stat.underReview')}
+            value={overview.referralsUnderReview}
+            sub={t('stat.needApproval')}
+            tone="purple"
+          />
         </div>
       </section>
 
       <section className="mk-card mk-ref-table-card">
-        <div className="mk-ref-table-title">Referrer Payable Summary</div>
+        <div className="mk-ref-table-title">{t('dash.payableTitle')}</div>
 
         <table className="mk-ref-table">
           <thead>
             <tr>
-              <th>Referrer</th>
-              <th>Type</th>
-              <th>Pending</th>
-              <th>Available</th>
-              <th>Paid</th>
-              <th>Total Earned</th>
+              <th>{t('th.referrer')}</th>
+              <th>{t('th.type')}</th>
+              <th>{t('th.pending')}</th>
+              <th>{t('th.available')}</th>
+              <th>{t('th.paid')}</th>
+              <th>{t('th.totalEarned')}</th>
             </tr>
           </thead>
 
@@ -503,14 +478,14 @@ export const ReferrerManagement = () => {
             {payableSummary.length === 0 ? (
               <tr>
                 <td colSpan="6" className="mk-ref-empty-table">
-                  No payable summary found
+                  {t('empty.payable')}
                 </td>
               </tr>
             ) : (
               payableSummary.map((item) => (
                 <tr key={item.id || item.name}>
                   <td className="mk-ref-td-strong">{item.name}</td>
-                  <td>{item.type}</td>
+                  <td>{mktRefCategoryLabel(locale, item.type)}</td>
                   <td className="mk-ref-text-yellow">{formatSar(item.pending)}</td>
                   <td className="mk-ref-text-green">{formatSar(item.available)}</td>
                   <td>{formatSar(item.paid)}</td>
@@ -532,13 +507,13 @@ export const ReferrerManagement = () => {
           <input
             value={searchReferrer}
             onChange={(e) => setSearchReferrer(e.target.value)}
-            placeholder="Search referrers..."
+            placeholder={t('search.referrers')}
           />
         </label>
 
         <button type="button" className="mk-ref-primary-btn" onClick={openCreateReferrer}>
           <Plus size={15} strokeWidth={2.4} />
-          Add Referrer
+          {t('btn.addReferrer')}
         </button>
       </div>
 
@@ -546,14 +521,14 @@ export const ReferrerManagement = () => {
         <table className="mk-ref-table">
           <thead>
             <tr>
-              <th>Referrer ID</th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Mobile</th>
-              <th>Available</th>
-              <th>Pending</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th>{t('th.referrerId')}</th>
+              <th>{t('th.name')}</th>
+              <th>{t('th.type')}</th>
+              <th>{t('th.mobile')}</th>
+              <th>{t('th.available')}</th>
+              <th>{t('th.pending')}</th>
+              <th>{t('th.status')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
           </thead>
 
@@ -561,7 +536,7 @@ export const ReferrerManagement = () => {
             {filteredReferrers.length === 0 ? (
               <tr>
                 <td colSpan="8" className="mk-ref-empty-table">
-                  No referrers found
+                  {t('empty.referrers')}
                 </td>
               </tr>
             ) : (
@@ -575,18 +550,18 @@ export const ReferrerManagement = () => {
                     <td>
                       <div className="mk-ref-name-cell">
                         <div className="mk-ref-td-strong">{item.name}</div>
-                        <div className="mk-ref-sub-cell">{item.email || '—'}</div>
+                        <div className="mk-ref-sub-cell">{item.email || t('dash')}</div>
                       </div>
                     </td>
 
-                    <td>{item.type}</td>
-                    <td>{item.mobile || '—'}</td>
+                    <td>{mktRefCategoryLabel(locale, item.type)}</td>
+                    <td>{item.mobile || t('dash')}</td>
                     <td className="mk-ref-text-green">{formatSar(item.available)}</td>
                     <td className="mk-ref-text-yellow">{formatSar(item.pending)}</td>
 
                     <td>
                       <span className={`mk-ref-status-badge ${item.status}`}>
-                        {item.status}
+                        {mktRefStatusLabel(locale, item.status)}
                       </span>
                     </td>
 
@@ -629,7 +604,7 @@ export const ReferrerManagement = () => {
           <input
             value={trackerSearch}
             onChange={(e) => setTrackerSearch(e.target.value)}
-            placeholder="Order / Customer..."
+            placeholder={t('search.tracker')}
           />
         </label>
       </div>
@@ -638,14 +613,14 @@ export const ReferrerManagement = () => {
         <table className="mk-ref-table">
           <thead>
             <tr>
-              <th>Order #</th>
-              <th>Customer</th>
-              <th>Referrer</th>
-              <th>Invoice Value</th>
-              <th>Commission</th>
-              <th>Status</th>
-              <th>Date</th>
-              <th>Actions</th>
+              <th>{t('th.orderNo')}</th>
+              <th>{t('th.customer')}</th>
+              <th>{t('th.referrer')}</th>
+              <th>{t('th.invoiceValue')}</th>
+              <th>{t('th.commission')}</th>
+              <th>{t('th.status')}</th>
+              <th>{t('th.date')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
           </thead>
 
@@ -653,7 +628,7 @@ export const ReferrerManagement = () => {
             {filteredReferrals.length === 0 ? (
               <tr>
                 <td colSpan="8" className="mk-ref-empty-table mk-ref-empty-large">
-                  No referrals found
+                  {t('empty.referrals')}
                 </td>
               </tr>
             ) : (
@@ -664,9 +639,13 @@ export const ReferrerManagement = () => {
                   <td>{item.referrer}</td>
                   <td>{formatSar(item.invoiceValue)}</td>
                   <td>{formatSar(item.commission)}</td>
-                  <td>{item.status}</td>
-                  <td>{item.date ? new Date(item.date).toLocaleDateString() : '—'}</td>
-                  <td>—</td>
+                  <td>{mktRefStatusLabel(locale, item.status)}</td>
+                  <td>
+                    {item.date
+                      ? new Date(item.date).toLocaleDateString(dateLocale)
+                      : t('dash')}
+                  </td>
+                  <td>{t('dash')}</td>
                 </tr>
               ))
             )}
@@ -680,24 +659,26 @@ export const ReferrerManagement = () => {
     <>
       <div className="mk-ref-section-header">
         <div>
-          <h2 className="mk-ref-section-title">Commission Rules</h2>
-          <p className="mk-ref-section-subtitle">
-            Define how commissions are calculated per referrer, service, or customer type
-          </p>
+          <h2 className="mk-ref-section-title">{t('rules.title')}</h2>
+          <p className="mk-ref-section-subtitle">{t('rules.subtitle')}</p>
         </div>
 
-        <button type="button" className="mk-ref-primary-btn" onClick={() => navigate(`${basePath}/rules/new`)}>
+        <button
+          type="button"
+          className="mk-ref-primary-btn"
+          onClick={() => navigate(`${basePath}/rules/new`)}
+        >
           <Plus size={15} strokeWidth={2.4} />
-          Add Rule
+          {t('btn.addRule')}
         </button>
       </div>
 
       <div className="mk-ref-info-banner">
         <Info size={15} strokeWidth={2.2} />
         <span>
-          <strong>Rule Priority:</strong> Referrer-specific rules override category rules,
-          which override general rules. Commission is only accrued when a referral is{' '}
-          <strong>Approved.</strong>
+          <strong>{t('rules.priority')}</strong>
+          {t('rules.priorityBody')}
+          <strong>{t('rules.approved')}</strong>
         </span>
       </div>
 
@@ -705,20 +686,20 @@ export const ReferrerManagement = () => {
         <table className="mk-ref-table">
           <thead>
             <tr>
-              <th>Referrer</th>
-              <th>Category</th>
-              <th>Customer Type</th>
-              <th>Service</th>
-              <th>Commission</th>
-              <th>Effective</th>
-              <th>Status</th>
+              <th>{t('th.referrer')}</th>
+              <th>{t('th.category')}</th>
+              <th>{t('th.customerType')}</th>
+              <th>{t('th.service')}</th>
+              <th>{t('th.commission')}</th>
+              <th>{t('th.effective')}</th>
+              <th>{t('th.status')}</th>
             </tr>
           </thead>
 
           <tbody>
             <tr>
               <td colSpan="7" className="mk-ref-empty-table">
-                No commission rules defined. Settings endpoint exists, but rule CRUD is not connected yet.
+                {t('empty.rules')}
               </td>
             </tr>
           </tbody>
@@ -731,15 +712,17 @@ export const ReferrerManagement = () => {
     <>
       <div className="mk-ref-section-header">
         <div>
-          <h2 className="mk-ref-section-title">Payout Queue</h2>
-          <p className="mk-ref-section-subtitle">
-            Approve and process commission payouts — payout API is not exposed yet
-          </p>
+          <h2 className="mk-ref-section-title">{t('payout.title')}</h2>
+          <p className="mk-ref-section-subtitle">{t('payout.subtitle')}</p>
         </div>
 
-        <button type="button" className="mk-ref-primary-btn" onClick={() => navigate(`${basePath}/payouts/new`)}>
+        <button
+          type="button"
+          className="mk-ref-primary-btn"
+          onClick={() => navigate(`${basePath}/payouts/new`)}
+        >
           <Plus size={15} strokeWidth={2.4} />
-          New Payout Request
+          {t('btn.newPayout')}
         </button>
       </div>
 
@@ -747,21 +730,21 @@ export const ReferrerManagement = () => {
         <table className="mk-ref-table">
           <thead>
             <tr>
-              <th>Payout #</th>
-              <th>Referrer</th>
-              <th>Amount</th>
-              <th>Method</th>
-              <th>Journal Entry</th>
-              <th>Status</th>
-              <th>Date</th>
-              <th>Actions</th>
+              <th>{t('th.payoutNo')}</th>
+              <th>{t('th.referrer')}</th>
+              <th>{t('th.amount')}</th>
+              <th>{t('th.method')}</th>
+              <th>{t('th.journalEntry')}</th>
+              <th>{t('th.status')}</th>
+              <th>{t('th.date')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
           </thead>
 
           <tbody>
             <tr>
               <td colSpan="8" className="mk-ref-empty-table">
-                No payout requests
+                {t('empty.payouts')}
               </td>
             </tr>
           </tbody>
@@ -773,10 +756,11 @@ export const ReferrerManagement = () => {
   const renderJournals = () => (
     <>
       <div className="mk-ref-subtabs-wrap">
-        {journalTabs.map((item) => (
+        {JOURNAL_TAB_IDS.map((item) => (
           <JournalTabButton
             key={item.id}
             item={item}
+            label={t(item.labelKey)}
             active={journalTab === item.id}
             onClick={setJournalTab}
           />
@@ -785,31 +769,31 @@ export const ReferrerManagement = () => {
 
       {journalTab === 'entries' && (
         <section className="mk-card mk-ref-empty-card">
-          <div className="mk-ref-empty-title">No journal entries found</div>
-          <div className="mk-ref-empty-sub">Commission journal entries will appear here</div>
+          <div className="mk-ref-empty-title">{t('journals.emptyEntries')}</div>
+          <div className="mk-ref-empty-sub">{t('journals.emptyEntriesSub')}</div>
         </section>
       )}
 
       {journalTab === 'ledger' && (
         <section className="mk-card mk-ref-table-card">
-          <div className="mk-ref-table-title">Referrer Ledger</div>
+          <div className="mk-ref-table-title">{t('journals.ledgerTitle')}</div>
 
           <table className="mk-ref-table">
             <thead>
               <tr>
-                <th>Referrer</th>
-                <th>Date</th>
-                <th>Description</th>
-                <th>Debit</th>
-                <th>Credit</th>
-                <th>Balance</th>
+                <th>{t('th.referrer')}</th>
+                <th>{t('th.date')}</th>
+                <th>{t('th.description')}</th>
+                <th>{t('th.debit')}</th>
+                <th>{t('th.credit')}</th>
+                <th>{t('th.balance')}</th>
               </tr>
             </thead>
 
             <tbody>
               <tr>
                 <td colSpan="6" className="mk-ref-empty-table">
-                  Ledger records will appear here
+                  {t('empty.ledger')}
                 </td>
               </tr>
             </tbody>
@@ -821,39 +805,39 @@ export const ReferrerManagement = () => {
         <>
           <div className="mk-ref-metric-grid">
             <MetricCard
-              label="Commission Expense (P&L)"
+              label={t('pl.expense')}
               value={formatSar(overview.totalCommissionExpense)}
-              subtitle="Debit to Referrer Commission Expense"
+              subtitle={t('pl.expenseSub')}
               tone="danger"
             />
 
             <MetricCard
-              label="Total Payable (Balance Sheet)"
+              label={t('pl.payable')}
               value={formatSar(overview.totalPayable)}
-              subtitle="Liability — Referrer Commission Payable"
+              subtitle={t('pl.payableSub')}
               tone="warning"
             />
 
             <MetricCard
-              label="Total Paid"
+              label={t('pl.paid')}
               value={formatSar(overview.totalPaid)}
-              subtitle="Settled commission payments"
+              subtitle={t('pl.paidSub')}
               tone="success"
             />
           </div>
 
           <section className="mk-card mk-ref-table-card mk-ref-pl-card">
-            <div className="mk-ref-table-title">Referrer-wise Payable Report</div>
+            <div className="mk-ref-table-title">{t('pl.reportTitle')}</div>
 
             <table className="mk-ref-table">
               <thead>
                 <tr>
-                  <th>Referrer</th>
-                  <th>COA Account</th>
-                  <th>Pending</th>
-                  <th>Available (Payable)</th>
-                  <th>Paid</th>
-                  <th>Total Earned</th>
+                  <th>{t('th.referrer')}</th>
+                  <th>{t('th.coa')}</th>
+                  <th>{t('th.pending')}</th>
+                  <th>{t('th.availablePayable')}</th>
+                  <th>{t('th.paid')}</th>
+                  <th>{t('th.totalEarned')}</th>
                 </tr>
               </thead>
 
@@ -861,14 +845,14 @@ export const ReferrerManagement = () => {
                 {payableSummary.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="mk-ref-empty-table">
-                      No referrer payable records found
+                      {t('empty.pl')}
                     </td>
                   </tr>
                 ) : (
                   payableSummary.map((item) => (
                     <tr key={item.id || item.name}>
                       <td className="mk-ref-td-strong">{item.name}</td>
-                      <td>{item.coaAccount || '(not set up yet)'}</td>
+                      <td>{item.coaAccount || t('coa.notSet')}</td>
                       <td className="mk-ref-text-yellow">{formatSar(item.pending)}</td>
                       <td className="mk-ref-text-green">{formatSar(item.available)}</td>
                       <td>{formatSar(item.paid)}</td>
@@ -885,16 +869,12 @@ export const ReferrerManagement = () => {
   );
 
   return (
-    <div className="mk-page mk-ref-page">
+    <div className="mk-page mk-ref-page" dir={locale === 'ar' ? 'rtl' : undefined}>
       <div className="mk-ref-top-row">
         <div>
-          <h1 className="mk-ref-page-title">
-            Referrer Management &amp; Commission Accounting
-          </h1>
+          <h1 className="mk-ref-page-title">{t('page.title')}</h1>
 
-          <p className="mk-ref-page-subtitle">
-            Full ERP module — manage referrers, track referrals, auto-post commission journal entries, and process payouts
-          </p>
+          <p className="mk-ref-page-subtitle">{t('page.subtitle')}</p>
         </div>
 
         <button
@@ -904,22 +884,23 @@ export const ReferrerManagement = () => {
           disabled={loading}
         >
           <RefreshCw size={15} />
-          {loading ? 'Loading...' : 'Refresh'}
+          {loading ? t('btn.loading') : t('btn.refresh')}
         </button>
 
         <div className="mk-ref-accounting-badge">
           <span />
-          Double-Entry Accounting Active
+          {t('badge.accounting')}
         </div>
       </div>
 
       {error ? <div className="mk-error-text">{error}</div> : null}
 
       <div className="mk-ref-tabs">
-        {tabs.map((item) => (
+        {TAB_IDS.map((item) => (
           <TabButton
             key={item.id}
             item={item}
+            label={t(item.labelKey)}
             active={activeTab === item.id}
             onClick={setActiveTab}
           />
@@ -932,7 +913,6 @@ export const ReferrerManagement = () => {
       {activeTab === 'rules' && renderRules()}
       {activeTab === 'payout' && renderPayout()}
       {activeTab === 'journals' && renderJournals()}
-
     </div>
   );
 };

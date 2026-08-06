@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown } from 'lucide-react';
+import { loyT, loyTierName } from '../../utils/loyaltyProgramsI18n';
 
 export const tierMeta = [
   { key: 'bronze', name: 'Bronze', className: 'mk-loyalty-tier-bronze', colorHex: '#A65A21' },
@@ -43,12 +44,14 @@ export const PointsRuleField = ({ label, value, onChange }) => (
   </div>
 );
 
-export const TierConfigCard = ({ tier, values, onChange }) => (
+export const TierConfigCard = ({ tier, values, onChange, locale = 'en' }) => (
   <div className={`mk-loyalty-tier-config ${tier.className}`}>
-    <div className="mk-loyalty-tier-config-title">{tier.name} Tier</div>
+    <div className="mk-loyalty-tier-config-title">
+      {loyT(locale, 'form.tierTitle', { name: loyTierName(locale, tier.key) })}
+    </div>
     <div className="mk-loyalty-tier-config-grid">
       <div>
-        <label className="mk-loyalty-tier-label">Minimum Points</label>
+        <label className="mk-loyalty-tier-label">{loyT(locale, 'form.minPoints')}</label>
         <input
           type="number"
           value={values.minPoints}
@@ -57,7 +60,7 @@ export const TierConfigCard = ({ tier, values, onChange }) => (
         />
       </div>
       <div>
-        <label className="mk-loyalty-tier-label">Discount %</label>
+        <label className="mk-loyalty-tier-label">{loyT(locale, 'form.discountPct')}</label>
         <input
           type="number"
           value={values.discount}
@@ -85,6 +88,13 @@ export const SelectField = ({ value, onChange, options }) => (
     <ChevronDown size={14} className="mk-loyalty-select-icon" />
   </div>
 );
+
+export function localizedStatusOptions(locale) {
+  return statusOptions.map((value) => ({
+    value,
+    label: loyT(locale, value === 'Active' ? 'status.active' : 'status.inactive'),
+  }));
+}
 
 export function buildLoyaltyPayload(form) {
   const workshopId = getStoredWorkshopId();

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   BarChart3,
@@ -15,6 +15,11 @@ import {
   Gift,
 } from "lucide-react";
 import { marketingGetPromotionReport } from "../../services/superAdminMarketingApi";
+import {
+  mktPromoOptionLabel,
+  mktPromoT,
+  resolveMarketingLocale,
+} from "../../utils/marketingPromotionsI18n";
 import {
   formatPromotionSar,
   formatPromotionUsageLabel,
@@ -54,6 +59,9 @@ export default function MarketingPromotionReportPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = (key, vars) => mktPromoT(locale, key, vars);
   const listPath = resolvePromotionBasePath(location.pathname);
 
   const [loading, setLoading] = useState(true);
@@ -83,7 +91,7 @@ export default function MarketingPromotionReportPage() {
       setItems(safeArray(data, ["items", "data.items"]));
     } catch (err) {
       console.error("Promotion report error:", err);
-      setError(err?.message || "Could not load promotion report.");
+      setError(err?.message || t('report.errLoad'));
       setPromotion(null);
       setSummary(null);
       setOrders([]);
@@ -100,7 +108,7 @@ export default function MarketingPromotionReportPage() {
   }, [id]);
 
   const usageLabel = useMemo(
-    () => (promotion ? formatPromotionUsageLabel(promotion) : ""),
+    () => (promotion ? formatPromotionUsageLabel(promotion, locale) : ""),
     [promotion]
   );
 
@@ -108,7 +116,7 @@ export default function MarketingPromotionReportPage() {
     return (
       <div className="mkp-page mkp-report-loading">
         <Loader2 size={32} className="mkp-spin" />
-        <div>Loading promotion report...</div>
+        <div>{t('report.loading')}</div>
       </div>
     );
   }
@@ -122,10 +130,10 @@ export default function MarketingPromotionReportPage() {
           onClick={() => navigate(listPath)}
         >
           <ArrowLeft size={16} />
-          Back to Promotions
+          {t('common.backPromotions')}
         </button>
         <div className="mkp-error">
-          {error || "Promotion not found."}
+          {error || t('err.notFound')}
         </div>
       </div>
     );
@@ -140,20 +148,20 @@ export default function MarketingPromotionReportPage() {
           onClick={() => navigate(listPath)}
         >
           <ArrowLeft size={16} />
-          Back to Promotions
+          {t('common.backPromotions')}
         </button>
 
         <div className="mkp-report-topbar-actions">
           <button type="button" className="mk-report-ai-btn" onClick={loadReport}>
             <RefreshCw size={15} />
-            Refresh
+            {t('common.refresh')}
           </button>
           <button
             type="button"
             className="mk-btn-primary"
             onClick={() => navigate(`${listPath}/${promotion.id}/edit`)}
           >
-            Edit Promotion
+            {t('report.edit')}
           </button>
         </div>
       </div>
@@ -174,10 +182,10 @@ export default function MarketingPromotionReportPage() {
                 .toLowerCase()
                 .replace(/\s+/g, "-")}`}
             >
-              {formatStatusLabel(promotion.status)}
+              {formatStatusLabel(promotion.status, locale)}
             </span>
             {isPromotionLiveOnPos(promotion) ? (
-              <span className="mkp-live-chip">Live on POS</span>
+              <span className="mkp-live-chip">{t('report.live')}</span>
             ) : null}
             <span className="mkp-report-scope-badge">{usageLabel}</span>
           </div>
@@ -188,89 +196,89 @@ export default function MarketingPromotionReportPage() {
         <div className="mk-report-metric-card mk-report-tone-dark">
           <div className="mk-report-metric-title">
             <Receipt size={14} />
-            Usage
+            {t('report.metric.usage')}
           </div>
           <div className="mk-report-metric-value">{usageLabel}</div>
           <div className="mk-report-metric-sub">
-            {summary?.redemptionCount ?? 0} POS redemptions recorded
+            {t('report.metric.usageSub', { n: summary?.redemptionCount ?? 0 })}
           </div>
         </div>
 
         <div className="mk-report-metric-card mk-report-tone-red">
           <div className="mk-report-metric-title">
             <Percent size={14} />
-            Discount Provided
+            {t('report.metric.discount')}
           </div>
           <div className="mk-report-metric-value">
-            {formatPromotionSar(summary?.totalDiscountProvided ?? 0)}
+            {formatPromotionSar(summary?.totalDiscountProvided ?? 0, locale)}
           </div>
           <div className="mk-report-metric-sub">
-            Total savings given to customers
+            {t('report.metric.discountSub')}
           </div>
         </div>
 
         <div className="mk-report-metric-card">
           <div className="mk-report-metric-title">
             <TrendingUp size={14} />
-            Revenue Collected
+            {t('report.metric.revenue')}
           </div>
           <div className="mk-report-metric-value">
-            {formatPromotionSar(summary?.totalRevenue ?? 0)}
+            {formatPromotionSar(summary?.totalRevenue ?? 0, locale)}
           </div>
           <div className="mk-report-metric-sub">
-            Invoice totals after promotion
+            {t('report.metric.revenueSub')}
           </div>
         </div>
 
         <div className="mk-report-metric-card">
           <div className="mk-report-metric-title">
             <BarChart3 size={14} />
-            Gross Before Discount
+            {t('report.metric.gross')}
           </div>
           <div className="mk-report-metric-value">
-            {formatPromotionSar(summary?.grossRevenue ?? 0)}
+            {formatPromotionSar(summary?.grossRevenue ?? 0, locale)}
           </div>
           <div className="mk-report-metric-sub">
-            Revenue + promotion discount
+            {t('report.metric.grossSub')}
           </div>
         </div>
 
         <div className="mk-report-metric-card mk-report-tone-red">
           <div className="mk-report-metric-title">
             <Building2 size={14} />
-            HQ Payable (2215)
+            {t('report.metric.payable')}
           </div>
           <div className="mk-report-metric-value">
-            {formatPromotionSar(summary?.payableTotal ?? 0)}
+            {formatPromotionSar(summary?.payableTotal ?? 0, locale)}
           </div>
           <div className="mk-report-metric-sub">
-            Auto-posted to Marketing Promotion Payable
+            {t('report.metric.payableSub')}
           </div>
         </div>
 
         <div className="mk-report-metric-card">
           <div className="mk-report-metric-title">
             <Package size={14} />
-            Trigger sales (A)
+            {t('report.metric.trigger')}
           </div>
           <div className="mk-report-metric-value">
-            {formatPromotionSar(summary?.triggerSalesTotal ?? 0)}
+            {formatPromotionSar(summary?.triggerSalesTotal ?? 0, locale)}
           </div>
           <div className="mk-report-metric-sub">
-            Products/services customer bought
+            {t('report.metric.triggerSub')}
           </div>
         </div>
 
         <div className="mk-report-metric-card">
           <div className="mk-report-metric-title">
             <Gift size={14} />
-            Free / reward value (B)
+            {t('report.metric.reward')}
           </div>
           <div className="mk-report-metric-value">
-            {formatPromotionSar(summary?.rewardValueTotal ?? 0)}
+            {formatPromotionSar(summary?.rewardValueTotal ?? 0, locale)}
           </div>
           <div className="mk-report-metric-sub">
-            Value before promotion discount
+            {t('report.metric.rewardSub')}
           </div>
         </div>
       </div>
@@ -282,7 +290,7 @@ export default function MarketingPromotionReportPage() {
           onClick={() => setActiveTab("orders")}
         >
           <Receipt size={15} />
-          Order-wise ({orders.length})
+          {t('report.tab.orders', { n: orders.length })}
         </button>
         <button
           type="button"
@@ -290,7 +298,7 @@ export default function MarketingPromotionReportPage() {
           onClick={() => setActiveTab("customers")}
         >
           <Users size={15} />
-          Customer-wise ({customers.length})
+          {t('report.tab.customers', { n: customers.length })}
         </button>
         <button
           type="button"
@@ -298,7 +306,7 @@ export default function MarketingPromotionReportPage() {
           onClick={() => setActiveTab("branches")}
         >
           <Building2 size={15} />
-          Branch / Workshop ({branches.length})
+          {t('report.tab.branches', { n: branches.length })}
         </button>
         <button
           type="button"
@@ -306,7 +314,7 @@ export default function MarketingPromotionReportPage() {
           onClick={() => setActiveTab("items")}
         >
           <Package size={15} />
-          Products & Services ({items.length})
+          {t('report.tab.items', { n: items.length })}
         </button>
       </div>
 
@@ -363,19 +371,19 @@ export default function MarketingPromotionReportPage() {
                       ) : null}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.triggerSalesTotal)}
+                      {formatPromotionSar(row.triggerSalesTotal, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.rewardValueTotal)}
+                      {formatPromotionSar(row.rewardValueTotal, locale)}
                     </td>
                     <td className="mkp-report-money discount">
-                      {formatPromotionSar(row.promotionDiscount)}
+                      {formatPromotionSar(row.promotionDiscount, locale)}
                     </td>
                     <td className="mkp-report-money payable">
-                      {formatPromotionSar(row.payableAmount ?? row.promotionDiscount)}
+                      {formatPromotionSar(row.payableAmount ?? row.promotionDiscount, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.invoiceTotal)}
+                      {formatPromotionSar(row.invoiceTotal, locale)}
                     </td>
                   </tr>
                 ))
@@ -414,13 +422,13 @@ export default function MarketingPromotionReportPage() {
                     </td>
                     <td>{row.orderCount ?? 0}</td>
                     <td className="mkp-report-money discount">
-                      {formatPromotionSar(row.totalDiscount)}
+                      {formatPromotionSar(row.totalDiscount, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.totalRevenue)}
+                      {formatPromotionSar(row.totalRevenue, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.grossRevenue)}
+                      {formatPromotionSar(row.grossRevenue, locale)}
                     </td>
                     <td>{formatShortDate(row.lastRedeemedAt)}</td>
                   </tr>
@@ -458,19 +466,19 @@ export default function MarketingPromotionReportPage() {
                     <td>{row.branchName || "—"}</td>
                     <td>{row.orderCount ?? 0}</td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.triggerSalesTotal)}
+                      {formatPromotionSar(row.triggerSalesTotal, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.rewardValueTotal)}
+                      {formatPromotionSar(row.rewardValueTotal, locale)}
                     </td>
                     <td className="mkp-report-money discount">
-                      {formatPromotionSar(row.promoDiscountTotal)}
+                      {formatPromotionSar(row.promoDiscountTotal, locale)}
                     </td>
                     <td className="mkp-report-money payable">
-                      {formatPromotionSar(row.payableTotal)}
+                      {formatPromotionSar(row.payableTotal, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.revenueTotal)}
+                      {formatPromotionSar(row.revenueTotal, locale)}
                     </td>
                   </tr>
                 ))
@@ -513,13 +521,13 @@ export default function MarketingPromotionReportPage() {
                     </td>
                     <td>{row.totalQty ?? 0}</td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.saleValue)}
+                      {formatPromotionSar(row.saleValue, locale)}
                     </td>
                     <td className="mkp-report-money">
-                      {formatPromotionSar(row.rewardValueBefore)}
+                      {formatPromotionSar(row.rewardValueBefore, locale)}
                     </td>
                     <td className="mkp-report-money discount">
-                      {formatPromotionSar(row.promoDiscountShare)}
+                      {formatPromotionSar(row.promoDiscountShare, locale)}
                     </td>
                   </tr>
                 ))

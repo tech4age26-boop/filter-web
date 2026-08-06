@@ -1,15 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import {
   marketingCreateReferrer,
   marketingGetReferrer,
   marketingUpdateReferrer,
 } from '../../services/superAdminMarketingApi';
+import {
+  mktInfPlatformLabel,
+  mktInfStatusLabel,
+  mktInfT,
+} from '../../utils/marketingInfluencersI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
   EMPTY_INFLUENCER_FORM,
-  humanize,
   platformOptions,
 } from './influencerReferrerShared';
 import './MarketingUniversal.css';
@@ -19,6 +23,13 @@ export default function InfluencerReferrerFormPage() {
   const isEdit = Boolean(id);
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale =
+    outletCtx.locale ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+    (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
+    'en';
+  const t = useCallback((key, vars) => mktInfT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'influencer-referrers');
 
   const [form, setForm] = useState(EMPTY_INFLUENCER_FORM);
@@ -41,7 +52,7 @@ export default function InfluencerReferrerFormPage() {
         setLoadingPage(true);
         const res = await marketingGetReferrer(id);
         const row = res?.referrer || res?.data || res?.item || res;
-        if (!row?.id) throw new Error('Influencer not found.');
+        if (!row?.id) throw new Error(t('err.notFound'));
         if (!cancelled) {
           setForm({
             id: String(row.id),
@@ -61,7 +72,7 @@ export default function InfluencerReferrerFormPage() {
           });
         }
       } catch (err) {
-        if (!cancelled) setPageError(err?.message || 'Failed to load influencer.');
+        if (!cancelled) setPageError(err?.message || t('err.loadOne'));
       } finally {
         if (!cancelled) setLoadingPage(false);
       }
@@ -70,7 +81,7 @@ export default function InfluencerReferrerFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isEdit]);
+  }, [id, isEdit, t]);
 
   const buildPayload = () => ({
     name: form.name.trim(),
@@ -93,7 +104,7 @@ export default function InfluencerReferrerFormPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!form.name.trim()) {
-      alert('Influencer name is required.');
+      alert(t('err.nameRequired'));
       return;
     }
 
@@ -107,7 +118,7 @@ export default function InfluencerReferrerFormPage() {
       }
       goBack();
     } catch (err) {
-      alert(err?.message || 'Failed to save influencer referrer.');
+      alert(err?.message || t('err.save'));
     } finally {
       setSaving(false);
     }
@@ -115,21 +126,25 @@ export default function InfluencerReferrerFormPage() {
 
   return (
     <MarketingFormShell
-      title={isEdit ? 'Edit Influencer' : 'Add Influencer'}
-      subtitle="Manage influencer referrers and commission settings."
-      backLabel="Back to Influencer Referrers"
+      title={isEdit ? t('form.titleEdit') : t('form.titleNew')}
+      subtitle={t('form.subtitle')}
+      backLabel={t('form.back')}
       onBack={goBack}
       className="mk-page mkp-form-page"
     >
       {pageError ? <div className="mk-error-text">{pageError}</div> : null}
 
       {loadingPage ? (
-        <div className="mk-panel-empty">Loading...</div>
+        <div className="mk-panel-empty">{t('form.loading')}</div>
       ) : (
-        <form onSubmit={handleSubmit} className="mkp-form-page-body">
+        <form
+          onSubmit={handleSubmit}
+          className="mkp-form-page-body"
+          dir={locale === 'ar' ? 'rtl' : undefined}
+        >
           <div className="mk-form-grid-2">
             <div className="mk-form-group">
-              <label className="mk-label">Name</label>
+              <label className="mk-label">{t('form.name')}</label>
               <input
                 autoFocus
                 className="mk-input"
@@ -138,23 +153,24 @@ export default function InfluencerReferrerFormPage() {
               />
             </div>
             <div className="mk-form-group">
-              <label className="mk-label">Status</label>
+              <label className="mk-label">{t('form.status')}</label>
               <select
                 className="mk-input"
                 value={form.status}
                 onChange={(e) => updateForm('status', e.target.value)}
               >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="pending">Pending</option>
-                <option value="suspended">Suspended</option>
+                {['active', 'inactive', 'pending', 'suspended'].map((s) => (
+                  <option key={s} value={s}>
+                    {mktInfStatusLabel(locale, s)}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
           <div className="mk-form-grid-2">
             <div className="mk-form-group">
-              <label className="mk-label">Email</label>
+              <label className="mk-label">{t('form.email')}</label>
               <input
                 className="mk-input"
                 value={form.email}
@@ -162,7 +178,7 @@ export default function InfluencerReferrerFormPage() {
               />
             </div>
             <div className="mk-form-group">
-              <label className="mk-label">Phone</label>
+              <label className="mk-label">{t('form.phone')}</label>
               <input
                 className="mk-input"
                 value={form.phone}
@@ -173,7 +189,7 @@ export default function InfluencerReferrerFormPage() {
 
           <div className="mk-form-grid-2">
             <div className="mk-form-group">
-              <label className="mk-label">Platform</label>
+              <label className="mk-label">{t('form.platform')}</label>
               <select
                 className="mk-input"
                 value={form.platform}
@@ -181,25 +197,25 @@ export default function InfluencerReferrerFormPage() {
               >
                 {platformOptions.map((option) => (
                   <option key={option} value={option}>
-                    {humanize(option)}
+                    {mktInfPlatformLabel(locale, option)}
                   </option>
                 ))}
               </select>
             </div>
             <div className="mk-form-group">
-              <label className="mk-label">Handle / Username</label>
+              <label className="mk-label">{t('form.handle')}</label>
               <input
                 className="mk-input"
                 value={form.handle}
                 onChange={(e) => updateForm('handle', e.target.value)}
-                placeholder="@username"
+                placeholder={t('form.handlePh')}
               />
             </div>
           </div>
 
           <div className="mk-form-grid-2">
             <div className="mk-form-group">
-              <label className="mk-label">Commission Rate (%)</label>
+              <label className="mk-label">{t('form.rate')}</label>
               <input
                 type="number"
                 min="0"
@@ -209,7 +225,7 @@ export default function InfluencerReferrerFormPage() {
               />
             </div>
             <div className="mk-form-group">
-              <label className="mk-label">Active Campaigns</label>
+              <label className="mk-label">{t('form.campaigns')}</label>
               <input
                 type="number"
                 min="0"
@@ -221,7 +237,7 @@ export default function InfluencerReferrerFormPage() {
           </div>
 
           <div className="mk-form-group">
-            <label className="mk-label">Notes</label>
+            <label className="mk-label">{t('form.notes')}</label>
             <input
               className="mk-input"
               value={form.notes}
@@ -231,10 +247,10 @@ export default function InfluencerReferrerFormPage() {
 
           <div className="mkp-form-page-footer">
             <button type="button" className="mk-btn-secondary" onClick={goBack} disabled={saving}>
-              Cancel
+              {t('form.cancel')}
             </button>
             <button type="submit" className="mk-btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Influencer'}
+              {saving ? t('form.saving') : t('form.save')}
             </button>
           </div>
         </form>

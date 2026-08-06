@@ -12,6 +12,11 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { marketingGetPromotionOptions } from '../../services/superAdminMarketingApi';
+import {
+  mktPromoOptionLabel,
+  mktPromoStatusLabel,
+  mktPromoT,
+} from '../../utils/marketingPromotionsI18n';
 const strategyOptions = [
   "Standard Promotion",
   "Cross-Platform Promotions",
@@ -146,7 +151,7 @@ const mapBackendPromotionTypeToUi = (value) => {
   return raw;
 };
 
-export function formatPromotionDiscountDisplay(item) {
+export function formatPromotionDiscountDisplay(item, locale = 'en') {
   const uiType = String(item?.discountType || "").toLowerCase();
   const backendType = String(item?.discountTypeRaw || item?.discount_type || "")
     .toLowerCase();
@@ -159,10 +164,10 @@ export function formatPromotionDiscountDisplay(item) {
     combined.includes("amount") ||
     combined.includes("flat")
   ) {
-    return `${value} SAR`;
+    return mktPromoT(locale, 'money.sar', { amount: value });
   }
 
-  return `${value}%`;
+  return mktPromoT(locale, 'money.percent', { amount: value });
 }
 
 const isPercentageDiscountUi = (discountType) => {
@@ -382,35 +387,35 @@ const canTogglePromotionActivation = (item) => {
   return !blocked.includes(status);
 };
 
-const activationToggleHint = (item) => {
+const activationToggleHint = (item, locale = 'en') => {
   const status = String(item?.status || "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "_");
 
   if (status === "draft") {
-    return "Submit and approve this promotion before enabling on POS.";
+    return mktPromoT(locale, 'hint.draft');
   }
 
   if (status === "pending_approval") {
-    return "Waiting for approval before it can go live on POS.";
+    return mktPromoT(locale, 'hint.pending');
   }
 
   if (status === "rejected") {
-    return "Rejected promotions cannot be activated.";
+    return mktPromoT(locale, 'hint.rejected');
   }
 
   if (status === "expired") {
-    return "Expired promotions cannot be activated.";
+    return mktPromoT(locale, 'hint.expired');
   }
 
   if (status === "approved") {
-    return "Approved — turn on POS status to apply on invoices.";
+    return mktPromoT(locale, 'hint.approved');
   }
 
   return item?.isActive
-    ? "Applies on POS for matching branches and products."
-    : "Visible but disabled — will not apply on POS invoices.";
+    ? mktPromoT(locale, 'hint.active')
+    : mktPromoT(locale, 'hint.inactive');
 };
 
 const isPromotionLiveOnPos = (item) => {
@@ -426,25 +431,8 @@ const isPromotionLiveOnPos = (item) => {
   );
 };
 
-const formatStatusLabel = (status) => {
-  const normalized = String(status || "draft")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "_");
-
-  const labels = {
-    draft: "Draft",
-    scheduled: "Scheduled",
-    pending_approval: "Pending Approval",
-    approved: "Approved",
-    rejected: "Rejected",
-    active: "Active",
-    inactive: "Inactive",
-    expired: "Expired",
-  };
-
-  return labels[normalized] || String(status || "Draft");
-};
+const formatStatusLabel = (status, locale = 'en') =>
+  mktPromoStatusLabel(locale, status);
 
 const normalizeWorkflowStatus = (status) =>
   String(status || "draft")
@@ -456,21 +444,24 @@ const isSuperAdminUser = (user) =>
   user?.userType === "platform_admin" &&
   (!user?.role || user?.role?.isSystem);
 
-const formatEndDate = (value) => {
-  if (!value) return "No end date";
+const formatEndDate = (value, locale = 'en') => {
+  if (!value) return mktPromoT(locale, 'date.noEnd');
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return "No end date";
+  if (Number.isNaN(date.getTime())) return mktPromoT(locale, 'date.noEnd');
 
   const diffMs = date.getTime() - Date.now();
   const diffDays = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 
-  return `Ends ${date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "2-digit",
-    year: "2-digit",
-  })} (${diffDays}d)`;
+  return mktPromoT(locale, 'date.ends', {
+    date: date.toLocaleDateString(locale === 'ar' ? 'ar-SA' : 'en-US', {
+      month: "short",
+      day: "2-digit",
+      year: "2-digit",
+    }),
+    days: diffDays,
+  });
 };
 
 function useDropdownKeyboard({
@@ -567,11 +558,13 @@ const SelectField = ({
   options,
   small = false,
   multiple = false,
-  placeholder = "Select...",
+  placeholder,
+  locale = 'en',
 }) => {
   const wrapRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const resolvedPlaceholder = placeholder ?? mktPromoT(locale, 'common.select');
 
   const normalizedOptions = useMemo(
     () => normalizeStringOptions(options),
@@ -602,11 +595,11 @@ const SelectField = ({
 
   const displayText =
     selectedLabels.length === 0
-      ? placeholder
+      ? resolvedPlaceholder
       : multiple
         ? selectedLabels.length <= 2
           ? selectedLabels.join(", ")
-          : `${selectedLabels.length} selected`
+          : mktPromoT(locale, 'common.nSelected', { n: selectedLabels.length })
         : selectedLabels[0];
 
   const toggleValue = (id) => {
@@ -668,13 +661,13 @@ const SelectField = ({
             <span key={item}>{item}</span>
           ))}
           {selectedLabels.length > 4 ? (
-            <span>+{selectedLabels.length - 4} more</span>
+            <span>+{selectedLabels.length - 4}</span>
           ) : null}
           <button
             type="button"
             onClick={() => onChange([])}
           >
-            Clear
+            {mktPromoT(locale, 'common.clear')}
           </button>
         </div>
       ) : null}
@@ -687,14 +680,14 @@ const SelectField = ({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={handleListKeyDown}
-              placeholder="Search..."
+              placeholder={mktPromoT(locale, 'common.search')}
               autoFocus
             />
           </div>
 
           <div className="mkp-dd-list" ref={listRef} role="listbox">
             {filteredOptions.length === 0 ? (
-              <div className="mkp-dd-empty">No options found</div>
+              <div className="mkp-dd-empty">{mktPromoT(locale, 'common.noOptions')}</div>
             ) : multiple ? (
               filteredOptions.map((item, index) => (
                 <label
@@ -745,6 +738,7 @@ const SingleSelectApiField = ({
   loading,
   error,
   placeholder = "Select...",
+  locale = 'en',
 }) => {
   const Icon = icon;
   const wrapRef = useRef(null);
@@ -812,7 +806,7 @@ const SingleSelectApiField = ({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span>{loading ? "Loading..." : selected?.label || placeholder}</span>
+        <span>{loading ? mktPromoT(locale, 'common.loading') : selected?.label || placeholder}</span>
         <ChevronDown size={15} strokeWidth={2} />
       </button>
 
@@ -824,7 +818,7 @@ const SingleSelectApiField = ({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={handleListKeyDown}
-              placeholder="Search..."
+              placeholder={mktPromoT(locale, 'common.search')}
               autoFocus
             />
           </div>
@@ -833,7 +827,7 @@ const SingleSelectApiField = ({
             {loading ? (
               <div className="mkp-dd-empty">
                 <Loader2 size={15} className="mkp-spin" />
-                Loading options...
+                {mktPromoT(locale, 'common.loading')}
               </div>
             ) : error ? (
               <div className="mkp-dd-empty error">
@@ -841,7 +835,7 @@ const SingleSelectApiField = ({
                 {error}
               </div>
             ) : filteredOptions.length === 0 ? (
-              <div className="mkp-dd-empty">No options found</div>
+              <div className="mkp-dd-empty">{mktPromoT(locale, 'common.noOptions')}</div>
             ) : (
               filteredOptions.map((item, index) => (
                 <button
@@ -873,13 +867,15 @@ const MultiSelectApiField = ({
   onChange,
   loading,
   error,
-  placeholder = "Select options...",
+  placeholder,
+  locale = 'en',
 }) => {
   const Icon = icon;
   const wrapRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
+  const resolvedPlaceholder = placeholder ?? mktPromoT(locale, 'common.selectOptions');
 
   const categoryOptions = useMemo(() => {
     const map = new Map();
@@ -940,10 +936,10 @@ const MultiSelectApiField = ({
 
   const displayText =
     selectedLabels.length === 0
-      ? placeholder
+      ? resolvedPlaceholder
       : selectedLabels.length <= 2
         ? selectedLabels.join(", ")
-        : `${selectedLabels.length} selected`;
+        : mktPromoT(locale, 'common.nSelected', { n: selectedLabels.length });
 
   const { highlightIndex, setHighlightIndex, listRef, handleListKeyDown, handleTriggerKeyDown } =
     useDropdownKeyboard({
@@ -972,7 +968,7 @@ const MultiSelectApiField = ({
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span>{loading ? "Loading..." : displayText}</span>
+        <span>{loading ? mktPromoT(locale, 'common.loading') : displayText}</span>
         <ChevronDown size={15} strokeWidth={2} />
       </button>
 
@@ -983,11 +979,11 @@ const MultiSelectApiField = ({
           ))}
 
           {selectedLabels.length > 4 ? (
-            <span>+{selectedLabels.length - 4} more</span>
+            <span>+{selectedLabels.length - 4}</span>
           ) : null}
 
           <button type="button" onClick={clearSelected}>
-            Clear
+            {mktPromoT(locale, 'common.clear')}
           </button>
         </div>
       ) : null}
@@ -1001,7 +997,7 @@ const MultiSelectApiField = ({
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
               >
-                <option value="">All categories</option>
+                <option value="">{mktPromoT(locale, 'common.allCategories')}</option>
                 {categoryOptions.map((cat) => (
                   <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}
@@ -1014,7 +1010,7 @@ const MultiSelectApiField = ({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={handleListKeyDown}
-              placeholder="Search..."
+              placeholder={mktPromoT(locale, 'common.search')}
               autoFocus
             />
           </div>
@@ -1023,7 +1019,7 @@ const MultiSelectApiField = ({
             {loading ? (
               <div className="mkp-dd-empty">
                 <Loader2 size={15} className="mkp-spin" />
-                Loading options...
+                {mktPromoT(locale, 'common.loading')}
               </div>
             ) : error ? (
               <div className="mkp-dd-empty error">
@@ -1031,7 +1027,7 @@ const MultiSelectApiField = ({
                 {error}
               </div>
             ) : filteredOptions.length === 0 ? (
-              <div className="mkp-dd-empty">No options found</div>
+              <div className="mkp-dd-empty">{mktPromoT(locale, 'common.noOptions')}</div>
             ) : (
               filteredOptions.map((item, index) => (
                 <label
@@ -1119,29 +1115,35 @@ export const EMPTY_PROMOTION_FORM = {
   showCustomerPortal: true,
 };
 
-export function formatPromotionUsageLabel(item) {
+export function formatPromotionUsageLabel(item, locale = 'en') {
   const usageCount = Number(item?.usageCount ?? 0);
   const maxUsageCount = Number(item?.maxUsageCount ?? 0);
   const remaining = item?.remainingUsage;
 
   if (!maxUsageCount || maxUsageCount <= 0) {
-    return `${usageCount} used · Unlimited`;
+    return mktPromoT(locale, 'usage.unlimited', { used: usageCount });
   }
 
   const left =
     remaining != null ? Number(remaining) : Math.max(0, maxUsageCount - usageCount);
 
-  return `${usageCount} / ${maxUsageCount} used · ${left} left`;
+  return mktPromoT(locale, 'usage.limited', {
+    used: usageCount,
+    max: maxUsageCount,
+    left,
+  });
 }
 
-export function formatPromotionSar(value) {
+export function formatPromotionSar(value, locale = 'en') {
   const n = Number(value);
-  if (!Number.isFinite(n)) return '0 SAR';
+  const amount = Number.isFinite(n)
+    ? n.toLocaleString(locale === 'ar' ? 'ar-SA' : undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      })
+    : '0';
 
-  return `${n.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  })} SAR`;
+  return mktPromoT(locale, 'money.sar', { amount });
 }
 
 export function resolvePromotionBasePath(pathname) {

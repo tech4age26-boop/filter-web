@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Loader2,
@@ -12,6 +12,8 @@ import {
   Tag,
 } from 'lucide-react';
 import { marketingGetPromoCodeAutoReport } from '../../services/superAdminMarketingApi';
+import { promoStatusLabel, promoT } from '../../utils/promoCodesI18n';
+import { resolveMarketingLocale } from '../../utils/marketingPromotionsI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import {
   formatPromoCodeSar,
@@ -20,27 +22,29 @@ import {
 } from './promoCodeShared';
 import './MarketingUniversal.css';
 
-function formatGeneratedAt(value) {
-  if (!value) return new Date().toLocaleString();
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return new Date().toLocaleString();
-  return date.toLocaleString(undefined, {
+function formatGeneratedAt(value, locale) {
+  const opts = {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  });
+  };
+  const loc = locale === 'ar' ? 'ar-SA' : undefined;
+  if (!value) return new Date().toLocaleString(loc, opts);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return new Date().toLocaleString(loc, opts);
+  return date.toLocaleString(loc, opts);
 }
 
-function HealthBadge({ score }) {
+function HealthBadge({ score, t }) {
   let tone = 'mid';
   if (score >= 80) tone = 'high';
   else if (score < 45) tone = 'low';
 
   return (
     <span className={`mkp-ar-health-badge tone-${tone}`}>
-      Health {Math.round(score)}/100
+      {t('auto.health', { score: Math.round(score) })}
     </span>
   );
 }
@@ -49,6 +53,9 @@ export default function MarketingPromoCodeAutoReportPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const outletCtx = useOutletContext() || {};
+  const locale = resolveMarketingLocale(outletCtx);
+  const t = useCallback((key, vars) => promoT(locale, key, vars), [locale]);
   const listPath = marketingSectionPath(location.pathname, 'promo-codes');
 
   const [loading, setLoading] = useState(true);
@@ -65,11 +72,11 @@ export default function MarketingPromoCodeAutoReportPage() {
       const data = await marketingGetPromoCodeAutoReport(id);
       const code = data?.promoCode || data?.data?.promoCode || null;
 
-      setPromoCode(code ? normalizePromoCode(code) : null);
+      setPromoCode(code ? normalizePromoCode(code, locale) : null);
       setAnalytics(data?.analytics || data?.data?.analytics || null);
       setGeneratedAt(data?.generatedAt || new Date().toISOString());
     } catch (err) {
-      setError(err?.message || 'Could not load promo code auto report.');
+      setError(err?.message || t('auto.errLoad'));
       setPromoCode(null);
       setAnalytics(null);
     } finally {
@@ -83,14 +90,14 @@ export default function MarketingPromoCodeAutoReportPage() {
 
   const recommendations = useMemo(
     () => analytics?.recommendations || [],
-    [analytics]
+    [analytics],
   );
 
   if (loading) {
     return (
       <div className="mkp-page mkp-report-loading">
         <Loader2 size={32} className="mkp-spin" />
-        <div>Generating auto report...</div>
+        <div>{t('auto.loading')}</div>
       </div>
     );
   }
@@ -100,9 +107,9 @@ export default function MarketingPromoCodeAutoReportPage() {
       <div className="mkp-page">
         <button type="button" className="mkp-back-btn" onClick={() => navigate(listPath)}>
           <ArrowLeft size={16} />
-          Back to Promo Codes
+          {t('auto.back')}
         </button>
-        <div className="mk-code-error-banner">{error || 'Promo code not found.'}</div>
+        <div className="mk-code-error-banner">{error || t('auto.notFound')}</div>
       </div>
     );
   }
@@ -112,11 +119,11 @@ export default function MarketingPromoCodeAutoReportPage() {
       <div className="mkp-report-topbar">
         <button type="button" className="mkp-back-btn" onClick={() => navigate(listPath)}>
           <ArrowLeft size={16} />
-          Back to Promo Codes
+          {t('auto.back')}
         </button>
         <button type="button" className="mkp-icon-btn" onClick={loadReport}>
           <RefreshCw size={16} />
-          Refresh
+          {t('auto.refresh')}
         </button>
       </div>
 
@@ -126,24 +133,24 @@ export default function MarketingPromoCodeAutoReportPage() {
             <Sparkles size={22} />
           </div>
           <div>
-            <h1>Auto Report · {promoCode.code}</h1>
+            <h1>{t('auto.title', { code: promoCode.code })}</h1>
             <p>
-              {promoCode.promotion || 'Standalone promo code'} •{' '}
-              {mapDiscountTypeToUi(promoCode.discountType)} • {promoCode.discountValue}
+              {promoCode.promotion || t('auto.standalone')} •{' '}
+              {mapDiscountTypeToUi(promoCode.discountType, locale)} • {promoCode.discountValue}
             </p>
             <span className="mkp-ar-generated">
-              Generated {formatGeneratedAt(generatedAt)}
+              {t('auto.generated', { date: formatGeneratedAt(generatedAt, locale) })}
             </span>
           </div>
         </div>
         {analytics?.healthScore != null ? (
-          <HealthBadge score={analytics.healthScore} />
+          <HealthBadge score={analytics.healthScore} t={t} />
         ) : null}
       </div>
 
       <div className="mkp-ar-summary-card">
         <TrendingUp size={18} />
-        <p>{analytics?.executiveSummary || 'No summary available.'}</p>
+        <p>{analytics?.executiveSummary || t('auto.noSummary')}</p>
       </div>
 
       <div className="mkp-ar-kpi-grid">
@@ -160,23 +167,23 @@ export default function MarketingPromoCodeAutoReportPage() {
         <div className="mkp-ar-panel">
           <div className="mkp-ar-panel-head">
             <Target size={16} />
-            Performance snapshot
+            {t('auto.performance')}
           </div>
           <ul className="mkp-ar-metric-list">
             <li>
-              <span>Avg order value</span>
-              <strong>{formatPromoCodeSar(analytics?.avgOrderValue)}</strong>
+              <span>{t('auto.avgOrder')}</span>
+              <strong>{formatPromoCodeSar(analytics?.avgOrderValue, locale)}</strong>
             </li>
             <li>
-              <span>Avg discount / order</span>
-              <strong>{formatPromoCodeSar(analytics?.avgDiscount)}</strong>
+              <span>{t('auto.avgDiscount')}</span>
+              <strong>{formatPromoCodeSar(analytics?.avgDiscount, locale)}</strong>
             </li>
             <li>
-              <span>Discount rate</span>
+              <span>{t('auto.discountRate')}</span>
               <strong>{analytics?.discountRate ?? 0}%</strong>
             </li>
             <li>
-              <span>Top branch</span>
+              <span>{t('auto.topBranch')}</span>
               <strong>{analytics?.topBranchName || '—'}</strong>
             </li>
           </ul>
@@ -185,15 +192,15 @@ export default function MarketingPromoCodeAutoReportPage() {
         <div className="mkp-ar-panel">
           <div className="mkp-ar-panel-head">
             <BarChart3 size={16} />
-            Usage progress
+            {t('auto.usageProgress')}
           </div>
           <div className="mkp-ar-progress">
             <div className="mkp-ar-progress-head">
-              <span>Limit used</span>
+              <span>{t('auto.limitUsed')}</span>
               <strong>
                 {analytics?.usagePercent != null
                   ? `${analytics.usagePercent}%`
-                  : 'Unlimited'}
+                  : t('auto.unlimited')}
               </strong>
             </div>
             <div className="mkp-ar-progress-track">
@@ -207,7 +214,10 @@ export default function MarketingPromoCodeAutoReportPage() {
           </div>
           <div className="mkp-ar-status-row">
             <Tag size={14} />
-            Status: {promoCode.status} • POS: {promoCode.isActive ? 'Active' : 'Inactive'}
+            {t('auto.statusRow', {
+              status: promoStatusLabel(locale, promoCode.status),
+              pos: promoCode.isActive ? t('auto.posActive') : t('auto.posInactive'),
+            })}
           </div>
         </div>
       </div>
@@ -216,7 +226,7 @@ export default function MarketingPromoCodeAutoReportPage() {
         <div className="mkp-ar-panel">
           <div className="mkp-ar-panel-head">
             <Lightbulb size={16} />
-            Recommendations
+            {t('auto.recommendations')}
           </div>
           <ul className="mkp-ar-recommendations">
             {recommendations.map((item) => (
