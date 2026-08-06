@@ -695,6 +695,7 @@ export const generateCorporateBill = ({
     endDate,
     dueDate,
     lineOverrides,
+    excludeInvoiceIds,
     includeOpeningBalance,
 }) =>
     apiFetch('/super-admin/corporate-billing/generate', {
@@ -709,6 +710,9 @@ export const generateCorporateBill = ({
             ...(Array.isArray(lineOverrides) && lineOverrides.length
                 ? { lineOverrides }
                 : {}),
+            ...(Array.isArray(excludeInvoiceIds) && excludeInvoiceIds.length
+                ? { excludeInvoiceIds }
+                : {}),
         }),
     });
 
@@ -719,6 +723,19 @@ export const listCorporateGeneratedBills = (corporateAccountId) =>
 
 export const getCorporateGeneratedBill = (id) =>
     apiFetch(`/super-admin/corporate-billing/generated-bills/${encodeURIComponent(id)}`);
+
+/** HQ + corporate-workshop Cash & Bank accounts for Mark as Paid. */
+export const listGeneratedBillCashAccounts = (id) =>
+    apiFetch(
+        `/super-admin/corporate-billing/generated-bills/${encodeURIComponent(id)}/cash-accounts`,
+    );
+
+/** Fully settle a generated bill into a Cash & Bank register. */
+export const markGeneratedBillPaid = ({ id, cashBankAccountId, receivedDate }) =>
+    apiFetch(`/super-admin/corporate-generated-bills/${encodeURIComponent(id)}/mark-paid`, {
+        method: 'POST',
+        body: JSON.stringify({ cashBankAccountId, receivedDate }),
+    });
 
 /** Same bilingual simplified-tax-invoice shape used by the corporate portal modal. */
 export const getSuperAdminInvoiceView = (id) =>
