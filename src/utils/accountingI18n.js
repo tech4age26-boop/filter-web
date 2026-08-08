@@ -846,6 +846,8 @@ const ACC_I18N = {
         'pl.printTitle': 'Profit and Loss',
         'pl.printHeading': 'Profit & Loss Statement',
         'pl.period': 'Period: {from} — {to}',
+        'pl.riyadhHint':
+            'Date/time is Asia/Riyadh (UTC+3). End at 12:00 AM means up to the previous day (same as Reports). P&L revenue is ex-VAT.',
         'pl.revenue': 'REVENUE',
         'pl.noRevenue': 'No revenue accounts',
         'pl.totalRevenue': 'Total Revenue',
@@ -1726,6 +1728,8 @@ const ACC_I18N = {
         'pl.printTitle': 'الأرباح والخسائر',
         'pl.printHeading': 'قائمة الأرباح والخسائر',
         'pl.period': 'الفترة: {from} — {to}',
+        'pl.riyadhHint':
+            'التاريخ/الوقت حسب توقيت الرياض (UTC+3). النهاية عند 12:00 ص تعني حتى نهاية اليوم السابق (مثل التقارير). إيراد قائمة الدخل بدون ضريبة.',
         'pl.revenue': 'الإيرادات',
         'pl.noRevenue': 'لا حسابات إيرادات',
         'pl.totalRevenue': 'إجمالي الإيرادات',

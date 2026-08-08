@@ -40,6 +40,11 @@ import {
     startOfMonthISO,
     todayISO,
 } from '../../pages/admin/saAccountingDateRange';
+import {
+    defaultRiyadhReportRangeDatetimeLocal,
+    fmtRiyadhRangeLabel,
+    riyadhRangeToApiIso,
+} from '../../utils/riyadhBusinessRange';
 import { accT } from '../../utils/accountingI18n';
 
 const parseArr = (res) => {
@@ -274,9 +279,13 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     });
     const [tbLoading, setTbLoading] = useState(false);
 
-    const [plFilters, setPlFilters] = useState({ dateFrom: '', dateTo: '', branchId: '' });
+    const [plFilters, setPlFilters] = useState(() => {
+        const r = defaultRiyadhReportRangeDatetimeLocal();
+        return { dateFrom: r.start, dateTo: r.end, branchId: '' };
+    });
     const [plData, setPlData] = useState(null);
     const [plLoading, setPlLoading] = useState(false);
+    const [plRangeError, setPlRangeError] = useState('');
 
     const [bsFilters, setBsFilters] = useState({
         asOf: new Date().toISOString().slice(0, 10),
@@ -556,9 +565,24 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
 
     const loadPL = async () => {
         setPlLoading(true);
+        setPlRangeError('');
         try {
-            const res = await getPLReport(plFilters);
+            let dateFrom = plFilters.dateFrom;
+            let dateTo = plFilters.dateTo;
+            if (dateFrom && dateTo && (String(dateFrom).includes('T') || String(dateTo).includes('T'))) {
+                const iso = riyadhRangeToApiIso(dateFrom, dateTo);
+                dateFrom = iso.dateFrom;
+                dateTo = iso.dateTo;
+            }
+            const res = await getPLReport({
+                ...plFilters,
+                dateFrom,
+                dateTo,
+            });
             setPlData(res || null);
+        } catch (err) {
+            setPlRangeError(err?.message || t('coa.err.generic'));
+            setPlData(null);
         } finally {
             setPlLoading(false);
         }
@@ -749,9 +773,21 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
             };
             return (
                 <div style={reportCard}>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                        <input type="date" value={plFilters.dateFrom} onChange={(e) => setPlFilters((p) => ({ ...p, dateFrom: e.target.value }))} style={inputStyle} />
-                        <input type="date" value={plFilters.dateTo} onChange={(e) => setPlFilters((p) => ({ ...p, dateTo: e.target.value }))} style={inputStyle} />
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                            type="datetime-local"
+                            value={plFilters.dateFrom}
+                            onChange={(e) => setPlFilters((p) => ({ ...p, dateFrom: e.target.value }))}
+                            style={{ ...inputStyle, minWidth: 190 }}
+                            title="Asia/Riyadh"
+                        />
+                        <input
+                            type="datetime-local"
+                            value={plFilters.dateTo}
+                            onChange={(e) => setPlFilters((p) => ({ ...p, dateTo: e.target.value }))}
+                            style={{ ...inputStyle, minWidth: 190 }}
+                            title="Asia/Riyadh"
+                        />
                         {renderBranchPicker(plFilters.branchId, (v) => setPlFilters((p) => ({ ...p, branchId: v })))}
                         <button type="button" onClick={loadPL} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
                             {t('date.apply')}
@@ -761,7 +797,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             onClick={() =>
                                 printHtml(
                                     t('pl.printTitle'),
-                                    `<h2>${t('pl.printHeading')}</h2><div>${t('pl.period', { from: fmtDateLabel(plFilters.dateFrom), to: fmtDateLabel(plFilters.dateTo) })}</div>`,
+                                    `<h2>${t('pl.printHeading')}</h2><div>${t('pl.period', { from: fmtRiyadhRangeLabel(plFilters.dateFrom), to: fmtRiyadhRangeLabel(plFilters.dateTo) })}</div>`,
                                 )
                             }
                             style={{ ...inputStyle, width: 'auto', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -769,6 +805,12 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             <Printer size={14} /> {t('btn.print')}
                         </button>
                     </div>
+                    <div style={{ fontSize: 12, color: palette.textSecondary, marginBottom: 10 }}>
+                        {t('pl.riyadhHint')}
+                    </div>
+                    {plRangeError ? (
+                        <div style={{ color: '#B91C1C', marginBottom: 10, fontSize: 13 }}>{plRangeError}</div>
+                    ) : null}
                     {plLoading ? (
                         <div style={{ color: palette.textSecondary }}>{t('loading')}</div>
                     ) : (

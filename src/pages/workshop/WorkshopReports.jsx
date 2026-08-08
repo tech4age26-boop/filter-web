@@ -168,31 +168,36 @@ function pad2(n) {
     return String(n).padStart(2, '0');
 }
 
-/** `YYYY-MM-DDTHH:mm` for `<input type="datetime-local" />` (local timezone). */
+import {
+    toRiyadhDatetimeLocalValue,
+    riyadhRangeToApiIso,
+} from '../../utils/riyadhBusinessRange';
+
+/** `YYYY-MM-DDTHH:mm` for `<input type="datetime-local" />` — Asia/Riyadh wall clock. */
 function toDatetimeLocalValue(d) {
-    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return '';
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    return toRiyadhDatetimeLocalValue(d);
 }
 
-/** Default: today from local midnight through now (latest window). */
+/** Default: today from Riyadh midnight through now (Riyadh). */
 function defaultLocalRangeLatest() {
-    const end = new Date();
-    const start = new Date(end);
-    start.setHours(0, 0, 0, 0);
-    return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
+    const end = toDatetimeLocalValue(new Date());
+    if (!end) return { start: '', end: '' };
+    const start = `${end.slice(0, 10)}T00:00`;
+    return { start, end };
 }
 
-/** Full ISO strings for `/workshop-staff/reports-*` (server accepts YYYY-MM-DD or ISO instants). */
+/** Full ISO strings for `/workshop-staff/reports-*` — datetime-local treated as Asia/Riyadh. */
 function rangeToApiIso(rangeFromLocal, rangeToLocal, t) {
-    const s = new Date(rangeFromLocal);
-    const e = new Date(rangeToLocal);
-    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
-        throw new Error(t ? t('err.invalidRange') : 'Invalid date/time range.');
+    try {
+        const { startDate, endDate } = riyadhRangeToApiIso(rangeFromLocal, rangeToLocal);
+        return { startDate, endDate };
+    } catch (err) {
+        throw new Error(
+            t
+                ? t('err.invalidRange')
+                : err?.message || 'Invalid date/time range.',
+        );
     }
-    if (s.getTime() > e.getTime()) {
-        throw new Error(t ? t('err.startAfterEnd') : 'Start must be on or before end.');
-    }
-    return { startDate: s.toISOString(), endDate: e.toISOString() };
 }
 
 function isInvoiceDateDetailColumnKey(k) {
@@ -1866,6 +1871,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             onChange={(e) => setDraftRangeFrom(e.target.value)}
                             step={60}
                             aria-label={t('label.fromDatetime')}
+                            title="Asia/Riyadh"
                         />
                         <span className="ws-text-dim">{t('label.to')}</span>
                         <input
@@ -1874,7 +1880,11 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             onChange={(e) => setDraftRangeTo(e.target.value)}
                             step={60}
                             aria-label={t('label.toDatetime')}
+                            title="Asia/Riyadh"
                         />
+                    </div>
+                    <div className="ws-text-dim" style={{ fontSize: '0.75rem', marginTop: 4 }}>
+                        {t('hint.riyadhDatetime')}
                     </div>
                     {rangeDirty ? (
                         <button

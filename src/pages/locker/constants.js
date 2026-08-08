@@ -5,7 +5,6 @@ import {
     AlertTriangle,
     History,
     FileText,
-    Wallet,
     Send,
     Coins,
     ClipboardList,
@@ -25,7 +24,6 @@ const SUPERVISOR_NAV = [
     { id: 'transaction_log', label: 'Transaction log', icon: BookOpen },
     { id: 'history', label: 'Collections History', icon: History },
     { id: 'differences', label: 'Differences Report', icon: FileText },
-    { id: 'petty_cash', label: 'Petty Cash', icon: Wallet },
 ];
 
 const COLLECTOR_NAV = [

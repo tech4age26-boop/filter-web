@@ -12,7 +12,6 @@ import RecordCollection from './locker/RecordCollection';
 import ApprovalsScreen from './locker/ApprovalsScreen';
 import CollectionsHistory from './locker/CollectionsHistory';
 import DifferencesReport from './locker/DifferencesReport';
-import PettyCash from './locker/PettyCash';
 import DepositToBank from './locker/DepositToBank';
 import IssuePettyCash from './locker/IssuePettyCash';
 import PettyCashIssueLog from './locker/PettyCashIssueLog';
@@ -125,7 +124,6 @@ export default function LockerLayout() {
         'deposit_to_bank',
         'issue_petty_cash',
         'petty_cash_issue_log',
-        'petty_cash',
     ]);
 
     useEffect(() => {
@@ -176,8 +174,6 @@ export default function LockerLayout() {
                 return <CollectionsHistory {...branchProps} />;
             case 'differences':
                 return <DifferencesReport {...branchProps} />;
-            case 'petty_cash':
-                return <PettyCash {...branchProps} />;
             default:
                 return (
                     <LockerDashboard

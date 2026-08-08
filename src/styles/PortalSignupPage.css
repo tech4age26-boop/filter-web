@@ -3,6 +3,11 @@
     padding: 32px;
 }
 
+.signup-card .signin-header h2 {
+    color: #000000;
+    font-weight: 800;
+}
+
 .signup-form {
     display: flex;
     flex-direction: column;
