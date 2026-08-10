@@ -724,6 +724,20 @@ export const listCorporateGeneratedBills = (corporateAccountId) =>
 export const getCorporateGeneratedBill = (id) =>
     apiFetch(`/super-admin/corporate-billing/generated-bills/${encodeURIComponent(id)}`);
 
+export const deleteCorporateGeneratedBill = (id) =>
+    apiFetch(`/super-admin/corporate-billing/generated-bills/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+    });
+
+export const deleteCorporateGeneratedBills = ({ billIds, corporateAccountId } = {}) =>
+    apiFetch('/super-admin/corporate-billing/generated-bills/delete', {
+        method: 'POST',
+        body: JSON.stringify({
+            billIds,
+            ...(corporateAccountId ? { corporateAccountId } : {}),
+        }),
+    });
+
 /** HQ + corporate-workshop Cash & Bank accounts for Mark as Paid. */
 export const listGeneratedBillCashAccounts = (id) =>
     apiFetch(

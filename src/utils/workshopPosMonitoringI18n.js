@@ -2,7 +2,7 @@
 export const WPM_I18N = {
     en: {
         'page.title': 'POS Monitoring',
-        'page.subtitleLead': 'Live counters and recent closing reports ·',
+        'page.subtitleLead': 'Live counters and closing reports ·',
 
         'branch.all': 'All branches',
         'branch.fallback': 'Branch',
@@ -10,6 +10,11 @@ export const WPM_I18N = {
         'btn.refresh': 'Refresh',
         'btn.refreshing': 'Refreshing...',
         'btn.forceLogout': 'Force logout',
+        'btn.apply': 'Apply',
+        'btn.loading': 'Loading…',
+        'btn.clearRange': 'Clear dates',
+        'btn.previous': 'Previous',
+        'btn.next': 'Next',
 
         'kpi.liveCounters': 'Live Counters',
         'kpi.openOrders': 'Open Orders',
@@ -18,8 +23,23 @@ export const WPM_I18N = {
         'kpi.ariaBreakdown': '{label}: view breakdown',
 
         'section.liveCounters': 'Live Counters',
-        'section.closingReports': 'Recent Closing Reports',
+        'section.closingReports': 'Closing Reports',
         'section.closingHint': 'Click a row for full details',
+
+        'label.fromDatetime': 'From (date & time)',
+        'label.toDatetime': 'To (date & time)',
+        'label.to': 'to',
+        'label.closingPages': 'Closing reports pages',
+        'label.pageNumbers': 'Page numbers',
+
+        'hint.riyadhDatetime': 'Date & time filter uses Asia/Riyadh. Leave empty to list all closing reports for this branch.',
+
+        'error.rangeBoth': 'Select both From and To, or clear both.',
+        'error.rangeInvalid': 'Invalid date/time range.',
+
+        'pagination.showing': 'Showing',
+        'pagination.of': 'of',
+        'pagination.loadingSuffix': ' · loading…',
 
         'th.cashier': 'Cashier',
         'th.branch': 'Branch',
@@ -50,7 +70,7 @@ export const WPM_I18N = {
     },
     ar: {
         'page.title': 'مراقبة نقاط البيع',
-        'page.subtitleLead': 'العدادات المباشرة وتقارير الإغلاق الأخيرة ·',
+        'page.subtitleLead': 'العدادات المباشرة وتقارير الإغلاق ·',
 
         'branch.all': 'كل الفروع',
         'branch.fallback': 'فرع',
@@ -58,6 +78,11 @@ export const WPM_I18N = {
         'btn.refresh': 'تحديث',
         'btn.refreshing': 'جاري التحديث...',
         'btn.forceLogout': 'فرض تسجيل الخروج',
+        'btn.apply': 'تطبيق',
+        'btn.loading': 'جاري التحميل…',
+        'btn.clearRange': 'مسح التواريخ',
+        'btn.previous': 'السابق',
+        'btn.next': 'التالي',
 
         'kpi.liveCounters': 'العدادات المباشرة',
         'kpi.openOrders': 'الطلبات المفتوحة',
@@ -66,8 +91,23 @@ export const WPM_I18N = {
         'kpi.ariaBreakdown': '{label}: عرض التفصيل',
 
         'section.liveCounters': 'العدادات المباشرة',
-        'section.closingReports': 'تقارير الإغلاق الأخيرة',
+        'section.closingReports': 'تقارير الإغلاق',
         'section.closingHint': 'انقر على صف لعرض التفاصيل الكاملة',
+
+        'label.fromDatetime': 'من (تاريخ ووقت)',
+        'label.toDatetime': 'إلى (تاريخ ووقت)',
+        'label.to': 'إلى',
+        'label.closingPages': 'صفحات تقارير الإغلاق',
+        'label.pageNumbers': 'أرقام الصفحات',
+
+        'hint.riyadhDatetime': 'فلتر التاريخ والوقت حسب توقيت الرياض. اتركه فارغًا لعرض كل تقارير الإغلاق لهذا الفرع.',
+
+        'error.rangeBoth': 'حدد من وإلى معًا، أو امسح الاثنين.',
+        'error.rangeInvalid': 'نطاق التاريخ/الوقت غير صالح.',
+
+        'pagination.showing': 'عرض',
+        'pagination.of': 'من',
+        'pagination.loadingSuffix': ' · جاري التحميل…',
 
         'th.cashier': 'الكاشير',
         'th.branch': 'الفرع',

@@ -9,11 +9,19 @@ import {
     Loader,
     RefreshCw,
     Search,
+    Trash2,
     Users,
 } from 'lucide-react';
 import ClickableInvoiceNo from '../accounting/ClickableInvoiceNo';
 import InvoiceDetailsModal from '../pos/modern/InvoiceDetailsModal';
-import { getCorporateArLedger, listCorporateArCustomers, listCorporateGeneratedBills, getCorporateGeneratedBill } from '../../services/accountsApi';
+import {
+    getCorporateArLedger,
+    listCorporateArCustomers,
+    listCorporateGeneratedBills,
+    getCorporateGeneratedBill,
+    deleteCorporateGeneratedBill,
+    deleteCorporateGeneratedBills,
+} from '../../services/accountsApi';
 import { generateCorporateBill } from '../../services/superAdminApi';
 import { openInvoiceViewAndDownloadPdf } from '../../utils/posInvoiceActions';
 import {
@@ -189,6 +197,8 @@ export default function CorporateBillingSection() {
     const [generatedBills, setGeneratedBills] = useState([]);
     const [billsLoading, setBillsLoading] = useState(false);
     const [selectedBillId, setSelectedBillId] = useState('');
+    const [selectedBillIds, setSelectedBillIds] = useState(() => new Set());
+    const [deletingBills, setDeletingBills] = useState(false);
     const [billDetail, setBillDetail] = useState(null);
     const [billDetailLoading, setBillDetailLoading] = useState(false);
     const [billPdfExporting, setBillPdfExporting] = useState(false);
@@ -263,6 +273,7 @@ export default function CorporateBillingSection() {
         try {
             const res = await listCorporateGeneratedBills(selectedAccountId);
             setGeneratedBills(res?.bills ?? []);
+            setSelectedBillIds(new Set());
         } catch (e) {
             setGeneratedBills([]);
             setError(e?.message || t('err.loadBills'));
@@ -495,7 +506,21 @@ export default function CorporateBillingSection() {
         try {
             await exportCorporateGeneratedBillPdf({
                 bill: billDetail,
-                statement: billDetail.statement,
+                statement: {
+                    ...(billDetail.statement || {}),
+                    corporateAccount: {
+                        ...(billDetail.statement?.corporateAccount || {}),
+                        vatNumber:
+                            billDetail.statement?.corporateAccount?.vatNumber ||
+                            billDetail.ledgerStatement?.corporateAccount?.vatNumber ||
+                            selectedCustomer?.vatNumber ||
+                            '',
+                        taxId:
+                            billDetail.statement?.corporateAccount?.taxId ||
+                            selectedCustomer?.vatNumber ||
+                            '',
+                    },
+                },
                 ledgerStatement: billDetail.ledgerStatement,
                 fetchLedger: (params) =>
                     getCorporateArLedger({
@@ -509,6 +534,84 @@ export default function CorporateBillingSection() {
         } finally {
             setBillPdfExporting(false);
         }
+    };
+
+    const confirmDeleteMessage = (bills) => {
+        const list = Array.isArray(bills) ? bills : [];
+        if (list.length === 1) {
+            const b = list[0];
+            const paidNote =
+                b?.status === 'paid' ? `\n\n${t('confirm.deletePaidNote')}` : '';
+            return `${t('confirm.deleteBill', { no: b.billNo || b.id })}${paidNote}`;
+        }
+        const paidCount = list.filter((b) => b.status === 'paid').length;
+        const paidNote =
+            paidCount > 0 ? `\n\n${t('confirm.deletePaidBulkNote', { n: paidCount })}` : '';
+        return `${t('confirm.deleteBills', { n: list.length })}${paidNote}`;
+    };
+
+    const handleDeleteBills = async (ids) => {
+        const idList = [...new Set((ids || []).map((id) => String(id)).filter(Boolean))];
+        if (!idList.length) return;
+        const targets = generatedBills.filter((b) => idList.includes(String(b.id)));
+        if (!window.confirm(confirmDeleteMessage(targets.length ? targets : idList.map((id) => ({ id }))))) {
+            return;
+        }
+        setDeletingBills(true);
+        setError('');
+        try {
+            if (idList.length === 1) {
+                await deleteCorporateGeneratedBill(idList[0]);
+            } else {
+                await deleteCorporateGeneratedBills({
+                    billIds: idList,
+                    corporateAccountId: selectedAccountId,
+                });
+            }
+            if (idList.includes(String(selectedBillId))) {
+                setSelectedBillId('');
+                setBillDetail(null);
+            }
+            setSelectedBillIds((prev) => {
+                const next = new Set(prev);
+                idList.forEach((id) => next.delete(String(id)));
+                return next;
+            });
+            await loadGeneratedBills();
+            alert(
+                idList.length === 1
+                    ? t('alert.deletedBill', { no: targets[0]?.billNo || idList[0] })
+                    : t('alert.deletedBills', { n: idList.length }),
+            );
+        } catch (e) {
+            setError(e?.message || t('err.deleteBill'));
+        } finally {
+            setDeletingBills(false);
+        }
+    };
+
+    const toggleBillSelect = (billId, e) => {
+        e?.stopPropagation?.();
+        const id = String(billId);
+        setSelectedBillIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const allBillsSelected =
+        generatedBills.length > 0 &&
+        generatedBills.every((b) => selectedBillIds.has(String(b.id)));
+
+    const toggleSelectAllBills = (e) => {
+        e?.stopPropagation?.();
+        if (allBillsSelected) {
+            setSelectedBillIds(new Set());
+            return;
+        }
+        setSelectedBillIds(new Set(generatedBills.map((b) => String(b.id))));
     };
 
     const billLedger = billDetail?.ledgerStatement;
@@ -661,6 +764,14 @@ export default function CorporateBillingSection() {
                                         <td className="table-cell">{c.workshopName}</td>
                                         <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
                                             {t('money.sar', { amount: fmt(c.dueBalance) })}
+                                            {dateFrom &&
+                                            dateTo &&
+                                            Number(c.dueBalance ?? 0) <= 0.005 &&
+                                            c.hasPeriodActivity ? (
+                                                <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+                                                    {t('label.periodPaid')}
+                                                </div>
+                                            ) : null}
                                         </td>
                                     </tr>
                                 ))
@@ -803,27 +914,53 @@ export default function CorporateBillingSection() {
             {viewMode === 'generated-bills' ? (
                 <>
                     <section className="premium-table cash-bank-table corporate-billing-ledger-table" style={{ marginBottom: 16 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12, padding: '0 4px' }}>
+                            {selectedBillIds.size > 0 ? (
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    style={{ color: '#B91C1C', borderColor: '#FECACA' }}
+                                    disabled={deletingBills}
+                                    onClick={() => handleDeleteBills([...selectedBillIds])}
+                                >
+                                    <Trash2 size={16} style={{ marginRight: 6 }} />
+                                    {deletingBills
+                                        ? t('btn.deleting')
+                                        : t('btn.removeSelectedBills', { n: selectedBillIds.size })}
+                                </button>
+                            ) : null}
+                        </div>
                         <table className="ws-table" style={{ width: '100%' }}>
                             <thead>
                                 <tr>
+                                    <th style={{ width: 36 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={allBillsSelected}
+                                            onChange={toggleSelectAllBills}
+                                            aria-label={t('btn.selectAllBills')}
+                                            disabled={!generatedBills.length || deletingBills}
+                                        />
+                                    </th>
                                     <th>{t('th.billNo')}</th>
                                     <th>{t('th.period')}</th>
                                     <th>{t('th.dueDate')}</th>
                                     <th>{t('th.status')}</th>
                                     <th style={{ textAlign: 'right' }}>{t('th.dueBalance')}</th>
                                     <th>{t('th.created')}</th>
+                                    <th style={{ width: 88 }}>{t('th.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {billsLoading ? (
                                     <tr>
-                                        <td colSpan={6} className="table-cell table-empty">
+                                        <td colSpan={8} className="table-cell table-empty">
                                             <Loader size={18} className="spin" /> {t('loading.bills')}
                                         </td>
                                     </tr>
                                 ) : generatedBills.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="table-cell table-empty">{t('empty.bills')}</td>
+                                        <td colSpan={8} className="table-cell table-empty">{t('empty.bills')}</td>
                                     </tr>
                                 ) : (
                                     generatedBills.map((b) => (
@@ -832,6 +969,15 @@ export default function CorporateBillingSection() {
                                             className={`cash-bank-account-row--clickable ${selectedBillId === b.id ? 'selected' : ''}`}
                                             onClick={() => openBillDetail(b.id)}
                                         >
+                                            <td className="table-cell" onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedBillIds.has(String(b.id))}
+                                                    onChange={(e) => toggleBillSelect(b.id, e)}
+                                                    aria-label={t('btn.selectBill', { no: b.billNo })}
+                                                    disabled={deletingBills}
+                                                />
+                                            </td>
                                             <td className="table-cell cell-main-text">{b.billNo}</td>
                                             <td className="table-cell">{b.periodStartDate} — {b.periodEndDate}</td>
                                             <td className="table-cell">{b.dueDate}</td>
@@ -843,6 +989,23 @@ export default function CorporateBillingSection() {
                                                 {b.createdAt
                                                     ? new Date(b.createdAt).toLocaleString(isAr ? 'ar-SA' : undefined)
                                                     : '—'}
+                                            </td>
+                                            <td className="table-cell" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    type="button"
+                                                    className="btn-portal-outline"
+                                                    style={{
+                                                        padding: '4px 8px',
+                                                        color: '#B91C1C',
+                                                        borderColor: '#FECACA',
+                                                    }}
+                                                    disabled={deletingBills}
+                                                    title={t('btn.removeBill')}
+                                                    aria-label={t('btn.removeBill')}
+                                                    onClick={() => handleDeleteBills([b.id])}
+                                                >
+                                                    <Trash2 size={15} />
+                                                </button>
                                             </td>
                                         </tr>
                                     ))
@@ -883,6 +1046,18 @@ export default function CorporateBillingSection() {
                                                 {t('btn.markPaid')}
                                             </button>
                                         ) : null}
+                                        <button
+                                            type="button"
+                                            className="btn-portal-outline"
+                                            style={{ color: '#B91C1C', borderColor: '#FECACA' }}
+                                            disabled={deletingBills}
+                                            onClick={() =>
+                                                handleDeleteBills([billDetail.id || selectedBillId])
+                                            }
+                                        >
+                                            <Trash2 size={16} style={{ marginRight: 6 }} />
+                                            {deletingBills ? t('btn.deleting') : t('btn.removeBill')}
+                                        </button>
                                     </div>
 
                                     <div className="cash-bank-stats cash-bank-register-kpis billing-stats">

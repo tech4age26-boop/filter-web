@@ -594,22 +594,35 @@ function splitPeriodIntoMonthChunks(startStr, endStr) {
     return chunks;
 }
 
+/**
+ * Amounts for monthly bill PDF rows.
+ * Excl shown is the taxable base after discount; VAT = 15% of that; Incl = Excl + VAT.
+ * Ledger often keeps original (pre-discount) VAT on the invoice while Excl is already
+ * total−vat (post-discount) — recalculate so VAT matches the Excl column.
+ */
 function normalizeInvoiceAmounts(line) {
-    let incl = Number(line.invoiceInclusiveVat ?? line.invoiceAmount ?? 0);
     let excl = Number(line.invoiceExclVat ?? 0);
-    let vat = Number(line.vat15 ?? 0);
+    const disc = Number(line.salesDiscounts ?? 0);
+    let incl = Number(line.invoiceInclusiveVat ?? line.invoiceAmount ?? 0);
+    const vatStored = Number(line.vat15 ?? 0);
+
     if (incl > 0 && excl <= 0) {
         excl = incl / 1.15;
-        vat = incl - excl;
-    } else if (excl > 0 && incl <= 0) {
-        vat = vat > 0 ? vat : excl * 0.15;
-        incl = excl + vat;
     }
-    return {
-        excl: Number(excl.toFixed(2)),
-        vat: Number(vat.toFixed(2)),
-        incl: Number(incl.toFixed(2)),
-    };
+
+    // Modal / override style: excl is before discount when excl − disc + vat ≈ incl.
+    if (
+        disc > 0.005 &&
+        Math.abs(excl - disc + vatStored - incl) <= 0.05 &&
+        Math.abs(excl + vatStored - incl) > 0.05
+    ) {
+        excl = excl - disc;
+    }
+
+    excl = Math.max(0, Number(excl.toFixed(2)));
+    const vat = Number((excl * 0.15).toFixed(2));
+    incl = Number((excl + vat).toFixed(2));
+    return { excl, vat, incl };
 }
 
 /**
@@ -718,6 +731,22 @@ function resolveZatcaSellerTaxId(corp, header) {
         corp?.workshopTaxId || header?.sellerTaxId || header?.workshopTaxId || '',
     ).trim();
     return tax || '311120967500003';
+}
+
+function resolveCorporateBuyerTaxNo(corp, header) {
+    const candidates = [
+        corp?.vatNumber,
+        corp?.taxId,
+        header?.vatNumber,
+        header?.taxId,
+        corp?.customer?.taxId,
+        corp?.customer?.vatNumber,
+    ];
+    for (const c of candidates) {
+        const s = String(c ?? '').trim();
+        if (s && s !== '—') return s;
+    }
+    return '';
 }
 
 function buildBillKpiSummary(ledger, statement, bill, totals) {
@@ -1235,7 +1264,7 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
     const sellerAr = 'فلتر لخدمات السيارات';
     const sellerTax = '311120967500003';
     const workshop = corp.workshopName || '';
-    const vat = corp.vatNumber || '—';
+    const vat = resolveCorporateBuyerTaxNo(corp, null) || '—';
     const dateFrom =
         bill?.periodStartDate?.slice?.(0, 10) ||
         statement?.period?.startDate?.slice?.(0, 10) ||
@@ -1345,8 +1374,10 @@ export async function exportCorporateGeneratedBillPdf({
 
     const header = {
         companyName: corp.companyName,
-        vatNumber: corp.vatNumber,
+        vatNumber: resolveCorporateBuyerTaxNo(corp, null),
+        taxId: corp.taxId || corp.vatNumber || '',
         workshopName: corp.workshopName,
+        sellerTaxId: corp.workshopTaxId || '',
         dateFrom,
         dateTo,
         generatedAt: bill?.createdAt
@@ -1357,6 +1388,18 @@ export async function exportCorporateGeneratedBillPdf({
     const summaryRows = buildMonthlySummarizedBillRows(ledger, stmt, bill);
     const totals = computeSummaryTotals(summaryRows, stmt, bill);
     const kpiSummary = buildBillKpiSummary(ledger, stmt, bill, totals);
+
+    // Monthly invoice Excl/VAT/Incl are recalculated post-discount — keep KPIs & due in sync.
+    kpiSummary.totalInvoiceAmount = totals.totalIncl;
+    kpiSummary.closingBalance = Number(
+        (
+            Number(kpiSummary.openingBalance ?? 0) +
+            totals.totalIncl -
+            Number(kpiSummary.totalReceipts ?? 0) -
+            Number(kpiSummary.totalSalesReturns ?? 0)
+        ).toFixed(2),
+    );
+    totals.balanceDue = kpiSummary.closingBalance;
 
     const qrDataUrl = await buildMonthlyInvoiceQrDataUrl({
         sellerName: resolveZatcaSellerName(corp, header),

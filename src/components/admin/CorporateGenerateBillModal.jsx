@@ -135,22 +135,26 @@ export default function CorporateGenerateBillModal({
             prev.map((l) => {
                 if (l.key !== key) return l;
                 const next = { ...l, ...patch };
+                const excl = Number(next.invoiceExclVat || 0);
+                const disc = Number(next.salesDiscounts || 0);
+                const taxable = Math.max(0, excl - disc);
+
+                // Excl or discount change → VAT on post-discount base; Incl = base + VAT.
                 if (
-                    patch.invoiceExclVat != null ||
-                    patch.vat15 != null ||
-                    patch.salesDiscounts != null
+                    (patch.invoiceExclVat != null || patch.salesDiscounts != null) &&
+                    patch.vat15 == null &&
+                    patch.invoiceInclusiveVat == null
                 ) {
-                    if (patch.invoiceInclusiveVat == null) {
-                        next.invoiceInclusiveVat = r2(
-                            Math.max(
-                                0,
-                                Number(next.invoiceExclVat || 0) -
-                                    Number(next.salesDiscounts || 0) +
-                                    Number(next.vat15 || 0),
-                            ),
-                        );
-                    }
+                    next.vat15 = r2(taxable * 0.15);
+                    next.invoiceInclusiveVat = r2(taxable + Number(next.vat15));
+                    return next;
                 }
+                // Manual VAT edit → Incl = post-discount excl + VAT.
+                if (patch.vat15 != null && patch.invoiceInclusiveVat == null) {
+                    next.invoiceInclusiveVat = r2(taxable + Number(next.vat15 || 0));
+                    return next;
+                }
+                // Manual Incl only — leave excl/vat as typed.
                 return next;
             }),
         );

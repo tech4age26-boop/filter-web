@@ -8,6 +8,9 @@ import ForceCashierLogoutModal from '../../components/workshop/ForceCashierLogou
 import ClosingReportDetailModal from '../../components/workshop/ClosingReportDetailModal';
 import PosMonitoringKpiProofModal from '../../components/workshop/PosMonitoringKpiProofModal';
 import { wpmT } from '../../utils/workshopPosMonitoringI18n';
+import { riyadhRangeToApiIso } from '../../utils/riyadhBusinessRange';
+
+const CLOSING_PAGE_SIZE = 20;
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -45,10 +48,21 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
     const [selectedClosingReport, setSelectedClosingReport] = useState(null);
     const [kpiProofModalId, setKpiProofModalId] = useState(null);
 
+    const [draftRangeFrom, setDraftRangeFrom] = useState('');
+    const [draftRangeTo, setDraftRangeTo] = useState('');
+    const [appliedRangeFrom, setAppliedRangeFrom] = useState('');
+    const [appliedRangeTo, setAppliedRangeTo] = useState('');
+    const [rangeError, setRangeError] = useState('');
+    const [closingPage, setClosingPage] = useState(1);
+
     const allowedBranchIdsKey = useMemo(
         () => branches.map((b) => String(b.id)).filter(Boolean).sort().join(','),
         [branches],
     );
+
+    const rangeDirty =
+        draftRangeFrom !== appliedRangeFrom || draftRangeTo !== appliedRangeTo;
+    const hasAppliedRange = Boolean(appliedRangeFrom || appliedRangeTo);
 
     const loadPosMonitoring = useCallback(async () => {
         setIsLoading(true);
@@ -57,8 +71,22 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
             const allowedIds = allowedBranchIdsKey
                 ? allowedBranchIdsKey.split(',')
                 : [];
+            const params = {
+                ...workshopStaffListScopeQuery(selectedBranchId, allowedIds),
+                closingPage,
+                closingPageSize: CLOSING_PAGE_SIZE,
+            };
+            if (appliedRangeFrom && appliedRangeTo) {
+                const iso = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeTo);
+                params.from = iso.startDate;
+                params.to = iso.endDate;
+            } else if (appliedRangeFrom) {
+                params.from = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeFrom).startDate;
+            } else if (appliedRangeTo) {
+                params.to = riyadhRangeToApiIso(appliedRangeTo, appliedRangeTo).endDate;
+            }
             const response = await apiFetch(
-                `/workshop-staff/pos-monitoring${qs(workshopStaffListScopeQuery(selectedBranchId, allowedIds))}`,
+                `/workshop-staff/pos-monitoring${qs(params)}`,
             );
             if (!response?.success) {
                 throw new Error(t('err.invalid'));
@@ -69,7 +97,48 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId, allowedBranchIdsKey, t]);
+    }, [
+        selectedBranchId,
+        allowedBranchIdsKey,
+        appliedRangeFrom,
+        appliedRangeTo,
+        closingPage,
+        t,
+    ]);
+
+    const applyDateRange = useCallback(() => {
+        setRangeError('');
+        const from = String(draftRangeFrom || '').trim();
+        const to = String(draftRangeTo || '').trim();
+        if (!from && !to) {
+            setAppliedRangeFrom('');
+            setAppliedRangeTo('');
+            setClosingPage(1);
+            return;
+        }
+        if (!from || !to) {
+            setRangeError(t('error.rangeBoth'));
+            return;
+        }
+        try {
+            riyadhRangeToApiIso(from, to);
+        } catch (e) {
+            setRangeError(e?.message || t('error.rangeInvalid'));
+            return;
+        }
+        setAppliedRangeFrom(from);
+        setAppliedRangeTo(to);
+        setClosingPage(1);
+    }, [draftRangeFrom, draftRangeTo, t]);
+
+    const clearDateRange = useCallback(() => {
+        setRangeError('');
+        setDraftRangeFrom('');
+        setDraftRangeTo('');
+        setAppliedRangeFrom('');
+        setAppliedRangeTo('');
+        setClosingPage(1);
+    }, []);
 
     const branchLabel = useMemo(() => {
         if (!selectedBranchId || selectedBranchId === 'all') return t('branch.all');
@@ -84,7 +153,9 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
             const rid = row.branchId ?? row.branch_id;
             // If sidebar has no branches yet, don't hide rows.
             if (allowedIds.size === 0) return true;
-            return rid != null && allowedIds.has(String(rid));
+            // Server already scoped; keep rows without branchId.
+            if (rid == null) return true;
+            return allowedIds.has(String(rid));
         };
         if (!selectedBranchId || selectedBranchId === 'all') {
             return {
@@ -109,9 +180,20 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         loadPosMonitoring();
     }, [loadPosMonitoring]);
 
+    useEffect(() => {
+        setClosingPage(1);
+    }, [selectedBranchId]);
+
     const liveCountersKpi = liveCountersScoped.length;
     const openOrdersKpi = toNumber(data?.openOrdersCount);
     const todaySalesKpi = toNumber(data?.todaySales);
+
+    const closingPagination = data?.closingReportsPagination || {};
+    const closingTotal = toNumber(closingPagination.total);
+    const closingTotalPages = Math.max(1, toNumber(closingPagination.totalPages) || 1);
+    const closingPageSize = toNumber(closingPagination.pageSize) || CLOSING_PAGE_SIZE;
+    const rangeFrom = closingTotal === 0 ? 0 : (closingPage - 1) * closingPageSize + 1;
+    const rangeTo = Math.min(closingPage * closingPageSize, closingTotal);
 
     const kpiCards = [
         { id: 'live_counters', label: t('kpi.liveCounters'), value: String(liveCountersKpi), icon: 'POS', iconClass: 'ws-kpi-icon--blue' },
@@ -216,6 +298,58 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                     {t('section.closingReports')}
                     <span style={{ fontWeight: 500, color: 'var(--color-text-muted)', fontSize: '0.8rem', marginLeft: 8 }}>{t('section.closingHint')}</span>
                 </p>
+
+                <div className="ws-reports-filters" style={{ padding: '12px 16px 0' }}>
+                    <div className="ws-filter-group">
+                        <div className="ws-date-input-group">
+                            <input
+                                type="datetime-local"
+                                value={draftRangeFrom}
+                                onChange={(e) => setDraftRangeFrom(e.target.value)}
+                                step={60}
+                                aria-label={t('label.fromDatetime')}
+                                title="Asia/Riyadh"
+                            />
+                            <span className="ws-text-dim">{t('label.to')}</span>
+                            <input
+                                type="datetime-local"
+                                value={draftRangeTo}
+                                onChange={(e) => setDraftRangeTo(e.target.value)}
+                                step={60}
+                                aria-label={t('label.toDatetime')}
+                                title="Asia/Riyadh"
+                            />
+                        </div>
+                        {rangeDirty ? (
+                            <button
+                                type="button"
+                                className="ws-btn-refresh"
+                                onClick={applyDateRange}
+                                disabled={isLoading}
+                            >
+                                {isLoading ? t('btn.loading') : t('btn.apply')}
+                            </button>
+                        ) : null}
+                        {hasAppliedRange ? (
+                            <button
+                                type="button"
+                                className="btn-portal"
+                                onClick={clearDateRange}
+                                disabled={isLoading}
+                                style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
+                            >
+                                {t('btn.clearRange')}
+                            </button>
+                        ) : null}
+                    </div>
+                    <div className="ws-text-dim" style={{ fontSize: '0.75rem', marginTop: 4 }}>
+                        {t('hint.riyadhDatetime')}
+                    </div>
+                    {rangeError ? (
+                        <div style={{ color: '#B91C1C', fontSize: 13, marginTop: 6 }}>{rangeError}</div>
+                    ) : null}
+                </div>
+
                 <WsTableScroll style={{ padding: 16 }}>
                     <table className="ws-table">
                         <thead>
@@ -252,6 +386,56 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                         </tbody>
                     </table>
                 </WsTableScroll>
+
+                <div className="ws-report-pagination" style={{ padding: '0 16px 16px' }}>
+                    <p className="ws-report-pagination__info">
+                        {t('pagination.showing')} <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> {t('pagination.of')} <strong>{closingTotal}</strong>
+                        {isLoading ? <span>{t('pagination.loadingSuffix')}</span> : null}
+                    </p>
+                    <nav className="ws-report-pagination__nav" aria-label={t('label.closingPages')}>
+                        <button
+                            type="button"
+                            className="ws-report-pagination__edge"
+                            disabled={isLoading || closingPage <= 1}
+                            onClick={() => setClosingPage((p) => Math.max(1, p - 1))}
+                        >
+                            {t('btn.previous')}
+                        </button>
+                        <div className="ws-report-pagination__pages" role="group" aria-label={t('label.pageNumbers')}>
+                            {Array.from({ length: Math.min(closingTotalPages, 7) }, (_, i) => {
+                                let n;
+                                if (closingTotalPages <= 7) {
+                                    n = i + 1;
+                                } else if (closingPage <= 4) {
+                                    n = i + 1;
+                                } else if (closingPage >= closingTotalPages - 3) {
+                                    n = closingTotalPages - 6 + i;
+                                } else {
+                                    n = closingPage - 3 + i;
+                                }
+                                return (
+                                    <button
+                                        key={n}
+                                        type="button"
+                                        className={`ws-report-pagination__page${n === closingPage ? ' ws-report-pagination__page--active' : ''}`}
+                                        disabled={isLoading}
+                                        onClick={() => setClosingPage(n)}
+                                    >
+                                        {n}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <button
+                            type="button"
+                            className="ws-report-pagination__edge"
+                            disabled={isLoading || closingPage >= closingTotalPages}
+                            onClick={() => setClosingPage((p) => Math.min(closingTotalPages, p + 1))}
+                        >
+                            {t('btn.next')}
+                        </button>
+                    </nav>
+                </div>
             </div>
 
             {canForceLogout && forceLogoutCounter && (
