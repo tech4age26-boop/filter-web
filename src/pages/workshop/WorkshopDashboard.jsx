@@ -15,6 +15,10 @@ import {
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 import { ShimmerKpiGrid, ShimmerListRows } from '../../components/supplier/Shimmer';
 import { wsDashT } from '../../utils/workshopDashboardI18n';
+import {
+    riyadhRangeToApiIso,
+    fmtRiyadhRangeLabel,
+} from '../../utils/riyadhBusinessRange';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
 function extractProducts(res) {
@@ -115,20 +119,37 @@ export default function WorkshopDashboard({
     const [dashboardData, setDashboardData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
+    const [rangeError, setRangeError] = useState('');
     const [lowStockProducts, setLowStockProducts] = useState([]);
     const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
     const [technicians, setTechnicians] = useState([]);
     const [techLoadError, setTechLoadError] = useState('');
     const [showAllTechnicians, setShowAllTechnicians] = useState(false);
+    // Draft = inputs; applied = what the API uses. Empty = default (today / month).
+    const [draftRangeFrom, setDraftRangeFrom] = useState('');
+    const [draftRangeTo, setDraftRangeTo] = useState('');
+    const [appliedRangeFrom, setAppliedRangeFrom] = useState('');
+    const [appliedRangeTo, setAppliedRangeTo] = useState('');
+
+    const rangeDirty =
+        draftRangeFrom !== appliedRangeFrom || draftRangeTo !== appliedRangeTo;
+    const hasAppliedRange = Boolean(appliedRangeFrom && appliedRangeTo);
 
     const loadDashboard = useCallback(async () => {
         setIsLoading(true);
         setLoadError('');
         try {
             const isAll = !selectedBranchId || selectedBranchId === 'all';
-            const path = isAll
-                ? '/workshop-staff/dashboard'
-                : `/workshop-staff/dashboard?branchId=${encodeURIComponent(String(selectedBranchId))}`;
+            const params = {};
+            if (!isAll) params.branchId = String(selectedBranchId);
+            if (appliedRangeFrom && appliedRangeTo) {
+                const iso = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeTo);
+                params.startDate = iso.startDate;
+                params.endDate = iso.endDate;
+                params.dateFrom = iso.dateFrom;
+                params.dateTo = iso.dateTo;
+            }
+            const path = `/workshop-staff/dashboard${qs(params)}`;
             const response = await apiFetch(path);
             if (response?.success) {
                 setDashboardData(response);
@@ -140,7 +161,38 @@ export default function WorkshopDashboard({
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId, t]);
+    }, [selectedBranchId, appliedRangeFrom, appliedRangeTo, t]);
+
+    const applyDateRange = useCallback(() => {
+        setRangeError('');
+        const from = String(draftRangeFrom || '').trim();
+        const to = String(draftRangeTo || '').trim();
+        if (!from && !to) {
+            setAppliedRangeFrom('');
+            setAppliedRangeTo('');
+            return;
+        }
+        if (!from || !to) {
+            setRangeError(t('error.rangeBoth'));
+            return;
+        }
+        try {
+            riyadhRangeToApiIso(from, to);
+        } catch (e) {
+            setRangeError(e?.message || t('error.rangeInvalid'));
+            return;
+        }
+        setAppliedRangeFrom(from);
+        setAppliedRangeTo(to);
+    }, [draftRangeFrom, draftRangeTo, t]);
+
+    const clearDateRange = useCallback(() => {
+        setRangeError('');
+        setDraftRangeFrom('');
+        setDraftRangeTo('');
+        setAppliedRangeFrom('');
+        setAppliedRangeTo('');
+    }, []);
 
     const loadTechnicians = useCallback(async () => {
         setTechLoadError('');
@@ -351,15 +403,23 @@ export default function WorkshopDashboard({
 
     const kpis = [
         {
-            label: t('kpi.salesToday'),
+            label: hasAppliedRange ? t('kpi.salesInRange') : t('kpi.salesToday'),
             value: t('money.sar', { amount: todaySales.toLocaleString() }),
+            sub: hasAppliedRange
+                ? t('kpi.periodSub', {
+                    from: fmtRiyadhRangeLabel(appliedRangeFrom),
+                    to: fmtRiyadhRangeLabel(appliedRangeTo),
+                })
+                : undefined,
             iconClass: 'ws-kpi-icon--green',
             Icon: DollarSign,
         },
         {
             label: t('kpi.grossMargin'),
             value: t('money.sar', { amount: grossMarginProfit.toLocaleString() }),
-            sub: t('kpi.grossMarginSub'),
+            sub: hasAppliedRange
+                ? t('kpi.grossMarginSubExVatRange')
+                : t('kpi.grossMarginSubExVatMonth'),
             iconClass: 'ws-kpi-icon--blue',
             Icon: TrendingUp,
         },
@@ -411,6 +471,58 @@ export default function WorkshopDashboard({
                     <RefreshCw size={15}/> {isLoading ? t('refreshing') : t('refresh')}
                 </button>
             </div>
+
+            <div className="ws-reports-filters" style={{ marginBottom: 16 }}>
+                <div className="ws-filter-group">
+                    <div className="ws-date-input-group">
+                        <input
+                            type="datetime-local"
+                            value={draftRangeFrom}
+                            onChange={(e) => setDraftRangeFrom(e.target.value)}
+                            step={60}
+                            aria-label={t('label.fromDatetime')}
+                            title="Asia/Riyadh"
+                        />
+                        <span className="ws-text-dim">{t('label.to')}</span>
+                        <input
+                            type="datetime-local"
+                            value={draftRangeTo}
+                            onChange={(e) => setDraftRangeTo(e.target.value)}
+                            step={60}
+                            aria-label={t('label.toDatetime')}
+                            title="Asia/Riyadh"
+                        />
+                    </div>
+                    {rangeDirty ? (
+                        <button
+                            type="button"
+                            className="ws-btn-refresh"
+                            onClick={applyDateRange}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? t('btn.loading') : t('btn.apply')}
+                        </button>
+                    ) : null}
+                    {hasAppliedRange ? (
+                        <button
+                            type="button"
+                            className="btn-portal"
+                            onClick={clearDateRange}
+                            disabled={isLoading}
+                            style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
+                        >
+                            {t('btn.clearRange')}
+                        </button>
+                    ) : null}
+                </div>
+                <div className="ws-text-dim" style={{ fontSize: '0.75rem', marginTop: 4 }}>
+                    {t('hint.riyadhDatetime')}
+                </div>
+                {rangeError ? (
+                    <div style={{ color: '#B91C1C', fontSize: 13, marginTop: 6 }}>{rangeError}</div>
+                ) : null}
+            </div>
+
             {loadError && (
                 <div className="ws-section" style={{ marginBottom: 16, padding: 12, color: '#B91C1C', borderColor: '#FECACA' }}>
                     {loadError}
@@ -529,7 +641,9 @@ export default function WorkshopDashboard({
                 </div>
                 <div className="ws-section">
                     <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                        <p style={{ fontWeight: 700, margin: 0 }}>{t('branches.title')}</p>
+                        <p style={{ fontWeight: 700, margin: 0 }}>
+                            {hasAppliedRange ? t('branches.titleFiltered') : t('branches.title')}
+                        </p>
                         <span className="ws-badge ws-badge--blue">{t('branches.count', { count: branchPerformance.length })}</span>
                     </div>
                     {branchPerformance.length === 0 ? (

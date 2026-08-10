@@ -84,3 +84,17 @@ export const listCorporateGeneratedBills = (corporateAccountId) =>
 
 export const getCorporateGeneratedBill = (id) =>
     apiFetch(`/accounts/corporate-ar/generated-bills/${encodeURIComponent(id)}`);
+
+export const deleteCorporateGeneratedBill = (id) =>
+    apiFetch(`/accounts/corporate-ar/generated-bills/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+    });
+
+export const deleteCorporateGeneratedBills = ({ billIds, corporateAccountId } = {}) =>
+    apiFetch('/accounts/corporate-ar/generated-bills/delete', {
+        method: 'POST',
+        body: JSON.stringify({
+            billIds,
+            ...(corporateAccountId ? { corporateAccountId } : {}),
+        }),
+    });
