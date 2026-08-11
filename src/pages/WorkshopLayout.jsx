@@ -562,6 +562,7 @@ export default function WorkshopLayout() {
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                         onLowStockAlertsChange={setDashboardLowStockCount}
+                        locale={locale}
                     />
                 );
             case 'departments': return <WorkshopDepartments selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;

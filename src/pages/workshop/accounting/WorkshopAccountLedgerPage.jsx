@@ -77,7 +77,9 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     useEffect(() => {
         if (urlDateFrom) setDateFrom(urlDateFrom);
         if (urlDateTo) setDateTo(urlDateTo);
-        if (urlBranchId) setBranchFilter(urlBranchId);
+        if (urlBranchId !== undefined && urlBranchId !== null) {
+            setBranchFilter(urlBranchId);
+        }
     }, [accountId, urlDateFrom, urlDateTo, urlBranchId]);
 
     const load = useCallback(async (opts = {}) => {
@@ -135,11 +137,15 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter, t]);
 
     useEffect(() => {
-        void load();
-        // Reload when navigating to a different COA account only.
-        // Filter/date changes apply via the Apply filters button.
+        // Load on account change, and when deep-linked date/branch query changes
+        // (e.g. P&L line → ledger proof for the same period).
+        void load({
+            dateFrom: urlDateFrom || dateFrom,
+            dateTo: urlDateTo || dateTo,
+            branchId: urlBranchId,
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [accountId]);
+    }, [accountId, urlDateFrom, urlDateTo, urlBranchId]);
 
     async function fetchForExport() {
         const res = await accountsApi.getAccountLedger(accountId, {

@@ -43,6 +43,7 @@ import {
 import {
     defaultRiyadhReportRangeDatetimeLocal,
     fmtRiyadhRangeLabel,
+    riyadhPlRangeToLedgerCalendarDates,
     riyadhRangeToApiIso,
 } from '../../utils/riyadhBusinessRange';
 import { accT } from '../../utils/accountingI18n';
@@ -307,6 +308,33 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
             );
         },
         [navigate, selectedBranch],
+    );
+
+    /** P&L line → account ledger for the same period / branch (proof of the total). */
+    const openPlAccountProof = useCallback(
+        (row, accountType) => {
+            if (!row?.id) return;
+            const { dateFrom, dateTo } = riyadhPlRangeToLedgerCalendarDates(
+                plFilters.dateFrom,
+                plFilters.dateTo,
+            );
+            navigate(
+                buildWorkshopCoaNavigationUrl(
+                    {
+                        id: row.id,
+                        code: row.code,
+                        name: row.name,
+                        type: accountType,
+                    },
+                    {
+                        dateFrom: dateFrom || undefined,
+                        dateTo: dateTo || undefined,
+                        branchId: plFilters.branchId || '',
+                    },
+                ),
+            );
+        },
+        [navigate, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId],
     );
 
     useEffect(() => {
@@ -771,6 +799,39 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                 padding: '6px 0',
                 borderBottom: `1px solid ${palette.border}`,
             };
+            const clickableRowStyle = {
+                ...rowStyle,
+                cursor: 'pointer',
+                borderRadius: 4,
+                margin: '0 -4px',
+                paddingLeft: 4,
+                paddingRight: 4,
+            };
+            const renderPlAccountRow = (r, accountType) => (
+                <div
+                    key={r.id || r.code}
+                    role="button"
+                    tabIndex={0}
+                    title={t('pl.clickForProof', { name: r.name })}
+                    style={clickableRowStyle}
+                    onClick={() => openPlAccountProof(r, accountType)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openPlAccountProof(r, accountType);
+                        }
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f1f5f9';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                    }}
+                >
+                    <span style={{ color: '#2563eb', fontWeight: 600 }}>{r.name}</span>
+                    <span style={{ color: '#2563eb', fontWeight: 600 }}>{fmtMoney(r.amount, t)}</span>
+                </div>
+            );
             return (
                 <div style={reportCard}>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -805,8 +866,11 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             <Printer size={14} /> {t('btn.print')}
                         </button>
                     </div>
-                    <div style={{ fontSize: 12, color: palette.textSecondary, marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, color: palette.textSecondary, marginBottom: 6 }}>
                         {t('pl.riyadhHint')}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#2563eb', marginBottom: 10, fontWeight: 600 }}>
+                        {t('pl.clickHint')}
                     </div>
                     {plRangeError ? (
                         <div style={{ color: '#B91C1C', marginBottom: 10, fontSize: 13 }}>{plRangeError}</div>
@@ -819,12 +883,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             {d.revenue.length === 0 ? (
                                 <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noRevenue')}</div>
                             ) : (
-                                d.revenue.map((r) => (
-                                    <div key={r.code} style={rowStyle}>
-                                        <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount, t)}</span>
-                                    </div>
-                                ))
+                                d.revenue.map((r) => renderPlAccountRow(r, 'INCOME'))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#16a34a' }}>
                                 <span>{t('pl.totalRevenue')}</span>
@@ -834,12 +893,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             {d.costOfGoodsSold.length === 0 ? (
                                 <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noCogs')}</div>
                             ) : (
-                                d.costOfGoodsSold.map((r) => (
-                                    <div key={r.code} style={rowStyle}>
-                                        <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount, t)}</span>
-                                    </div>
-                                ))
+                                d.costOfGoodsSold.map((r) => renderPlAccountRow(r, 'EXPENSE'))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#dc2626' }}>
                                 <span>{t('pl.totalCogs')}</span>
@@ -853,12 +907,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             {d.operatingExpenses.length === 0 ? (
                                 <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noOpex')}</div>
                             ) : (
-                                d.operatingExpenses.map((r) => (
-                                    <div key={r.code} style={rowStyle}>
-                                        <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount, t)}</span>
-                                    </div>
-                                ))
+                                d.operatingExpenses.map((r) => renderPlAccountRow(r, 'EXPENSE'))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#dc2626' }}>
                                 <span>{t('pl.totalOpex')}</span>
@@ -868,12 +917,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             {d.otherIncome.length === 0 ? (
                                 <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noOtherIncome')}</div>
                             ) : (
-                                d.otherIncome.map((r) => (
-                                    <div key={r.code} style={rowStyle}>
-                                        <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount, t)}</span>
-                                    </div>
-                                ))
+                                d.otherIncome.map((r) => renderPlAccountRow(r, 'INCOME'))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#16a34a' }}>
                                 <span>{t('pl.totalOtherIncome')}</span>
@@ -883,12 +927,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             {d.otherExpenses.length === 0 ? (
                                 <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noOtherExpenses')}</div>
                             ) : (
-                                d.otherExpenses.map((r) => (
-                                    <div key={r.code} style={rowStyle}>
-                                        <span>{r.name}</span>
-                                        <span>{fmtMoney(r.amount, t)}</span>
-                                    </div>
-                                ))
+                                d.otherExpenses.map((r) => renderPlAccountRow(r, 'EXPENSE'))
                             )}
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#dc2626' }}>
                                 <span>{t('pl.totalOtherExpenses')}</span>
