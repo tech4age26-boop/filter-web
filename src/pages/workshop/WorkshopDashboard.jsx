@@ -418,8 +418,8 @@ export default function WorkshopDashboard({
             label: t('kpi.grossMargin'),
             value: t('money.sar', { amount: grossMarginProfit.toLocaleString() }),
             sub: hasAppliedRange
-                ? t('kpi.grossMarginSubExVatRange')
-                : t('kpi.grossMarginSubExVatMonth'),
+                ? t('kpi.grossMarginSubInclVatRange')
+                : t('kpi.grossMarginSubInclVatMonth'),
             iconClass: 'ws-kpi-icon--blue',
             Icon: TrendingUp,
         },

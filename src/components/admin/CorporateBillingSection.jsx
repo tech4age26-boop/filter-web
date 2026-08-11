@@ -58,6 +58,7 @@ function billingPeriodDateParam(dateStr) {
 function billStatusLabel(status, t) {
     if (status === 'paid') return t('status.paid');
     if (status === 'awaiting_approval') return t('status.awaiting');
+    if (status === 'pending_deletion') return t('status.pendingDeletion');
     if (status === 'rejected') return t('status.rejected');
     return t('status.pending');
 }
@@ -991,6 +992,11 @@ export default function CorporateBillingSection() {
                                                     : '—'}
                                             </td>
                                             <td className="table-cell" onClick={(e) => e.stopPropagation()}>
+                                                {b.status === 'pending_deletion' ? (
+                                                    <span style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                                                        {t('status.pendingDeletion')}
+                                                    </span>
+                                                ) : (
                                                 <button
                                                     type="button"
                                                     className="btn-portal-outline"
@@ -1006,6 +1012,7 @@ export default function CorporateBillingSection() {
                                                 >
                                                     <Trash2 size={15} />
                                                 </button>
+                                                )}
                                             </td>
                                         </tr>
                                     ))
@@ -1036,7 +1043,10 @@ export default function CorporateBillingSection() {
                                             <FileText size={16} style={{ marginRight: 6 }} />
                                             {billPdfExporting ? t('btn.generating') : t('btn.downloadBillPdf')}
                                         </button>
-                                        {billDetail.status !== 'paid' && Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0) > 0.05 ? (
+                                        {billDetail.status !== 'paid'
+                                        && billDetail.status !== 'awaiting_approval'
+                                        && billDetail.status !== 'pending_deletion'
+                                        && Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0) > 0.05 ? (
                                             <button
                                                 type="button"
                                                 className="btn-portal"
@@ -1046,6 +1056,7 @@ export default function CorporateBillingSection() {
                                                 {t('btn.markPaid')}
                                             </button>
                                         ) : null}
+                                        {billDetail.status !== 'pending_deletion' ? (
                                         <button
                                             type="button"
                                             className="btn-portal-outline"
@@ -1058,6 +1069,7 @@ export default function CorporateBillingSection() {
                                             <Trash2 size={16} style={{ marginRight: 6 }} />
                                             {deletingBills ? t('btn.deleting') : t('btn.removeBill')}
                                         </button>
+                                        ) : null}
                                     </div>
 
                                     <div className="cash-bank-stats cash-bank-register-kpis billing-stats">

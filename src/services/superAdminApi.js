@@ -744,12 +744,59 @@ export const listGeneratedBillCashAccounts = (id) =>
         `/super-admin/corporate-billing/generated-bills/${encodeURIComponent(id)}/cash-accounts`,
     );
 
-/** Fully settle a generated bill into a Cash & Bank register. */
-export const markGeneratedBillPaid = ({ id, cashBankAccountId, receivedDate }) =>
+/** Fully settle is gated — this submits payment + proof for Super Admin approval. */
+export const markGeneratedBillPaid = ({
+    id,
+    cashBankAccountId,
+    receivedDate,
+    proofImage,
+    proofMimeType,
+    proofFileName,
+}) =>
     apiFetch(`/super-admin/corporate-generated-bills/${encodeURIComponent(id)}/mark-paid`, {
         method: 'POST',
-        body: JSON.stringify({ cashBankAccountId, receivedDate }),
+        body: JSON.stringify({
+            cashBankAccountId,
+            receivedDate,
+            proofImage,
+            proofMimeType,
+            proofFileName,
+        }),
     });
+
+export const listGeneratedBillApprovals = ({ status, limit, offset } = {}) =>
+    apiFetch(
+        `/super-admin/corporate-generated-bill-approvals${qs({ status, limit, offset })}`,
+    );
+
+export const getGeneratedBillApproval = (id) =>
+    apiFetch(`/super-admin/corporate-generated-bill-approvals/${encodeURIComponent(String(id))}`);
+
+export const approveGeneratedBillPayment = (id) =>
+    apiFetch(`/super-admin/corporate-generated-bills/${encodeURIComponent(String(id))}/approve-payment`, {
+        method: 'POST',
+    });
+
+export const rejectGeneratedBillPayment = (id, rejectionReason) =>
+    apiFetch(`/super-admin/corporate-generated-bills/${encodeURIComponent(String(id))}/reject-payment`, {
+        method: 'POST',
+        body: JSON.stringify({ rejectionReason }),
+    });
+
+export const approveGeneratedBillDeletion = (id) =>
+    apiFetch(
+        `/super-admin/corporate-billing/generated-bills/${encodeURIComponent(String(id))}/approve-deletion`,
+        { method: 'POST' },
+    );
+
+export const rejectGeneratedBillDeletion = (id, rejectionReason) =>
+    apiFetch(
+        `/super-admin/corporate-billing/generated-bills/${encodeURIComponent(String(id))}/reject-deletion`,
+        {
+            method: 'POST',
+            body: JSON.stringify({ rejectionReason }),
+        },
+    );
 
 /** Same bilingual simplified-tax-invoice shape used by the corporate portal modal. */
 export const getSuperAdminInvoiceView = (id) =>
