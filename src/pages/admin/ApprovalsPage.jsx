@@ -24,6 +24,12 @@ import {
     getCorporatePaymentApproval,
     approveCorporatePaymentApproval,
     rejectCorporatePaymentApproval,
+    listGeneratedBillApprovals,
+    getGeneratedBillApproval,
+    approveGeneratedBillPayment,
+    rejectGeneratedBillPayment,
+    approveGeneratedBillDeletion,
+    rejectGeneratedBillDeletion,
     getSuperAdminInvoiceView,
     getSuperAdminSalesReturns,
     getSuperAdminSalesReturn,
@@ -68,6 +74,8 @@ const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
     corporate_price_quotation: 'corporate-price-quotation',
     corporate_walk_in_booking: 'corporate-walk-in-booking',
     corporate_payment_approval: 'corporate-payment-proof',
+    corporate_generated_bill_payment: 'corporate-payment-proof',
+    corporate_generated_bill_deletion: 'corporate-payment-proof',
     sales_return: 'sales-return',
     marketing_budget_request: 'marketing-budget-request',
     admin_wallet_fund_request: 'admin-wallet-fund-request',
@@ -388,6 +396,8 @@ const ENTITY_TYPES = [
     { value: 'corporate_price_quotation', label: 'Corporate price quotation' },
     { value: 'corporate_walk_in_booking', label: 'Corporate walk-in booking' },
     { value: 'corporate_payment_approval', label: 'Corporate payment proof' },
+    { value: 'corporate_generated_bill_payment', label: 'Corporate bill payment' },
+    { value: 'corporate_generated_bill_deletion', label: 'Corporate bill deletion' },
     { value: 'sales_return', label: 'POS sales return' },
     { value: 'marketing_budget_request', label: 'Marketing wallet top-up' },
     { value: 'admin_wallet_fund_request', label: 'Admin wallet fund request' },
@@ -602,6 +612,21 @@ function buildMetaChips(item) {
             push('Branch', m.branchName);
             push('Method', m.paymentMethod);
             push('Total', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            if (m.rejectionReason) push('Reason', m.rejectionReason);
+            break;
+        case 'corporate_generated_bill_payment':
+            push('Company', m.companyName);
+            push('Bill', m.billNo);
+            push('Method', m.paymentMethod);
+            push('Received', m.receivedDate);
+            push('Balance', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            if (m.rejectionReason) push('Reason', m.rejectionReason);
+            break;
+        case 'corporate_generated_bill_deletion':
+            push('Company', m.companyName);
+            push('Bill', m.billNo);
+            push('Previous status', m.previousStatus);
+            push('Balance', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
             if (m.rejectionReason) push('Reason', m.rejectionReason);
             break;
         case 'marketing_budget_request':
@@ -2406,6 +2431,141 @@ function MarketingPromoCodeDetailsModal({ id, item, onClose, onApprove, onReject
     );
 }
 
+/** Generated corporate bill payment / deletion approval details. */
+function GeneratedBillApprovalDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr('');
+        getGeneratedBillApproval(id)
+            .then((res) => {
+                if (!cancelled) setData(res?.approval ?? res);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e?.message || 'Could not load approval');
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [id]);
+
+    const kind = data?.kind || item?.meta?.kind || (item?.entityType?.includes('deletion') ? 'deletion' : 'payment');
+    const title =
+        kind === 'deletion'
+            ? `Bill deletion · ${data?.billNo ?? item?.meta?.billNo ?? `#${id}`}`
+            : `Bill payment · ${data?.billNo ?? item?.meta?.billNo ?? `#${id}`}`;
+    const isPending = (data?.status ?? item?.status) === 'pending';
+    const proof = data?.paymentProofImage;
+    const mime = String(data?.paymentProofMimeType || '').toLowerCase();
+
+    return (
+        <ApprovalShell
+            asPage={asPage}
+            title={title}
+            onClose={onClose}
+            width={760}
+            footer={(
+                <>
+                    <button type="button" className="btn-view-details" onClick={onClose}>Close</button>
+                    {isPending ? (
+                        <>
+                            {onReject ? (
+                                <button type="button" className="btn-reject" onClick={onReject}>
+                                    <X size={16} /> Reject
+                                </button>
+                            ) : null}
+                            {onApprove ? (
+                                <button type="button" className="btn-approve" onClick={onApprove}>
+                                    <Check size={16} /> Approve
+                                </button>
+                            ) : null}
+                        </>
+                    ) : null}
+                </>
+            )}
+        >
+            {loading ? (
+                <div style={{ padding: 24, textAlign: 'center' }}>
+                    <Loader size={20} className="spin" /> Loading…
+                </div>
+            ) : err ? (
+                <p style={{ color: '#b91c1c' }}>{err}</p>
+            ) : data ? (
+                <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Corporate</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{data.corporate?.companyName ?? '—'}</p>
+                        </div>
+                        <div>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Bill</p>
+                            <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{data.billNo ?? '—'}</p>
+                            <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
+                                Balance: SAR {Number(data.balance || 0).toFixed(2)}
+                            </p>
+                        </div>
+                        {kind === 'payment' ? (
+                            <>
+                                <div>
+                                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Method</p>
+                                    <p style={{ margin: '4px 0 0' }}>{data.paymentMethod || '—'}</p>
+                                </div>
+                                <div>
+                                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Received date</p>
+                                    <p style={{ margin: '4px 0 0' }}>{data.receivedDate || '—'}</p>
+                                </div>
+                            </>
+                        ) : (
+                            <div>
+                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Previous status</p>
+                                <p style={{ margin: '4px 0 0' }}>{data.previousStatus || '—'}</p>
+                            </div>
+                        )}
+                    </div>
+                    {data.paymentNotes ? (
+                        <p style={{ fontSize: '0.85rem', color: '#475569' }}>{data.paymentNotes}</p>
+                    ) : null}
+                    {kind === 'payment' && proof ? (
+                        mime.includes('pdf') || String(proof).startsWith('data:application/pdf') ? (
+                            <iframe
+                                title="proof-pdf"
+                                src={proof}
+                                style={{ width: '100%', height: 460, border: '1px solid #e2e8f0', borderRadius: 10 }}
+                            />
+                        ) : (
+                            <img
+                                alt="payment proof"
+                                src={proof}
+                                style={{
+                                    width: '100%',
+                                    maxHeight: 540,
+                                    objectFit: 'contain',
+                                    borderRadius: 10,
+                                    border: '1px solid #e2e8f0',
+                                    background: '#f8fafc',
+                                }}
+                            />
+                        )
+                    ) : kind === 'payment' ? (
+                        <p style={{ color: '#b45309' }}>No payment proof attached.</p>
+                    ) : (
+                        <p style={{ color: '#64748b' }}>
+                            Approving will permanently remove this generated bill from HQ and the corporate portal.
+                        </p>
+                    )}
+                </div>
+            ) : null}
+        </ApprovalShell>
+    );
+}
+
 /** Proof preview for a Corporate Payment Approval — fetches base64 image, shows full detail. */
 function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, onReject, asPage = false }) {
     const [data, setData] = useState(null);
@@ -3114,6 +3274,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         // entityType filter to something else.
         const wantPaymentApprovals =
             !entityTypeFilter || entityTypeFilter === 'corporate_payment_approval';
+        const wantGeneratedBillApprovals =
+            !entityTypeFilter
+            || entityTypeFilter === 'corporate_generated_bill_payment'
+            || entityTypeFilter === 'corporate_generated_bill_deletion';
         const wantSalesReturns =
             !entityTypeFilter || entityTypeFilter === 'sales_return';
         const wantMarketingTopups =
@@ -3124,7 +3288,13 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             !entityTypeFilter || entityTypeFilter === 'marketing_promo_code';
 
         // When the filter is narrowed to a type handled by a dedicated API, skip std approvals.
-        const stdReq = entityTypeFilter === 'corporate_payment_approval' || entityTypeFilter === 'sales_return' || entityTypeFilter === 'marketing_budget_request' || entityTypeFilter === 'marketing_promotion' || entityTypeFilter === 'marketing_promo_code'
+        const stdReq = entityTypeFilter === 'corporate_payment_approval'
+            || entityTypeFilter === 'corporate_generated_bill_payment'
+            || entityTypeFilter === 'corporate_generated_bill_deletion'
+            || entityTypeFilter === 'sales_return'
+            || entityTypeFilter === 'marketing_budget_request'
+            || entityTypeFilter === 'marketing_promotion'
+            || entityTypeFilter === 'marketing_promo_code'
             ? Promise.resolve([])
             : listApprovals({ status, entityType: entityTypeFilter })
                 .then((data) => unwrapApprovalsListResponse(data).map((raw) => normalizeItem(raw, locale)))
@@ -3174,6 +3344,52 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                           reference: r.invoice?.invoiceNo ?? '',
                           raw: r,
                       }));
+                  })
+                  .catch(() => [])
+            : Promise.resolve([]);
+
+        const gbaReq = wantGeneratedBillApprovals
+            ? listGeneratedBillApprovals({
+                  status: status ?? 'all',
+                  limit: 100,
+              })
+                  .then((res) => {
+                      const list = Array.isArray(res?.approvals) ? res.approvals : [];
+                      return list
+                          .filter((r) => {
+                              if (!entityTypeFilter) return true;
+                              return r.entityType === entityTypeFilter;
+                          })
+                          .map((r) => ({
+                              id: String(r.id),
+                              entityType: r.entityType,
+                              type: r.entityType,
+                              typeLabel:
+                                  r.kind === 'deletion'
+                                      ? 'Corporate bill deletion'
+                                      : 'Corporate bill payment',
+                              status: r.status,
+                              title:
+                                  r.kind === 'deletion'
+                                      ? `Bill deletion · ${r.billNo}`
+                                      : `Bill payment · ${r.billNo}`,
+                              meta: {
+                                  kind: r.kind,
+                                  companyName: r.corporate?.companyName,
+                                  billNo: r.billNo,
+                                  amount: r.balance,
+                                  paymentMethod: r.paymentMethod,
+                                  receivedDate: r.receivedDate,
+                                  previousStatus: r.previousStatus,
+                                  proofMimeType: r.paymentProofMimeType,
+                                  rejectionReason: r.rejectionReason,
+                              },
+                              submittedBy: r.requestedByUser,
+                              reviewer: r.reviewedByUser,
+                              date: r.requestedAt || r.updatedAt || r.createdAt,
+                              reference: r.billNo ?? '',
+                              raw: r,
+                          }));
                   })
                   .catch(() => [])
             : Promise.resolve([]);
@@ -3259,11 +3475,19 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                   })
             : Promise.resolve([]);
 
-        Promise.all([stdReq, cpaReq, srReq, mbrReq, mprReq, mpcReq])
-            .then(([stdItems, cpaItems, srItems, mbrItems, mprItems, mpcItems]) => {
+        Promise.all([stdReq, cpaReq, gbaReq, srReq, mbrReq, mprReq, mpcReq])
+            .then(([stdItems, cpaItems, gbaItems, srItems, mbrItems, mprItems, mpcItems]) => {
                 if (cancelled) return;
                 const seen = new Set();
-                const merged = [...mpcItems, ...mprItems, ...mbrItems, ...srItems, ...cpaItems, ...stdItems].filter((item) => {
+                const merged = [
+                    ...mpcItems,
+                    ...mprItems,
+                    ...mbrItems,
+                    ...srItems,
+                    ...gbaItems,
+                    ...cpaItems,
+                    ...stdItems,
+                ].filter((item) => {
                     const key = `${item.entityType}:${item.id}`;
                     if (seen.has(key)) return false;
                     seen.add(key);
@@ -3289,6 +3513,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isCorporatePriceQuotation = (et) =>
         et === 'corporate_price_quotation' || et === 'corporate_price_quotations';
     const isCorporatePaymentApproval = (et) => et === 'corporate_payment_approval';
+    const isGeneratedBillPaymentApproval = (et) => et === 'corporate_generated_bill_payment';
+    const isGeneratedBillDeletionApproval = (et) => et === 'corporate_generated_bill_deletion';
     const isSalesReturnApproval = (et) => et === 'sales_return';
     const isMarketingBudgetRequest = (et) => et === 'marketing_budget_request';
     const isMarketingPromotion = (et) => et === 'marketing_promotion';
@@ -3314,6 +3540,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     : (remarksOrPayload && typeof remarksOrPayload === 'object' ? remarksOrPayload : {});
             if (isCorporatePaymentApproval(item.entityType)) {
                 await approveCorporatePaymentApproval(item.id);
+            } else if (isGeneratedBillPaymentApproval(item.entityType)) {
+                await approveGeneratedBillPayment(item.id);
+            } else if (isGeneratedBillDeletionApproval(item.entityType)) {
+                await approveGeneratedBillDeletion(item.id);
             } else if (isSalesReturnApproval(item.entityType)) {
                 await approveSuperAdminSalesReturn(item.id);
             } else if (isMarketingBudgetRequest(item.entityType)) {
@@ -3377,6 +3607,10 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         try {
             if (isCorporatePaymentApproval(item.entityType)) {
                 await rejectCorporatePaymentApproval(item.id, reason);
+            } else if (isGeneratedBillPaymentApproval(item.entityType)) {
+                await rejectGeneratedBillPayment(item.id, reason);
+            } else if (isGeneratedBillDeletionApproval(item.entityType)) {
+                await rejectGeneratedBillDeletion(item.id, reason);
             } else if (isSalesReturnApproval(item.entityType)) {
                 await rejectSuperAdminSalesReturn(item.id, reason);
             } else if (isMarketingBudgetRequest(item.entityType)) {
@@ -3464,6 +3698,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'workshop_portal_staff':
                 return <Users size={14} />;
             case 'corporate_payment_approval':
+            case 'corporate_generated_bill_payment':
+            case 'corporate_generated_bill_deletion':
                 return <DollarSign size={14} />;
             case 'sales_return':
                 return <RefreshCcw size={14} />;
@@ -3633,6 +3869,21 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
         if (routeEntityType === 'corporate_payment_approval') {
             return (
                 <CorporatePaymentApprovalDetailsModal
+                    asPage
+                    id={routeRequestId}
+                    item={routeItem}
+                    onClose={goToApprovalsList}
+                    onApprove={detailApprove}
+                    onReject={detailReject}
+                />
+            );
+        }
+        if (
+            routeEntityType === 'corporate_generated_bill_payment'
+            || routeEntityType === 'corporate_generated_bill_deletion'
+        ) {
+            return (
+                <GeneratedBillApprovalDetailsModal
                     asPage
                     id={routeRequestId}
                     item={routeItem}

@@ -11,9 +11,26 @@ function fmt(n) {
     });
 }
 
+const ALLOWED_PROOF_TYPES = new Set([
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'application/pdf',
+]);
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.readAsDataURL(file);
+    });
+}
+
 /**
- * Super Admin: mark a generated corporate bill fully paid.
- * Asks for Cash & Bank (HQ + workshop) + receipt date.
+ * Corporate Billing: submit mark-as-paid with proof for Super Admin approval.
  */
 export default function CorporateMarkBillPaidModal({
     open,
@@ -28,6 +45,7 @@ export default function CorporateMarkBillPaidModal({
     const [loadingAccounts, setLoadingAccounts] = useState(false);
     const [cashBankAccountId, setCashBankAccountId] = useState('');
     const [receivedDate, setReceivedDate] = useState(() => todayISO());
+    const [proofFile, setProofFile] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
 
@@ -36,6 +54,7 @@ export default function CorporateMarkBillPaidModal({
             setAccounts([]);
             setCashBankAccountId('');
             setReceivedDate(todayISO());
+            setProofFile(null);
             setError('');
             setSubmitting(false);
             return;
@@ -45,6 +64,7 @@ export default function CorporateMarkBillPaidModal({
         setError('');
         setCashBankAccountId('');
         setReceivedDate(todayISO());
+        setProofFile(null);
         listGeneratedBillCashAccounts(billId)
             .then((res) => {
                 if (cancelled) return;
@@ -74,6 +94,28 @@ export default function CorporateMarkBillPaidModal({
 
     if (!open) return null;
 
+    const onProofChange = (e) => {
+        setError('');
+        const file = e.target.files?.[0] || null;
+        if (!file) {
+            setProofFile(null);
+            return;
+        }
+        if (!ALLOWED_PROOF_TYPES.has(String(file.type || '').toLowerCase())) {
+            setProofFile(null);
+            setError(t('err.proofType'));
+            e.target.value = '';
+            return;
+        }
+        if (file.size > 4 * 1024 * 1024) {
+            setProofFile(null);
+            setError(t('err.proofSize'));
+            e.target.value = '';
+            return;
+        }
+        setProofFile(file);
+    };
+
     const submit = async () => {
         setError('');
         if (!cashBankAccountId) {
@@ -84,12 +126,20 @@ export default function CorporateMarkBillPaidModal({
             setError(t('err.selectReceivedDate'));
             return;
         }
+        if (!proofFile) {
+            setError(t('err.proofRequired'));
+            return;
+        }
         setSubmitting(true);
         try {
+            const proofImage = await readFileAsDataUrl(proofFile);
             const res = await markGeneratedBillPaid({
                 id: billId,
                 cashBankAccountId,
                 receivedDate,
+                proofImage,
+                proofMimeType: proofFile.type || undefined,
+                proofFileName: proofFile.name || undefined,
             });
             onPaid?.(res);
             onClose?.();
@@ -108,15 +158,15 @@ export default function CorporateMarkBillPaidModal({
             <button
                 type="button"
                 className="btn-submit"
-                disabled={submitting || loadingAccounts || !cashBankAccountId}
+                disabled={submitting || loadingAccounts || !cashBankAccountId || !proofFile}
                 onClick={submit}
             >
                 {submitting ? (
                     <>
-                        <Loader size={14} className="spin" /> {t('btn.markingPaid')}
+                        <Loader size={14} className="spin" /> {t('btn.submittingApproval')}
                     </>
                 ) : (
-                    t('btn.confirmMarkPaid')
+                    t('btn.submitForApproval')
                 )}
             </button>
         </>
@@ -211,6 +261,24 @@ export default function CorporateMarkBillPaidModal({
                     disabled={submitting}
                     required
                 />
+            </div>
+
+            <div className="form-group">
+                <label className="form-label">{t('modal.paymentProof')} *</label>
+                <input
+                    type="file"
+                    className="form-input-field"
+                    accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                    onChange={onProofChange}
+                    disabled={submitting}
+                />
+                {proofFile ? (
+                    <p className="form-help-text" style={{ marginTop: 6 }}>
+                        {proofFile.name} ({Math.round(proofFile.size / 1024)} KB)
+                    </p>
+                ) : (
+                    <p className="form-help-text">{t('modal.paymentProofHint')}</p>
+                )}
             </div>
 
             {error ? (
