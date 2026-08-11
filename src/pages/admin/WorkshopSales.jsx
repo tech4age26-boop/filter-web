@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { FileText, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
     getBranches,
@@ -398,6 +398,253 @@ export default function WorkshopSales() {
         ? t('ws.detail.titleNo', { no: detailData.invoiceNo })
         : t('ws.detail.title');
 
+    if (detailId) {
+        return (
+            <AdminModalAsScreen
+                title={detailTitle}
+                onClose={closeDetails}
+                wide
+            >
+                    {detailLoading ? (
+                        <ShimmerTextBlock lines={6} />
+                    ) : detailError ? (
+                        <div style={{ color: '#B91C1C' }}>{detailError}</div>
+                    ) : detailData ? (
+                        <div className="ws-order-details-modal-body">
+                            <div className="ws-report-table-wrapper">
+                                <table className="ws-table">
+                                    <tbody>
+                                        <tr><th>{t('ws.d.invoiceNo')}</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
+                                        <tr>
+                                            <th>{t('ws.d.datetime')}</th>
+                                            <td>{formatDateTime(detailData.issuedAt ?? detailData.invoiceDate)}</td>
+                                        </tr>
+                                        <tr><th>{t('ws.d.workshop')}</th><td>{detailData.workshopName ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.branch')}</th><td>{detailData.branchName ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.source')}</th><td>{formatStatusLabel(detailData.salesOrder?.source)}</td></tr>
+                                        <tr><th>{t('ws.d.orderStatus')}</th><td>{formatStatusLabel(detailData.salesOrder?.status)}</td></tr>
+                                        <tr>
+                                            <th>{t('ws.d.placed')}</th>
+                                            <td>{formatDateTime(detailData.salesOrder?.createdAt)}</td>
+                                        </tr>
+                                        <tr><th>{t('ws.d.customer')}</th><td>{detailData.customer?.name ?? '—'}</td></tr>
+                                        <tr><th>{t('ws.d.phone')}</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
+                                        <tr>
+                                            <th>{t('ws.d.vehicle')}</th>
+                                            <td>
+                                                {detailData.vehicle?.plateNo ?? '—'}
+                                                {detailData.vehicle &&
+                                                (detailData.vehicle.make || detailData.vehicle.model || detailData.vehicle.year)
+                                                    ? ` · ${[detailData.vehicle.year, detailData.vehicle.make, detailData.vehicle.model]
+                                                          .filter(Boolean)
+                                                          .join(' ')}`
+                                                    : ''}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.subtotal')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.subtotal).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.vat')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.vatAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.discount')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.discountAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.total')}</th>
+                                            <td className="ws-font-bold">
+                                                {t('money.sar', { amount: toNumber(detailData.totalAmount).toLocaleString() })}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('ws.d.payStatus')}</th>
+                                            <td>{formatPayStatusLabel(detailData.paymentStatus, t)}</td>
+                                        </tr>
+                                        {detailData.deferredPaymentMethod ? (
+                                            <tr>
+                                                <th>{t('ws.d.deferred')}</th>
+                                                <td>{detailData.deferredPaymentMethod}</td>
+                                            </tr>
+                                        ) : null}
+                                        {detailData.createdBy ? (
+                                            <tr>
+                                                <th>{t('ws.d.createdBy')}</th>
+                                                <td>
+                                                    {detailData.createdBy.name ?? detailData.createdBy.email ?? '—'}
+                                                    {detailData.createdBy.userType ? ` · ${formatStatusLabel(detailData.createdBy.userType)}` : ''}
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {detailData.orderDiscount &&
+                            (toNumber(detailData.orderDiscount.totalDiscountValue) > 0 ||
+                                toNumber(detailData.orderDiscount.promoDiscountAmount) > 0 ||
+                                detailData.orderDiscount.promoCode) ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('ws.d.promoTitle')}
+                                    </p>
+                                    <table className="ws-table">
+                                        <tbody>
+                                            <tr>
+                                                <th>{t('ws.d.orderDisc')}</th>
+                                                <td>
+                                                    {formatDiscountCell(
+                                                        detailData.orderDiscount.totalDiscountType,
+                                                        detailData.orderDiscount.totalDiscountValue,
+                                                        t,
+                                                    )}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <th>{t('ws.d.promoDisc')}</th>
+                                                <td>
+                                                    {t('money.sar', {
+                                                        amount: toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString(),
+                                                    })}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <th>{t('ws.d.promoCode')}</th>
+                                                <td>{detailData.orderDiscount.promoCode ?? '—'}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+
+                            {Array.isArray(detailData.jobs) && detailData.jobs.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.jobs')}</p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('ws.d.jobNo')}</th>
+                                                    <th>{t('ws.d.dept')}</th>
+                                                    <th>{t('ws.d.status')}</th>
+                                                    <th>{t('ws.d.opened')}</th>
+                                                    <th>{t('ws.d.completed')}</th>
+                                                    <th>{t('ws.d.beforeDisc')}</th>
+                                                    <th>{t('ws.d.afterDisc')}</th>
+                                                    <th>{t('ws.d.vat')}</th>
+                                                    <th>{t('ws.d.jobTotal')}</th>
+                                                    <th>{t('ws.d.techs')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {detailData.jobs.map((job) => (
+                                                    <tr key={job.id}>
+                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.id}</td>
+                                                        <td>{job.departmentName ?? '—'}</td>
+                                                        <td>{formatStatusLabel(job.status)}</td>
+                                                        <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                                                            {formatDateTime(job.createdAt)}
+                                                        </td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>
+                                                            {job.completedAt ? formatDateTime(job.completedAt) : '—'}
+                                                        </td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountBeforeDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.amountAfterDiscount).toLocaleString() })}</td>
+                                                        <td>{t('money.sar', { amount: toNumber(job.vatAmount).toLocaleString() })}</td>
+                                                        <td className="ws-font-bold">
+                                                            {t('money.sar', { amount: toNumber(job.totalAmount).toLocaleString() })}
+                                                        </td>
+                                                        <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
+                                                            {(job.assignments ?? []).length === 0
+                                                                ? '—'
+                                                                : (job.assignments ?? [])
+                                                                      .map((a) => a.technicianName)
+                                                                      .filter(Boolean)
+                                                                      .join(', ') || '—'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            {Array.isArray(detailData.lineItems) && detailData.lineItems.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.lines')}</p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('ws.d.jobNo')}</th>
+                                                    <th>{t('ws.d.deptShort')}</th>
+                                                    <th>{t('ws.d.item')}</th>
+                                                    <th>{t('ws.d.type')}</th>
+                                                    <th>{t('ws.d.qty')}</th>
+                                                    <th>{t('ws.d.unit')}</th>
+                                                    <th>{t('ws.d.discount')}</th>
+                                                    <th>{t('ws.d.vat')}</th>
+                                                    <th>{t('ws.d.lineTotal')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {detailData.lineItems.map((row) => (
+                                                    <tr key={row.id}>
+                                                        <td>{row.jobId ?? '—'}</td>
+                                                        <td>{row.departmentName ?? '—'}</td>
+                                                        <td>{row.itemName ?? '—'}</td>
+                                                        <td>{row.itemType ?? '—'}</td>
+                                                        <td>{row.qty}</td>
+                                                        <td>{toNumber(row.unitPrice).toLocaleString()}</td>
+                                                        <td>{formatDiscountCell(row.discountType, row.discountValue, t)}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>
+                                                            {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
+                                                        </td>
+                                                        <td className="ws-font-bold">
+                                                            {toNumber(row.lineTotal).toLocaleString()}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.payments')}</p>
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>{t('ws.d.method')}</th>
+                                                <th>{t('ws.d.amount')}</th>
+                                                <th>{t('ws.d.paidAt')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {detailData.payments.map((p) => (
+                                                <tr key={p.id}>
+                                                    <td>{p.method ?? '—'}</td>
+                                                    <td className="ws-font-bold">
+                                                        {toNumber(p.amount).toLocaleString()}
+                                                    </td>
+                                                    <td>{formatDateTime(p.paidAt)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+            </AdminModalAsScreen>
+        );
+    }
+
     return (
         <div className="so-container">
             <header className="so-header">
@@ -637,252 +884,6 @@ export default function WorkshopSales() {
                         </button>
                     </nav>
                 </div>
-            )}
-
-            {detailId && (
-                <Modal
-                    title={detailTitle}
-                    onClose={closeDetails}
-                    width="min(1100px, 98vw)"
-                    contentClassName="ws-modal-order-details"
-                >
-                    {detailLoading ? (
-                        <ShimmerTextBlock lines={6} />
-                    ) : detailError ? (
-                        <div style={{ color: '#B91C1C' }}>{detailError}</div>
-                    ) : detailData ? (
-                        <div className="ws-order-details-modal-body">
-                            <div className="ws-report-table-wrapper">
-                                <table className="ws-table">
-                                    <tbody>
-                                        <tr><th>{t('ws.d.invoiceNo')}</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
-                                        <tr>
-                                            <th>{t('ws.d.datetime')}</th>
-                                            <td>{formatDateTime(detailData.issuedAt ?? detailData.invoiceDate)}</td>
-                                        </tr>
-                                        <tr><th>{t('ws.d.workshop')}</th><td>{detailData.workshopName ?? '—'}</td></tr>
-                                        <tr><th>{t('ws.d.branch')}</th><td>{detailData.branchName ?? '—'}</td></tr>
-                                        <tr><th>{t('ws.d.source')}</th><td>{formatStatusLabel(detailData.salesOrder?.source)}</td></tr>
-                                        <tr><th>{t('ws.d.orderStatus')}</th><td>{formatStatusLabel(detailData.salesOrder?.status)}</td></tr>
-                                        <tr>
-                                            <th>{t('ws.d.placed')}</th>
-                                            <td>{formatDateTime(detailData.salesOrder?.createdAt)}</td>
-                                        </tr>
-                                        <tr><th>{t('ws.d.customer')}</th><td>{detailData.customer?.name ?? '—'}</td></tr>
-                                        <tr><th>{t('ws.d.phone')}</th><td>{detailData.customer?.mobile ?? '—'}</td></tr>
-                                        <tr>
-                                            <th>{t('ws.d.vehicle')}</th>
-                                            <td>
-                                                {detailData.vehicle?.plateNo ?? '—'}
-                                                {detailData.vehicle &&
-                                                (detailData.vehicle.make || detailData.vehicle.model || detailData.vehicle.year)
-                                                    ? ` · ${[detailData.vehicle.year, detailData.vehicle.make, detailData.vehicle.model]
-                                                          .filter(Boolean)
-                                                          .join(' ')}`
-                                                    : ''}
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('ws.d.subtotal')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.subtotal).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('ws.d.vat')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.vatAmount).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('ws.d.discount')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.discountAmount).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('ws.d.total')}</th>
-                                            <td className="ws-font-bold">
-                                                {t('money.sar', { amount: toNumber(detailData.totalAmount).toLocaleString() })}
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('ws.d.payStatus')}</th>
-                                            <td>{formatPayStatusLabel(detailData.paymentStatus, t)}</td>
-                                        </tr>
-                                        {detailData.deferredPaymentMethod ? (
-                                            <tr>
-                                                <th>{t('ws.d.deferred')}</th>
-                                                <td>{detailData.deferredPaymentMethod}</td>
-                                            </tr>
-                                        ) : null}
-                                        {detailData.createdBy ? (
-                                            <tr>
-                                                <th>{t('ws.d.createdBy')}</th>
-                                                <td>
-                                                    {detailData.createdBy.name ?? detailData.createdBy.email ?? '—'}
-                                                    {detailData.createdBy.userType ? ` · ${formatStatusLabel(detailData.createdBy.userType)}` : ''}
-                                                </td>
-                                            </tr>
-                                        ) : null}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {detailData.orderDiscount &&
-                            (toNumber(detailData.orderDiscount.totalDiscountValue) > 0 ||
-                                toNumber(detailData.orderDiscount.promoDiscountAmount) > 0 ||
-                                detailData.orderDiscount.promoCode) ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        {t('ws.d.promoTitle')}
-                                    </p>
-                                    <table className="ws-table">
-                                        <tbody>
-                                            <tr>
-                                                <th>{t('ws.d.orderDisc')}</th>
-                                                <td>
-                                                    {formatDiscountCell(
-                                                        detailData.orderDiscount.totalDiscountType,
-                                                        detailData.orderDiscount.totalDiscountValue,
-                                                        t,
-                                                    )}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <th>{t('ws.d.promoDisc')}</th>
-                                                <td>
-                                                    {t('money.sar', {
-                                                        amount: toNumber(detailData.orderDiscount.promoDiscountAmount).toLocaleString(),
-                                                    })}
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <th>{t('ws.d.promoCode')}</th>
-                                                <td>{detailData.orderDiscount.promoCode ?? '—'}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.jobs) && detailData.jobs.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.jobs')}</p>
-                                    <div className="ws-order-details-table-scroll">
-                                        <table className="ws-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>{t('ws.d.jobNo')}</th>
-                                                    <th>{t('ws.d.dept')}</th>
-                                                    <th>{t('ws.d.status')}</th>
-                                                    <th>{t('ws.d.opened')}</th>
-                                                    <th>{t('ws.d.completed')}</th>
-                                                    <th>{t('ws.d.beforeDisc')}</th>
-                                                    <th>{t('ws.d.afterDisc')}</th>
-                                                    <th>{t('ws.d.vat')}</th>
-                                                    <th>{t('ws.d.jobTotal')}</th>
-                                                    <th>{t('ws.d.techs')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {detailData.jobs.map((job) => (
-                                                    <tr key={job.id}>
-                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.id}</td>
-                                                        <td>{job.departmentName ?? '—'}</td>
-                                                        <td>{formatStatusLabel(job.status)}</td>
-                                                        <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                                                            {formatDateTime(job.createdAt)}
-                                                        </td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>
-                                                            {job.completedAt ? formatDateTime(job.completedAt) : '—'}
-                                                        </td>
-                                                        <td>{t('money.sar', { amount: toNumber(job.amountBeforeDiscount).toLocaleString() })}</td>
-                                                        <td>{t('money.sar', { amount: toNumber(job.amountAfterDiscount).toLocaleString() })}</td>
-                                                        <td>{t('money.sar', { amount: toNumber(job.vatAmount).toLocaleString() })}</td>
-                                                        <td className="ws-font-bold">
-                                                            {t('money.sar', { amount: toNumber(job.totalAmount).toLocaleString() })}
-                                                        </td>
-                                                        <td style={{ fontSize: '0.8125rem', minWidth: 160 }}>
-                                                            {(job.assignments ?? []).length === 0
-                                                                ? '—'
-                                                                : (job.assignments ?? [])
-                                                                      .map((a) => a.technicianName)
-                                                                      .filter(Boolean)
-                                                                      .join(', ') || '—'}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.lineItems) && detailData.lineItems.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.lines')}</p>
-                                    <div className="ws-order-details-table-scroll">
-                                        <table className="ws-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>{t('ws.d.jobNo')}</th>
-                                                    <th>{t('ws.d.deptShort')}</th>
-                                                    <th>{t('ws.d.item')}</th>
-                                                    <th>{t('ws.d.type')}</th>
-                                                    <th>{t('ws.d.qty')}</th>
-                                                    <th>{t('ws.d.unit')}</th>
-                                                    <th>{t('ws.d.discount')}</th>
-                                                    <th>{t('ws.d.vat')}</th>
-                                                    <th>{t('ws.d.lineTotal')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {detailData.lineItems.map((row) => (
-                                                    <tr key={row.id}>
-                                                        <td>{row.jobId ?? '—'}</td>
-                                                        <td>{row.departmentName ?? '—'}</td>
-                                                        <td>{row.itemName ?? '—'}</td>
-                                                        <td>{row.itemType ?? '—'}</td>
-                                                        <td>{row.qty}</td>
-                                                        <td>{toNumber(row.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(row.discountType, row.discountValue, t)}</td>
-                                                        <td style={{ fontSize: '0.8125rem' }}>
-                                                            {toNumber(row.vatPercent)}% · {String(row.vatMode ?? '—')}
-                                                        </td>
-                                                        <td className="ws-font-bold">
-                                                            {toNumber(row.lineTotal).toLocaleString()}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('ws.d.payments')}</p>
-                                    <table className="ws-table">
-                                        <thead>
-                                            <tr>
-                                                <th>{t('ws.d.method')}</th>
-                                                <th>{t('ws.d.amount')}</th>
-                                                <th>{t('ws.d.paidAt')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {detailData.payments.map((p) => (
-                                                <tr key={p.id}>
-                                                    <td>{p.method ?? '—'}</td>
-                                                    <td className="ws-font-bold">
-                                                        {toNumber(p.amount).toLocaleString()}
-                                                    </td>
-                                                    <td>{formatDateTime(p.paidAt)}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-                </Modal>
             )}
         </div>
     );

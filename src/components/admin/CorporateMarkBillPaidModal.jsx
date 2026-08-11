@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader } from 'lucide-react';
-import Modal from '../Modal';
+import AdminModalAsScreen from './AdminModalAsScreen';
 import { listGeneratedBillCashAccounts, markGeneratedBillPaid } from '../../services/superAdminApi';
 import { todayISO } from '../../pages/admin/saAccountingDateRange';
 
@@ -173,12 +173,11 @@ export default function CorporateMarkBillPaidModal({
     );
 
     return (
-        <Modal
+        <AdminModalAsScreen
             title={t('modal.markPaidTitle')}
-            onClose={submitting ? undefined : onClose}
+            onClose={onClose}
             footer={footer}
-            size="medium"
-            disableClose={submitting}
+            backDisabled={submitting}
         >
             <p style={{ marginTop: 0, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
                 {t('modal.billNo')} <strong>{billNo}</strong>
@@ -299,6 +298,6 @@ export default function CorporateMarkBillPaidModal({
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 0 }}>
                 {t('modal.markPaidHint')}
             </p>
-        </Modal>
+        </AdminModalAsScreen>
     );
 }

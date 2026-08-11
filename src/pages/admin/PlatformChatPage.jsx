@@ -31,6 +31,7 @@ import PlatformChatVoicePlayer from './PlatformChatVoicePlayer';
 import PlatformChatMessageStatus from './PlatformChatMessageStatus';
 import PlatformChatWalletPlusMenu from '../../components/platform-chat/PlatformChatWalletPlusMenu';
 import PlatformChatWalletActionModals from '../../components/platform-chat/PlatformChatWalletActionModals';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
 import { marketingMyWalletApi } from '../../services/marketingMyWalletApi';
 import {
     PlatformChatWalletMessage,
@@ -1156,29 +1157,64 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         walletApi: chatConfig.id === 'marketing' ? marketingMyWalletApi : undefined,
     }), [chatConfig.id, chatConfig.skipWorkshopWalletFields]);
 
+    const newChatScreenTitle = (() => {
+        if (newChatMode === NEW_CHAT_MODES.MENU) return t('modal.newChat');
+        if (newChatMode === NEW_CHAT_MODES.ADMIN) {
+            return chatConfig.adminContactLabel === 'Super Admin'
+                ? t('modal.superAdmin')
+                : (chatConfig.adminContactLabel || t('modal.filterAdmin'));
+        }
+        if (newChatMode === NEW_CHAT_MODES.SUPPLIER) return t('modal.supplierChat');
+        if (newChatMode === NEW_CHAT_MODES.WORKSHOP) return t('modal.workshopChat');
+        if (newChatMode === NEW_CHAT_MODES.WORKSHOP_USERS) return selectedWorkshop?.name;
+        if (newChatMode === NEW_CHAT_MODES.WORKSHOP_TEAM) return t('modal.workshopTeam');
+        if (newChatMode === NEW_CHAT_MODES.CORPORATE) return t('modal.corporateChat');
+        if (newChatMode === NEW_CHAT_MODES.STAFF) return t('modal.teamChat');
+        if (newChatMode === NEW_CHAT_MODES.GROUP) return t('modal.createGroup');
+        if (newChatMode === NEW_CHAT_MODES.GROUP_WORKSHOP_USERS) return selectedWorkshop?.name;
+        return t('modal.newChat');
+    })();
+
     const renderNewChatModal = () => {
         if (!newChatOpen) return null;
 
+        const groupFooter = [NEW_CHAT_MODES.GROUP, NEW_CHAT_MODES.GROUP_WORKSHOP_USERS].includes(newChatMode) ? (
+            <div className="platform-chat-modal-footer">
+                <button
+                    type="button"
+                    className="platform-chat-btn"
+                    onClick={() => {
+                        if (newChatMode === NEW_CHAT_MODES.GROUP_WORKSHOP_USERS) {
+                            setNewChatMode(NEW_CHAT_MODES.GROUP);
+                            setSelectedWorkshop(null);
+                            loadGroupSearch(contactSearch, 'workshop');
+                        } else {
+                            enterMode(NEW_CHAT_MODES.MENU);
+                        }
+                    }}
+                >
+                    {t('modal.back')}
+                </button>
+                <button
+                    type="button"
+                    className="platform-chat-btn primary"
+                    onClick={createGroup}
+                    disabled={creating}
+                >
+                    {t('modal.createGroupAction')}
+                </button>
+            </div>
+        ) : null;
+
         return (
-            <div className="platform-chat-modal-backdrop" onClick={closeNewChat} role="presentation">
-                <div className="platform-chat-modal" onClick={(e) => e.stopPropagation()} role="dialog">
-                    <div className="platform-chat-modal-header">
-                        <h3>
-                            {newChatMode === NEW_CHAT_MODES.MENU && t('modal.newChat')}
-                            {newChatMode === NEW_CHAT_MODES.ADMIN && (chatConfig.adminContactLabel === 'Super Admin' ? t('modal.superAdmin') : (chatConfig.adminContactLabel || t('modal.filterAdmin')))}
-                            {newChatMode === NEW_CHAT_MODES.SUPPLIER && t('modal.supplierChat')}
-                            {newChatMode === NEW_CHAT_MODES.WORKSHOP && t('modal.workshopChat')}
-                            {newChatMode === NEW_CHAT_MODES.WORKSHOP_USERS && selectedWorkshop?.name}
-                            {newChatMode === NEW_CHAT_MODES.WORKSHOP_TEAM && t('modal.workshopTeam')}
-                            {newChatMode === NEW_CHAT_MODES.CORPORATE && t('modal.corporateChat')}
-                            {newChatMode === NEW_CHAT_MODES.STAFF && t('modal.teamChat')}
-                            {newChatMode === NEW_CHAT_MODES.GROUP && t('modal.createGroup')}
-                            {newChatMode === NEW_CHAT_MODES.GROUP_WORKSHOP_USERS && selectedWorkshop?.name}
-                        </h3>
-                        <button type="button" className="platform-chat-modal-close" onClick={closeNewChat} aria-label={t('modal.close')}>
-                            <X size={20} />
-                        </button>
-                    </div>
+            <AdminScreenShell
+                title={newChatScreenTitle}
+                onBack={closeNewChat}
+                backLabel={t('modal.close')}
+                footer={groupFooter}
+                className="platform-chat-new-screen"
+                wide
+            >
                     <div className="platform-chat-modal-body">
                         {error && <p className="platform-chat-error">{error}</p>}
 
@@ -1589,36 +1625,7 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                             </>
                         )}
                     </div>
-
-                    {[NEW_CHAT_MODES.GROUP, NEW_CHAT_MODES.GROUP_WORKSHOP_USERS].includes(newChatMode) && (
-                        <div className="platform-chat-modal-footer">
-                            <button
-                                type="button"
-                                className="platform-chat-btn"
-                                onClick={() => {
-                                    if (newChatMode === NEW_CHAT_MODES.GROUP_WORKSHOP_USERS) {
-                                        setNewChatMode(NEW_CHAT_MODES.GROUP);
-                                        setSelectedWorkshop(null);
-                                        loadGroupSearch(contactSearch, 'workshop');
-                                    } else {
-                                        enterMode(NEW_CHAT_MODES.MENU);
-                                    }
-                                }}
-                            >
-                                {t('modal.back')}
-                            </button>
-                            <button
-                                type="button"
-                                className="platform-chat-btn primary"
-                                onClick={createGroup}
-                                disabled={creating}
-                            >
-                                {t('modal.createGroupAction')}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
+            </AdminScreenShell>
         );
     };
 
@@ -1649,6 +1656,40 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
         return null;
     }
 
+    if ((typeof api.approveWalletFundRequestMessage === 'function'
+        || typeof api.approveWalletExpenseRequestMessage === 'function')
+        && (walletApproveTarget || walletRejectTarget)) {
+        return (
+            <PlatformChatWalletActionModals
+                api={api}
+                approveTarget={walletApproveTarget}
+                rejectTarget={walletRejectTarget}
+                onCloseApprove={() => setWalletApproveTarget(null)}
+                onCloseReject={() => setWalletRejectTarget(null)}
+                onApproveDone={handleWalletActionComplete}
+                onRejectDone={handleWalletActionComplete}
+                onError={(msg) => setError(msg)}
+                locale={locale}
+                t={t}
+            />
+        );
+    }
+
+    if (profileOpen && activeConversation) {
+        return (
+            <PlatformChatContactProfile
+                conversation={activeConversation}
+                onClose={() => setProfileOpen(false)}
+                locale={locale}
+                t={t}
+            />
+        );
+    }
+
+    if (newChatOpen) {
+        return renderNewChatModal();
+    }
+
     return (
         <div
             className={`platform-chat-page platform-chat-page--fullscreen${
@@ -1656,16 +1697,6 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
             }`}
             style={{ '--pc-chat-pattern': `url(${chatBackgroundUrl})` }}
         >
-            {renderNewChatModal()}
-
-            {profileOpen && activeConversation && (
-                <PlatformChatContactProfile
-                    conversation={activeConversation}
-                    onClose={() => setProfileOpen(false)}
-                    locale={locale}
-                    t={t}
-                />
-            )}
 
             <div className="platform-chat-shell platform-chat-shell--fullscreen">
                 <aside className="platform-chat-sidebar">
@@ -2109,21 +2140,6 @@ export default function PlatformChatPage({ chatConfig = ADMIN_CHAT_CONFIG, onExi
                                 </div>
                             </div>
 
-                            {(typeof api.approveWalletFundRequestMessage === 'function'
-                                || typeof api.approveWalletExpenseRequestMessage === 'function') && (
-                                <PlatformChatWalletActionModals
-                                    api={api}
-                                    approveTarget={walletApproveTarget}
-                                    rejectTarget={walletRejectTarget}
-                                    onCloseApprove={() => setWalletApproveTarget(null)}
-                                    onCloseReject={() => setWalletRejectTarget(null)}
-                                    onApproveDone={handleWalletActionComplete}
-                                    onRejectDone={handleWalletActionComplete}
-                                    onError={(msg) => setError(msg)}
-                                    locale={locale}
-                                    t={t}
-                                />
-                            )}
                         </>
                     )}
                 </section>

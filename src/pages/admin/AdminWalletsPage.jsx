@@ -4,7 +4,7 @@ import {
     Wallet, Search, Loader2, User, Mail, Shield, ChevronLeft, Users, Banknote,
     Check, X, MessageCircle, Receipt, ArrowLeftRight, HandCoins,
 } from 'lucide-react';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { useAuth } from '../../context/AuthContext';
 import {
     getAdminWallet,
@@ -370,11 +370,10 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
     const confirmBlocked = busy || (fundSourceType === 'wallet' ? walletBlocked : acct.blocked);
 
     return (
-        <Modal
+        <AdminModalAsScreen
             title={t('approve.title')}
-            onClose={busy ? undefined : onCancel}
-            width={520}
-            disableClose={busy}
+            onClose={onCancel}
+            backDisabled={busy}
             footer={(
                 <div className="admin-wallets-modal-footer">
                     <button type="button" className="admin-wallets-modal-btn-cancel" disabled={busy} onClick={onCancel}>
@@ -512,7 +511,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                 disabled={busy}
                 placeholder={t('approve.remarksPh')}
             />
-        </Modal>
+        </AdminModalAsScreen>
     );
 }
 
@@ -521,11 +520,10 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error, t }) {
     const valid = reason.trim().length > 0;
 
     return (
-        <Modal
+        <AdminModalAsScreen
             title={t('reject.title')}
-            onClose={busy ? undefined : onCancel}
-            width={460}
-            disableClose={busy}
+            onClose={onCancel}
+            backDisabled={busy}
             footer={(
                 <div className="admin-wallets-modal-footer">
                     <button type="button" className="admin-wallets-modal-btn-cancel" disabled={busy} onClick={onCancel}>
@@ -563,7 +561,7 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error, t }) {
                 disabled={busy}
                 placeholder={t('reject.reasonPh')}
             />
-        </Modal>
+        </AdminModalAsScreen>
     );
 }
 
@@ -777,6 +775,39 @@ export default function AdminWalletsPage() {
     const displayUser = detail ?? selectedFromList;
     const balance = detail?.wallet?.balance ?? selectedFromList?.wallet?.balance ?? 0;
     const hasWallet = detail?.walletEnabled ?? selectedFromList?.walletEnabled;
+
+    if (approveTarget) {
+        return (
+            <ApproveFundModal
+                request={approveTarget}
+                requesterName={detail?.name}
+                busy={actionBusyId === approveTarget.id}
+                error={actionError}
+                t={t}
+                onCancel={() => {
+                    setApproveTarget(null);
+                    setActionError('');
+                }}
+                onConfirm={handleApproveConfirm}
+            />
+        );
+    }
+
+    if (rejectTarget) {
+        return (
+            <RejectFundModal
+                request={rejectTarget}
+                busy={actionBusyId === rejectTarget.id}
+                error={actionError}
+                t={t}
+                onCancel={() => {
+                    setRejectTarget(null);
+                    setActionError('');
+                }}
+                onConfirm={handleRejectConfirm}
+            />
+        );
+    }
 
     return (
         <div className="admin-wallets-page ws-module-container">
@@ -1066,34 +1097,6 @@ export default function AdminWalletsPage() {
                 </section>
             </div>
 
-            {approveTarget && (
-                <ApproveFundModal
-                    request={approveTarget}
-                    requesterName={detail?.name}
-                    busy={actionBusyId === approveTarget.id}
-                    error={actionError}
-                    t={t}
-                    onCancel={() => {
-                        setApproveTarget(null);
-                        setActionError('');
-                    }}
-                    onConfirm={handleApproveConfirm}
-                />
-            )}
-
-            {rejectTarget && (
-                <RejectFundModal
-                    request={rejectTarget}
-                    busy={actionBusyId === rejectTarget.id}
-                    error={actionError}
-                    t={t}
-                    onCancel={() => {
-                        setRejectTarget(null);
-                        setActionError('');
-                    }}
-                    onConfirm={handleRejectConfirm}
-                />
-            )}
             </>
             )}
         </div>

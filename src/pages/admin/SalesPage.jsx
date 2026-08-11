@@ -1,8 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { useParams, NavLink, useOutletContext } from 'react-router-dom';
 import { ChevronDown, Calendar, Search, Lightbulb, Trash2 } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import SalesReports from './SalesReports';
 import SalesOrders from './SalesOrders';
 import WorkshopSales from './WorkshopSales';
@@ -330,6 +329,23 @@ export default function SalesPage() {
         </div>
     );
 
+    if (isModalOpen) {
+        return (
+            <AdminModalAsScreen
+                title={t('inv.modalTitle')}
+                onClose={() => setIsModalOpen(false)}
+                footer={(
+                    <div className="modal-footer-actions">
+                        <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>{t('inv.cancel')}</button>
+                        <button type="button" className="btn-submit-inv" onClick={handleCreateInvoice}>{t('inv.create')}</button>
+                    </div>
+                )}
+            >
+                <InvoiceModalContent />
+            </AdminModalAsScreen>
+        );
+    }
+
     return (
         <div className="sales-page module-container">
             <div className="sales-sub-nav">
@@ -353,24 +369,6 @@ export default function SalesPage() {
             {activeSub === 'sales-reports' && <SalesReports />}
             {activeSub === 'advanced-reports' && <AdvancedReportsPage portal="admin" />}
             {activeSub === 'sales-orders' && <SalesOrders />}
-
-            <AnimatePresence>
-                {isModalOpen && (
-                    <Modal
-                        title={t('inv.modalTitle')}
-                        onClose={() => setIsModalOpen(false)}
-                        className="invoice-modal-mega"
-                        footer={
-                            <div className="modal-footer-actions">
-                                <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>{t('inv.cancel')}</button>
-                                <button type="button" className="btn-submit-inv" onClick={handleCreateInvoice}>{t('inv.create')}</button>
-                            </div>
-                        }
-                    >
-                        <InvoiceModalContent />
-                    </Modal>
-                )}
-            </AnimatePresence>
         </div>
     );
 }

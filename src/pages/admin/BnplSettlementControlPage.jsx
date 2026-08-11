@@ -12,9 +12,11 @@ import {
     Wallet,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
 import ClickableInvoiceNo from '../../components/accounting/ClickableInvoiceNo';
-import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
+import '../../components/pos/modern/CashierTaxInvoiceView.css';
 import {
     generateBnplSettlement,
     getBnplDashboard,
@@ -387,6 +389,157 @@ export default function BnplSettlementControlPage() {
         }
     };
 
+    if (genOpen) {
+        return (
+            <AdminModalAsScreen
+                title="Generate BNPL Settlement"
+                size="large"
+                onClose={() => setGenOpen(false)}
+                footer={
+                    <>
+                        <button type="button" className="btn-secondary" onClick={() => setGenOpen(false)}>
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-submit"
+                            disabled={genLoading || !preview || netPreview < 0}
+                            onClick={() => void confirmGenerate()}
+                        >
+                            {genLoading ? 'Posting…' : 'Confirm & Post to Books'}
+                        </button>
+                    </>
+                }
+            >
+                <div className="bnpl-gen-modal">
+                    <p className="bnpl-gen-intro">
+                        Post settlement for <strong>{selectedWorkshopName}</strong>
+                        {branchIds.length
+                            ? ` · ${branchIds.length} branch(es) selected`
+                            : ' · all branches'}
+                        · Period {dateFrom} — {dateTo}
+                    </p>
+
+                    <div className="bnpl-gen-provider-row">
+                        <span className="bnpl-gen-label">Settlement provider</span>
+                        <div className="bnpl-gen-provider-pills">
+                            <button
+                                type="button"
+                                className={`bnpl-gen-pill${genProvider === 'tabby' ? ' active' : ''}`}
+                                onClick={() => setGenProvider('tabby')}
+                            >
+                                Tabby
+                            </button>
+                            <button
+                                type="button"
+                                className={`bnpl-gen-pill${genProvider === 'tamara' ? ' active' : ''}`}
+                                onClick={() => setGenProvider('tamara')}
+                            >
+                                Tamara
+                            </button>
+                        </div>
+                    </div>
+
+                    {genLoading && !preview ? (
+                        <p className="bnpl-gen-loading"><Loader2 size={16} className="spin" /> Loading preview…</p>
+                    ) : preview ? (
+                        <div className="bnpl-gen-summary-grid">
+                            <div className="bnpl-gen-summary-card">
+                                <span>Gross unsettled</span>
+                                <strong>{money(preview.grossAmount)}</strong>
+                            </div>
+                            <div className="bnpl-gen-summary-card">
+                                <span>Payments included</span>
+                                <strong>{preview.paymentCount}</strong>
+                            </div>
+                            <div className="bnpl-gen-summary-card bnpl-gen-summary-card--highlight">
+                                <span>Net to bank (after fee)</span>
+                                <strong>{money(netPreview)}</strong>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="form-help-text" style={{ color: '#B45309' }}>
+                            No unsettled payments for this provider and selection.
+                        </p>
+                    )}
+
+                    <div className="bnpl-gen-form-grid">
+                        <label className="bnpl-gen-field">
+                            <span>Service charge (SAR)</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={serviceCharge}
+                                onChange={(e) => setServiceCharge(e.target.value)}
+                                placeholder="Tabby / Tamara processing fee"
+                            />
+                            <small>Deducted from gross; auto-posted to Bank Charges [6500]</small>
+                        </label>
+                        <label className="bnpl-gen-field">
+                            <span>Notes (optional)</span>
+                            <textarea
+                                value={genNotes}
+                                onChange={(e) => setGenNotes(e.target.value)}
+                                rows={3}
+                                placeholder="Settlement reference notes…"
+                            />
+                        </label>
+                    </div>
+
+                    {preview ? (
+                        <div className="bnpl-gen-posting-note">
+                            <strong>Journal posting:</strong> DR Bank {money(netPreview)}
+                            {Number(serviceCharge || 0) > 0
+                                ? ` · DR Bank Charges ${money(serviceCharge)}`
+                                : ''}
+                            · CR [1300] {money(preview.grossAmount)}
+                        </div>
+                    ) : null}
+
+                    {genError ? <p className="form-help-text" style={{ color: '#DC2626' }}>{genError}</p> : null}
+                </div>
+            </AdminModalAsScreen>
+        );
+    }
+
+    if (invoiceModalOpen && invoiceModalData) {
+        return (
+            <AdminScreenShell
+                title={invoiceModalData.invoiceNo || 'Tax invoice'}
+                onBack={() => {
+                    setInvoiceModalOpen(false);
+                    setInvoiceModalData(null);
+                }}
+                backLabel="Back"
+                wide
+                footer={(
+                    <>
+                        <button
+                            type="button"
+                            className="btn-portal-outline"
+                            onClick={() => window.print()}
+                        >
+                            Print
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-portal"
+                            onClick={() => {
+                                setInvoiceModalOpen(false);
+                                setInvoiceModalData(null);
+                            }}
+                        >
+                            Back
+                        </button>
+                    </>
+                )}
+            >
+                <CashierTaxInvoiceView invoice={invoiceModalData} />
+            </AdminScreenShell>
+        );
+    }
+
     return (
         <div className="corporate-ar-page bnpl-settlement-page">
             <header className="corporate-ar-header">
@@ -669,127 +822,6 @@ export default function BnplSettlementControlPage() {
                 </section>
             )}
 
-            {genOpen ? (
-                <Modal
-                    title="Generate BNPL Settlement"
-                    size="large"
-                    onClose={() => setGenOpen(false)}
-                    footer={
-                        <>
-                            <button type="button" className="btn-secondary" onClick={() => setGenOpen(false)}>
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-submit"
-                                disabled={genLoading || !preview || netPreview < 0}
-                                onClick={() => void confirmGenerate()}
-                            >
-                                {genLoading ? 'Posting…' : 'Confirm & Post to Books'}
-                            </button>
-                        </>
-                    }
-                >
-                    <div className="bnpl-gen-modal">
-                        <p className="bnpl-gen-intro">
-                            Post settlement for <strong>{selectedWorkshopName}</strong>
-                            {branchIds.length
-                                ? ` · ${branchIds.length} branch(es) selected`
-                                : ' · all branches'}
-                            · Period {dateFrom} — {dateTo}
-                        </p>
-
-                        <div className="bnpl-gen-provider-row">
-                            <span className="bnpl-gen-label">Settlement provider</span>
-                            <div className="bnpl-gen-provider-pills">
-                                <button
-                                    type="button"
-                                    className={`bnpl-gen-pill${genProvider === 'tabby' ? ' active' : ''}`}
-                                    onClick={() => setGenProvider('tabby')}
-                                >
-                                    Tabby
-                                </button>
-                                <button
-                                    type="button"
-                                    className={`bnpl-gen-pill${genProvider === 'tamara' ? ' active' : ''}`}
-                                    onClick={() => setGenProvider('tamara')}
-                                >
-                                    Tamara
-                                </button>
-                            </div>
-                        </div>
-
-                        {genLoading && !preview ? (
-                            <p className="bnpl-gen-loading"><Loader2 size={16} className="spin" /> Loading preview…</p>
-                        ) : preview ? (
-                            <div className="bnpl-gen-summary-grid">
-                                <div className="bnpl-gen-summary-card">
-                                    <span>Gross unsettled</span>
-                                    <strong>{money(preview.grossAmount)}</strong>
-                                </div>
-                                <div className="bnpl-gen-summary-card">
-                                    <span>Payments included</span>
-                                    <strong>{preview.paymentCount}</strong>
-                                </div>
-                                <div className="bnpl-gen-summary-card bnpl-gen-summary-card--highlight">
-                                    <span>Net to bank (after fee)</span>
-                                    <strong>{money(netPreview)}</strong>
-                                </div>
-                            </div>
-                        ) : (
-                            <p className="form-help-text" style={{ color: '#B45309' }}>
-                                No unsettled payments for this provider and selection.
-                            </p>
-                        )}
-
-                        <div className="bnpl-gen-form-grid">
-                            <label className="bnpl-gen-field">
-                                <span>Service charge (SAR)</span>
-                                <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={serviceCharge}
-                                    onChange={(e) => setServiceCharge(e.target.value)}
-                                    placeholder="Tabby / Tamara processing fee"
-                                />
-                                <small>Deducted from gross; auto-posted to Bank Charges [6500]</small>
-                            </label>
-                            <label className="bnpl-gen-field">
-                                <span>Notes (optional)</span>
-                                <textarea
-                                    value={genNotes}
-                                    onChange={(e) => setGenNotes(e.target.value)}
-                                    rows={3}
-                                    placeholder="Settlement reference notes…"
-                                />
-                            </label>
-                        </div>
-
-                        {preview ? (
-                            <div className="bnpl-gen-posting-note">
-                                <strong>Journal posting:</strong> DR Bank {money(netPreview)}
-                                {Number(serviceCharge || 0) > 0
-                                    ? ` · DR Bank Charges ${money(serviceCharge)}`
-                                    : ''}
-                                · CR [1300] {money(preview.grossAmount)}
-                            </div>
-                        ) : null}
-
-                        {genError ? <p className="form-help-text" style={{ color: '#DC2626' }}>{genError}</p> : null}
-                    </div>
-                </Modal>
-            ) : null}
-
-            <InvoiceDetailsModal
-                invoice={invoiceModalData}
-                isOpen={invoiceModalOpen}
-                onClose={() => {
-                    setInvoiceModalOpen(false);
-                    setInvoiceModalData(null);
-                }}
-                footerVariant="corporate"
-            />
         </div>
     );
 }

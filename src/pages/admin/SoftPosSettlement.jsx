@@ -34,6 +34,7 @@ import {
     generateSettlement,
 } from '../../services/settlementApi';
 import { useAuth } from '../../context/AuthContext';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { softPosT } from '../../utils/softPosSettlementI18n';
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toFixed(2)}`;
@@ -336,6 +337,20 @@ function TransactionsTab({ onError, t }) {
         'th.actions',
     ];
 
+    if (refundOpen) {
+        return (
+            <RefundModal
+                transaction={refundOpen}
+                t={t}
+                onClose={() => setRefundOpen(null)}
+                onDone={() => {
+                    setRefundOpen(null);
+                    setReload((x) => x + 1);
+                }}
+            />
+        );
+    }
+
     return (
         <div style={card}>
             <div
@@ -521,18 +536,6 @@ function TransactionsTab({ onError, t }) {
             <div style={{ marginTop: 8, color: '#6b7280', fontSize: 12 }}>
                 {t('tx.showing', { n: rows.length, total })}
             </div>
-
-            {refundOpen && (
-                <RefundModal
-                    transaction={refundOpen}
-                    t={t}
-                    onClose={() => setRefundOpen(null)}
-                    onDone={() => {
-                        setRefundOpen(null);
-                        setReload((x) => x + 1);
-                    }}
-                />
-            )}
         </div>
     );
 }
@@ -560,7 +563,7 @@ function RefundModal({ transaction, onClose, onDone, t }) {
     };
 
     return (
-        <ModalShell title={t('refund.title', { ref: transaction.reference || transaction.id })} onClose={onClose}>
+        <AdminModalAsScreen title={t('refund.title', { ref: transaction.reference || transaction.id })} onClose={onClose}>
             <div style={{ display: 'grid', gap: 10 }}>
                 <div>
                     <label style={{ display: 'block', fontSize: 12, color: '#374151', marginBottom: 4 }}>{t('refund.amount')}</label>
@@ -595,7 +598,7 @@ function RefundModal({ transaction, onClose, onDone, t }) {
                     </button>
                 </div>
             </div>
-        </ModalShell>
+        </AdminModalAsScreen>
     );
 }
 
@@ -645,6 +648,21 @@ function TerminalsTab({ onError, t }) {
         'th.status',
         'th.actions',
     ];
+
+    if (editing) {
+        return (
+            <TerminalModal
+                initial={editing.id ? editing : {}}
+                t={t}
+                onClose={() => setEditing(null)}
+                onDone={() => {
+                    setEditing(null);
+                    setReload((x) => x + 1);
+                }}
+                onError={onError}
+            />
+        );
+    }
 
     return (
         <div style={card}>
@@ -775,19 +793,6 @@ function TerminalsTab({ onError, t }) {
                     </tbody>
                 </table>
             </div>
-
-            {editing && (
-                <TerminalModal
-                    initial={editing.id ? editing : {}}
-                    t={t}
-                    onClose={() => setEditing(null)}
-                    onDone={() => {
-                        setEditing(null);
-                        setReload((x) => x + 1);
-                    }}
-                    onError={onError}
-                />
-            )}
         </div>
     );
 }
@@ -832,7 +837,7 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
     };
 
     return (
-        <ModalShell title={initial.id ? t('term.editTitle') : t('term.newTitle')} onClose={onClose}>
+        <AdminModalAsScreen title={initial.id ? t('term.editTitle') : t('term.newTitle')} onClose={onClose}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <Field label={t('term.workshopId')}>
                     <input
@@ -922,7 +927,7 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
                     </button>
                 </div>
             </div>
-        </ModalShell>
+        </AdminModalAsScreen>
     );
 }
 
@@ -1098,6 +1103,20 @@ function RulesTab({ onError, t }) {
         'th.actions',
     ];
 
+    if (editing) {
+        return (
+            <RuleModal
+                initial={editing.id ? editing : {}}
+                t={t}
+                onClose={() => setEditing(null)}
+                onDone={() => {
+                    setEditing(null);
+                    setReload((x) => x + 1);
+                }}
+            />
+        );
+    }
+
     return (
         <div style={card}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -1214,18 +1233,6 @@ function RulesTab({ onError, t }) {
                     </tbody>
                 </table>
             </div>
-
-            {editing && (
-                <RuleModal
-                    initial={editing.id ? editing : {}}
-                    t={t}
-                    onClose={() => setEditing(null)}
-                    onDone={() => {
-                        setEditing(null);
-                        setReload((x) => x + 1);
-                    }}
-                />
-            )}
         </div>
     );
 }
@@ -1273,7 +1280,7 @@ function RuleModal({ initial = {}, onClose, onDone, t }) {
     };
 
     return (
-        <ModalShell title={initial.id ? t('rule.editTitle') : t('rule.newTitle')} onClose={onClose}>
+        <AdminModalAsScreen title={initial.id ? t('rule.editTitle') : t('rule.newTitle')} onClose={onClose}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <Field label={t('rule.terminalIdOpt')}>
                     <input
@@ -1351,7 +1358,7 @@ function RuleModal({ initial = {}, onClose, onDone, t }) {
                     </button>
                 </div>
             </div>
-        </ModalShell>
+        </AdminModalAsScreen>
     );
 }
 
@@ -1702,42 +1709,6 @@ function HqSettlementTab({ onError, t }) {
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
-    );
-}
-
-function ModalShell({ title, onClose, children }) {
-    return (
-        <div
-            style={{
-                position: 'fixed',
-                inset: 0,
-                background: 'rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 9999,
-            }}
-        >
-            <div
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                    background: '#fff',
-                    borderRadius: 12,
-                    padding: 24,
-                    width: '100%',
-                    maxWidth: 640,
-                    boxSizing: 'border-box',
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700 }}>{title}</h3>
-                    <button type="button" onClick={onClose} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>
-                        <X size={18} />
-                    </button>
-                </div>
-                {children}
             </div>
         </div>
     );

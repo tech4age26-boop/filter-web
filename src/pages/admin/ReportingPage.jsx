@@ -4,6 +4,7 @@ import {
     Calendar, Filter, Download, ArrowUpRight, ArrowDownRight,
     TrendingUp, CalendarDays, Search, BadgeDollarSign, ShoppingCart, X, FileText
 } from 'lucide-react';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
 import '../../styles/admin/ReportingPage.css';
 
 // MOCK DATA GENERATION
@@ -178,6 +179,69 @@ export default function ReportingPage() {
         </div>
     );
 
+    if (selectedDetails) {
+        return (
+            <AdminScreenShell
+                title={`${selectedDetails.data.name}`}
+                onBack={() => setSelectedDetails(null)}
+                backLabel="Back"
+                wide
+                footer={(
+                    <button
+                        type="button"
+                        className="rep-btn-primary"
+                        style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+                        onClick={() => setSelectedDetails(null)}
+                    >
+                        <Download size={18} /> Download Full Report
+                    </button>
+                )}
+            >
+                <p style={{ marginTop: 0, color: '#64748b', fontSize: '0.8rem', fontWeight: 700 }}>
+                    {selectedDetails.type.toUpperCase()} DETAILS
+                </p>
+                <div className="rep-details-grid">
+                    {Object.entries(selectedDetails.data).map(([key, value]) => {
+                        if (key === 'id') return null;
+                        return (
+                            <div key={key} className="rep-detail-item">
+                                <span className="rep-detail-label">{key.replace(/([A-Z])/g, ' $1').toUpperCase()}</span>
+                                <span className="rep-detail-value">
+                                    {typeof value === 'number' && key.toLowerCase().includes('revenue')
+                                        ? `SAR ${value.toLocaleString()}`
+                                        : value}
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+                <div className="rep-details-section" style={{ marginTop: 20 }}>
+                    <h3>Recent Activity</h3>
+                    <div className="rep-activity-list">
+                        {[1, 2, 3].map((i) => (
+                            <div key={i} className="rep-activity-card">
+                                <FileText size={16} style={{ color: '#64748B' }} />
+                                <div style={{ flex: 1 }}>
+                                    <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0F172A', marginBottom: '4px' }}>
+                                        {selectedDetails.type === 'technician'
+                                            ? `Completed Order #ORD-2026-0${140 + i}`
+                                            : 'System Event / Transaction'}
+                                    </p>
+                                    <p style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                                        {i} hour{i > 1 ? 's' : ''} ago
+                                    </p>
+                                </div>
+                                <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#10B981' }}>
+                                    SAR {(Math.random() * 500 + 100).toFixed(2)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </AdminScreenShell>
+        );
+    }
+
     return (
         <div className="reporting-page module-container">
             <div className="rep-header">
@@ -242,64 +306,6 @@ export default function ReportingPage() {
                     {activeTab === 'technicians' && renderTechniciansReport()}
                 </div>
             </div>
-
-            {/* Slide-over Details Panel */}
-            {selectedDetails && (
-                <div className="rep-modal-overlay">
-                    <div className="rep-details-panel" onClick={(e) => e.stopPropagation()}>
-                        <div className="rep-details-header">
-                            <div>
-                                <h2>{selectedDetails.data.name}</h2>
-                                <span>{selectedDetails.type.toUpperCase()} DETAILS</span>
-                            </div>
-                            <button className="rep-close-btn" onClick={() => setSelectedDetails(null)}>
-                                <X size={20} />
-                            </button>
-                        </div>
-                        
-                        <div className="rep-details-body">
-                            {/* Generic Details View */}
-                            <div className="rep-details-grid">
-                                {Object.entries(selectedDetails.data).map(([key, value]) => {
-                                    if (key === 'id') return null;
-                                    return (
-                                        <div key={key} className="rep-detail-item">
-                                            <span className="rep-detail-label">{key.replace(/([A-Z])/g, ' $1').toUpperCase()}</span>
-                                            <span className="rep-detail-value">
-                                                {typeof value === 'number' && key.toLowerCase().includes('revenue') 
-                                                    ? `SAR ${value.toLocaleString()}` 
-                                                    : value}
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            <div className="rep-details-section">
-                                <h3>Recent Activity</h3>
-                                <div className="rep-activity-list">
-                                    {[1, 2, 3].map(i => (
-                                        <div key={i} className="rep-activity-card">
-                                            <FileText size={16} style={{ color: '#64748B' }} />
-                                            <div style={{ flex: 1 }}>
-                                                <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0F172A', marginBottom: '4px' }}>
-                                                    {selectedDetails.type === 'technician' ? `Completed Order #ORD-2026-0${140+i}` : `System Event / Transaction`}
-                                                </p>
-                                                <p style={{ fontSize: '0.75rem', color: '#64748B' }}>{i} hour{i>1?'s':''} ago</p>
-                                            </div>
-                                            <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#10B981' }}>SAR {(Math.random() * 500 + 100).toFixed(2)}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            
-                            <button className="rep-btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: 'auto', padding: '12px' }}>
-                                <Download size={18} /> Download Full Report
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

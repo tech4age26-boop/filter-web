@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { ShimmerTextBlock, ShimmerTable } from '../../components/supplier/Shimmer';
 import {
     adminSalesReportsParams,
@@ -1238,6 +1239,302 @@ export default function SalesReports({ portal = 'admin' }) {
         ordersTotal === 0 ? 0 : (ordersPage - 1) * ORDERS_PAGE_SIZE + 1;
     const ordersRangeTo = Math.min(ordersPage * ORDERS_PAGE_SIZE, ordersTotal);
 
+    if (portal === 'admin' && (recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails)) {
+        return (
+            <AdminModalAsScreen
+                title={t('modal.orderTitle', {
+                    suffix:
+                        recentOrderDetails?.listingKind === 'open' || !recentOrderDetails?.invoiceNo
+                            ? recentOrderDetails?.salesOrderId
+                                ? t('modal.pendingSuffix', { id: recentOrderDetails.salesOrderId })
+                                : t('common.details')
+                            : t('modal.invoiceSuffix', { no: recentOrderDetails.invoiceNo }),
+                })}
+                onClose={() => {
+                    recentOrderDetailsTargetRef.current = null;
+                    setRecentOrderDetails(null);
+                    setRecentOrderDetailsError('');
+                    setRecentOrderDetailsLoading(false);
+                }}
+                wide
+            >
+
+                    {recentOrderDetailsLoading ? (
+                        <ShimmerTextBlock lines={6} />
+                    ) : recentOrderDetailsError ? (
+                        <div style={{ color: '#B91C1C' }}>{recentOrderDetailsError}</div>
+                    ) : recentOrderDetails ? (
+                        <div className="ws-order-details-modal-body">
+                            <div className="ws-report-table-wrapper">
+                                <table className="ws-table">
+                                    <tbody>
+                                        <tr>
+                                            <th>{t('modal.orderType')}</th>
+                                            <td>{formatOrderSourceLabel(recentOrderDetails.orderSource, t)}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('modal.orderStatus')}</th>
+                                            <td>{formatOrderStatusLabel(recentOrderDetails.orderStatus)}</td>
+                                        </tr>
+                                        {recentOrderDetails.invoiceNo ? (
+                                            <tr>
+                                                <th>{t('modal.invoiceNo')}</th>
+                                                <td>{recentOrderDetails.invoiceNo}</td>
+                                            </tr>
+                                        ) : null}
+                                        {recentOrderDetails.orderPlacedAt ? (
+                                            <tr>
+                                                <th>{t('modal.orderPlaced')}</th>
+                                                <td>{formatReportInstant(recentOrderDetails.orderPlacedAt)}</td>
+                                            </tr>
+                                        ) : null}
+                                        {(recentOrderDetails.listingKind === 'invoice' || recentOrderDetails.invoiceNo) ? (
+                                            <tr>
+                                                <th>{t('modal.invoiceDateTime')}</th>
+                                                <td>{formatInvoiceDateTimeForDisplay(recentOrderDetails)}</td>
+                                            </tr>
+                                        ) : null}
+                                        <tr><th>{t('modal.customerName')}</th><td>{recentOrderDetails.customerName ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.phone')}</th><td>{recentOrderDetails.phone ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.vehicleNo')}</th><td>{recentOrderDetails.vehicleNo ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.departments')}</th><td>{(recentOrderDetails.departments ?? []).map((d) => d?.name).filter(Boolean).join(', ') || t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.technicians')}</th><td>{(recentOrderDetails.technicians ?? []).map((tech) => tech?.name).filter(Boolean).join(', ') || t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.totalAmount')}</th><td>SAR {toNumber(recentOrderDetails.totalAmount).toLocaleString()}</td></tr>
+                                        <tr><th>{t('modal.paymentMethod')}</th><td>{recentOrderDetails.paymentMethod ?? t('common.emDash')}</td></tr>
+                                        <tr><th>{t('modal.customerType')}</th><td>{recentOrderDetails.customerType ?? t('common.emDash')}</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            {recentOrderDetails.orderDiscount ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.orderDiscPromo')}</p>
+                                    <table className="ws-table">
+                                        <tbody>
+                                            <tr>
+                                                <th>{t('modal.orderLevelDisc')}</th>
+                                                <td>{formatDiscountCell(recentOrderDetails.orderDiscount.totalDiscountType, recentOrderDetails.orderDiscount.totalDiscountValue)}</td>
+                                            </tr>
+                                            <tr>
+                                                <th>{t('modal.promoDisc')}</th>
+                                                <td>SAR {toNumber(recentOrderDetails.orderDiscount.promoDiscountAmount).toLocaleString()}</td>
+                                            </tr>
+                                            <tr>
+                                                <th>{t('modal.promoCode')}</th>
+                                                <td>{recentOrderDetails.orderDiscount.promoCode ?? t('common.emDash')}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+                            {Array.isArray(recentOrderDetails.jobsDetail) && recentOrderDetails.jobsDetail.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.jobs')}</p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('modal.jobNo')}</th>
+                                                    <th>{t('modal.department')}</th>
+                                                    <th>{t('modal.jobStatus')}</th>
+                                                    <th>{t('modal.opened')}</th>
+                                                    <th>{t('modal.completed')}</th>
+                                                    <th>{t('modal.jobDiscount')}</th>
+                                                    <th>{t('modal.promo')}</th>
+                                                    <th>{t('modal.beforeDisc')}</th>
+                                                    <th>{t('modal.afterDisc')}</th>
+                                                    <th>{t('modal.vat')}</th>
+                                                    <th>{t('modal.jobTotal')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {recentOrderDetails.jobsDetail.map((job) => (
+                                                    <tr key={job.jobId}>
+                                                        <td style={{ fontVariantNumeric: 'tabular-nums' }}>{job.jobId ?? t('common.emDash')}</td>
+                                                        <td>{job.departmentName ?? t('common.emDash')}</td>
+                                                        <td>{formatOrderStatusLabel(job.status)}</td>
+                                                        <td style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>{formatReportInstant(job.createdAt)}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>{formatJobCompletedDisplay(job, t)}</td>
+                                                        <td>{formatDiscountCell(job.totalDiscountType, job.totalDiscountValue)}</td>
+                                                        <td>SAR {toNumber(job.promoDiscountAmount).toLocaleString()}</td>
+                                                        <td>SAR {toNumber(job.amountBeforeDiscount).toLocaleString()}</td>
+                                                        <td>SAR {toNumber(job.amountAfterDiscount).toLocaleString()}</td>
+                                                        <td>SAR {toNumber(job.vatAmount).toLocaleString()}</td>
+                                                        <td className="ws-font-bold">SAR {toNumber(job.totalAmount).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
+                            {Array.isArray(recentOrderDetails.lineItems) && recentOrderDetails.lineItems.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>{t('modal.lineItems')}</p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('modal.jobNo')}</th>
+                                                    <th>{t('modal.dept')}</th>
+                                                    <th>{t('modal.item')}</th>
+                                                    <th>{t('modal.type')}</th>
+                                                    <th>{t('modal.qty')}</th>
+                                                    <th>{t('modal.unitSar')}</th>
+                                                    <th>{t('modal.discount')}</th>
+                                                    <th>{t('modal.vat')}</th>
+                                                    <th>{t('modal.lineSar')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {recentOrderDetails.lineItems.map((row) => (
+                                                    <tr key={row.salesOrderItemId}>
+                                                        <td>{row.jobId ?? t('common.emDash')}</td>
+                                                        <td>{row.departmentName ?? t('common.emDash')}</td>
+                                                        <td>{row.name ?? t('common.emDash')}</td>
+                                                        <td>{row.itemType ?? t('common.emDash')}</td>
+                                                        <td>{row.qty}</td>
+                                                        <td>{toNumber(row.unitPrice).toLocaleString()}</td>
+                                                        <td>{formatDiscountCell(row.discountType, row.discountValue)}</td>
+                                                        <td style={{ fontSize: '0.8125rem' }}>{toNumber(row.vatPercent)}% · {String(row.vatMode ?? t('common.emDash'))}</td>
+                                                        <td className="ws-font-bold">{toNumber(row.lineTotal).toLocaleString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+            </AdminModalAsScreen>
+        );
+    }
+
+    if (portal === 'admin' && (detailsLoading || detailsError || detailRows.length > 0)) {
+        return (
+            <AdminModalAsScreen
+                title={detailsTitle || t('common.details')}
+                onClose={() => {
+                    detailAnchorRef.current = null;
+                    setDetailRows([]);
+                    setDetailsError('');
+                    setDetailsTitle('');
+                    setSelectedDetailKey('');
+                }}
+                wide
+            >
+
+                    {detailsLoading ? (
+                        <ShimmerTable rows={8} columns={6} />
+                    ) : detailsError ? (
+                        <div style={{ padding: 8, color: '#B91C1C' }}>{detailsError}</div>
+                    ) : (
+                        <div style={{ display: 'grid', gap: 12, maxHeight: '70vh', overflowY: 'auto', overflowX: 'hidden' }}>
+                            {(() => {
+                                const hiddenCols = new Set([
+                                    'jobId', 'job_id',
+                                    'departmentId', 'department_id',
+                                    'branchId', 'branch_id',
+                                    'customerId', 'customer_id',
+                                    'issuedAt', 'issued_at',
+                                ]);
+                                const columns = Object.keys(detailRows[0] || {}).filter((k) => !hiddenCols.has(k));
+                                return (
+                                    <>
+                                        <div
+                                            className="ws-report-table-wrapper"
+                                            ref={topScrollRef}
+                                            onScroll={handleTopScroll}
+                                            style={{ overflowX: 'auto', overflowY: 'hidden' }}
+                                        >
+                                            <div style={{ width: detailTableWidth, height: 1 }} />
+                                        </div>
+                                        <div
+                                            className="ws-report-table-wrapper"
+                                            ref={bottomScrollRef}
+                                            onScroll={handleBottomScroll}
+                                            style={{ overflowX: 'auto', overflowY: 'hidden' }}
+                                        >
+                                            <table className="ws-table" style={{ minWidth: 'max-content', width: '100%' }}>
+                                                <thead>
+                                                    <tr>
+                                                        {columns.map((k) => (
+                                                            <th key={k} style={{ padding: '8px 10px' }}>
+                                                                {isInvoiceDateDetailColumnKey(k)
+                                                                    ? t('detail.col.dateTime')
+                                                                    : isMoneyDetailColumnKey(k)
+                                                                      ? t('detail.col.sarSuffix', { label: humanizeKey(k) })
+                                                                      : humanizeKey(k)}
+                                                            </th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {detailRows.map((row, i) => (
+                                                        <tr key={i}>
+                                                            {columns.map((k) => {
+                                                                const val = row?.[k];
+                                                                return (
+                                                                    <td key={k} style={{ padding: '10px' }}>
+                                                                        {Array.isArray(val) ? (
+                                                                            val.length === 0 ? (
+                                                                                '[]'
+                                                                            ) : val.every((item) => item && typeof item === 'object') ? (
+                                                                                <div style={{ display: 'grid', gap: 6, minWidth: 220 }}>
+                                                                                    {val.map((item, idx) => (
+                                                                                        <div
+                                                                                            key={item.salesOrderItemId ?? idx}
+                                                                                            style={{
+                                                                                                padding: '6px 8px',
+                                                                                                border: '1px solid #E5E7EB',
+                                                                                                borderRadius: 8,
+                                                                                                background: '#F8FAFC',
+                                                                                            }}
+                                                                                        >
+                                                                                            <div style={{ fontWeight: 700, fontSize: 12 }}>
+                                                                                                {item.itemName ?? item.name ?? t('detail.itemN', { n: idx + 1 })}
+                                                                                            </div>
+                                                                                            {(() => {
+                                                                                                const sub = formatLineItemSubtext(item, t);
+                                                                                                return (
+                                                                                                    <>
+                                                                                                        <div style={{ fontSize: 11, color: '#6B7280' }}>{sub.line1}</div>
+                                                                                                        <div style={{ fontSize: 11, color: '#6B7280' }}>{sub.line2}</div>
+                                                                                                    </>
+                                                                                                );
+                                                                                            })()}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            ) : (
+                                                                                val.join(', ')
+                                                                            )
+                                                                        ) : isMoneyDetailColumnKey(k) ? (
+                                                                            formatCurrency(val)
+                                                                        ) : isInvoiceDateDetailColumnKey(k) ? (
+                                                                            formatInvoiceDateTimeForDisplay(row)
+                                                                        ) : val == null || val === '' ? (
+                                                                            t('common.emDash')
+                                                                        ) : (
+                                                                            String(val)
+                                                                        )}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    )}
+            </AdminModalAsScreen>
+        );
+    }
+
     return (
         <div className="ws-reports-page">
             <div className="ws-reports-header">
@@ -2071,7 +2368,12 @@ export default function SalesReports({ portal = 'admin' }) {
                 </>
             )}
 
-            {(recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
+            
+
+            
+            )}
+
+            {portal !== 'admin' && (recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
                 <Modal
                     title={t('modal.orderTitle', {
                         suffix:
@@ -2240,7 +2542,7 @@ export default function SalesReports({ portal = 'admin' }) {
                 </Modal>
             )}
 
-            {(detailsLoading || detailsError || detailRows.length > 0) && (
+            {portal !== 'admin' && (detailsLoading || detailsError || detailRows.length > 0) && (
                 <Modal
                     title={detailsTitle || t('common.details')}
                     onClose={() => {

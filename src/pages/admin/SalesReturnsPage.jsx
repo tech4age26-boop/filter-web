@@ -10,8 +10,10 @@ import {
     Search,
     X,
 } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
+import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
+import '../../components/pos/modern/CashierTaxInvoiceView.css';
 import CreditNotePrintView from '../../components/workshop/CreditNotePrintView';
 import {
     getSuperAdminSalesReturns,
@@ -23,7 +25,6 @@ import {
     rejectSuperAdminSalesReturn,
 } from '../../services/superAdminApi';
 import { useAuth } from '../../context/AuthContext';
-import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 import { retT } from '../../utils/salesReturnsI18n';
@@ -344,6 +345,187 @@ export default function SalesReturnsPage() {
     const labelStyle = { fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 };
     const inputStyle = { padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: '0.875rem', background: '#fff' };
 
+    const closeDetail = () => {
+        setDetail(null);
+        setPrintOpen(false);
+    };
+
+    if (invoice) {
+        const invTitle = invoice.invoiceNo
+            ? `${t('btn.viewInvoice')} · ${invoice.invoiceNo}`
+            : t('btn.viewInvoice');
+        return (
+            <AdminScreenShell
+                title={invTitle}
+                onBack={() => setInvoice(null)}
+                wide
+                footer={(
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => window.print()}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '8px 14px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            <Printer size={14} /> {t('btn.print')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setInvoice(null)}
+                            style={{
+                                padding: '8px 14px',
+                                borderRadius: 10,
+                                border: 'none',
+                                background: '#0f172a',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            {t('btn.close')}
+                        </button>
+                    </>
+                )}
+            >
+                <div className="demo-invoice-view-body">
+                    <div className="demo-invoice-view-scroll">
+                        <CashierTaxInvoiceView invoice={invoice} />
+                    </div>
+                </div>
+            </AdminScreenShell>
+        );
+    }
+
+    if (printOpen && detail) {
+        return (
+            <AdminModalAsScreen
+                title={t('print.title')}
+                onClose={() => setPrintOpen(false)}
+                wide
+                footer={(
+                    <>
+                        <button type="button" onClick={() => setPrintOpen(false)} style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '0.8125rem' }}>{t('btn.close')}</button>
+                        <button type="button" onClick={handlePrint} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '0.8125rem' }}>
+                            <Printer size={16} /> {t('btn.print')}
+                        </button>
+                    </>
+                )}
+            >
+                <CreditNotePrintView ref={printRef} data={detail} />
+            </AdminModalAsScreen>
+        );
+    }
+
+    if (rejectRow) {
+        return (
+            <AdminModalAsScreen
+                title={t('reject.title')}
+                onClose={() => { setRejectRow(null); setRejectReason(''); }}
+                footer={(
+                    <>
+                        <button type="button" onClick={() => { setRejectRow(null); setRejectReason(''); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}>{t('btn.cancel')}</button>
+                        <button type="button" onClick={handleRejectSubmit} disabled={!rejectReason.trim() || actionLoadingId === `reject-${rejectRow.id}`} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#b91c1c', color: '#fff', fontWeight: 700 }}>{t('btn.reject')}</button>
+                    </>
+                )}
+            >
+                <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: '0.8125rem' }}>
+                    {rejectRow.returnNo} · {rejectRow.invoice?.invoiceNo ?? t('fallback.invoice')}
+                </p>
+                <textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder={t('reject.placeholder')}
+                    rows={4}
+                    style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.875rem', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+            </AdminModalAsScreen>
+        );
+    }
+
+    if (detail) {
+        return (
+            <AdminModalAsScreen
+                title={t('detail.title')}
+                onClose={closeDetail}
+                footer={!detailLoading ? (
+                    <>
+                        {(detail.invoice?.id || detail.invoiceId) ? (
+                            <button
+                                type="button"
+                                onClick={() => openInvoice(detail.invoice?.id || detail.invoiceId)}
+                                disabled={invoiceLoadingId != null}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: invoiceLoadingId != null ? 'wait' : 'pointer', fontSize: '0.8125rem', fontWeight: 700 }}
+                            >
+                                {invoiceLoadingId != null ? <Loader2 size={14} className="spin" /> : <FileText size={14} />} {t('btn.viewInvoice')}
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            onClick={() => setPrintOpen(true)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 700 }}
+                        >
+                            <Printer size={16} /> {t('btn.viewCreditNote')}
+                        </button>
+                    </>
+                ) : null}
+            >
+                {detailLoading ? (
+                    <p style={{ padding: 24, textAlign: 'center' }}><Loader2 size={18} className="spin" /> {t('btn.loading')}</p>
+                ) : (
+                    <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: '0.875rem' }}>
+                            <div><strong>{t('detail.creditNote')}</strong> {detail.creditNoteNo || detail.returnNo || '—'}</div>
+                            <div><strong>{t('detail.invoice')}</strong> {detail.invoiceNo || detail.invoice?.invoiceNo || '—'}</div>
+                            <div><strong>{t('detail.customer')}</strong> {detail.customerName || '—'} · {detail.customerPhone || '—'}</div>
+                            <div><strong>{t('detail.vehicle')}</strong> {detail.vehicleNumber || '—'}</div>
+                            <div><strong>{t('detail.cashier')}</strong> {detail.cashier?.name || detail.createdBy?.name || '—'}</div>
+                            <div><strong>{t('detail.workshopBranch')}</strong> {(detail.workshopName || detail.workshop?.name || '—')} · {(detail.branchName || detail.branch?.name || '—')}</div>
+                            <div><strong>{t('detail.returnType')}</strong> {detail.returnScope === 'full' ? t('detail.fullReturn') : detail.returnScope === 'partial' ? t('detail.partialReturn') : '—'}</div>
+                            <div><strong>{t('detail.date')}</strong> {formatDateTime(detail.returnDate || detail.createdAt)}</div>
+                        </div>
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                            <thead>
+                                <tr style={{ background: '#F9FAFB' }}>
+                                    <th style={{ padding: 10, textAlign: 'left' }}>{t('detail.th.product')}</th>
+                                    <th style={{ padding: 10, textAlign: 'right' }}>{t('detail.th.returnQty')}</th>
+                                    <th style={{ padding: 10, textAlign: 'right' }}>{t('detail.th.unitPrice')}</th>
+                                    <th style={{ padding: 10, textAlign: 'right' }}>{t('detail.th.lineTotal')}</th>
+                                    <th style={{ padding: 10, textAlign: 'left' }}>{t('detail.th.reason')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(detail.items || []).length === 0 ? (
+                                    <tr><td colSpan={5} style={{ padding: 12, textAlign: 'center', color: '#94a3b8' }}>{t('detail.noItems')}</td></tr>
+                                ) : (detail.items || []).map((it) => (
+                                    <tr key={it.id} style={{ borderTop: '1px solid #eee' }}>
+                                        <td style={{ padding: 10 }}>{it.name || '—'}</td>
+                                        <td style={{ padding: 10, textAlign: 'right' }}>{it.qty}{it.originalQty != null ? ` / ${it.originalQty}` : ''}</td>
+                                        <td style={{ padding: 10, textAlign: 'right' }}>{num(it.unitPrice || 0)}</td>
+                                        <td style={{ padding: 10, textAlign: 'right' }}>{num(it.lineTotal || 0)}</td>
+                                        <td style={{ padding: 10 }}>{it.reason || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </>
+                )}
+            </AdminModalAsScreen>
+        );
+    }
+
+
     return (
         <div style={{ padding: 20 }}>
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -559,129 +741,6 @@ export default function SalesReturnsPage() {
                     </div>
                 ) : null}
             </div>
-
-            <AnimatePresence>
-                {detail ? (
-                    <Modal onClose={() => { setDetail(null); setPrintOpen(false); }} title={t('detail.title')} width="860px">
-                        {detailLoading ? (
-                            <p style={{ padding: 24, textAlign: 'center' }}><Loader2 size={18} className="spin" /> {t('btn.loading')}</p>
-                        ) : (
-                            <div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, fontSize: '0.875rem' }}>
-                                    <div><strong>{t('detail.creditNote')}</strong> {detail.creditNoteNo || detail.returnNo || '—'}</div>
-                                    <div><strong>{t('detail.invoice')}</strong> {detail.invoiceNo || detail.invoice?.invoiceNo || '—'}</div>
-                                    <div><strong>{t('detail.customer')}</strong> {detail.customerName || '—'} · {detail.customerPhone || '—'}</div>
-                                    <div><strong>{t('detail.vehicle')}</strong> {detail.vehicleNumber || '—'}</div>
-                                    <div><strong>{t('detail.cashier')}</strong> {detail.cashier?.name || detail.createdBy?.name || '—'}</div>
-                                    <div><strong>{t('detail.workshopBranch')}</strong> {(detail.workshopName || detail.workshop?.name || '—')} · {(detail.branchName || detail.branch?.name || '—')}</div>
-                                    <div><strong>{t('detail.returnType')}</strong> {detail.returnScope === 'full' ? t('detail.fullReturn') : detail.returnScope === 'partial' ? t('detail.partialReturn') : '—'}</div>
-                                    <div><strong>{t('detail.date')}</strong> {formatDateTime(detail.returnDate || detail.createdAt)}</div>
-                                </div>
-
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem', marginBottom: 16 }}>
-                                    <thead>
-                                        <tr style={{ background: '#F9FAFB' }}>
-                                            <th style={{ padding: 10, textAlign: 'left' }}>{t('detail.th.product')}</th>
-                                            <th style={{ padding: 10, textAlign: 'right' }}>{t('detail.th.returnQty')}</th>
-                                            <th style={{ padding: 10, textAlign: 'right' }}>{t('detail.th.unitPrice')}</th>
-                                            <th style={{ padding: 10, textAlign: 'right' }}>{t('detail.th.lineTotal')}</th>
-                                            <th style={{ padding: 10, textAlign: 'left' }}>{t('detail.th.reason')}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {(detail.items || []).length === 0 ? (
-                                            <tr><td colSpan={5} style={{ padding: 12, textAlign: 'center', color: '#94a3b8' }}>{t('detail.noItems')}</td></tr>
-                                        ) : (detail.items || []).map((it) => (
-                                            <tr key={it.id} style={{ borderTop: '1px solid #eee' }}>
-                                                <td style={{ padding: 10 }}>{it.name || '—'}</td>
-                                                <td style={{ padding: 10, textAlign: 'right' }}>{it.qty}{it.originalQty != null ? ` / ${it.originalQty}` : ''}</td>
-                                                <td style={{ padding: 10, textAlign: 'right' }}>{num(it.unitPrice || 0)}</td>
-                                                <td style={{ padding: 10, textAlign: 'right' }}>{num(it.lineTotal || 0)}</td>
-                                                <td style={{ padding: 10 }}>{it.reason || '—'}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' }}>
-                                    {(detail.invoice?.id || detail.invoiceId) ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => openInvoice(detail.invoice?.id || detail.invoiceId)}
-                                            disabled={invoiceLoadingId != null}
-                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', cursor: invoiceLoadingId != null ? 'wait' : 'pointer', fontSize: '0.8125rem', fontWeight: 700 }}
-                                        >
-                                            {invoiceLoadingId != null ? <Loader2 size={14} className="spin" /> : <FileText size={14} />} {t('btn.viewInvoice')}
-                                        </button>
-                                    ) : null}
-                                    <button
-                                        type="button"
-                                        onClick={() => setPrintOpen(true)}
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 700 }}
-                                    >
-                                        <Printer size={16} /> {t('btn.viewCreditNote')}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </Modal>
-                ) : null}
-            </AnimatePresence>
-
-            <AnimatePresence>
-                {printOpen && detail ? (
-                    <Modal onClose={() => setPrintOpen(false)} title={t('print.title')} width="900px">
-                        <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-                            <CreditNotePrintView ref={printRef} data={detail} />
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
-                            <button type="button" onClick={() => setPrintOpen(false)} style={{ padding: '8px 14px', borderRadius: 10, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '0.8125rem' }}>{t('btn.close')}</button>
-                            <button type="button" onClick={handlePrint} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '0.8125rem' }}>
-                                <Printer size={16} /> {t('btn.print')}
-                            </button>
-                        </div>
-                    </Modal>
-                ) : null}
-            </AnimatePresence>
-
-            <InvoiceDetailsModal
-                invoice={invoice}
-                isOpen={!!invoice}
-                footerVariant="corporate"
-                onClose={() => setInvoice(null)}
-            />
-
-            {rejectRow ? (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', borderRadius: 12, padding: 20, width: 'min(420px, 92vw)', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                            <h3 style={{ margin: 0, fontSize: '1rem' }}>{t('reject.title')}</h3>
-                            <button
-                                type="button"
-                                onClick={() => { setRejectRow(null); setRejectReason(''); }}
-                                aria-label={t('btn.close')}
-                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b', padding: 4 }}
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: '0.8125rem' }}>
-                            {rejectRow.returnNo} · {rejectRow.invoice?.invoiceNo ?? t('fallback.invoice')}
-                        </p>
-                        <textarea
-                            value={rejectReason}
-                            onChange={(e) => setRejectReason(e.target.value)}
-                            placeholder={t('reject.placeholder')}
-                            rows={4}
-                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.875rem', resize: 'vertical' }}
-                        />
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-                            <button type="button" onClick={() => { setRejectRow(null); setRejectReason(''); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff' }}>{t('btn.cancel')}</button>
-                            <button type="button" onClick={handleRejectSubmit} disabled={!rejectReason.trim() || actionLoadingId === `reject-${rejectRow.id}`} style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#b91c1c', color: '#fff', fontWeight: 700 }}>{t('btn.reject')}</button>
-                        </div>
-                    </div>
-                </div>
-            ) : null}
         </div>
     );
 }

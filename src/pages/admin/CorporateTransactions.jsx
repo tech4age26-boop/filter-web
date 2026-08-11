@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Loader2, RefreshCw, FileText, ChevronLeft, ChevronRight, Printer } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
+import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
+import '../../components/pos/modern/CashierTaxInvoiceView.css';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
-
-const PAGE_SIZE = 50;
 import {
     getSuperAdminInvoiceView,
     getWorkshopOptions,
@@ -14,7 +15,6 @@ import {
     getInvoice,
     getSuperAdminCorporateCompanies,
 } from '../../services/superAdminApi';
-import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
 import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 import { ctT } from '../../utils/corporateTransactionsI18n';
@@ -428,6 +428,78 @@ export default function CorporateTransactions() {
     };
     const cellTd = { padding: '12px', verticalAlign: 'middle', fontSize: '0.8125rem' };
 
+    if (invoice) {
+        const invTitle = invoice.invoiceNo
+            ? t('modal.titleWithNo', { no: invoice.invoiceNo })
+            : t('btn.viewInvoice');
+        return (
+            <AdminScreenShell
+                title={invTitle}
+                onBack={() => setInvoice(null)}
+                wide
+                footer={(
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => window.print()}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '8px 14px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            <Printer size={14} /> Print
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setInvoice(null)}
+                            style={{
+                                padding: '8px 14px',
+                                borderRadius: 10,
+                                border: 'none',
+                                background: '#0f172a',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            {t('btn.close')}
+                        </button>
+                    </>
+                )}
+            >
+                <div className="demo-invoice-view-body">
+                    <div className="demo-invoice-view-scroll">
+                        <CashierTaxInvoiceView invoice={invoice} />
+                    </div>
+                </div>
+            </AdminScreenShell>
+        );
+    }
+
+    if (detailRow) {
+        return (
+            <CorporateTransactionDetailsModal
+                row={detailRow}
+                data={detailData}
+                loading={detailLoading}
+                error={detailError}
+                invoiceLoading={invoiceLoading}
+                onClose={closeDetails}
+                onViewInvoice={openTaxInvoice}
+                t={t}
+            />
+        );
+    }
+
     return (
         <div style={{ padding: 20 }}>
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -598,26 +670,6 @@ export default function CorporateTransactions() {
                     t={t}
                 />
             </div>
-
-            {detailRow ? (
-                <CorporateTransactionDetailsModal
-                    row={detailRow}
-                    data={detailData}
-                    loading={detailLoading}
-                    error={detailError}
-                    invoiceLoading={invoiceLoading}
-                    onClose={closeDetails}
-                    onViewInvoice={openTaxInvoice}
-                    t={t}
-                />
-            ) : null}
-
-            <InvoiceDetailsModal
-                invoice={invoice}
-                isOpen={!!invoice}
-                footerVariant="corporate"
-                onClose={() => setInvoice(null)}
-            />
         </div>
     );
 }
@@ -825,11 +877,50 @@ function CorporateTransactionDetailsModal({
         : t('modal.title');
 
     return (
-        <Modal
+        <AdminModalAsScreen
             title={modalTitle}
             onClose={onClose}
-            width="min(1100px, 98vw)"
-            contentClassName="ws-modal-order-details"
+            wide
+            footer={data && !loading && !error ? (
+                <>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        style={{
+                            padding: '8px 14px',
+                            borderRadius: 10,
+                            border: '1px solid #cbd5e1',
+                            background: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '0.8125rem',
+                            fontWeight: 700,
+                        }}
+                    >
+                        {t('btn.close')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onViewInvoice}
+                        disabled={invoiceLoading}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '8px 14px',
+                            borderRadius: 10,
+                            border: '1px solid #bfdbfe',
+                            background: '#eff6ff',
+                            color: '#1d4ed8',
+                            cursor: invoiceLoading ? 'wait' : 'pointer',
+                            fontSize: '0.8125rem',
+                            fontWeight: 700,
+                        }}
+                    >
+                        {invoiceLoading ? <Loader2 size={14} className="spin" /> : <Printer size={14} />}
+                        {t('btn.viewInvoice')}
+                    </button>
+                </>
+            ) : null}
         >
             {loading ? (
                 <ShimmerTextBlock lines={8} />
@@ -963,58 +1054,11 @@ function CorporateTransactionDetailsModal({
                             </table>
                         </div>
                     ) : null}
-
-                    <div style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: 10,
-                        justifyContent: 'flex-end',
-                        marginTop: 20,
-                        paddingTop: 16,
-                        borderTop: '1px solid #e2e8f0',
-                    }}>
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            style={{
-                                padding: '8px 14px',
-                                borderRadius: 10,
-                                border: '1px solid #cbd5e1',
-                                background: '#fff',
-                                cursor: 'pointer',
-                                fontSize: '0.8125rem',
-                                fontWeight: 700,
-                            }}
-                        >
-                            {t('btn.close')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onViewInvoice}
-                            disabled={invoiceLoading}
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                padding: '8px 14px',
-                                borderRadius: 10,
-                                border: '1px solid #bfdbfe',
-                                background: '#eff6ff',
-                                color: '#1d4ed8',
-                                cursor: invoiceLoading ? 'wait' : 'pointer',
-                                fontSize: '0.8125rem',
-                                fontWeight: 700,
-                            }}
-                        >
-                            {invoiceLoading ? <Loader2 size={14} className="spin" /> : <Printer size={14} />}
-                            {t('btn.viewInvoice')}
-                        </button>
-                    </div>
                 </div>
             ) : (
                 <div style={{ color: '#64748b' }}>{t('empty.details')}</div>
             )}
-        </Modal>
+        </AdminModalAsScreen>
     );
 }
 
