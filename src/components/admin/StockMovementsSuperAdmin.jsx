@@ -13,7 +13,7 @@ import {
     ListTree,
     X,
 } from 'lucide-react';
-import Modal from '../Modal';
+import AdminModalAsScreen from '../admin/AdminModalAsScreen';
 import UniversalTabs from '../UniversalTabs';
 import {
     getBranches,
@@ -1562,6 +1562,117 @@ export default function StockMovementsSuperAdmin() {
         downloadCsv(`inventory-stock-${slug(workshopLabel)}-${slug(branchLabel)}.csv`, rows, headers);
     };
 
+    if (branchMovementProduct) {
+        return (
+            <BranchMovementModal
+                product={branchMovementProduct}
+                workshopId={selectedWorkshopId}
+                branchId={selectedBranchId}
+                onClose={() => setBranchMovementProduct(null)}
+                t={t}
+            />
+        );
+    }
+
+    if (adjustProduct) {
+        return (
+            <AdminModalAsScreen
+                title={t('modal.adjustTitle', { name: displayCell(adjustProduct.name) })}
+                onClose={closeAdjustModal}
+                backDisabled={adjustSaving}
+                footer={(
+                    <div style={{ display: 'flex', gap: 12, width: '100%' }}>
+                        <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={closeAdjustModal} disabled={adjustSaving}>
+                            {t('btn.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-portal"
+                            style={{ flex: 2 }}
+                            onClick={() => void submitAdjust()}
+                            disabled={
+                                adjustSaving ||
+                                !adjustReason.trim() ||
+                                (adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY &&
+                                    (!Number.isFinite(Number(adjustNewQty)) || Number(adjustNewQty) < 0))
+                            }
+                        >
+                            {adjustSaving ? t('btn.saving') : t('btn.applyAdjustment')}
+                        </button>
+                    </div>
+                )}
+            >
+                <div style={{ padding: '4px 0 0' }}>
+                    <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b', lineHeight: 1.5 }}>
+                        {t('modal.adjustMeta', {
+                            branch: displayCell(gridMeta.branch),
+                            qty: formatNum(adjustProduct.currentQty),
+                            unit: displayCell(adjustProduct.unit),
+                        })}
+                    </p>
+                    <div className="form-group">
+                        <label className="form-label">{t('modal.reason')}</label>
+                        <select
+                            className="form-input-field"
+                            value={adjustReason}
+                            onChange={(e) => setAdjustReason(e.target.value)}
+                            disabled={adjustSaving}
+                        >
+                            <option value="">{t('modal.selectReason')}</option>
+                            {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => {
+                                const reasonKey = `reason.${opt.value}`;
+                                const translatedReason = t(reasonKey);
+                                return (
+                                    <option key={opt.value} value={opt.value}>
+                                        {translatedReason !== reasonKey ? translatedReason : opt.label}
+                                    </option>
+                                );
+                            })}
+                        </select>
+                    </div>
+                    {adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY ? (
+                        <div className="form-group">
+                            <label className="form-label">
+                                {adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY
+                                    ? t('modal.newOpeningQty')
+                                    : t('modal.newQty')}
+                            </label>
+                            <input
+                                type="number"
+                                className="form-input-field"
+                                min={0}
+                                step={1}
+                                value={adjustNewQty}
+                                onChange={(e) => setAdjustNewQty(e.target.value)}
+                                disabled={adjustSaving}
+                            />
+                        </div>
+                    ) : (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b' }}>
+                            {t('modal.infiniteHint')}
+                        </p>
+                    )}
+                    <div className="form-group">
+                        <label className="form-label">{t('modal.noteOptional')}</label>
+                        <textarea
+                            className="form-input-field"
+                            rows={3}
+                            value={adjustNote}
+                            onChange={(e) => setAdjustNote(e.target.value)}
+                            disabled={adjustSaving}
+                            placeholder={t('modal.notePlaceholder')}
+                        />
+                    </div>
+                    {adjustError ? (
+                        <div style={{ padding: 12, marginBottom: 16, background: '#FEF2F2', color: '#B91C1C', borderRadius: 8, fontSize: '0.875rem' }}>
+                            {adjustError}
+                        </div>
+                    ) : null}
+                </div>
+            </AdminModalAsScreen>
+        );
+    }
+
     return (
         <>
             <header className="stock-movements-header">
@@ -2580,110 +2691,6 @@ export default function StockMovementsSuperAdmin() {
                 ]}
             />
 
-            {adjustProduct ? (
-                <Modal
-                    title={t('modal.adjustTitle', { name: displayCell(adjustProduct.name) })}
-                    onClose={closeAdjustModal}
-                    width="520px"
-                >
-                    <div style={{ padding: '4px 0 0' }}>
-                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b', lineHeight: 1.5 }}>
-                            {t('modal.adjustMeta', {
-                                branch: displayCell(gridMeta.branch),
-                                qty: formatNum(adjustProduct.currentQty),
-                                unit: displayCell(adjustProduct.unit),
-                            })}
-                        </p>
-                        <div className="form-group">
-                            <label className="form-label">{t('modal.reason')}</label>
-                            <select
-                                className="form-input-field"
-                                value={adjustReason}
-                                onChange={(e) => setAdjustReason(e.target.value)}
-                                disabled={adjustSaving}
-                            >
-                                <option value="">{t('modal.selectReason')}</option>
-                                {INVENTORY_ADJUST_REASON_OPTIONS.map((opt) => {
-                                    const reasonKey = `reason.${opt.value}`;
-                                    const translatedReason = t(reasonKey);
-                                    return (
-                                        <option key={opt.value} value={opt.value}>
-                                            {translatedReason !== reasonKey ? translatedReason : opt.label}
-                                        </option>
-                                    );
-                                })}
-                            </select>
-                        </div>
-                        {adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY ? (
-                            <div className="form-group">
-                                <label className="form-label">
-                                    {adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY
-                                        ? t('modal.newOpeningQty')
-                                        : t('modal.newQty')}
-                                </label>
-                                <input
-                                    type="number"
-                                    className="form-input-field"
-                                    min={0}
-                                    step={1}
-                                    value={adjustNewQty}
-                                    onChange={(e) => setAdjustNewQty(e.target.value)}
-                                    disabled={adjustSaving}
-                                />
-                            </div>
-                        ) : (
-                            <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#64748b' }}>
-                                {t('modal.infiniteHint')}
-                            </p>
-                        )}
-                        <div className="form-group">
-                            <label className="form-label">{t('modal.noteOptional')}</label>
-                            <textarea
-                                className="form-input-field"
-                                rows={3}
-                                value={adjustNote}
-                                onChange={(e) => setAdjustNote(e.target.value)}
-                                disabled={adjustSaving}
-                                placeholder={t('modal.notePlaceholder')}
-                            />
-                        </div>
-                        {adjustError ? (
-                            <div style={{ padding: 12, marginBottom: 16, background: '#FEF2F2', color: '#B91C1C', borderRadius: 8, fontSize: '0.875rem' }}>
-                                {adjustError}
-                            </div>
-                        ) : null}
-                        <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={closeAdjustModal} disabled={adjustSaving}>
-                                {t('btn.cancel')}
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-portal"
-                                style={{ flex: 2 }}
-                                onClick={() => void submitAdjust()}
-                                disabled={
-                                    adjustSaving ||
-                                    !adjustReason.trim() ||
-                                    (adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY &&
-                                        (!Number.isFinite(Number(adjustNewQty)) || Number(adjustNewQty) < 0))
-                                }
-                            >
-                                {adjustSaving ? t('btn.saving') : t('btn.applyAdjustment')}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
-            ) : null}
-
-            {branchMovementProduct ? (
-                <BranchMovementModal
-                    product={branchMovementProduct}
-                    workshopId={selectedWorkshopId}
-                    branchId={selectedBranchId}
-                    onClose={() => setBranchMovementProduct(null)}
-                    t={t}
-                />
-            ) : null}
         </>
     );
 }
@@ -2730,10 +2737,10 @@ function BranchMovementModal({ product, workshopId, branchId, onClose, t }) {
     };
 
     return (
-        <Modal
+        <AdminModalAsScreen
             title={t('modal.historyTitle')}
             onClose={onClose}
-            width="min(1280px, 98vw)"
+            size="large"
             footer={
                 <button type="button" className="btn-secondary" onClick={onClose}>
                     {t('btn.close')}
@@ -2760,6 +2767,6 @@ function BranchMovementModal({ product, workshopId, branchId, onClose, t }) {
                 onApplyDates={applyDates}
                 t={t}
             />
-        </Modal>
+        </AdminModalAsScreen>
     );
 }

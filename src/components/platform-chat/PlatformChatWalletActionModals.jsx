@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Check, X } from 'lucide-react';
-import Modal from '../Modal';
+import AdminModalAsScreen from '../admin/AdminModalAsScreen';
 import WalletApprovalAccountFields from '../admin/WalletApprovalAccountFields';
 import { getRequesterWalletBalance, listAdminWallets } from '../../services/adminWalletApi';
 import { formatSar } from './PlatformChatWalletMessage';
@@ -202,15 +202,13 @@ export default function PlatformChatWalletActionModals({
     );
     const proofUrl = approveTarget?.payload?.proofUrl ?? '';
 
-    return (
-        <>
-            {approveTarget && (
-                <Modal
-                    title={approveIsExpense ? t('modal.approveExpense') : t('modal.approveFund')}
-                    onClose={busy ? undefined : onCloseApprove}
-                    width={500}
-                    disableClose={busy}
-                    footer={(
+    if (approveTarget) {
+        return (
+            <AdminModalAsScreen
+                title={approveIsExpense ? t('modal.approveExpense') : t('modal.approveFund')}
+                onClose={onCloseApprove}
+                backDisabled={busy}
+                footer={(
                         <>
                             <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={onCloseApprove}>
                                 {t('modal.cancel')}
@@ -370,42 +368,44 @@ export default function PlatformChatWalletActionModals({
                         value={approveRemarks}
                         onChange={(e) => setApproveRemarks(e.target.value)}
                     />
-                </Modal>
-            )}
+            </AdminModalAsScreen>
+        );
+    }
 
-            {rejectTarget && (
-                <Modal
-                    title={rejectIsExpense ? t('modal.rejectExpense') : t('modal.rejectFund')}
-                    onClose={busy ? undefined : onCloseReject}
-                    width={440}
-                    disableClose={busy}
-                    footer={(
-                        <>
-                            <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={onCloseReject}>
-                                {t('modal.cancel')}
-                            </button>
-                            <button
-                                type="button"
-                                className="pc-wallet-modal-danger"
-                                disabled={busy || !rejectReason.trim()}
-                                onClick={confirmReject}
-                            >
-                                {busy ? <Loader2 size={14} className="spin" /> : <X size={16} />}
-                                {t('modal.reject')}
-                            </button>
-                        </>
-                    )}
-                >
-                    <label className="pc-wallet-field-label">{t('modal.reason')}</label>
-                    <textarea
-                        className="pc-wallet-field"
-                        rows={3}
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.target.value)}
-                        placeholder={t('modal.rejectPlaceholder')}
-                    />
-                </Modal>
-            )}
-        </>
-    );
+    if (rejectTarget) {
+        return (
+            <AdminModalAsScreen
+                title={rejectIsExpense ? t('modal.rejectExpense') : t('modal.rejectFund')}
+                onClose={onCloseReject}
+                backDisabled={busy}
+                footer={(
+                    <>
+                        <button type="button" className="pc-wallet-modal-cancel" disabled={busy} onClick={onCloseReject}>
+                            {t('modal.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            className="pc-wallet-modal-danger"
+                            disabled={busy || !rejectReason.trim()}
+                            onClick={confirmReject}
+                        >
+                            {busy ? <Loader2 size={14} className="spin" /> : <X size={16} />}
+                            {t('modal.reject')}
+                        </button>
+                    </>
+                )}
+            >
+                <label className="pc-wallet-field-label">{t('modal.reason')}</label>
+                <textarea
+                    className="pc-wallet-field"
+                    rows={3}
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder={t('modal.rejectPlaceholder')}
+                />
+            </AdminModalAsScreen>
+        );
+    }
+
+    return null;
 }

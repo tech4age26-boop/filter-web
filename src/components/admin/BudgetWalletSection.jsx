@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Loader2, Plus, Pencil, Wallet, RefreshCw } from 'lucide-react';
-import Modal from '../Modal';
+import AdminModalAsScreen from './AdminModalAsScreen';
 import { getWorkshops, getBranches } from '../../services/superAdminApi';
 import {
     listBudgetWalletAccounts,
@@ -126,11 +126,10 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit,
     };
 
     return (
-        <Modal
+        <AdminModalAsScreen
             title={editing ? t('budgetModal.editTitle') : t('budgetModal.createTitle')}
-            onClose={busy ? undefined : onCancel}
-            width={520}
-            disableClose={busy}
+            onClose={onCancel}
+            backDisabled={busy}
             footer={(
                 <div className="admin-wallets-modal-footer">
                     <button type="button" className="admin-wallets-modal-btn-cancel" disabled={busy} onClick={onCancel}>
@@ -271,11 +270,11 @@ function BudgetAccountModal({ account, canEdit, busy, error, onCancel, onSubmit,
                 onChange={(e) => setDescription(e.target.value)}
                 disabled={busy}
             />
-        </Modal>
+        </AdminModalAsScreen>
     );
 }
 
-function BudgetLedgerModal({ account, onClose, t }) {
+function BudgetLedgerPanel({ account, onClose, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -292,7 +291,7 @@ function BudgetLedgerModal({ account, onClose, t }) {
     }, [account.id, t]);
 
     return (
-        <Modal title={t('ledger.title', { name: account.name })} onClose={onClose} width={720}>
+        <AdminModalAsScreen title={t('ledger.title', { name: account.name })} onClose={onClose} size="large">
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
                 <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
                     {t('ledger.allocated')} <strong>SAR {fmt(account.allocatedTotal)}</strong>
@@ -340,7 +339,7 @@ function BudgetLedgerModal({ account, onClose, t }) {
                     </table>
                 </div>
             )}
-        </Modal>
+        </AdminModalAsScreen>
     );
 }
 
@@ -415,6 +414,26 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
         () => accounts.reduce((sum, a) => sum + Number(a.remainingBalance ?? 0), 0),
         [accounts],
     );
+
+    if (modal) {
+        return (
+            <BudgetAccountModal
+                account={modal.account}
+                canEdit={canCreate || canEdit}
+                busy={modalBusy}
+                error={modalError}
+                t={t}
+                onCancel={() => { if (!modalBusy) setModal(null); }}
+                onSubmit={submitModal}
+            />
+        );
+    }
+
+    if (ledger) {
+        return (
+            <BudgetLedgerPanel account={ledger} onClose={() => setLedger(null)} t={t} />
+        );
+    }
 
     return (
         <div className="budget-wallet-section">
@@ -552,22 +571,6 @@ export default function BudgetWalletSection({ canCreate, canEdit }) {
                     </table>
                 </div>
             )}
-
-            {modal ? (
-                <BudgetAccountModal
-                    account={modal.account}
-                    canEdit={canCreate || canEdit}
-                    busy={modalBusy}
-                    error={modalError}
-                    t={t}
-                    onCancel={() => { if (!modalBusy) setModal(null); }}
-                    onSubmit={submitModal}
-                />
-            ) : null}
-
-            {ledger ? (
-                <BudgetLedgerModal account={ledger} onClose={() => setLedger(null)} t={t} />
-            ) : null}
         </div>
     );
 }

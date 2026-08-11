@@ -54,7 +54,9 @@ import {
 } from '../../services/superAdminMarketingApi';
 import ApprovalShell from '../../components/admin/ApprovalShell';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
-import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
+import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
+import '../../components/pos/modern/CashierTaxInvoiceView.css';
 import { useAuth } from '../../context/AuthContext';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import { apT, entityTypeLabel } from '../../utils/approvalsI18n';
@@ -2618,6 +2620,29 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
             maximumFractionDigits: 2,
         })}`;
 
+    if (invoice) {
+        return (
+            <AdminScreenShell
+                title={invoice.invoiceNo || 'Tax invoice'}
+                onBack={() => setInvoice(null)}
+                backLabel="Back"
+                wide
+                footer={(
+                    <>
+                        <button type="button" className="btn-portal-outline" onClick={() => window.print()}>
+                            Print
+                        </button>
+                        <button type="button" className="btn-portal" onClick={() => setInvoice(null)}>
+                            Back
+                        </button>
+                    </>
+                )}
+            >
+                <CashierTaxInvoiceView invoice={invoice} />
+            </AdminScreenShell>
+        );
+    }
+
     return (
         <ApprovalShell asPage={asPage}
             title={`Payment proof · ${data?.invoice?.invoiceNo ?? item?.meta?.invoiceNo ?? `#${id}`}`}
@@ -2775,12 +2800,6 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
                     ) : null}
                 </div>
             ) : null}
-            <InvoiceDetailsModal
-                invoice={invoice}
-                isOpen={!!invoice}
-                footerVariant="corporate"
-                onClose={() => setInvoice(null)}
-            />
         </ApprovalShell>
     );
 }
@@ -2833,6 +2852,29 @@ function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onRejec
         })}`;
 
     const title = data?.returnNo ?? data?.creditNoteNo ?? item?.meta?.returnNo ?? `#${id}`;
+
+    if (invoice) {
+        return (
+            <AdminScreenShell
+                title={invoice.invoiceNo || 'Tax invoice'}
+                onBack={() => setInvoice(null)}
+                backLabel="Back"
+                wide
+                footer={(
+                    <>
+                        <button type="button" className="btn-portal-outline" onClick={() => window.print()}>
+                            Print
+                        </button>
+                        <button type="button" className="btn-portal" onClick={() => setInvoice(null)}>
+                            Back
+                        </button>
+                    </>
+                )}
+            >
+                <CashierTaxInvoiceView invoice={invoice} />
+            </AdminScreenShell>
+        );
+    }
 
     return (
         <ApprovalShell asPage={asPage}
@@ -2970,12 +3012,6 @@ function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onRejec
             ) : (
                 <p style={{ color: '#94a3b8' }}>Sales return not found.</p>
             )}
-            <InvoiceDetailsModal
-                invoice={invoice}
-                isOpen={!!invoice}
-                footerVariant="corporate"
-                onClose={() => setInvoice(null)}
-            />
         </ApprovalShell>
     );
 }

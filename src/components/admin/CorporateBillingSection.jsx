@@ -11,9 +11,11 @@ import {
     Search,
     Trash2,
     Users,
+    Printer,
 } from 'lucide-react';
 import ClickableInvoiceNo from '../accounting/ClickableInvoiceNo';
-import InvoiceDetailsModal from '../pos/modern/InvoiceDetailsModal';
+import CashierTaxInvoiceView from '../pos/modern/CashierTaxInvoiceView';
+import '../pos/modern/CashierTaxInvoiceView.css';
 import {
     getCorporateArLedger,
     listCorporateArCustomers,
@@ -35,6 +37,7 @@ import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingD
 import { cbT } from '../../utils/corporateBillingI18n';
 import CorporateGenerateBillModal from './CorporateGenerateBillModal';
 import CorporateMarkBillPaidModal from './CorporateMarkBillPaidModal';
+import AdminScreenShell from './AdminScreenShell';
 import '../../styles/admin/AccountingPage.css';
 
 function fmt(n) {
@@ -788,6 +791,67 @@ export default function CorporateBillingSection() {
     const sum = ledger?.summary ?? {};
     const displayName = corp?.companyName || selectedCustomer?.companyName || t('fallback.title');
 
+    if (generateOpen) {
+        return (
+            <CorporateGenerateBillModal
+                open={generateOpen}
+                onClose={() => !generating && setGenerateOpen(false)}
+                t={t}
+                companyName={displayName}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                dueDate={generateDueDate}
+                onDueDateChange={setGenerateDueDate}
+                ledger={ledger}
+                generating={generating}
+                onGenerate={handleGenerateBill}
+            />
+        );
+    }
+
+    if (markPaidOpen && billDetail) {
+        return (
+            <CorporateMarkBillPaidModal
+                open={markPaidOpen}
+                onClose={() => setMarkPaidOpen(false)}
+                t={t}
+                billId={billDetail.id || selectedBillId}
+                billNo={billDetail.billNo}
+                balanceDue={Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0)}
+                onPaid={async () => {
+                    setMarkPaidOpen(false);
+                    await loadGeneratedBills();
+                    const id = billDetail.id || selectedBillId;
+                    if (id) await openBillDetail(id);
+                    alert(t('alert.markedPaid', { no: billDetail.billNo }));
+                }}
+            />
+        );
+    }
+
+    if (invoiceModalOpen && invoiceModalData) {
+        const invoiceTitle = invoiceModalData.invoiceNo
+            ? `${t('th.invNo')} ${invoiceModalData.invoiceNo}`
+            : t('th.invNo');
+        return (
+            <AdminScreenShell
+                title={invoiceTitle}
+                onBack={() => {
+                    setInvoiceModalOpen(false);
+                    setInvoiceModalData(null);
+                }}
+                wide
+                footer={
+                    <button type="button" className="btn-portal-outline" onClick={() => window.print()}>
+                        <Printer size={16} style={{ marginRight: 6 }} /> Print
+                    </button>
+                }
+            >
+                <CashierTaxInvoiceView invoice={invoiceModalData} />
+            </AdminScreenShell>
+        );
+    }
+
     const billKpis = [
         ['kpi.opening', billSum.openingBalance],
         ['kpi.invoices', billSum.totalInvoiceAmount],
@@ -1345,49 +1409,6 @@ export default function CorporateBillingSection() {
                 </>
             )}
 
-            {generateOpen && (
-                <CorporateGenerateBillModal
-                    open={generateOpen}
-                    onClose={() => !generating && setGenerateOpen(false)}
-                    t={t}
-                    companyName={displayName}
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    dueDate={generateDueDate}
-                    onDueDateChange={setGenerateDueDate}
-                    ledger={ledger}
-                    generating={generating}
-                    onGenerate={handleGenerateBill}
-                />
-            )}
-
-            {markPaidOpen && billDetail ? (
-                <CorporateMarkBillPaidModal
-                    open={markPaidOpen}
-                    onClose={() => setMarkPaidOpen(false)}
-                    t={t}
-                    billId={billDetail.id || selectedBillId}
-                    billNo={billDetail.billNo}
-                    balanceDue={Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0)}
-                    onPaid={async () => {
-                        setMarkPaidOpen(false);
-                        await loadGeneratedBills();
-                        const id = billDetail.id || selectedBillId;
-                        if (id) await openBillDetail(id);
-                        alert(t('alert.markedPaid', { no: billDetail.billNo }));
-                    }}
-                />
-            ) : null}
-
-            <InvoiceDetailsModal
-                invoice={invoiceModalData}
-                isOpen={invoiceModalOpen}
-                onClose={() => {
-                    setInvoiceModalOpen(false);
-                    setInvoiceModalData(null);
-                }}
-                footerVariant="corporate"
-            />
         </div>
     );
 }

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, NavLink, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Package, FileText, TrendingUp, TrendingDown, Minus, Search, Folder, Layers, ChevronDown, Loader } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import MasterCatalog from '../../components/admin/MasterCatalog';
 import StockMovementsSuperAdmin from '../../components/admin/StockMovementsSuperAdmin';
 import { useAuth } from '../../context/AuthContext';
@@ -288,190 +287,11 @@ export default function InventoryPage() {
         setEditUomOpen(true);
     };
 
-    return (
-        <div className="inventory-page module-container">
-            <div className="inventory-sub-nav">
-                {visibleSubTabs.map((tab) => (
-                    <NavLink
-                        key={tab.path}
-                        to={`/admin/inventory/${tab.path}`}
-                        className={() => `inventory-sub-tab ${isInventorySubTabActive(tab.path) ? 'active' : ''}`}
-                    >
-                        {smT(locale, SM_INV_SUB_LABEL_KEYS[tab.path] || tab.label)}
-                    </NavLink>
-                ))}
-            </div>
-
-            {activeSub === 'master-catalog' && <MasterCatalog />}
-
-            {activeSub === 'products-services' && (
-                <>
-                    <header className="products-page-header">
-                        <div>
-                            <h1 className="products-title">Products & Services</h1>
-                            <p className="products-count">{itemCount} items in inventory</p>
-                        </div>
-                        <button type="button" className="btn-portal" onClick={() => setCreateOpen(true)}><Plus size={16} /> Add Product / Service</button>
-                    </header>
-
-                    <div className="products-view-tabs" style={{ marginBottom: '24px' }}>
-                        <button type="button" className={`products-view-tab ${viewTab === 'Products' ? 'active' : ''}`} onClick={() => setViewTab('Products')}>
-                            <Package size={14} /> Products
-                        </button>
-                        <button type="button" className={`products-view-tab ${viewTab === 'Inventory Log' ? 'active' : ''}`} onClick={() => setViewTab('Inventory Log')}>
-                            <FileText size={14} /> Inventory Log
-                        </button>
-                    </div>
-
-
-                    {viewTab === 'Products' && (
-                        <>
-                            <div className="products-filters">
-                                {['All', 'product', 'service'].map((f) => (
-                                    <button
-                                        key={f}
-                                        type="button"
-                                        className={`products-filter-pill ${typeFilter === f ? 'active' : ''}`}
-                                        onClick={() => setTypeFilter(f)}
-                                    >
-                                        {f === 'All' ? 'All Types' : f === 'product' ? 'Products' : 'Services'}
-                                    </button>
-                                ))}
-                            </div>
-                            <section className="premium-table products-table">
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr className="table-header-row">
-                                            <th className="table-th">Product</th>
-                                            <th className="table-th">Type</th>
-                                            <th className="table-th">Department(s)</th>
-                                            <th className="table-th">Unit</th>
-                                            <th className="table-th">Sale Price (incl. VAT)</th>
-                                            <th className="table-th">Stock / Critical</th>
-                                            <th className="table-th">Status</th>
-                                            <th className="table-th">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {loadingProducts ? (
-                                            <tr><td colSpan={8} className="table-cell table-empty"><Loader size={18} className="spin" /> Loading…</td></tr>
-                                        ) : products
-                                            .filter((p) => typeFilter === 'All' || p.type === typeFilter)
-                                            .map((p) => (
-                                            <tr key={p.id} className="table-row">
-                                                <td className="table-cell">
-                                                    <div className="cell-main-text">{p.name}</div>
-                                                    <div className="cell-sub-text">{p.sku || 'No SKU'}</div>
-                                                </td>
-                                                <td className="table-cell"><span style={{ textTransform: 'capitalize' }}>{p.type}</span></td>
-                                                <td className="table-cell">{p.dept}</td>
-                                                <td className="table-cell">{p.unit}</td>
-                                                <td className="table-cell font-bold">SAR {p.price}</td>
-                                                <td className="table-cell">N/A</td>
-                                                <td className="table-cell"><span className={`status-badge ${p.status === 'Active' ? 'status-completed' : 'status-warning'}`}>{p.status}</span></td>
-                                                <td className="table-cell">
-                                                    <button type="button" className="btn-edit" onClick={() => openEdit(p)}><Pencil size={14} /> Edit</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </section>
-                        </>
-                    )}
-
-                    {viewTab === 'Inventory Log' && (
-                        <div className="inventory-log-dashboard">
-                            {/* Filter Bar */}
-                            <div className="log-filters-card">
-                                <div className="log-filter-group">
-                                    <label className="log-filter-label">From Date</label>
-                                    <input type="date" className="form-input-field" defaultValue="2026-03-02" />
-                                </div>
-                                <div className="log-filter-group">
-                                    <label className="log-filter-label">To Date</label>
-                                    <input type="date" className="form-input-field" defaultValue="2026-03-05" />
-                                </div>
-                                <div className="log-filter-group">
-                                    <label className="log-filter-label">Product</label>
-                                    <select className="form-input-field">
-                                        <option>All Products</option>
-                                    </select>
-                                </div>
-                                <div className="log-filter-group">
-                                    <label className="log-filter-label">Movement Type</label>
-                                    <select className="form-input-field">
-                                        <option>All Types</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* Summary Cards */}
-                            <div className="log-summary-cards">
-                                <div className="log-summary-card success">
-                                    <div className="log-summary-icon"><TrendingUp size={24} /></div>
-                                    <div className="log-summary-content">
-                                        <div className="log-summary-label">Total In</div>
-                                        <div className="log-summary-value">+0.0</div>
-                                    </div>
-                                </div>
-                                <div className="log-summary-card danger">
-                                    <div className="log-summary-icon"><TrendingDown size={24} /></div>
-                                    <div className="log-summary-content">
-                                        <div className="log-summary-label">Total Out</div>
-                                        <div className="log-summary-value">-7.0</div>
-                                    </div>
-                                </div>
-                                <div className="log-summary-card warning">
-                                    <div className="log-summary-icon"><Minus size={24} /></div>
-                                    <div className="log-summary-content">
-                                        <div className="log-summary-label">Net Movement</div>
-                                        <div className="log-summary-value">-7.0</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Log Table */}
-                            <div className="log-table-container premium-table">
-                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead>
-                                        <tr className="table-header-row">
-                                            <th className="table-th">Date</th>
-                                            <th className="table-th">Product</th>
-                                            <th className="table-th">Type</th>
-                                            <th className="table-th">Stock In</th>
-                                            <th className="table-th">Stock Out</th>
-                                            <th className="table-th">Balance After</th>
-                                            <th className="table-th">Notes</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr className="table-row">
-                                            <td className="table-cell">Feb 28, 2026</td>
-                                            <td className="table-cell">
-                                                <div className="product-cell-with-icon">
-                                                    <div className="product-mini-icon"><Package size={14} /></div>
-                                                    <div className="cell-main-text">Castrol 10W30</div>
-                                                </div>
-                                            </td>
-                                            <td className="table-cell"><span className="badge-sale">Sale</span></td>
-                                            <td className="table-cell" style={{ color: '#9CA3AF' }}>—</td>
-                                            <td className="table-cell"><span className="stock-out-val"> -7 liter</span></td>
-                                            <td className="table-cell font-bold">17</td>
-                                            <td className="table-cell" style={{ color: '#9CA3AF' }}>—</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <div className="log-table-footer">
-                                    <span className="records-count">1 records shown</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <AnimatePresence>
-                        {createOpen && (
-                            <Modal
+    if (createOpen || editOpen || newDeptOpen || editDeptOpen || newCategoryOpen || editCategoryOpen || newUomOpen || editUomOpen) {
+        return (
+            <>
+{createOpen && (
+                            <AdminModalAsScreen
                                 title="Add New Product / Service"
                                 onClose={() => setCreateOpen(false)}
                                 className="product-redesign-modal"
@@ -791,11 +611,11 @@ export default function InventoryPage() {
                                         </div>
                                     </div>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
 
                         {editOpen && editingProduct && (
-                            <Modal
+                            <AdminModalAsScreen
                                 title="Edit Product"
                                 onClose={() => { setEditOpen(false); setEditingProduct(null); }}
                                 footer={
@@ -869,107 +689,11 @@ export default function InventoryPage() {
                                         <option value="active">Active</option><option value="inactive">Inactive</option>
                                     </select>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
-                    </AnimatePresence>
-                </>
-            )}
-
-            {activeSub === 'stock-movements' && <StockMovementsSuperAdmin />}
-
-            {activeSub === 'categories' && (
-                <>
-                    <header className="dept-cat-header">
-                        <div>
-                            <h1 className="dept-cat-title">Departments & Categories</h1>
-                            <p className="dept-cat-subtitle">Organize your products and services</p>
-                        </div>
-                        <button
-                            type="button"
-                            className="btn-portal btn-add-main"
-                            onClick={() => innerTab === 'Departments' ? setNewDeptOpen(true) : setNewCategoryOpen(true)}
-                        >
-                            <Plus size={16} /> {innerTab === 'Departments' ? 'Add Department' : 'Add Category'}
-                        </button>
-                    </header>
-
-                    <div className="dept-cat-nav-bar">
-                        <div className="inner-tabs">
-                            <button
-                                className={`inner-tab ${innerTab === 'Departments' ? 'active' : ''}`}
-                                onClick={() => setInnerTab('Departments')}
-                            >
-                                <Folder size={18} /> Departments ({departments.length})
-                            </button>
-                            <button
-                                className={`inner-tab ${innerTab === 'Categories' ? 'active' : ''}`}
-                                onClick={() => setInnerTab('Categories')}
-                            >
-                                <Layers size={18} /> Categories ({categories.length})
-                            </button>
-                        </div>
-                        <div className="dept-cat-search">
-                            <div className="search-wrapper">
-                                <Search size={18} className="search-icon" />
-                                <input type="text" placeholder="Search..." className="inner-search-input" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <section className="premium-table dept-cat-table">
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr className="table-header-row">
-                                    <th className="table-th">{innerTab === 'Departments' ? 'Department' : 'Category'}</th>
-                                    {innerTab === 'Categories' && <th className="table-th">Department</th>}
-                                    <th className="table-th">Description</th>
-                                    <th className="table-th">Status</th>
-                                    <th className="table-th">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {innerTab === 'Departments' ? (
-                                    departments.map((d) => (
-                                        <tr key={d.id} className="table-row">
-                                            <td className="table-cell">
-                                                <div className="cell-with-icon">
-                                                    <div className="dept-icon-box"><Folder size={16} /></div>
-                                                    <span className="cell-main-text">{d.name}</span>
-                                                </div>
-                                            </td>
-                                            <td className="table-cell">{d.description}</td>
-                                            <td className="table-cell"><span className="status-badge status-completed">{d.status}</span></td>
-                                            <td className="table-cell">
-                                                <button type="button" className="btn-edit" onClick={() => { setEditingDept({ ...d }); setEditDeptOpen(true); }}>Edit</button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    categories.map((c) => (
-                                        <tr key={c.id} className="table-row">
-                                            <td className="table-cell">
-                                                <div className="cell-with-icon">
-                                                    <div className="cat-icon-box"><Layers size={16} /></div>
-                                                    <span className="cell-main-text">{c.name}</span>
-                                                </div>
-                                            </td>
-                                            <td className="table-cell">{c.department}</td>
-                                            <td className="table-cell">{c.description}</td>
-                                            <td className="table-cell"><span className="status-badge status-completed">{c.status}</span></td>
-                                            <td className="table-cell">
-                                                <button type="button" className="btn-edit" onClick={() => { setEditingCategory({ ...c }); setEditCategoryOpen(true); }}>Edit</button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </section>
-
-                    <AnimatePresence>
-                        {/* New Department Modal */}
+{/* New Department Modal */}
                         {newDeptOpen && (
-                            <Modal
+                            <AdminModalAsScreen
                                 title="Add Department"
                                 onClose={() => setNewDeptOpen(false)}
                                 footer={
@@ -985,12 +709,12 @@ export default function InventoryPage() {
                                     <label className="form-label">Status</label>
                                     <select className="form-input-field"><option>Active</option><option>Inactive</option></select>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
 
                         {/* Edit Department Modal */}
                         {editDeptOpen && editingDept && (
-                            <Modal
+                            <AdminModalAsScreen
                                 title="Edit Department"
                                 onClose={() => { setEditDeptOpen(false); setEditingDept(null); }}
                                 footer={
@@ -1014,12 +738,12 @@ export default function InventoryPage() {
                                         <option>Active</option><option>Inactive</option>
                                     </select>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
 
                         {/* New Category Modal */}
                         {newCategoryOpen && (
-                            <Modal
+                            <AdminModalAsScreen
                                 title="Add Category"
                                 onClose={() => setNewCategoryOpen(false)}
                                 footer={
@@ -1042,12 +766,12 @@ export default function InventoryPage() {
                                     <label className="form-label">Status</label>
                                     <select className="form-input-field"><option>Active</option><option>Inactive</option></select>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
 
                         {/* Edit Category Modal */}
                         {editCategoryOpen && editingCategory && (
-                            <Modal
+                            <AdminModalAsScreen
                                 title="Edit Category"
                                 onClose={() => { setEditCategoryOpen(false); setEditingCategory(null); }}
                                 footer={
@@ -1071,70 +795,10 @@ export default function InventoryPage() {
                                         <option>Active</option><option>Inactive</option>
                                     </select>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
-                    </AnimatePresence>
-                </>
-            )}
-
-            {activeSub === 'units-of-measure' && (
-                <>
-                    <header className="uom-header">
-                        <div>
-                            <h1 className="uom-title">Units of Measure</h1>
-                            <p className="uom-subtitle">Manage UOM used in purchase invoices, products, and inventory</p>
-                        </div>
-                        <button type="button" className="btn-portal" onClick={() => setNewUomOpen(true)}><Plus size={16} /> New UOM</button>
-                    </header>
-                    <div className="uom-stats">
-                        <div className="uom-stat-card"><span className="uom-stat-label">Total UOMs</span><span className="uom-stat-val">{uomList.length}</span></div>
-                        <div className="uom-stat-card"><span className="uom-stat-label">Active</span><span className="uom-stat-val">{uomList.filter((u) => u.status === 'active').length}</span></div>
-                        <div className="uom-stat-card"><span className="uom-stat-label">Categories</span><span className="uom-stat-val">5</span></div>
-                        <div className="uom-stat-card"><span className="uom-stat-label">Inactive</span><span className="uom-stat-val">{uomList.filter((u) => u.status !== 'active').length}</span></div>
-                    </div>
-                    <div className="uom-pills">
-                        {['all', 'quantity', 'volume', 'weight', 'length', 'service'].map((cat) => (
-                            <button key={cat} type="button" className={`uom-pill ${uomCategoryFilter === cat ? 'active' : ''}`} onClick={() => setUomCategoryFilter(cat)}>{cat === 'all' ? 'All' : cat}</button>
-                        ))}
-                    </div>
-                    <section className="premium-table uom-table">
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr className="table-header-row">
-                                    <th className="table-th" style={{ width: '20%' }}>Name</th>
-                                    <th className="table-th" style={{ width: '15%' }}>Abbreviation</th>
-                                    <th className="table-th" style={{ width: '15%' }}>Category</th>
-                                    <th className="table-th">Description</th>
-                                    <th className="table-th" style={{ width: '15%' }}>Status</th>
-                                    <th className="table-th" style={{ width: '10%' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {uomList.filter((u) => uomCategoryFilter === 'all' || u.category === uomCategoryFilter).map((u) => (
-                                    <tr key={u.id} className="table-row">
-                                        <td className="table-cell cell-main-text">{u.name}</td>
-                                        <td className="table-cell">{u.abbreviation}</td>
-                                        <td className="table-cell"><span className="uom-cat-badge">{u.category}</span></td>
-                                        <td className="table-cell text-muted">{u.description || '—'}</td>
-                                        <td className="table-cell">
-                                            <span className={`status-badge ${u.status === 'active' ? 'status-completed' : 'status-warning'}`}>
-                                                {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
-                                            </span>
-                                        </td>
-                                        <td className="table-cell">
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button type="button" className="btn-icon" onClick={() => openEditUom(u)}><Pencil size={16} /></button>
-                                                <button type="button" className="btn-icon" onClick={() => handleDeleteUom(u.id)} style={{ color: '#EF4444' }}><Trash2 size={16} /></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </section>
-                    <AnimatePresence>
-                        {(newUomOpen || editUomOpen) && (
-                            <Modal
+{(newUomOpen || editUomOpen) && (
+                            <AdminModalAsScreen
                                 title={editUomOpen ? "Edit Unit of Measure" : "New Unit of Measure"}
                                 onClose={() => { setNewUomOpen(false); setEditUomOpen(false); setEditingUom(null); }}
                                 footer={
@@ -1229,9 +893,348 @@ export default function InventoryPage() {
                                         </div>
                                     </div>
                                 </div>
-                            </Modal>
+                            </AdminModalAsScreen>
                         )}
-                    </AnimatePresence>
+            </>
+        );
+    }
+
+    return (
+        <div className="inventory-page module-container">
+            <div className="inventory-sub-nav">
+                {visibleSubTabs.map((tab) => (
+                    <NavLink
+                        key={tab.path}
+                        to={`/admin/inventory/${tab.path}`}
+                        className={() => `inventory-sub-tab ${isInventorySubTabActive(tab.path) ? 'active' : ''}`}
+                    >
+                        {smT(locale, SM_INV_SUB_LABEL_KEYS[tab.path] || tab.label)}
+                    </NavLink>
+                ))}
+            </div>
+
+            {activeSub === 'master-catalog' && <MasterCatalog />}
+
+            {activeSub === 'products-services' && (
+                <>
+                    <header className="products-page-header">
+                        <div>
+                            <h1 className="products-title">Products & Services</h1>
+                            <p className="products-count">{itemCount} items in inventory</p>
+                        </div>
+                        <button type="button" className="btn-portal" onClick={() => setCreateOpen(true)}><Plus size={16} /> Add Product / Service</button>
+                    </header>
+
+                    <div className="products-view-tabs" style={{ marginBottom: '24px' }}>
+                        <button type="button" className={`products-view-tab ${viewTab === 'Products' ? 'active' : ''}`} onClick={() => setViewTab('Products')}>
+                            <Package size={14} /> Products
+                        </button>
+                        <button type="button" className={`products-view-tab ${viewTab === 'Inventory Log' ? 'active' : ''}`} onClick={() => setViewTab('Inventory Log')}>
+                            <FileText size={14} /> Inventory Log
+                        </button>
+                    </div>
+
+
+                    {viewTab === 'Products' && (
+                        <>
+                            <div className="products-filters">
+                                {['All', 'product', 'service'].map((f) => (
+                                    <button
+                                        key={f}
+                                        type="button"
+                                        className={`products-filter-pill ${typeFilter === f ? 'active' : ''}`}
+                                        onClick={() => setTypeFilter(f)}
+                                    >
+                                        {f === 'All' ? 'All Types' : f === 'product' ? 'Products' : 'Services'}
+                                    </button>
+                                ))}
+                            </div>
+                            <section className="premium-table products-table">
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr className="table-header-row">
+                                            <th className="table-th">Product</th>
+                                            <th className="table-th">Type</th>
+                                            <th className="table-th">Department(s)</th>
+                                            <th className="table-th">Unit</th>
+                                            <th className="table-th">Sale Price (incl. VAT)</th>
+                                            <th className="table-th">Stock / Critical</th>
+                                            <th className="table-th">Status</th>
+                                            <th className="table-th">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {loadingProducts ? (
+                                            <tr><td colSpan={8} className="table-cell table-empty"><Loader size={18} className="spin" /> Loading…</td></tr>
+                                        ) : products
+                                            .filter((p) => typeFilter === 'All' || p.type === typeFilter)
+                                            .map((p) => (
+                                            <tr key={p.id} className="table-row">
+                                                <td className="table-cell">
+                                                    <div className="cell-main-text">{p.name}</div>
+                                                    <div className="cell-sub-text">{p.sku || 'No SKU'}</div>
+                                                </td>
+                                                <td className="table-cell"><span style={{ textTransform: 'capitalize' }}>{p.type}</span></td>
+                                                <td className="table-cell">{p.dept}</td>
+                                                <td className="table-cell">{p.unit}</td>
+                                                <td className="table-cell font-bold">SAR {p.price}</td>
+                                                <td className="table-cell">N/A</td>
+                                                <td className="table-cell"><span className={`status-badge ${p.status === 'Active' ? 'status-completed' : 'status-warning'}`}>{p.status}</span></td>
+                                                <td className="table-cell">
+                                                    <button type="button" className="btn-edit" onClick={() => openEdit(p)}><Pencil size={14} /> Edit</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </section>
+                        </>
+                    )}
+
+                    {viewTab === 'Inventory Log' && (
+                        <div className="inventory-log-dashboard">
+                            {/* Filter Bar */}
+                            <div className="log-filters-card">
+                                <div className="log-filter-group">
+                                    <label className="log-filter-label">From Date</label>
+                                    <input type="date" className="form-input-field" defaultValue="2026-03-02" />
+                                </div>
+                                <div className="log-filter-group">
+                                    <label className="log-filter-label">To Date</label>
+                                    <input type="date" className="form-input-field" defaultValue="2026-03-05" />
+                                </div>
+                                <div className="log-filter-group">
+                                    <label className="log-filter-label">Product</label>
+                                    <select className="form-input-field">
+                                        <option>All Products</option>
+                                    </select>
+                                </div>
+                                <div className="log-filter-group">
+                                    <label className="log-filter-label">Movement Type</label>
+                                    <select className="form-input-field">
+                                        <option>All Types</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Summary Cards */}
+                            <div className="log-summary-cards">
+                                <div className="log-summary-card success">
+                                    <div className="log-summary-icon"><TrendingUp size={24} /></div>
+                                    <div className="log-summary-content">
+                                        <div className="log-summary-label">Total In</div>
+                                        <div className="log-summary-value">+0.0</div>
+                                    </div>
+                                </div>
+                                <div className="log-summary-card danger">
+                                    <div className="log-summary-icon"><TrendingDown size={24} /></div>
+                                    <div className="log-summary-content">
+                                        <div className="log-summary-label">Total Out</div>
+                                        <div className="log-summary-value">-7.0</div>
+                                    </div>
+                                </div>
+                                <div className="log-summary-card warning">
+                                    <div className="log-summary-icon"><Minus size={24} /></div>
+                                    <div className="log-summary-content">
+                                        <div className="log-summary-label">Net Movement</div>
+                                        <div className="log-summary-value">-7.0</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Log Table */}
+                            <div className="log-table-container premium-table">
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr className="table-header-row">
+                                            <th className="table-th">Date</th>
+                                            <th className="table-th">Product</th>
+                                            <th className="table-th">Type</th>
+                                            <th className="table-th">Stock In</th>
+                                            <th className="table-th">Stock Out</th>
+                                            <th className="table-th">Balance After</th>
+                                            <th className="table-th">Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr className="table-row">
+                                            <td className="table-cell">Feb 28, 2026</td>
+                                            <td className="table-cell">
+                                                <div className="product-cell-with-icon">
+                                                    <div className="product-mini-icon"><Package size={14} /></div>
+                                                    <div className="cell-main-text">Castrol 10W30</div>
+                                                </div>
+                                            </td>
+                                            <td className="table-cell"><span className="badge-sale">Sale</span></td>
+                                            <td className="table-cell" style={{ color: '#9CA3AF' }}>—</td>
+                                            <td className="table-cell"><span className="stock-out-val"> -7 liter</span></td>
+                                            <td className="table-cell font-bold">17</td>
+                                            <td className="table-cell" style={{ color: '#9CA3AF' }}>—</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <div className="log-table-footer">
+                                    <span className="records-count">1 records shown</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    
+                </>
+            )}
+
+            {activeSub === 'stock-movements' && <StockMovementsSuperAdmin />}
+
+            {activeSub === 'categories' && (
+                <>
+                    <header className="dept-cat-header">
+                        <div>
+                            <h1 className="dept-cat-title">Departments & Categories</h1>
+                            <p className="dept-cat-subtitle">Organize your products and services</p>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn-portal btn-add-main"
+                            onClick={() => innerTab === 'Departments' ? setNewDeptOpen(true) : setNewCategoryOpen(true)}
+                        >
+                            <Plus size={16} /> {innerTab === 'Departments' ? 'Add Department' : 'Add Category'}
+                        </button>
+                    </header>
+
+                    <div className="dept-cat-nav-bar">
+                        <div className="inner-tabs">
+                            <button
+                                className={`inner-tab ${innerTab === 'Departments' ? 'active' : ''}`}
+                                onClick={() => setInnerTab('Departments')}
+                            >
+                                <Folder size={18} /> Departments ({departments.length})
+                            </button>
+                            <button
+                                className={`inner-tab ${innerTab === 'Categories' ? 'active' : ''}`}
+                                onClick={() => setInnerTab('Categories')}
+                            >
+                                <Layers size={18} /> Categories ({categories.length})
+                            </button>
+                        </div>
+                        <div className="dept-cat-search">
+                            <div className="search-wrapper">
+                                <Search size={18} className="search-icon" />
+                                <input type="text" placeholder="Search..." className="inner-search-input" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <section className="premium-table dept-cat-table">
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr className="table-header-row">
+                                    <th className="table-th">{innerTab === 'Departments' ? 'Department' : 'Category'}</th>
+                                    {innerTab === 'Categories' && <th className="table-th">Department</th>}
+                                    <th className="table-th">Description</th>
+                                    <th className="table-th">Status</th>
+                                    <th className="table-th">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {innerTab === 'Departments' ? (
+                                    departments.map((d) => (
+                                        <tr key={d.id} className="table-row">
+                                            <td className="table-cell">
+                                                <div className="cell-with-icon">
+                                                    <div className="dept-icon-box"><Folder size={16} /></div>
+                                                    <span className="cell-main-text">{d.name}</span>
+                                                </div>
+                                            </td>
+                                            <td className="table-cell">{d.description}</td>
+                                            <td className="table-cell"><span className="status-badge status-completed">{d.status}</span></td>
+                                            <td className="table-cell">
+                                                <button type="button" className="btn-edit" onClick={() => { setEditingDept({ ...d }); setEditDeptOpen(true); }}>Edit</button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    categories.map((c) => (
+                                        <tr key={c.id} className="table-row">
+                                            <td className="table-cell">
+                                                <div className="cell-with-icon">
+                                                    <div className="cat-icon-box"><Layers size={16} /></div>
+                                                    <span className="cell-main-text">{c.name}</span>
+                                                </div>
+                                            </td>
+                                            <td className="table-cell">{c.department}</td>
+                                            <td className="table-cell">{c.description}</td>
+                                            <td className="table-cell"><span className="status-badge status-completed">{c.status}</span></td>
+                                            <td className="table-cell">
+                                                <button type="button" className="btn-edit" onClick={() => { setEditingCategory({ ...c }); setEditCategoryOpen(true); }}>Edit</button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </section>
+
+                    
+                </>
+            )}
+
+            {activeSub === 'units-of-measure' && (
+                <>
+                    <header className="uom-header">
+                        <div>
+                            <h1 className="uom-title">Units of Measure</h1>
+                            <p className="uom-subtitle">Manage UOM used in purchase invoices, products, and inventory</p>
+                        </div>
+                        <button type="button" className="btn-portal" onClick={() => setNewUomOpen(true)}><Plus size={16} /> New UOM</button>
+                    </header>
+                    <div className="uom-stats">
+                        <div className="uom-stat-card"><span className="uom-stat-label">Total UOMs</span><span className="uom-stat-val">{uomList.length}</span></div>
+                        <div className="uom-stat-card"><span className="uom-stat-label">Active</span><span className="uom-stat-val">{uomList.filter((u) => u.status === 'active').length}</span></div>
+                        <div className="uom-stat-card"><span className="uom-stat-label">Categories</span><span className="uom-stat-val">5</span></div>
+                        <div className="uom-stat-card"><span className="uom-stat-label">Inactive</span><span className="uom-stat-val">{uomList.filter((u) => u.status !== 'active').length}</span></div>
+                    </div>
+                    <div className="uom-pills">
+                        {['all', 'quantity', 'volume', 'weight', 'length', 'service'].map((cat) => (
+                            <button key={cat} type="button" className={`uom-pill ${uomCategoryFilter === cat ? 'active' : ''}`} onClick={() => setUomCategoryFilter(cat)}>{cat === 'all' ? 'All' : cat}</button>
+                        ))}
+                    </div>
+                    <section className="premium-table uom-table">
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr className="table-header-row">
+                                    <th className="table-th" style={{ width: '20%' }}>Name</th>
+                                    <th className="table-th" style={{ width: '15%' }}>Abbreviation</th>
+                                    <th className="table-th" style={{ width: '15%' }}>Category</th>
+                                    <th className="table-th">Description</th>
+                                    <th className="table-th" style={{ width: '15%' }}>Status</th>
+                                    <th className="table-th" style={{ width: '10%' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {uomList.filter((u) => uomCategoryFilter === 'all' || u.category === uomCategoryFilter).map((u) => (
+                                    <tr key={u.id} className="table-row">
+                                        <td className="table-cell cell-main-text">{u.name}</td>
+                                        <td className="table-cell">{u.abbreviation}</td>
+                                        <td className="table-cell"><span className="uom-cat-badge">{u.category}</span></td>
+                                        <td className="table-cell text-muted">{u.description || '—'}</td>
+                                        <td className="table-cell">
+                                            <span className={`status-badge ${u.status === 'active' ? 'status-completed' : 'status-warning'}`}>
+                                                {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
+                                            </span>
+                                        </td>
+                                        <td className="table-cell">
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button type="button" className="btn-icon" onClick={() => openEditUom(u)}><Pencil size={16} /></button>
+                                                <button type="button" className="btn-icon" onClick={() => handleDeleteUom(u.id)} style={{ color: '#EF4444' }}><Trash2 size={16} /></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </section>
+                    
                 </>
             )}
         </div>

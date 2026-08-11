@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Clock, CheckCircle, DollarSign, UserCheck, Download } from 'lucide-react';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import '../../styles/admin/ReferralCommissionsPage.css';
 
 export default function ReferralCommissionsPage() {
@@ -77,6 +77,54 @@ export default function ReferralCommissionsPage() {
         "Bank — SAR 1,500"
     ];
 
+    if (payoutModalOpen) {
+        return (
+            <AdminModalAsScreen
+                title="Confirm Commission Payout"
+                onClose={() => setPayoutModalOpen(false)}
+                footer={(
+                    <div className="modal-footer-actions">
+                        <button type="button" className="btn-secondary" onClick={() => setPayoutModalOpen(false)}>Cancel</button>
+                        <button
+                            type="button"
+                            className="btn-confirm-payout"
+                            onClick={confirmPayout}
+                            disabled={!selectedAccount}
+                        >
+                            Confirm Payout
+                        </button>
+                    </div>
+                )}
+            >
+                <div className="payout-modal-body">
+                    <div className="payout-summary-box">
+                        <span className="summary-label">Payout Summary</span>
+                        <span className="summary-count">{selectedIds.size} commission(s)</span>
+                        <span className="summary-amount">SAR {stats.selected.toFixed(2)}</span>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Cash / Bank Account (Credit)</label>
+                        <select
+                            className="form-input-field"
+                            value={selectedAccount}
+                            onChange={(e) => setSelectedAccount(e.target.value)}
+                        >
+                            <option value="">Select account...</option>
+                            {ACCOUNTS.map(acc => (
+                                <option key={acc} value={acc}>{acc}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <p className="journal-footnote">
+                        Journal: Dr Commission Payable / Cr Selected Account
+                    </p>
+                </div>
+            </AdminModalAsScreen>
+        );
+    }
+
     return (
         <div className="commissions-page module-container">
             <header className="commissions-header">
@@ -136,10 +184,11 @@ export default function ReferralCommissionsPage() {
                 </div>
                 
                 <div className="action-buttons">
-                    <button className="btn-select-all" onClick={toggleSelectAll}>
+                    <button type="button" className="btn-select-all" onClick={toggleSelectAll}>
                         <UserCheck size={16} /> Select All
                     </button>
                     <button 
+                        type="button"
                         className="btn-generate-payout" 
                         onClick={() => selectedIds.size > 0 && setPayoutModalOpen(true)}
                         disabled={selectedIds.size === 0}
@@ -154,7 +203,7 @@ export default function ReferralCommissionsPage() {
                 <table className="commissions-table">
                     <thead>
                         <tr>
-                            <th className="checkbox-col"><input type="checkbox" /></th>
+                            <th className="checkbox-col"><input type="checkbox" readOnly /></th>
                             <th>EMPLOYEE</th>
                             <th>DATE</th>
                             <th>JOB CARD</th>
@@ -195,51 +244,6 @@ export default function ReferralCommissionsPage() {
                     </tbody>
                 </table>
             </div>
-
-            {payoutModalOpen && (
-                <Modal 
-                    title="Confirm Commission Payout" 
-                    onClose={() => setPayoutModalOpen(false)}
-                    footer={(
-                        <div className="modal-footer-actions">
-                            <button className="btn-secondary" onClick={() => setPayoutModalOpen(false)}>Cancel</button>
-                            <button 
-                                className="btn-confirm-payout" 
-                                onClick={confirmPayout}
-                                disabled={!selectedAccount}
-                            >
-                                Confirm Payout
-                            </button>
-                        </div>
-                    )}
-                >
-                    <div className="payout-modal-body">
-                        <div className="payout-summary-box">
-                            <span className="summary-label">Payout Summary</span>
-                            <span className="summary-count">{selectedIds.size} commission(s)</span>
-                            <span className="summary-amount">SAR {stats.selected.toFixed(2)}</span>
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">Cash / Bank Account (Credit)</label>
-                            <select 
-                                className="form-input-field"
-                                value={selectedAccount}
-                                onChange={(e) => setSelectedAccount(e.target.value)}
-                            >
-                                <option value="">Select account...</option>
-                                {ACCOUNTS.map(acc => (
-                                    <option key={acc} value={acc}>{acc}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <p className="journal-footnote">
-                            Journal: Dr Commission Payable / Cr Selected Account
-                        </p>
-                    </div>
-                </Modal>
-            )}
         </div>
     );
 }

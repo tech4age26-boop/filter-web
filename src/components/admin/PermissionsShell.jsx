@@ -1,13 +1,12 @@
 import React from 'react';
-import Modal from '../Modal';
 import PermissionsPageShell from './PermissionsPageShell';
 import { permT } from '../../utils/permissionsI18n';
 
 /**
- * Renders permissions UI either as a modal (legacy) or full page with back navigation.
+ * Permissions UI as a full page with back navigation (no floating modal).
  */
 export default function PermissionsShell({
-    asPage = false,
+    asPage = true,
     title,
     onClose,
     className = '',
@@ -17,31 +16,19 @@ export default function PermissionsShell({
     backLabel,
     backDisabled = false,
 }) {
+    void asPage;
     const resolvedBackLabel = backLabel ?? permT(locale || 'en', 'shell.back');
 
-    if (asPage) {
-        return (
-            <PermissionsPageShell
-                title={title}
-                onBack={onClose}
-                backLabel={resolvedBackLabel}
-                footer={footer}
-                backDisabled={backDisabled}
-                className={className}
-            >
-                {children}
-            </PermissionsPageShell>
-        );
-    }
-
     return (
-        <Modal
+        <PermissionsPageShell
             title={title}
-            onClose={backDisabled ? undefined : onClose}
-            className={className}
+            onBack={onClose}
+            backLabel={resolvedBackLabel}
             footer={footer}
+            backDisabled={backDisabled}
+            className={className}
         >
             {children}
-        </Modal>
+        </PermissionsPageShell>
     );
 }

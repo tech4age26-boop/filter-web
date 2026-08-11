@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { X, Mail, Phone, Building2, Truck, Users, Briefcase, User } from 'lucide-react';
+import { Mail, Phone, Building2, Truck, Users, Briefcase, User } from 'lucide-react';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
 import { pcT } from '../../utils/platformChatI18n';
 
 const CATEGORY_ICONS = {
@@ -119,94 +120,80 @@ export default function PlatformChatContactProfile({ conversation, onClose, loca
     const meta = categoryMeta(direct?.category || 'platform', t);
 
     return (
-        <div className="pc-drawer-root" role="presentation">
-            <button
-                type="button"
-                className="pc-drawer-backdrop"
-                onClick={onClose}
-                aria-label={t('profile.closeInfo')}
-            />
-            <aside className="pc-drawer" role="dialog" aria-label={t('profile.contactInfo')}>
-                <div className="pc-drawer__hero">
-                    <button
-                        type="button"
-                        className="pc-drawer__close"
-                        onClick={onClose}
-                        aria-label={t('profile.close')}
+        <AdminScreenShell
+            title={isGroup ? conversation.title : direct?.name || conversation.title}
+            onBack={onClose}
+            backLabel={t('profile.closeInfo')}
+            className="pc-contact-profile-screen"
+        >
+            <div className="pc-drawer__hero pc-drawer__hero--inline">
+                <DrawerAvatar
+                    name={isGroup ? conversation.title : direct?.name}
+                    category={direct?.category || 'platform'}
+                    isGroup={isGroup}
+                    t={t}
+                />
+                {!isGroup && direct && (
+                    <span
+                        className="pc-drawer__pill"
+                        style={{ color: meta.accent, background: meta.soft }}
                     >
-                        <X size={22} />
-                    </button>
-                    <DrawerAvatar
-                        name={isGroup ? conversation.title : direct?.name}
-                        category={direct?.category || 'platform'}
-                        isGroup={isGroup}
-                        t={t}
-                    />
-                    <h2 className="pc-drawer__name">
-                        {isGroup ? conversation.title : direct?.name || conversation.title}
-                    </h2>
-                    {!isGroup && direct && (
-                        <span
-                            className="pc-drawer__pill"
-                            style={{ color: meta.accent, background: meta.soft }}
-                        >
-                            <meta.icon size={14} />
-                            {direct.role}
-                        </span>
-                    )}
-                    {isGroup && (
-                        <p className="pc-drawer__meta">
-                            {t('profile.groupMeta', { count: conversation.participants?.length ?? 0 })}
-                        </p>
-                    )}
-                    {!isGroup && direct?.entityName && (
-                        <p className="pc-drawer__meta">{direct.entityName}</p>
-                    )}
-                </div>
+                        <meta.icon size={14} />
+                        {direct.role}
+                    </span>
+                )}
+                {isGroup && (
+                    <p className="pc-drawer__meta">
+                        {t('profile.groupMeta', { count: conversation.participants?.length ?? 0 })}
+                    </p>
+                )}
+                {!isGroup && direct?.entityName && (
+                    <p className="pc-drawer__meta">{direct.entityName}</p>
+                )}
+            </div>
 
-                <div className="pc-drawer__scroll">
-                    {isGroup ? (
+            <div className="pc-drawer__scroll pc-drawer__scroll--inline">
+                {isGroup ? (
+                    <section className="pc-drawer__section">
+                        <h3>{t('profile.members')}</h3>
+                        <div className="pc-drawer-members">
+                            {conversation.participants
+                                ?.filter((p) => !p.isSelf)
+                                .map((p) => (
+                                    <MemberRow key={p.userId} person={p} t={t} />
+                                ))}
+                        </div>
+                    </section>
+                ) : direct ? (
+                    <>
                         <section className="pc-drawer__section">
-                            <h3>{t('profile.members')}</h3>
-                            <div className="pc-drawer-members">
-                                {conversation.participants
-                                    ?.filter((p) => !p.isSelf)
-                                    .map((p) => (
-                                        <MemberRow key={p.userId} person={p} t={t} />
-                                    ))}
-                            </div>
+                            <h3>{t('profile.about')}</h3>
+                            <InfoCard icon={meta.icon} label={meta.label} value={direct.entityName} />
+                            {direct.branchName && (
+                                <InfoCard icon={Building2} label={t('profile.branch')} value={direct.branchName} />
+                            )}
+                            <InfoCard icon={User} label={t('profile.portalRole')} value={direct.role} />
                         </section>
-                    ) : direct ? (
-                        <>
-                            <section className="pc-drawer__section">
-                                <h3>{t('profile.about')}</h3>
-                                <InfoCard icon={meta.icon} label={meta.label} value={direct.entityName} />
-                                {direct.branchName && (
-                                    <InfoCard icon={Building2} label={t('profile.branch')} value={direct.branchName} />
-                                )}
-                                <InfoCard icon={User} label={t('profile.portalRole')} value={direct.role} />
-                            </section>
-                            <section className="pc-drawer__section">
-                                <h3>{t('profile.contact')}</h3>
-                                <InfoCard
-                                    icon={Mail}
-                                    label={t('profile.email')}
-                                    value={direct.email}
-                                    href={direct.email ? `mailto:${direct.email}` : undefined}
-                                />
-                                <InfoCard
-                                    icon={Phone}
-                                    label={t('profile.mobile')}
-                                    value={direct.mobile}
-                                    href={direct.mobile ? `tel:${direct.mobile}` : undefined}
-                                />
-                            </section>
-                        </>
-                    ) : (
-                        <p className="pc-drawer-empty">{t('profile.empty')}</p>
-                    )}
-                </div>
-            </aside>
-        </div>
+                        <section className="pc-drawer__section">
+                            <h3>{t('profile.contact')}</h3>
+                            <InfoCard
+                                icon={Mail}
+                                label={t('profile.email')}
+                                value={direct.email}
+                                href={direct.email ? `mailto:${direct.email}` : undefined}
+                            />
+                            <InfoCard
+                                icon={Phone}
+                                label={t('profile.mobile')}
+                                value={direct.mobile}
+                                href={direct.mobile ? `tel:${direct.mobile}` : undefined}
+                            />
+                        </section>
+                    </>
+                ) : (
+                    <p className="pc-drawer-empty">{t('profile.empty')}</p>
+                )}
+            </div>
+        </AdminScreenShell>
     );
 }

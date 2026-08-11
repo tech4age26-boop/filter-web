@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Plus, Eye, Pencil, X, MapPin } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import '../../styles/admin/ZoneManagementPage.css';
 
 const INITIAL_ZONES = [
@@ -185,6 +184,421 @@ export default function ZoneManagementPage() {
         }
     };
 
+    if (createZoneOpen || editZoneOpen || assignZoneOpen || assignSupplierZoneOpen || branchViewOpen || zoneViewOpen) {
+        return (
+            <>
+                {createZoneOpen && (
+                    <AdminModalAsScreen
+                        title="Create New Zone"
+                        onClose={() => setCreateZoneOpen(false)}
+                        className="create-zone-modal"
+                        footer={
+                            <>
+                                <button type="button" className="btn-secondary" onClick={() => setCreateZoneOpen(false)}>Cancel</button>
+                                <button type="button" className="btn-submit" onClick={() => handleSaveZone(false)}>Create Zone</button>
+                            </>
+                        }
+                    >
+                        <div className="zone-info-box">
+                            <div className="zone-info-icon">
+                                <Eye size={18} />
+                            </div>
+                            <div className="zone-info-text">
+                                Saudi Arabia has <strong>13 administrative regions</strong>. When a workshop registers, the system automatically assigns it to the matching zone based on its GPS location. Define zones by selecting regions below.
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label className="form-label">Zone Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="e.g. Riyadh Zone"
+                                    value={zoneForm.name}
+                                    onChange={(e) => setZoneForm(p => ({ ...p, name: e.target.value }))}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Zone Code</label>
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="e.g. RYD"
+                                    value={zoneForm.code}
+                                    onChange={(e) => setZoneForm(p => ({ ...p, code: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Status</label>
+                            <select
+                                className="form-input-field"
+                                value={zoneForm.status}
+                                onChange={(e) => setZoneForm(p => ({ ...p, status: e.target.value }))}
+                            >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+
+                        <h4 className="regions-header">Add from Saudi Arabia's 13 Regions</h4>
+                        <div className="regions-list">
+                            {SA_REGIONS.map((region) => {
+                                const cityList = region.cities.split(', ').map(c => c.trim());
+                                const isSelected = cityList.every(c => zoneForm.selectedCities.includes(c));
+                                return (
+                                    <div key={region.name} className="region-item">
+                                        <div className="region-info">
+                                            <span className="region-name">{region.name}</span>
+                                            <span className="region-cities-preview">{region.cities}...</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn-add-cities"
+                                            onClick={() => toggleCitySelection(region.cities)}
+                                        >
+                                            {isSelected ? '✓ Added' : '+ Add Cities'}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {zoneForm.selectedCities.length > 0 && (
+                            <div className="selected-cities-section">
+                                <h4 className="selected-cities-title">Selected Cities / Districts ({zoneForm.selectedCities.length})</h4>
+                                <div className="selected-cities-tags">
+                                    {zoneForm.selectedCities.map((city, idx) => (
+                                        <span key={`${city}-${idx}`} className="city-tag">
+                                            <MapPin size={12} className="city-tag-icon" />
+                                            {city}
+                                            <button
+                                                type="button"
+                                                className="btn-remove-city"
+                                                onClick={() => removeSelectedCity(city)}
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="custom-city-section">
+                            <h4 className="custom-city-label">Add Custom City / District</h4>
+                            <div className="custom-city-input-group">
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="Type city name..."
+                                    value={customCity}
+                                    onChange={(e) => setCustomCity(e.target.value)}
+                                />
+                                <button type="button" className="btn-add-custom" onClick={addCustomCity}>Add</button>
+                            </div>
+                        </div>
+
+                        <div className="form-group description-group">
+                            <label className="form-label">Description</label>
+                            <textarea
+                                className="form-input-field"
+                                rows={3}
+                                placeholder="Optional zone description..."
+                                value={zoneForm.description}
+                                onChange={(e) => setZoneForm(p => ({ ...p, description: e.target.value }))}
+                            />
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {editZoneOpen && editingZone && (
+                    <AdminModalAsScreen
+                        title="Edit Zone"
+                        onClose={() => { setEditZoneOpen(false); setEditingZone(null); }}
+                        footer={
+                            <>
+                                <button type="button" className="btn-secondary" onClick={() => { setEditZoneOpen(false); setEditingZone(null); }}>Cancel</button>
+                                <button type="button" className="btn-submit" onClick={() => handleSaveZone(true)}>Save Changes</button>
+                            </>
+                        }
+                    >
+                        <div className="zone-info-box">
+                            <div className="zone-info-icon">
+                                <Eye size={18} />
+                            </div>
+                            <div className="zone-info-text">
+                                Update the zone details, regions, and cities below.
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label className="form-label">Zone Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="e.g. Riyadh Zone"
+                                    value={zoneForm.name}
+                                    onChange={(e) => setZoneForm(p => ({ ...p, name: e.target.value }))}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Zone Code</label>
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="e.g. RYD"
+                                    value={zoneForm.code}
+                                    onChange={(e) => setZoneForm(p => ({ ...p, code: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Status</label>
+                            <select
+                                className="form-input-field"
+                                value={zoneForm.status}
+                                onChange={(e) => setZoneForm(p => ({ ...p, status: e.target.value }))}
+                            >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+
+                        <h4 className="regions-header">Add from Saudi Arabia's 13 Regions</h4>
+                        <div className="regions-list">
+                            {SA_REGIONS.map((region) => {
+                                const cityList = region.cities.split(', ').map(c => c.trim());
+                                const isSelected = cityList.every(c => zoneForm.selectedCities.includes(c));
+                                return (
+                                    <div key={region.name} className="region-item">
+                                        <div className="region-info">
+                                            <span className="region-name">{region.name}</span>
+                                            <span className="region-cities-preview">{region.cities}...</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn-add-cities"
+                                            onClick={() => toggleCitySelection(region.cities)}
+                                        >
+                                            {isSelected ? '✓ Added' : '+ Add Cities'}
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {zoneForm.selectedCities.length > 0 && (
+                            <div className="selected-cities-section">
+                                <h4 className="selected-cities-title">Selected Cities / Districts ({zoneForm.selectedCities.length})</h4>
+                                <div className="selected-cities-tags">
+                                    {zoneForm.selectedCities.map((city, idx) => (
+                                        <span key={`${city}-${idx}`} className="city-tag">
+                                            <MapPin size={12} className="city-tag-icon" />
+                                            {city}
+                                            <button
+                                                type="button"
+                                                className="btn-remove-city"
+                                                onClick={() => removeSelectedCity(city)}
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="custom-city-section">
+                            <h4 className="custom-city-label">Add Custom City / District</h4>
+                            <div className="custom-city-input-group">
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    placeholder="Type city name..."
+                                    value={customCity}
+                                    onChange={(e) => setCustomCity(e.target.value)}
+                                />
+                                <button type="button" className="btn-add-custom" onClick={addCustomCity}>Add</button>
+                            </div>
+                        </div>
+
+                        <div className="form-group description-group">
+                            <label className="form-label">Description</label>
+                            <textarea
+                                className="form-input-field"
+                                rows={3}
+                                placeholder="Optional zone description..."
+                                value={zoneForm.description}
+                                onChange={(e) => setZoneForm(p => ({ ...p, description: e.target.value }))}
+                            />
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {assignZoneOpen && assigningBranch && (
+                    <AdminModalAsScreen
+                        title="Assign Zone"
+                        onClose={() => { setAssignZoneOpen(false); setAssigningBranch(null); }}
+                        footer={
+                            <>
+                                <button type="button" className="btn-secondary" onClick={() => { setAssignZoneOpen(false); setAssigningBranch(null); }}>Cancel</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveBranchAssignment}>Save Changes</button>
+                            </>
+                        }
+                    >
+                        <div className="form-group">
+                            <label className="form-label">Branch Name</label>
+                            <input
+                                type="text"
+                                className="form-input-field read-only"
+                                value={assigningBranch.name}
+                                readOnly
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Zone</label>
+                            <select
+                                className="form-input-field"
+                                value={assigningBranch.zone}
+                                onChange={(e) => setAssigningBranch((p) => ({ ...p, zone: e.target.value }))}
+                            >
+                                <option value="No zone">No zone</option>
+                                {zones.map((z) => <option key={z.id} value={z.name}>{z.name}</option>)}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Status</label>
+                            <select
+                                className="form-input-field"
+                                value={assigningBranch.status}
+                                onChange={(e) => setAssigningBranch((p) => ({ ...p, status: e.target.value }))}
+                            >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {assignSupplierZoneOpen && assigningSupplier && (
+                    <AdminModalAsScreen
+                        title="Assign Supplier Zone"
+                        onClose={() => { setAssignSupplierZoneOpen(false); setAssigningSupplier(null); }}
+                        footer={
+                            <>
+                                <button type="button" className="btn-secondary" onClick={() => { setAssignSupplierZoneOpen(false); setAssigningSupplier(null); }}>Cancel</button>
+                                <button type="button" className="btn-submit" onClick={handleSaveSupplierAssignment}>Save Changes</button>
+                            </>
+                        }
+                    >
+                        <div className="form-group">
+                            <label className="form-label">Supplier Name</label>
+                            <input
+                                type="text"
+                                className="form-input-field read-only"
+                                value={assigningSupplier.name}
+                                readOnly
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Zone</label>
+                            <select
+                                className="form-input-field"
+                                value={assigningSupplier.zone}
+                                onChange={(e) => setAssigningSupplier((p) => ({ ...p, zone: e.target.value }))}
+                            >
+                                <option value="No zone">No zone</option>
+                                {zones.map((z) => <option key={z.id} value={z.name}>{z.name}</option>)}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Status</label>
+                            <select
+                                className="form-input-field"
+                                value={assigningSupplier.status}
+                                onChange={(e) => setAssigningSupplier((p) => ({ ...p, status: e.target.value }))}
+                            >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {branchViewOpen && viewingBranch && (
+                    <AdminModalAsScreen
+                        title="Branch Details"
+                        onClose={() => { setBranchViewOpen(false); setViewingBranch(null); }}
+                        footer={<button type="button" className="btn-submit" onClick={() => setBranchViewOpen(false)}>Close</button>}
+                    >
+                        <div className="view-details-grid">
+                            <div className="view-detail-item">
+                                <label>Branch Code</label>
+                                <p>{viewingBranch.code}</p>
+                            </div>
+                            <div className="view-detail-item">
+                                <label>Zone</label>
+                                <p>{viewingBranch.zone === 'No zone' ? 'Not assigned' : viewingBranch.zone}</p>
+                            </div>
+                            <div className="view-detail-item">
+                                <label>GPS Location</label>
+                                <p>{viewingBranch.gps}</p>
+                            </div>
+                            <div className="view-detail-item">
+                                <label>Phone</label>
+                                <p>{viewingBranch.phone}</p>
+                            </div>
+                            <div className="view-detail-item">
+                                <label>Contact Person</label>
+                                <p>{viewingBranch.contactPerson || 'N/A'}</p>
+                            </div>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {zoneViewOpen && viewingZone && (
+                    <AdminModalAsScreen
+                        title="Zone Details"
+                        onClose={() => { setZoneViewOpen(false); setViewingZone(null); }}
+                        footer={<button type="button" className="btn-submit" onClick={() => setZoneViewOpen(false)}>Close</button>}
+                    >
+                        <div className="view-details-grid">
+                            <div className="view-detail-item">
+                                <label>Status</label>
+                                <p><span className={`zone-status-badge status-${viewingZone.status}`}>{viewingZone.status}</span></p>
+                            </div>
+                            <div className="view-detail-item full-width">
+                                <label>Cities / Districts</label>
+                                <div className="selected-cities-tags" style={{ marginTop: '8px' }}>
+                                    {viewingZone.cities.split(/, | /).filter(Boolean).map((city, idx) => (
+                                        <span key={`${city}-${idx}`} className="city-tag">
+                                            <MapPin size={12} className="city-tag-icon" />
+                                            {city}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="view-detail-item">
+                                <label>Suppliers</label>
+                                <p>{viewingZone.suppliers || 'No suppliers'}</p>
+                            </div>
+                            <div className="view-detail-item">
+                                <label>Branches</label>
+                                <p>{viewingZone.branches || 'No branches'}</p>
+                            </div>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+            </>
+        );
+    }
+
     return (
         <div className="zone-management-page module-container">
             <div className="zone-header">
@@ -310,415 +724,7 @@ export default function ZoneManagementPage() {
                 </div>
             </section>
 
-            <AnimatePresence>
-                {createZoneOpen && (
-                    <Modal
-                        title="Create New Zone"
-                        onClose={() => setCreateZoneOpen(false)}
-                        className="create-zone-modal"
-                        footer={
-                            <>
-                                <button type="button" className="btn-secondary" onClick={() => setCreateZoneOpen(false)}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={() => handleSaveZone(false)}>Create Zone</button>
-                            </>
-                        }
-                    >
-                        <div className="zone-info-box">
-                            <div className="zone-info-icon">
-                                <Eye size={18} />
-                            </div>
-                            <div className="zone-info-text">
-                                Saudi Arabia has <strong>13 administrative regions</strong>. When a workshop registers, the system automatically assigns it to the matching zone based on its GPS location. Define zones by selecting regions below.
-                            </div>
-                        </div>
 
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label className="form-label">Zone Name *</label>
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    placeholder="e.g. Riyadh Zone"
-                                    value={zoneForm.name}
-                                    onChange={(e) => setZoneForm(p => ({ ...p, name: e.target.value }))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Zone Code</label>
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    placeholder="e.g. RYD"
-                                    value={zoneForm.code}
-                                    onChange={(e) => setZoneForm(p => ({ ...p, code: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">Status</label>
-                            <select
-                                className="form-input-field"
-                                value={zoneForm.status}
-                                onChange={(e) => setZoneForm(p => ({ ...p, status: e.target.value }))}
-                            >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
-                        </div>
-
-                        <h4 className="regions-header">Add from Saudi Arabia's 13 Regions</h4>
-                        <div className="regions-list">
-                            {SA_REGIONS.map((region) => {
-                                const cityList = region.cities.split(', ').map(c => c.trim());
-                                const isSelected = cityList.every(c => zoneForm.selectedCities.includes(c));
-                                return (
-                                    <div key={region.name} className="region-item">
-                                        <div className="region-info">
-                                            <span className="region-name">{region.name}</span>
-                                            <span className="region-cities-preview">{region.cities}...</span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className="btn-add-cities"
-                                            onClick={() => toggleCitySelection(region.cities)}
-                                        >
-                                            {isSelected ? '✓ Added' : '+ Add Cities'}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        {zoneForm.selectedCities.length > 0 && (
-                            <div className="selected-cities-section">
-                                <h4 className="selected-cities-title">Selected Cities / Districts ({zoneForm.selectedCities.length})</h4>
-                                <div className="selected-cities-tags">
-                                    {zoneForm.selectedCities.map((city, idx) => (
-                                        <span key={`${city}-${idx}`} className="city-tag">
-                                            <MapPin size={12} className="city-tag-icon" />
-                                            {city}
-                                            <button
-                                                type="button"
-                                                className="btn-remove-city"
-                                                onClick={() => removeSelectedCity(city)}
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="custom-city-section">
-                            <h4 className="custom-city-label">Add Custom City / District</h4>
-                            <div className="custom-city-input-group">
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    placeholder="Type city name..."
-                                    value={customCity}
-                                    onChange={(e) => setCustomCity(e.target.value)}
-                                />
-                                <button type="button" className="btn-add-custom" onClick={addCustomCity}>Add</button>
-                            </div>
-                        </div>
-
-                        <div className="form-group description-group">
-                            <label className="form-label">Description</label>
-                            <textarea
-                                className="form-input-field"
-                                rows={3}
-                                placeholder="Optional zone description..."
-                                value={zoneForm.description}
-                                onChange={(e) => setZoneForm(p => ({ ...p, description: e.target.value }))}
-                            />
-                        </div>
-                    </Modal>
-                )}
-
-                {editZoneOpen && editingZone && (
-                    <Modal
-                        title="Edit Zone"
-                        onClose={() => { setEditZoneOpen(false); setEditingZone(null); }}
-                        footer={
-                            <>
-                                <button type="button" className="btn-secondary" onClick={() => { setEditZoneOpen(false); setEditingZone(null); }}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={() => handleSaveZone(true)}>Save Changes</button>
-                            </>
-                        }
-                    >
-                        <div className="zone-info-box">
-                            <div className="zone-info-icon">
-                                <Eye size={18} />
-                            </div>
-                            <div className="zone-info-text">
-                                Update the zone details, regions, and cities below.
-                            </div>
-                        </div>
-
-                        <div className="form-row">
-                            <div className="form-group">
-                                <label className="form-label">Zone Name *</label>
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    placeholder="e.g. Riyadh Zone"
-                                    value={zoneForm.name}
-                                    onChange={(e) => setZoneForm(p => ({ ...p, name: e.target.value }))}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Zone Code</label>
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    placeholder="e.g. RYD"
-                                    value={zoneForm.code}
-                                    onChange={(e) => setZoneForm(p => ({ ...p, code: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label">Status</label>
-                            <select
-                                className="form-input-field"
-                                value={zoneForm.status}
-                                onChange={(e) => setZoneForm(p => ({ ...p, status: e.target.value }))}
-                            >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
-                        </div>
-
-                        <h4 className="regions-header">Add from Saudi Arabia's 13 Regions</h4>
-                        <div className="regions-list">
-                            {SA_REGIONS.map((region) => {
-                                const cityList = region.cities.split(', ').map(c => c.trim());
-                                const isSelected = cityList.every(c => zoneForm.selectedCities.includes(c));
-                                return (
-                                    <div key={region.name} className="region-item">
-                                        <div className="region-info">
-                                            <span className="region-name">{region.name}</span>
-                                            <span className="region-cities-preview">{region.cities}...</span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className="btn-add-cities"
-                                            onClick={() => toggleCitySelection(region.cities)}
-                                        >
-                                            {isSelected ? '✓ Added' : '+ Add Cities'}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        {zoneForm.selectedCities.length > 0 && (
-                            <div className="selected-cities-section">
-                                <h4 className="selected-cities-title">Selected Cities / Districts ({zoneForm.selectedCities.length})</h4>
-                                <div className="selected-cities-tags">
-                                    {zoneForm.selectedCities.map((city, idx) => (
-                                        <span key={`${city}-${idx}`} className="city-tag">
-                                            <MapPin size={12} className="city-tag-icon" />
-                                            {city}
-                                            <button
-                                                type="button"
-                                                className="btn-remove-city"
-                                                onClick={() => removeSelectedCity(city)}
-                                            >
-                                                <X size={12} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="custom-city-section">
-                            <h4 className="custom-city-label">Add Custom City / District</h4>
-                            <div className="custom-city-input-group">
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    placeholder="Type city name..."
-                                    value={customCity}
-                                    onChange={(e) => setCustomCity(e.target.value)}
-                                />
-                                <button type="button" className="btn-add-custom" onClick={addCustomCity}>Add</button>
-                            </div>
-                        </div>
-
-                        <div className="form-group description-group">
-                            <label className="form-label">Description</label>
-                            <textarea
-                                className="form-input-field"
-                                rows={3}
-                                placeholder="Optional zone description..."
-                                value={zoneForm.description}
-                                onChange={(e) => setZoneForm(p => ({ ...p, description: e.target.value }))}
-                            />
-                        </div>
-                    </Modal>
-                )}
-
-                {assignZoneOpen && assigningBranch && (
-                    <Modal
-                        title="Assign Zone"
-                        onClose={() => { setAssignZoneOpen(false); setAssigningBranch(null); }}
-                        footer={
-                            <>
-                                <button type="button" className="btn-secondary" onClick={() => { setAssignZoneOpen(false); setAssigningBranch(null); }}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveBranchAssignment}>Save Changes</button>
-                            </>
-                        }
-                    >
-                        <div className="form-group">
-                            <label className="form-label">Branch Name</label>
-                            <input
-                                type="text"
-                                className="form-input-field read-only"
-                                value={assigningBranch.name}
-                                readOnly
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Zone</label>
-                            <select
-                                className="form-input-field"
-                                value={assigningBranch.zone}
-                                onChange={(e) => setAssigningBranch((p) => ({ ...p, zone: e.target.value }))}
-                            >
-                                <option value="No zone">No zone</option>
-                                {zones.map((z) => <option key={z.id} value={z.name}>{z.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Status</label>
-                            <select
-                                className="form-input-field"
-                                value={assigningBranch.status}
-                                onChange={(e) => setAssigningBranch((p) => ({ ...p, status: e.target.value }))}
-                            >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
-                        </div>
-                    </Modal>
-                )}
-
-                {assignSupplierZoneOpen && assigningSupplier && (
-                    <Modal
-                        title="Assign Supplier Zone"
-                        onClose={() => { setAssignSupplierZoneOpen(false); setAssigningSupplier(null); }}
-                        footer={
-                            <>
-                                <button type="button" className="btn-secondary" onClick={() => { setAssignSupplierZoneOpen(false); setAssigningSupplier(null); }}>Cancel</button>
-                                <button type="button" className="btn-submit" onClick={handleSaveSupplierAssignment}>Save Changes</button>
-                            </>
-                        }
-                    >
-                        <div className="form-group">
-                            <label className="form-label">Supplier Name</label>
-                            <input
-                                type="text"
-                                className="form-input-field read-only"
-                                value={assigningSupplier.name}
-                                readOnly
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Zone</label>
-                            <select
-                                className="form-input-field"
-                                value={assigningSupplier.zone}
-                                onChange={(e) => setAssigningSupplier((p) => ({ ...p, zone: e.target.value }))}
-                            >
-                                <option value="No zone">No zone</option>
-                                {zones.map((z) => <option key={z.id} value={z.name}>{z.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Status</label>
-                            <select
-                                className="form-input-field"
-                                value={assigningSupplier.status}
-                                onChange={(e) => setAssigningSupplier((p) => ({ ...p, status: e.target.value }))}
-                            >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
-                        </div>
-                    </Modal>
-                )}
-
-                {branchViewOpen && viewingBranch && (
-                    <Modal
-                        title="Branch Details"
-                        onClose={() => { setBranchViewOpen(false); setViewingBranch(null); }}
-                        footer={<button type="button" className="btn-submit" onClick={() => setBranchViewOpen(false)}>Close</button>}
-                    >
-                        <div className="view-details-grid">
-                            <div className="view-detail-item">
-                                <label>Branch Code</label>
-                                <p>{viewingBranch.code}</p>
-                            </div>
-                            <div className="view-detail-item">
-                                <label>Zone</label>
-                                <p>{viewingBranch.zone === 'No zone' ? 'Not assigned' : viewingBranch.zone}</p>
-                            </div>
-                            <div className="view-detail-item">
-                                <label>GPS Location</label>
-                                <p>{viewingBranch.gps}</p>
-                            </div>
-                            <div className="view-detail-item">
-                                <label>Phone</label>
-                                <p>{viewingBranch.phone}</p>
-                            </div>
-                            <div className="view-detail-item">
-                                <label>Contact Person</label>
-                                <p>{viewingBranch.contactPerson || 'N/A'}</p>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-
-                {zoneViewOpen && viewingZone && (
-                    <Modal
-                        title="Zone Details"
-                        onClose={() => { setZoneViewOpen(false); setViewingZone(null); }}
-                        footer={<button type="button" className="btn-submit" onClick={() => setZoneViewOpen(false)}>Close</button>}
-                    >
-                        <div className="view-details-grid">
-                            <div className="view-detail-item">
-                                <label>Status</label>
-                                <p><span className={`zone-status-badge status-${viewingZone.status}`}>{viewingZone.status}</span></p>
-                            </div>
-                            <div className="view-detail-item full-width">
-                                <label>Cities / Districts</label>
-                                <div className="selected-cities-tags" style={{ marginTop: '8px' }}>
-                                    {viewingZone.cities.split(/, | /).filter(Boolean).map((city, idx) => (
-                                        <span key={`${city}-${idx}`} className="city-tag">
-                                            <MapPin size={12} className="city-tag-icon" />
-                                            {city}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="view-detail-item">
-                                <label>Suppliers</label>
-                                <p>{viewingZone.suppliers || 'No suppliers'}</p>
-                            </div>
-                            <div className="view-detail-item">
-                                <label>Branches</label>
-                                <p>{viewingZone.branches || 'No branches'}</p>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
         </div>
     );
 }

@@ -1,5 +1,4 @@
 import React from 'react';
-import Modal from '../Modal';
 import ApprovalPageShell from './ApprovalPageShell';
 import { apT } from '../../utils/approvalsI18n';
 
@@ -9,10 +8,10 @@ function defaultBackLabel() {
 }
 
 /**
- * Renders approval UI either as a modal (legacy) or full page with back navigation.
+ * Approvals UI as a full page with back navigation (no floating modal).
  */
 export default function ApprovalShell({
-    asPage = false,
+    asPage = true,
     title,
     onClose,
     width,
@@ -21,29 +20,18 @@ export default function ApprovalShell({
     backLabel,
     backDisabled = false,
 }) {
+    void asPage;
+    void width;
     const resolvedBackLabel = backLabel ?? defaultBackLabel();
-    if (asPage) {
-        return (
-            <ApprovalPageShell
-                title={title}
-                onBack={onClose}
-                backLabel={resolvedBackLabel}
-                footer={footer}
-                backDisabled={backDisabled}
-            >
-                {children}
-            </ApprovalPageShell>
-        );
-    }
-
     return (
-        <Modal
+        <ApprovalPageShell
             title={title}
-            onClose={backDisabled ? undefined : onClose}
-            width={width}
+            onBack={onClose}
+            backLabel={resolvedBackLabel}
             footer={footer}
+            backDisabled={backDisabled}
         >
             {children}
-        </Modal>
+        </ApprovalPageShell>
     );
 }

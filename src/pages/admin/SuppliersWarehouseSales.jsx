@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom';
 import { Truck, Search, Loader } from 'lucide-react';
 import '../../styles/admin/SalesOrders.css';
 import '../workshop/Workshop.css';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
     getBranches,
@@ -475,6 +475,222 @@ export default function SuppliersWarehouseSales() {
         ? t('detail.titleWithNo', { kind: detailKind, no: detailData.invoiceNo })
         : t('detail.titleFallback', { kind: detailKind });
 
+    if (detailId) {
+        return (
+            <AdminModalAsScreen
+                title={detailTitle}
+                onClose={closeDetails}
+                wide
+            >
+                    {detailLoading ? (
+                        <ShimmerTextBlock lines={6} />
+                    ) : detailError ? (
+                        <div style={{ color: '#B91C1C' }}>{detailError}</div>
+                    ) : detailData ? (
+                        <div className="ws-order-details-modal-body">
+                            <div className="ws-report-table-wrapper">
+                                <table className="ws-table">
+                                    <tbody>
+                                        <tr><th>{t('d.invoiceNo')}</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
+                                        <tr><th>{t('d.invoiceDate')}</th><td>{formatDateOnly(detailData.invoiceDate)}</td></tr>
+                                        <tr><th>{t('d.dueDate')}</th><td>{formatDateOnly(detailData.dueDate)}</td></tr>
+                                        {detailData.paymentTerms ? (
+                                            <tr><th>{t('d.paymentTerms')}</th><td>{detailData.paymentTerms}</td></tr>
+                                        ) : null}
+                                        <tr><th>{t('d.status')}</th><td>{formatSwsStatusLabel(detailData.status, t)}</td></tr>
+                                        <tr>
+                                            <th>{t('d.workshopReview')}</th>
+                                            <td>
+                                                {detailData.workshopReviewStatus
+                                                    ? formatSwsStatusLabel(detailData.workshopReviewStatus, t)
+                                                    : t('review.pendingShort')}
+                                                {detailData.workshopReviewedAt
+                                                    ? ` · ${formatDateTime(detailData.workshopReviewedAt)}`
+                                                    : ''}
+                                            </td>
+                                        </tr>
+                                        {detailData.workshopRejectionReason ? (
+                                            <tr>
+                                                <th>{t('d.rejectionReason')}</th>
+                                                <td>{detailData.workshopRejectionReason}</td>
+                                            </tr>
+                                        ) : null}
+                                        <tr>
+                                            <th>{t('d.supplier')}</th>
+                                            <td>
+                                                <div style={{ fontWeight: 600 }}>{detailData.supplier?.name ?? '—'}</div>
+                                                <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                    {[detailData.supplier?.mobile, detailData.supplier?.email]
+                                                        .filter(Boolean)
+                                                        .join(' · ') || '—'}
+                                                </div>
+                                                {detailData.supplier?.vatId ? (
+                                                    <div style={{ fontSize: 12, color: '#6B7280' }}>
+                                                        {t('d.vatId', { id: detailData.supplier.vatId })}
+                                                    </div>
+                                                ) : null}
+                                            </td>
+                                        </tr>
+                                        <tr><th>{t('d.workshop')}</th><td>{detailData.workshop?.name ?? '—'}</td></tr>
+                                        <tr><th>{t('d.branch')}</th><td>{detailData.branch?.name ?? '—'}</td></tr>
+                                        {detailData.po ? (
+                                            <tr>
+                                                <th>{t('d.po')}</th>
+                                                <td>
+                                                    {t('d.poLine', {
+                                                        id: detailData.po.id,
+                                                        status: formatSwsStatusLabel(detailData.po.status, t),
+                                                    })}
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                        <tr>
+                                            <th>{t('d.subtotal')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.subtotal).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.invoiceDiscount')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.invoiceDiscount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.freightIn')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.freightIn).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.vat')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.vatAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.grandTotal')}</th>
+                                            <td className="ws-font-bold">
+                                                {t('money.sar', { amount: toNumber(detailData.grandTotal).toLocaleString() })}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.paid')}</th>
+                                            <td>{t('money.sar', { amount: toNumber(detailData.paidAmount).toLocaleString() })}</td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.balance')}</th>
+                                            <td className="ws-font-bold">
+                                                {t('money.sar', { amount: toNumber(detailData.balance).toLocaleString() })}
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <th>{t('d.payment')}</th>
+                                            <td>{formatSwsStatusLabel(detailData.paymentStatus, t)}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {Array.isArray(detailData.items) && detailData.items.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('d.lineItems')}
+                                    </p>
+                                    <div className="ws-order-details-table-scroll">
+                                        <table className="ws-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>{t('d.th.item')}</th>
+                                                    <th>{t('d.th.description')}</th>
+                                                    <th>{t('d.th.qty')}</th>
+                                                    <th>{t('d.th.unit')}</th>
+                                                    <th>{t('d.th.discount')}</th>
+                                                    <th>{t('d.th.vat')}</th>
+                                                    <th>{t('d.th.line')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {detailData.items.map((it) => (
+                                                    <tr key={it.id}>
+                                                        <td><strong>{it.itemName ?? '—'}</strong></td>
+                                                        <td style={{ fontSize: '0.8125rem', color: '#6B7280' }}>
+                                                            {it.lineDescription ?? '—'}
+                                                        </td>
+                                                        <td>{it.qty}</td>
+                                                        <td>{toNumber(it.unitPrice).toLocaleString()}</td>
+                                                        <td>{formatDiscountCell(it.lineDiscountMode, it.lineDiscountValue, t)}</td>
+                                                        <td>{toNumber(it.vatRate)}%</td>
+                                                        <td className="ws-font-bold">
+                                                            {toNumber(it.lineTotal).toLocaleString()}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ) : null}
+
+                            {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('d.payments')}
+                                    </p>
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>{t('d.th.method')}</th>
+                                                <th>{t('d.th.amount')}</th>
+                                                <th>{t('d.th.paidOn')}</th>
+                                                <th>{t('d.th.reference')}</th>
+                                                <th>{t('d.th.recordedBy')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {detailData.payments.map((p) => (
+                                                <tr key={p.id}>
+                                                    <td>{p.method ?? '—'}</td>
+                                                    <td className="ws-font-bold">
+                                                        {toNumber(p.amount).toLocaleString()}
+                                                    </td>
+                                                    <td>{formatDateOnly(p.paidAt)}</td>
+                                                    <td>{p.reference ?? '—'}</td>
+                                                    <td>{p.recordedBy?.name ?? p.recordedBy?.email ?? '—'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+
+                            {Array.isArray(detailData.returns) && detailData.returns.length > 0 ? (
+                                <div className="ws-report-table-wrapper">
+                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
+                                        {t('d.returns')}
+                                    </p>
+                                    <table className="ws-table">
+                                        <thead>
+                                            <tr>
+                                                <th>{t('d.th.returnNo')}</th>
+                                                <th>{t('d.th.date')}</th>
+                                                <th>{t('d.th.status')}</th>
+                                                <th>{t('d.th.total')}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {detailData.returns.map((r) => (
+                                                <tr key={r.id}>
+                                                    <td>{r.returnNo ?? '—'}</td>
+                                                    <td>{formatDateOnly(r.returnDate)}</td>
+                                                    <td>{formatSwsStatusLabel(r.status, t)}</td>
+                                                    <td className="ws-font-bold">
+                                                        {toNumber(r.grandTotal).toLocaleString()}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+            </AdminModalAsScreen>
+        );
+    }
+
     return (
         <div className="so-container">
             <header className="so-header">
@@ -762,221 +978,6 @@ export default function SuppliersWarehouseSales() {
                         </button>
                     </nav>
                 </div>
-            )}
-
-            {detailId && (
-                <Modal
-                    title={detailTitle}
-                    onClose={closeDetails}
-                    width="min(1100px, 98vw)"
-                    contentClassName="ws-modal-order-details"
-                >
-                    {detailLoading ? (
-                        <ShimmerTextBlock lines={6} />
-                    ) : detailError ? (
-                        <div style={{ color: '#B91C1C' }}>{detailError}</div>
-                    ) : detailData ? (
-                        <div className="ws-order-details-modal-body">
-                            <div className="ws-report-table-wrapper">
-                                <table className="ws-table">
-                                    <tbody>
-                                        <tr><th>{t('d.invoiceNo')}</th><td>{detailData.invoiceNo ?? '—'}</td></tr>
-                                        <tr><th>{t('d.invoiceDate')}</th><td>{formatDateOnly(detailData.invoiceDate)}</td></tr>
-                                        <tr><th>{t('d.dueDate')}</th><td>{formatDateOnly(detailData.dueDate)}</td></tr>
-                                        {detailData.paymentTerms ? (
-                                            <tr><th>{t('d.paymentTerms')}</th><td>{detailData.paymentTerms}</td></tr>
-                                        ) : null}
-                                        <tr><th>{t('d.status')}</th><td>{formatSwsStatusLabel(detailData.status, t)}</td></tr>
-                                        <tr>
-                                            <th>{t('d.workshopReview')}</th>
-                                            <td>
-                                                {detailData.workshopReviewStatus
-                                                    ? formatSwsStatusLabel(detailData.workshopReviewStatus, t)
-                                                    : t('review.pendingShort')}
-                                                {detailData.workshopReviewedAt
-                                                    ? ` · ${formatDateTime(detailData.workshopReviewedAt)}`
-                                                    : ''}
-                                            </td>
-                                        </tr>
-                                        {detailData.workshopRejectionReason ? (
-                                            <tr>
-                                                <th>{t('d.rejectionReason')}</th>
-                                                <td>{detailData.workshopRejectionReason}</td>
-                                            </tr>
-                                        ) : null}
-                                        <tr>
-                                            <th>{t('d.supplier')}</th>
-                                            <td>
-                                                <div style={{ fontWeight: 600 }}>{detailData.supplier?.name ?? '—'}</div>
-                                                <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                    {[detailData.supplier?.mobile, detailData.supplier?.email]
-                                                        .filter(Boolean)
-                                                        .join(' · ') || '—'}
-                                                </div>
-                                                {detailData.supplier?.vatId ? (
-                                                    <div style={{ fontSize: 12, color: '#6B7280' }}>
-                                                        {t('d.vatId', { id: detailData.supplier.vatId })}
-                                                    </div>
-                                                ) : null}
-                                            </td>
-                                        </tr>
-                                        <tr><th>{t('d.workshop')}</th><td>{detailData.workshop?.name ?? '—'}</td></tr>
-                                        <tr><th>{t('d.branch')}</th><td>{detailData.branch?.name ?? '—'}</td></tr>
-                                        {detailData.po ? (
-                                            <tr>
-                                                <th>{t('d.po')}</th>
-                                                <td>
-                                                    {t('d.poLine', {
-                                                        id: detailData.po.id,
-                                                        status: formatSwsStatusLabel(detailData.po.status, t),
-                                                    })}
-                                                </td>
-                                            </tr>
-                                        ) : null}
-                                        <tr>
-                                            <th>{t('d.subtotal')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.subtotal).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.invoiceDiscount')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.invoiceDiscount).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.freightIn')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.freightIn).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.vat')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.vatAmount).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.grandTotal')}</th>
-                                            <td className="ws-font-bold">
-                                                {t('money.sar', { amount: toNumber(detailData.grandTotal).toLocaleString() })}
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.paid')}</th>
-                                            <td>{t('money.sar', { amount: toNumber(detailData.paidAmount).toLocaleString() })}</td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.balance')}</th>
-                                            <td className="ws-font-bold">
-                                                {t('money.sar', { amount: toNumber(detailData.balance).toLocaleString() })}
-                                            </td>
-                                        </tr>
-                                        <tr>
-                                            <th>{t('d.payment')}</th>
-                                            <td>{formatSwsStatusLabel(detailData.paymentStatus, t)}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {Array.isArray(detailData.items) && detailData.items.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        {t('d.lineItems')}
-                                    </p>
-                                    <div className="ws-order-details-table-scroll">
-                                        <table className="ws-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>{t('d.th.item')}</th>
-                                                    <th>{t('d.th.description')}</th>
-                                                    <th>{t('d.th.qty')}</th>
-                                                    <th>{t('d.th.unit')}</th>
-                                                    <th>{t('d.th.discount')}</th>
-                                                    <th>{t('d.th.vat')}</th>
-                                                    <th>{t('d.th.line')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {detailData.items.map((it) => (
-                                                    <tr key={it.id}>
-                                                        <td><strong>{it.itemName ?? '—'}</strong></td>
-                                                        <td style={{ fontSize: '0.8125rem', color: '#6B7280' }}>
-                                                            {it.lineDescription ?? '—'}
-                                                        </td>
-                                                        <td>{it.qty}</td>
-                                                        <td>{toNumber(it.unitPrice).toLocaleString()}</td>
-                                                        <td>{formatDiscountCell(it.lineDiscountMode, it.lineDiscountValue, t)}</td>
-                                                        <td>{toNumber(it.vatRate)}%</td>
-                                                        <td className="ws-font-bold">
-                                                            {toNumber(it.lineTotal).toLocaleString()}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.payments) && detailData.payments.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        {t('d.payments')}
-                                    </p>
-                                    <table className="ws-table">
-                                        <thead>
-                                            <tr>
-                                                <th>{t('d.th.method')}</th>
-                                                <th>{t('d.th.amount')}</th>
-                                                <th>{t('d.th.paidOn')}</th>
-                                                <th>{t('d.th.reference')}</th>
-                                                <th>{t('d.th.recordedBy')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {detailData.payments.map((p) => (
-                                                <tr key={p.id}>
-                                                    <td>{p.method ?? '—'}</td>
-                                                    <td className="ws-font-bold">
-                                                        {toNumber(p.amount).toLocaleString()}
-                                                    </td>
-                                                    <td>{formatDateOnly(p.paidAt)}</td>
-                                                    <td>{p.reference ?? '—'}</td>
-                                                    <td>{p.recordedBy?.name ?? p.recordedBy?.email ?? '—'}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
-
-                            {Array.isArray(detailData.returns) && detailData.returns.length > 0 ? (
-                                <div className="ws-report-table-wrapper">
-                                    <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: '0.875rem' }}>
-                                        {t('d.returns')}
-                                    </p>
-                                    <table className="ws-table">
-                                        <thead>
-                                            <tr>
-                                                <th>{t('d.th.returnNo')}</th>
-                                                <th>{t('d.th.date')}</th>
-                                                <th>{t('d.th.status')}</th>
-                                                <th>{t('d.th.total')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {detailData.returns.map((r) => (
-                                                <tr key={r.id}>
-                                                    <td>{r.returnNo ?? '—'}</td>
-                                                    <td>{formatDateOnly(r.returnDate)}</td>
-                                                    <td>{formatSwsStatusLabel(r.status, t)}</td>
-                                                    <td className="ws-font-bold">
-                                                        {toNumber(r.grandTotal).toLocaleString()}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-                </Modal>
             )}
         </div>
     );

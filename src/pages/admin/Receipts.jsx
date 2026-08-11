@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Loader2, RefreshCw, FileText, ReceiptText, Search } from 'lucide-react';
+import { Loader2, RefreshCw, FileText, ReceiptText, Search, Printer } from 'lucide-react';
 import {
     getSuperAdminReceipts,
     getSuperAdminInvoiceView,
@@ -8,7 +8,9 @@ import {
     getBranches,
     getSuperAdminCorporateCompanies,
 } from '../../services/superAdminApi';
-import InvoiceDetailsModal from '../../components/pos/modern/InvoiceDetailsModal';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
+import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
+import '../../components/pos/modern/CashierTaxInvoiceView.css';
 import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 import { rcT } from '../../utils/receiptsI18n';
@@ -325,6 +327,63 @@ export default function Receipts() {
     const labelStyle = { fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 };
     const inputStyle = { padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: '0.875rem', background: '#fff' };
 
+    if (invoice) {
+        const invTitle = invoice.invoiceNo
+            ? `${t('view')} · ${invoice.invoiceNo}`
+            : t('view');
+        return (
+            <AdminScreenShell
+                title={invTitle}
+                onBack={() => setInvoice(null)}
+                wide
+                footer={(
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => window.print()}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '8px 14px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            <Printer size={14} /> Print
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setInvoice(null)}
+                            style={{
+                                padding: '8px 14px',
+                                borderRadius: 10,
+                                border: 'none',
+                                background: '#0f172a',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '0.8125rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            {t('view')}
+                        </button>
+                    </>
+                )}
+            >
+                <div className="demo-invoice-view-body">
+                    <div className="demo-invoice-view-scroll">
+                        <CashierTaxInvoiceView invoice={invoice} />
+                    </div>
+                </div>
+            </AdminScreenShell>
+        );
+    }
+
     return (
         <div style={{ padding: 20 }}>
             <header style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -528,13 +587,6 @@ export default function Receipts() {
                     t={t}
                 />
             </div>
-
-            <InvoiceDetailsModal
-                invoice={invoice}
-                isOpen={!!invoice}
-                footerVariant="corporate"
-                onClose={() => setInvoice(null)}
-            />
         </div>
     );
 }

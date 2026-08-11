@@ -5,12 +5,12 @@ import {
     Plus, ChevronDown, ChevronUp, Trash2, CheckCircle2,
     Layout, Settings, BarChart3, Users, ArrowUp, ArrowDown
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
     CartesianGrid, Tooltip, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import Modal from '../../components/Modal';
+import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import {
     marketingListLoyaltyTiers,
     marketingCreateLoyaltyTier,
@@ -444,6 +444,295 @@ export default function TierManagementPage() {
 
     const tierNameById = (id) => tiers.find((row) => String(row.id) === String(id))?.name || id || t('common.emDash');
 
+    if (editModalOpen || earnModalOpen || redemptModalOpen || ruleModalOpen) {
+        return (
+            <>
+                {editModalOpen && (
+                    <AdminModalAsScreen title={editingTier ? t('modal.editTier') : t('modal.createTier')} onClose={() => setEditModalOpen(false)} className="tier-form-modal">
+                        <div className="modern-form-container">
+                            <div className="form-section">
+                                <h4 className="form-section-title">{t('modal.generalInfo')}</h4>
+                                <div className="form-row">
+                                    <div className="form-group flex-2">
+                                        <label>{t('modal.tierName')}</label>
+                                        <input type="text" placeholder={t('modal.tierNamePlaceholder')} value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} />
+                                    </div>
+                                    <div className="form-group flex-1">
+                                        <label>{t('modal.icon')}</label>
+                                        <input type="text" value={formState.icon} onChange={(e) => setFormState({ ...formState, icon: e.target.value })} />
+                                    </div>
+                                    <div className="form-group flex-1">
+                                        <label>{t('modal.accentColor')}</label>
+                                        <div className="color-picker-simple">
+                                            <input type="color" value={formState.color} onChange={(e) => setFormState({ ...formState, color: e.target.value })} />
+                                            <div className="color-indicator" style={{ background: formState.color }}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="form-section">
+                                <h4 className="form-section-title">{t('modal.revenueRewards')}</h4>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>{t('modal.minSales')}</label>
+                                        <input type="number" value={formState.minSales} onChange={(e) => setFormState({ ...formState, minSales: Number(e.target.value) })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{t('modal.maxSales')}</label>
+                                        <input type="number" value={formState.maxSales} onChange={(e) => setFormState({ ...formState, maxSales: Number(e.target.value) })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{t('modal.discountPct')}</label>
+                                        <input type="number" value={formState.discount} onChange={(e) => setFormState({ ...formState, discount: Number(e.target.value) })} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="form-section">
+                                <h4 className="form-section-title">{t('modal.featuresVisibility')}</h4>
+                                <div className="modern-toggles-grid">
+                                    <div className="modern-toggle-item small">
+                                        <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
+                                            <input type="checkbox" checked={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.checked })} />
+                                            <span className="toggle-v3-track"></span>
+                                        </label>
+                                        <div className="toggle-label">
+                                            <p className="main-label">{t('modal.prioritySupport')}</p>
+                                            <p className="sub-label">{t('modal.prioritySupportHint')}</p>
+                                        </div>
+                                    </div>
+                                    <div className="modern-toggle-item small">
+                                        <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
+                                            <input type="checkbox" checked={formState.eligiblePromotions !== false} onChange={(e) => setFormState({ ...formState, eligiblePromotions: e.target.checked })} />
+                                            <span className="toggle-v3-track"></span>
+                                        </label>
+                                        <div className="toggle-label">
+                                            <p className="main-label">{t('modal.eligiblePromotions')}</p>
+                                            <p className="sub-label">{t('modal.eligiblePromotionsHint')}</p>
+                                        </div>
+                                    </div>
+                                    <div className="modern-toggle-item small">
+                                        <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
+                                            <input type="checkbox" checked={formState.status === 'active'} onChange={(e) => setFormState({ ...formState, status: e.target.checked ? 'active' : 'inactive' })} />
+                                            <span className="toggle-v3-track"></span>
+                                        </label>
+                                        <div className="toggle-label">
+                                            <p className="main-label">{t('modal.tierActive')}</p>
+                                            <p className="sub-label">{t('modal.tierActiveHint')}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="form-section no-border">
+                                <h4 className="form-section-title">{t('modal.tierBenefits')}</h4>
+                                <div className="benefit-input-modern">
+                                    <input type="text" placeholder={t('modal.benefitPlaceholder')} value={newBenefit} onChange={(e) => setNewBenefit(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addBenefit()} />
+                                    <button type="button" onClick={addBenefit}>{t('modal.add')}</button>
+                                </div>
+                                <div className="modern-benefits-list">
+                                    {formState.benefits.map((benefit, i) => (
+                                        <div key={i} className="modern-benefit-tag">
+                                            <span>{benefit}</span>
+                                            <button type="button" onClick={() => removeBenefit(i)}><X size={12} /></button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="modal-footer-modern">
+                                <button type="button" className="btn-modern-cancel" onClick={() => setEditModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button type="button" className="btn-new-tier" onClick={handleSaveTier} disabled={busy}>
+                                    {editingTier ? t('modal.updateTier') : t('modal.createTierBtn')}
+                                </button>
+                            </div>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {earnModalOpen && (
+                    <AdminModalAsScreen onClose={() => setEarnModalOpen(false)} title={editingRule ? t('modal.editEarnRule') : t('modal.newEarnRule')} className="tier-form-modal">
+                        <div className="modern-form-container">
+                            <div className="form-section no-border">
+                                <div className="form-group">
+                                    <label>{t('modal.ruleName')}</label>
+                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.earnNamePlaceholder')} />
+                                </div>
+                                <div className="form-group">
+                                    <label>{t('modal.description')}</label>
+                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.earnDescPlaceholder')} />
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>{t('modal.pointsPerSar')}</label>
+                                        <input type="number" value={formState.rate} onChange={(e) => setFormState({ ...formState, rate: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{t('modal.priority')}</label>
+                                        <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.value })} />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer-modern">
+                                <button type="button" className="btn-modern-cancel" onClick={() => setEarnModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button type="button" className="btn-new-tier" onClick={() => saveLoyaltyRule('earn')} disabled={busy}>{editingRule ? t('modal.updateRule') : t('modal.createRule')}</button>
+                            </div>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {redemptModalOpen && (
+                    <AdminModalAsScreen onClose={() => setRedemptModalOpen(false)} title={editingRule ? t('modal.editRedemptRule') : t('modal.newRedemptRule')} className="tier-form-modal">
+                        <div className="modern-form-container">
+                            <div className="form-section no-border">
+                                <div className="form-group">
+                                    <label>{t('modal.ruleName')}</label>
+                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.redemptNamePlaceholder')} />
+                                </div>
+                                <div className="form-group">
+                                    <label>{t('modal.description')}</label>
+                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.redemptDescPlaceholder')} />
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>{t('modal.pointsThreshold')}</label>
+                                        <input type="number" value={formState.threshold} onChange={(e) => setFormState({ ...formState, threshold: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{t('modal.sarValue')}</label>
+                                        <input type="number" value={formState.value} onChange={(e) => setFormState({ ...formState, value: e.target.value })} />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label>{t('modal.priority')}</label>
+                                    <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.value })} />
+                                </div>
+                            </div>
+                            <div className="modal-footer-modern">
+                                <button type="button" className="btn-modern-cancel" onClick={() => setRedemptModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button type="button" className="btn-new-tier" onClick={() => saveLoyaltyRule('redeem')} disabled={busy}>{editingRule ? t('modal.updateRule') : t('modal.createRule')}</button>
+                            </div>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+
+                {ruleModalOpen && (
+                    <AdminModalAsScreen onClose={() => setRuleModalOpen(false)} title={editingRule ? t('modal.editRule') : t('modal.newRule')} className="tier-form-modal">
+                        <div className="modern-form-container">
+                            <div className="form-section">
+                                <div className="form-group">
+                                    <label>{t('modal.ruleNameRequired')}</label>
+                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.ruleNamePlaceholder')} />
+                                </div>
+                                <div className="form-group">
+                                    <label>{t('modal.description')}</label>
+                                    <input type="text" value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.ruleDescPlaceholder')} />
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group flex-2">
+                                        <label>{t('modal.ruleType')}</label>
+                                        <select value={formState.type} onChange={(e) => setFormState({ ...formState, type: e.target.value })} className="tester-select">
+                                            <option value="tier_assign">{t('modal.typeTierAssign')}</option>
+                                            <option value="earn">{t('modal.typeEarn')}</option>
+                                            <option value="redeem">{t('modal.typeRedeem')}</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group flex-1">
+                                        <label>{t('modal.priorityHint')}</label>
+                                        <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: parseInt(e.target.value, 10) || 0 })} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="form-section rule-box if">
+                                <h4 className="box-title">{t('modal.ifCondition')}</h4>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>{t('modal.field')}</label>
+                                        <select value={formState.condition.field} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, field: e.target.value } })} className="tester-select">
+                                            <option value="monthly_spend">{t('modal.fieldMonthlySpend')}</option>
+                                            <option value="loyalty_points">{t('modal.fieldLoyaltyPoints')}</option>
+                                            <option value="invoice_total">{t('modal.fieldInvoiceTotal')}</option>
+                                            <option value="lifetime_spend">{t('modal.fieldLifetimeSpend')}</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{t('modal.operator')}</label>
+                                        <select value={formState.condition.operator} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, operator: e.target.value } })} className="tester-select">
+                                            <option value=">=">{t('modal.opGte')}</option>
+                                            <option value="<=">{t('modal.opLte')}</option>
+                                            <option value="==">{t('modal.opEq')}</option>
+                                            <option value="between">{t('modal.opBetween')}</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>{t('modal.value')}</label>
+                                        <input type="number" value={formState.condition.value} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, value: parseInt(e.target.value, 10) || 0 } })} />
+                                    </div>
+                                    {formState.condition.operator === 'between' && (
+                                        <div className="form-group">
+                                            <label>{t('modal.maxValue')}</label>
+                                            <input type="number" value={formState.condition.maxValue} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, maxValue: parseInt(e.target.value, 10) || 0 } })} />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="form-section rule-box then">
+                                <h4 className="box-title">{t('modal.thenAction')}</h4>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>{t('modal.action')}</label>
+                                        <select value={formState.action.type} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, type: e.target.value } })} className="tester-select">
+                                            <option value="assign_tier">{t('modal.actionAssignTier')}</option>
+                                            <option value="award_points">{t('modal.actionAwardPoints')}</option>
+                                            <option value="apply_discount">{t('modal.actionApplyDiscountPct')}</option>
+                                            <option value="apply_discount_val">{t('modal.actionApplyDiscountSar')}</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        {formState.action.type === 'assign_tier' ? (
+                                            <>
+                                                <label>{t('modal.tier')}</label>
+                                                <select value={formState.action.tierId} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, tierId: e.target.value } })} className="tester-select">
+                                                    <option value="">{t('modal.selectTier')}</option>
+                                                    {tiers.map((row) => (<option key={row.id} value={row.id}>{row.icon} {row.name}</option>))}
+                                                </select>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <label>{t('modal.value')}</label>
+                                                <input type="number" value={formState.action.value} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, value: parseInt(e.target.value, 10) || 0 } })} />
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="form-section no-border">
+                                <div className="modern-toggle-item small">
+                                    <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
+                                        <input type="checkbox" checked={formState.status === 'active'} onChange={(e) => setFormState({ ...formState, status: e.target.checked ? 'active' : 'paused' })} />
+                                        <span className="toggle-v3-track"></span>
+                                    </label>
+                                    <div className="toggle-label"><p className="main-label">{t('modal.active')}</p></div>
+                                </div>
+                            </div>
+
+                            <div className="modal-footer-modern">
+                                <button type="button" className="btn-modern-cancel" onClick={() => setRuleModalOpen(false)}>{t('modal.cancel')}</button>
+                                <button type="button" className="btn-new-tier" onClick={saveRule} disabled={busy}>{t('modal.saveRule')}</button>
+                            </div>
+                        </div>
+                    </AdminModalAsScreen>
+                )}
+            </>
+        );
+    }
+
     return (
         <div className="tier-management-page module-container" dir={locale === 'ar' ? 'rtl' : undefined}>
             <header className="tier-main-header">
@@ -548,7 +837,6 @@ export default function TierManagementPage() {
                                             </div>
                                         </div>
 
-                                        <AnimatePresence>
                                             {expandedTiers[tier.id] && (
                                                 <motion.div className="card-expanded-details" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
                                                     <div className="benefits-grid">
@@ -563,7 +851,6 @@ export default function TierManagementPage() {
                                                     </div>
                                                 </motion.div>
                                             )}
-                                        </AnimatePresence>
                                     </div>
                                 </motion.div>
                             ))}
@@ -888,300 +1175,6 @@ export default function TierManagementPage() {
                 ) : null}
             </div>
 
-            {/* Tier Modal */}
-            <AnimatePresence>
-                {editModalOpen && (
-                    <Modal title={editingTier ? t('modal.editTier') : t('modal.createTier')} onClose={() => setEditModalOpen(false)} className="tier-form-modal">
-                        <div className="modern-form-container">
-                            <div className="form-section">
-                                <h4 className="form-section-title">{t('modal.generalInfo')}</h4>
-                                <div className="form-row">
-                                    <div className="form-group flex-2">
-                                        <label>{t('modal.tierName')}</label>
-                                        <input type="text" placeholder={t('modal.tierNamePlaceholder')} value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} />
-                                    </div>
-                                    <div className="form-group flex-1">
-                                        <label>{t('modal.icon')}</label>
-                                        <input type="text" value={formState.icon} onChange={(e) => setFormState({ ...formState, icon: e.target.value })} />
-                                    </div>
-                                    <div className="form-group flex-1">
-                                        <label>{t('modal.accentColor')}</label>
-                                        <div className="color-picker-simple">
-                                            <input type="color" value={formState.color} onChange={(e) => setFormState({ ...formState, color: e.target.value })} />
-                                            <div className="color-indicator" style={{ background: formState.color }}></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-section">
-                                <h4 className="form-section-title">{t('modal.revenueRewards')}</h4>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>{t('modal.minSales')}</label>
-                                        <input type="number" value={formState.minSales} onChange={(e) => setFormState({ ...formState, minSales: Number(e.target.value) })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>{t('modal.maxSales')}</label>
-                                        <input type="number" value={formState.maxSales} onChange={(e) => setFormState({ ...formState, maxSales: Number(e.target.value) })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>{t('modal.discountPct')}</label>
-                                        <input type="number" value={formState.discount} onChange={(e) => setFormState({ ...formState, discount: Number(e.target.value) })} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-section">
-                                <h4 className="form-section-title">{t('modal.featuresVisibility')}</h4>
-                                <div className="modern-toggles-grid">
-                                    <div className="modern-toggle-item small">
-                                        <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
-                                            <input type="checkbox" checked={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.checked })} />
-                                            <span className="toggle-v3-track"></span>
-                                        </label>
-                                        <div className="toggle-label">
-                                            <p className="main-label">{t('modal.prioritySupport')}</p>
-                                            <p className="sub-label">{t('modal.prioritySupportHint')}</p>
-                                        </div>
-                                    </div>
-                                    <div className="modern-toggle-item small">
-                                        <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
-                                            <input type="checkbox" checked={formState.eligiblePromotions !== false} onChange={(e) => setFormState({ ...formState, eligiblePromotions: e.target.checked })} />
-                                            <span className="toggle-v3-track"></span>
-                                        </label>
-                                        <div className="toggle-label">
-                                            <p className="main-label">{t('modal.eligiblePromotions')}</p>
-                                            <p className="sub-label">{t('modal.eligiblePromotionsHint')}</p>
-                                        </div>
-                                    </div>
-                                    <div className="modern-toggle-item small">
-                                        <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
-                                            <input type="checkbox" checked={formState.status === 'active'} onChange={(e) => setFormState({ ...formState, status: e.target.checked ? 'active' : 'inactive' })} />
-                                            <span className="toggle-v3-track"></span>
-                                        </label>
-                                        <div className="toggle-label">
-                                            <p className="main-label">{t('modal.tierActive')}</p>
-                                            <p className="sub-label">{t('modal.tierActiveHint')}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-section no-border">
-                                <h4 className="form-section-title">{t('modal.tierBenefits')}</h4>
-                                <div className="benefit-input-modern">
-                                    <input type="text" placeholder={t('modal.benefitPlaceholder')} value={newBenefit} onChange={(e) => setNewBenefit(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addBenefit()} />
-                                    <button onClick={addBenefit}>{t('modal.add')}</button>
-                                </div>
-                                <div className="modern-benefits-list">
-                                    {formState.benefits.map((benefit, i) => (
-                                        <div key={i} className="modern-benefit-tag">
-                                            <span>{benefit}</span>
-                                            <button onClick={() => removeBenefit(i)}><X size={12} /></button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setEditModalOpen(false)}>{t('modal.cancel')}</button>
-                                <button className="btn-new-tier" onClick={handleSaveTier} disabled={busy}>
-                                    {editingTier ? t('modal.updateTier') : t('modal.createTierBtn')}
-                                </button>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
-
-            {/* Earn Rule Modal */}
-            <AnimatePresence>
-                {earnModalOpen && (
-                    <Modal onClose={() => setEarnModalOpen(false)} title={editingRule ? t('modal.editEarnRule') : t('modal.newEarnRule')} className="tier-form-modal">
-                        <div className="modern-form-container">
-                            <div className="form-section no-border">
-                                <div className="form-group">
-                                    <label>{t('modal.ruleName')}</label>
-                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.earnNamePlaceholder')} />
-                                </div>
-                                <div className="form-group">
-                                    <label>{t('modal.description')}</label>
-                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.earnDescPlaceholder')} />
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>{t('modal.pointsPerSar')}</label>
-                                        <input type="number" value={formState.rate} onChange={(e) => setFormState({ ...formState, rate: e.target.value })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>{t('modal.priority')}</label>
-                                        <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.value })} />
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setEarnModalOpen(false)}>{t('modal.cancel')}</button>
-                                <button className="btn-new-tier" onClick={() => saveLoyaltyRule('earn')} disabled={busy}>{editingRule ? t('modal.updateRule') : t('modal.createRule')}</button>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
-
-            {/* Redemption Rule Modal */}
-            <AnimatePresence>
-                {redemptModalOpen && (
-                    <Modal onClose={() => setRedemptModalOpen(false)} title={editingRule ? t('modal.editRedemptRule') : t('modal.newRedemptRule')} className="tier-form-modal">
-                        <div className="modern-form-container">
-                            <div className="form-section no-border">
-                                <div className="form-group">
-                                    <label>{t('modal.ruleName')}</label>
-                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.redemptNamePlaceholder')} />
-                                </div>
-                                <div className="form-group">
-                                    <label>{t('modal.description')}</label>
-                                    <input type="text" style={{ height: '80px' }} value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.redemptDescPlaceholder')} />
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>{t('modal.pointsThreshold')}</label>
-                                        <input type="number" value={formState.threshold} onChange={(e) => setFormState({ ...formState, threshold: e.target.value })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>{t('modal.sarValue')}</label>
-                                        <input type="number" value={formState.value} onChange={(e) => setFormState({ ...formState, value: e.target.value })} />
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label>{t('modal.priority')}</label>
-                                    <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: e.target.value })} />
-                                </div>
-                            </div>
-                            <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setRedemptModalOpen(false)}>{t('modal.cancel')}</button>
-                                <button className="btn-new-tier" onClick={() => saveLoyaltyRule('redeem')} disabled={busy}>{editingRule ? t('modal.updateRule') : t('modal.createRule')}</button>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
-
-            {/* Rules Engine Modal */}
-            <AnimatePresence>
-                {ruleModalOpen && (
-                    <Modal onClose={() => setRuleModalOpen(false)} title={editingRule ? t('modal.editRule') : t('modal.newRule')} className="tier-form-modal">
-                        <div className="modern-form-container">
-                            <div className="form-section">
-                                <div className="form-group">
-                                    <label>{t('modal.ruleNameRequired')}</label>
-                                    <input type="text" value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} placeholder={t('modal.ruleNamePlaceholder')} />
-                                </div>
-                                <div className="form-group">
-                                    <label>{t('modal.description')}</label>
-                                    <input type="text" value={formState.description} onChange={(e) => setFormState({ ...formState, description: e.target.value })} placeholder={t('modal.ruleDescPlaceholder')} />
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group flex-2">
-                                        <label>{t('modal.ruleType')}</label>
-                                        <select value={formState.type} onChange={(e) => setFormState({ ...formState, type: e.target.value })} className="tester-select">
-                                            <option value="tier_assign">{t('modal.typeTierAssign')}</option>
-                                            <option value="earn">{t('modal.typeEarn')}</option>
-                                            <option value="redeem">{t('modal.typeRedeem')}</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group flex-1">
-                                        <label>{t('modal.priorityHint')}</label>
-                                        <input type="number" value={formState.priority} onChange={(e) => setFormState({ ...formState, priority: parseInt(e.target.value, 10) || 0 })} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-section rule-box if">
-                                <h4 className="box-title">{t('modal.ifCondition')}</h4>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>{t('modal.field')}</label>
-                                        <select value={formState.condition.field} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, field: e.target.value } })} className="tester-select">
-                                            <option value="monthly_spend">{t('modal.fieldMonthlySpend')}</option>
-                                            <option value="loyalty_points">{t('modal.fieldLoyaltyPoints')}</option>
-                                            <option value="invoice_total">{t('modal.fieldInvoiceTotal')}</option>
-                                            <option value="lifetime_spend">{t('modal.fieldLifetimeSpend')}</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label>{t('modal.operator')}</label>
-                                        <select value={formState.condition.operator} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, operator: e.target.value } })} className="tester-select">
-                                            <option value=">=">{t('modal.opGte')}</option>
-                                            <option value="<=">{t('modal.opLte')}</option>
-                                            <option value="==">{t('modal.opEq')}</option>
-                                            <option value="between">{t('modal.opBetween')}</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>{t('modal.value')}</label>
-                                        <input type="number" value={formState.condition.value} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, value: parseInt(e.target.value, 10) || 0 } })} />
-                                    </div>
-                                    {formState.condition.operator === 'between' && (
-                                        <div className="form-group">
-                                            <label>{t('modal.maxValue')}</label>
-                                            <input type="number" value={formState.condition.maxValue} onChange={(e) => setFormState({ ...formState, condition: { ...formState.condition, maxValue: parseInt(e.target.value, 10) || 0 } })} />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="form-section rule-box then">
-                                <h4 className="box-title">{t('modal.thenAction')}</h4>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>{t('modal.action')}</label>
-                                        <select value={formState.action.type} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, type: e.target.value } })} className="tester-select">
-                                            <option value="assign_tier">{t('modal.actionAssignTier')}</option>
-                                            <option value="award_points">{t('modal.actionAwardPoints')}</option>
-                                            <option value="apply_discount">{t('modal.actionApplyDiscountPct')}</option>
-                                            <option value="apply_discount_val">{t('modal.actionApplyDiscountSar')}</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        {formState.action.type === 'assign_tier' ? (
-                                            <>
-                                                <label>{t('modal.tier')}</label>
-                                                <select value={formState.action.tierId} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, tierId: e.target.value } })} className="tester-select">
-                                                    <option value="">{t('modal.selectTier')}</option>
-                                                    {tiers.map((row) => (<option key={row.id} value={row.id}>{row.icon} {row.name}</option>))}
-                                                </select>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <label>{t('modal.value')}</label>
-                                                <input type="number" value={formState.action.value} onChange={(e) => setFormState({ ...formState, action: { ...formState.action, value: parseInt(e.target.value, 10) || 0 } })} />
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="form-section no-border">
-                                <div className="modern-toggle-item small">
-                                    <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
-                                        <input type="checkbox" checked={formState.status === 'active'} onChange={(e) => setFormState({ ...formState, status: e.target.checked ? 'active' : 'paused' })} />
-                                        <span className="toggle-v3-track"></span>
-                                    </label>
-                                    <div className="toggle-label"><p className="main-label">{t('modal.active')}</p></div>
-                                </div>
-                            </div>
-
-                            <div className="modal-footer-modern">
-                                <button className="btn-modern-cancel" onClick={() => setRuleModalOpen(false)}>{t('modal.cancel')}</button>
-                                <button className="btn-new-tier" onClick={saveRule} disabled={busy}>{t('modal.saveRule')}</button>
-                            </div>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
         </div>
     );
 }

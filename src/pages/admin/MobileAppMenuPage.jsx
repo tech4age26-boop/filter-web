@@ -6,7 +6,6 @@ import {
     Plus,
     Save,
     Smartphone,
-    X,
 } from 'lucide-react';
 import {
     createMobileAppMenuPortal,
@@ -14,6 +13,7 @@ import {
     updateMobileAppMenu,
 } from '../../services/superAdminApi';
 import { mamT } from '../../utils/mobileAppMenuI18n';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
 import '../../styles/admin/MobileAppMenuPage.css';
 
 const EMPTY_CREATE_FORM = {
@@ -172,6 +172,105 @@ export default function MobileAppMenuPage() {
 
     const enabledCount = portals.filter((p) => p.enabled).length;
 
+    if (showCreateModal) {
+        return (
+            <AdminScreenShell
+                title={t('modal.title')}
+                onBack={closeCreateModal}
+                backLabel={t('modal.close')}
+                backDisabled={creating}
+                footer={(
+                    <div className="mobile-app-menu-modal-actions">
+                        <button
+                            type="button"
+                            className="mobile-app-menu-cancel-btn"
+                            onClick={closeCreateModal}
+                            disabled={creating}
+                        >
+                            {t('btn.cancel')}
+                        </button>
+                        <button
+                            type="submit"
+                            form="mobile-app-menu-create-form"
+                            className="mobile-app-menu-save-btn"
+                            disabled={creating}
+                        >
+                            {creating ? (
+                                <Loader2 className="spin" size={18} />
+                            ) : (
+                                <Plus size={18} />
+                            )}
+                            {t('btn.createSubmit')}
+                        </button>
+                    </div>
+                )}
+            >
+                <form id="mobile-app-menu-create-form" onSubmit={handleCreate} className="mobile-app-menu-modal-form">
+                    <label className="mobile-app-menu-field">
+                        <span>{t('label.key')}</span>
+                        <input
+                            type="text"
+                            value={createForm.key}
+                            onChange={(e) =>
+                                setCreateForm((f) => ({
+                                    ...f,
+                                    key: e.target.value.toLowerCase().replace(/\s+/g, '_'),
+                                }))
+                            }
+                            placeholder={t('ph.key')}
+                            required
+                            pattern="[a-z][a-z0-9_]*"
+                            title={t('key.patternTitle')}
+                        />
+                    </label>
+
+                    <label className="mobile-app-menu-field">
+                        <span>{t('label.titleEn')}</span>
+                        <input
+                            type="text"
+                            value={createForm.titleEn}
+                            onChange={(e) =>
+                                setCreateForm((f) => ({ ...f, titleEn: e.target.value }))
+                            }
+                            placeholder={t('ph.titleEn')}
+                            required
+                        />
+                    </label>
+
+                    <label className="mobile-app-menu-field">
+                        <span>{t('label.titleAr')}</span>
+                        <input
+                            type="text"
+                            dir="rtl"
+                            value={createForm.titleAr}
+                            onChange={(e) =>
+                                setCreateForm((f) => ({ ...f, titleAr: e.target.value }))
+                            }
+                            placeholder={t('ph.titleAr')}
+                        />
+                    </label>
+
+                    <div className="mobile-app-menu-modal-toggle-row">
+                        <span>{t('label.showInApp')}</span>
+                        <ToggleSwitch
+                            checked={createForm.enabled}
+                            onChange={(enabled) =>
+                                setCreateForm((f) => ({ ...f, enabled }))
+                            }
+                            label={t('label.showInApp')}
+                            visibleLabel={t('toggle.visible')}
+                            hiddenLabel={t('toggle.hidden')}
+                        />
+                    </div>
+
+                    {error && showCreateModal && (
+                        <div className="mobile-app-menu-error">{error}</div>
+                    )}
+                </form>
+            </AdminScreenShell>
+        );
+    }
+
     return (
         <div className="mobile-app-menu-page">
             <header className="mobile-app-menu-header">
@@ -259,119 +358,6 @@ export default function MobileAppMenuPage() {
                 )}
             </div>
 
-            {showCreateModal && (
-                <div
-                    className="mobile-app-menu-modal-backdrop"
-                    onClick={closeCreateModal}
-                    role="presentation"
-                >
-                    <div
-                        className="mobile-app-menu-modal"
-                        onClick={(e) => e.stopPropagation()}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="create-portal-title"
-                    >
-                        <div className="mobile-app-menu-modal-header">
-                            <h2 id="create-portal-title">{t('modal.title')}</h2>
-                            <button
-                                type="button"
-                                className="mobile-app-menu-modal-close"
-                                onClick={closeCreateModal}
-                                aria-label={t('modal.close')}
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-
-                        <form onSubmit={handleCreate} className="mobile-app-menu-modal-form">
-                            <label className="mobile-app-menu-field">
-                                <span>{t('label.key')}</span>
-                                <input
-                                    type="text"
-                                    value={createForm.key}
-                                    onChange={(e) =>
-                                        setCreateForm((f) => ({
-                                            ...f,
-                                            key: e.target.value.toLowerCase().replace(/\s+/g, '_'),
-                                        }))
-                                    }
-                                    placeholder={t('ph.key')}
-                                    required
-                                    pattern="[a-z][a-z0-9_]*"
-                                    title={t('key.patternTitle')}
-                                />
-                            </label>
-
-                            <label className="mobile-app-menu-field">
-                                <span>{t('label.titleEn')}</span>
-                                <input
-                                    type="text"
-                                    value={createForm.titleEn}
-                                    onChange={(e) =>
-                                        setCreateForm((f) => ({ ...f, titleEn: e.target.value }))
-                                    }
-                                    placeholder={t('ph.titleEn')}
-                                    required
-                                />
-                            </label>
-
-                            <label className="mobile-app-menu-field">
-                                <span>{t('label.titleAr')}</span>
-                                <input
-                                    type="text"
-                                    dir="rtl"
-                                    value={createForm.titleAr}
-                                    onChange={(e) =>
-                                        setCreateForm((f) => ({ ...f, titleAr: e.target.value }))
-                                    }
-                                    placeholder={t('ph.titleAr')}
-                                />
-                            </label>
-
-                            <div className="mobile-app-menu-modal-toggle-row">
-                                <span>{t('label.showInApp')}</span>
-                                <ToggleSwitch
-                                    checked={createForm.enabled}
-                                    onChange={(enabled) =>
-                                        setCreateForm((f) => ({ ...f, enabled }))
-                                    }
-                                    label={t('label.showInApp')}
-                                    visibleLabel={t('toggle.visible')}
-                                    hiddenLabel={t('toggle.hidden')}
-                                />
-                            </div>
-
-                            {error && showCreateModal && (
-                                <div className="mobile-app-menu-error">{error}</div>
-                            )}
-
-                            <div className="mobile-app-menu-modal-actions">
-                                <button
-                                    type="button"
-                                    className="mobile-app-menu-cancel-btn"
-                                    onClick={closeCreateModal}
-                                    disabled={creating}
-                                >
-                                    {t('btn.cancel')}
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="mobile-app-menu-save-btn"
-                                    disabled={creating}
-                                >
-                                    {creating ? (
-                                        <Loader2 className="spin" size={18} />
-                                    ) : (
-                                        <Plus size={18} />
-                                    )}
-                                    {t('btn.createSubmit')}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

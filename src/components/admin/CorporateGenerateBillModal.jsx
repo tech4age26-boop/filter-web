@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader, Trash2 } from 'lucide-react';
-import Modal from '../Modal';
+import AdminModalAsScreen from './AdminModalAsScreen';
 
 function r2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
@@ -361,7 +361,7 @@ export default function CorporateGenerateBillModal({
     const colSpan = step === 'edit' ? 8 : 7;
 
     return (
-        <Modal title={title} onClose={generating ? undefined : onClose} footer={footer} size="large" disableClose={generating}>
+        <AdminModalAsScreen title={title} onClose={onClose} footer={footer} size="large" backDisabled={generating}>
             <p style={{ marginTop: 0, color: 'var(--color-text-muted)', fontSize: '0.875rem' }}>
                 {t('modal.period')} <strong>{dateFrom} — {dateTo}</strong>
                 <br />
@@ -587,7 +587,7 @@ export default function CorporateGenerateBillModal({
                     ) : null}
                 </>
             )}
-        </Modal>
+        </AdminModalAsScreen>
     );
 }
 

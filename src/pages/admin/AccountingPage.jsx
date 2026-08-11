@@ -47,7 +47,7 @@ import {
 import { buildHqCoaNavigationUrl } from './hqCoaAccountRouting';
 import { isMonitorBooksScope, useMonitorAccountIndex } from './useMonitorAccountIndex';
 import { accT, ACC_TAB_LABEL_KEYS } from '../../utils/accountingI18n';
-import '../../styles/admin/AccountingPage.css';
+import AdminScreenShell from '../../components/admin/AdminScreenShell';
 
 /* ────────────────────────────────────────────────────────────────────────
  * Super Admin Accounting — cross-workshop / supplier monitor + HQ workshop clone.
@@ -1066,9 +1066,19 @@ function HqJournalEntryModal({ scope, onClose, onPosted, t }) {
     };
 
     return (
-        <div className="sa-acc-modal-overlay" onClick={onClose}>
-            <div className="sa-acc-modal" onClick={(e) => e.stopPropagation()}>
-                <h3>{t('je.newHq')}</h3>
+        <AdminScreenShell
+            title={t('je.newHq')}
+            onBack={onClose}
+            wide
+            footer={(
+                <div className="sa-acc-modal-actions">
+                    <button type="button" className="sa-acc-btn" onClick={onClose}>{t('btn.cancel')}</button>
+                    <button type="button" className="sa-acc-btn sa-acc-btn--primary" disabled={!balanced || saving} onClick={submit}>
+                        {saving ? t('btn.posting') : t('btn.post')}
+                    </button>
+                </div>
+            )}
+        >
                 <div className="sa-acc-modal-row">
                     <label>{t('th.date')}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
                     <label className="grow">{t('je.description')}<input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('je.memo')} /></label>
@@ -1088,22 +1098,15 @@ function HqJournalEntryModal({ scope, onClose, onPosted, t }) {
                             </td>
                                 <td className="num"><input type="number" value={l.debit} onChange={(e) => setLine(i, { debit: e.target.value, credit: '' })} /></td>
                                 <td className="num"><input type="number" value={l.credit} onChange={(e) => setLine(i, { credit: e.target.value, debit: '' })} /></td>
-                                <td><button className="sa-acc-btn" onClick={() => removeLine(i)}>×</button></td>
+                                <td><button type="button" className="sa-acc-btn" onClick={() => removeLine(i)}>×</button></td>
                         </tr>
                         ))}
                         <tr className="tot"><td>{t('je.totals')}</td><td className="num">{fmt(totalDr)}</td><td className="num">{fmt(totalCr)}</td><td /></tr>
                     </tbody>
                 </table>
-                <button className="sa-acc-btn" onClick={addLine}>{t('je.addLine')}</button>
+                <button type="button" className="sa-acc-btn" onClick={addLine}>{t('je.addLine')}</button>
                 {err && <p className="sa-acc-warn"><AlertTriangle size={13} /> {err}</p>}
-                <div className="sa-acc-modal-actions">
-                    <button className="sa-acc-btn" onClick={onClose}>{t('btn.cancel')}</button>
-                    <button className="sa-acc-btn sa-acc-btn--primary" disabled={!balanced || saving} onClick={submit}>
-                        {saving ? t('btn.posting') : t('btn.post')}
-                                </button>
-                            </div>
-                                </div>
-                                </div>
+        </AdminScreenShell>
     );
 }
 
@@ -1138,6 +1141,12 @@ function JournalEntriesTab({ scope, dateRange, t }) {
     if (loading) return <Loading t={t} />;
     if (error) return <ErrorBox msg={error} />;
 
+    if (modalOpen) {
+        return (
+            <HqJournalEntryModal scope={scope} onClose={() => setModalOpen(false)} onPosted={reload} t={t} />
+        );
+    }
+
     const rows = data?.entries || data?.journals || data?.items || [];
     return (
         <div className="sa-acc-panel">
@@ -1145,9 +1154,6 @@ function JournalEntriesTab({ scope, dateRange, t }) {
                 <div className="sa-acc-hq-edit-bar">
                     <button className="sa-acc-btn sa-acc-btn--primary" onClick={() => setModalOpen(true)}>{t('je.newBtn')}</button>
                 </div>
-            )}
-            {modalOpen && (
-                <HqJournalEntryModal scope={scope} onClose={() => setModalOpen(false)} onPosted={reload} t={t} />
             )}
             <ReportToolbar
                 title={t('report.journal')}
