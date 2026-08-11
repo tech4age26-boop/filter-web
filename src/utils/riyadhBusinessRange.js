@@ -106,4 +106,37 @@ export function fmtRiyadhRangeLabel(wall) {
     return `${s} (Asia/Riyadh)`;
 }
 
+function isDateTimeBoundLocal(raw) {
+    const s = String(raw ?? '').trim();
+    if (!s) return false;
+    return s.includes('T') || /\d{2}:\d{2}/.test(s);
+}
+
+/**
+ * Map P&L datetime-local (Asia/Riyadh wall) to inclusive journal calendar
+ * `YYYY-MM-DD` bounds matching backend `resolveJournalDateFilterBounds`
+ * period mode (half-open datetime → inclusive DATE span). Use these for
+ * ledger drill-down so type=date filters and journal DATE filters align.
+ */
+export function riyadhPlRangeToLedgerCalendarDates(rangeFromLocal, rangeToLocal) {
+    const fromRaw = String(rangeFromLocal || '').trim();
+    const toRaw = String(rangeToLocal || '').trim();
+    if (!fromRaw && !toRaw) return { dateFrom: '', dateTo: '' };
+
+    if (!isDateTimeBoundLocal(fromRaw) && !isDateTimeBoundLocal(toRaw)) {
+        return {
+            dateFrom: fromRaw.slice(0, 10) || '',
+            dateTo: toRaw.slice(0, 10) || '',
+        };
+    }
+
+    const dateFrom = fromRaw ? fromRaw.slice(0, 10) : '';
+    let dateTo = '';
+    if (toRaw) {
+        const endExclusive = riyadhWallToUtcDate(toRaw);
+        dateTo = toRiyadhDateISO(new Date(endExclusive.getTime() - 1));
+    }
+    return { dateFrom, dateTo };
+}
+
 export { pad2 };

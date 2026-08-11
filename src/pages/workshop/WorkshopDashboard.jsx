@@ -14,6 +14,7 @@ import {
 } from '../../services/workshopStaffApi';
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 import { ShimmerKpiGrid, ShimmerListRows } from '../../components/supplier/Shimmer';
+import WorkshopDashboardKpiProofModal from '../../components/workshop/WorkshopDashboardKpiProofModal';
 import { wsDashT } from '../../utils/workshopDashboardI18n';
 import {
     riyadhRangeToApiIso,
@@ -130,6 +131,7 @@ export default function WorkshopDashboard({
     const [draftRangeTo, setDraftRangeTo] = useState('');
     const [appliedRangeFrom, setAppliedRangeFrom] = useState('');
     const [appliedRangeTo, setAppliedRangeTo] = useState('');
+    const [kpiProofId, setKpiProofId] = useState(null);
 
     const rangeDirty =
         draftRangeFrom !== appliedRangeFrom || draftRangeTo !== appliedRangeTo;
@@ -403,6 +405,7 @@ export default function WorkshopDashboard({
 
     const kpis = [
         {
+            id: 'sales',
             label: hasAppliedRange ? t('kpi.salesInRange') : t('kpi.salesToday'),
             value: t('money.sar', { amount: todaySales.toLocaleString() }),
             sub: hasAppliedRange
@@ -415,6 +418,7 @@ export default function WorkshopDashboard({
             Icon: DollarSign,
         },
         {
+            id: 'gross_margin',
             label: t('kpi.grossMargin'),
             value: t('money.sar', { amount: grossMarginProfit.toLocaleString() }),
             sub: hasAppliedRange
@@ -424,12 +428,14 @@ export default function WorkshopDashboard({
             Icon: TrendingUp,
         },
         {
+            id: 'pending_invoices',
             label: t('kpi.pendingInvoices'),
             value: pendingInvoices,
             iconClass: 'ws-kpi-icon--orange',
             Icon: ShoppingCart,
         },
         {
+            id: 'low_stock',
             label: t('kpi.lowStock'),
             value: lowStockAlertsCount,
             sub: dataScopeLabel,
@@ -437,12 +443,30 @@ export default function WorkshopDashboard({
             Icon: AlertTriangle,
         },
         {
+            id: 'pending_approvals',
             label: t('kpi.pendingApprovals'),
             value: pendingApprovalsCount,
             iconClass: 'ws-kpi-icon--purple',
             Icon: ClipboardCheck,
         },
     ];
+
+    const handleKpiClick = useCallback(
+        (kpi) => {
+            if (!kpi?.id) return;
+            if (kpi.id === 'pending_approvals') {
+                onTabChange?.('approvals');
+                return;
+            }
+            setKpiProofId(kpi.id);
+        },
+        [onTabChange],
+    );
+
+    const kpiProofTitle = useMemo(() => {
+        const k = kpis.find((x) => x.id === kpiProofId);
+        return k ? t('kpi.proof.title', { label: k.label }) : t('kpi.proof.titleFallback');
+    }, [kpis, kpiProofId, t]);
     const quickActions = [
         { label: t('quick.employees'), tab: 'employees', Icon: Users },
         { label: t('quick.departments'), tab: 'departments', Icon: Package },
@@ -534,14 +558,42 @@ export default function WorkshopDashboard({
                 </div>
             ) : (
                 <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                    {kpis.map(k => (
-                        <div key={k.label} className="ws-kpi-card">
-                            <div><p className="ws-kpi-label">{k.label}</p><p className="ws-kpi-value">{k.value}</p>{k.sub && <p className="ws-kpi-sub">{k.sub}</p>}</div>
-                            <div className={`ws-kpi-icon ${k.iconClass}`}><k.Icon size={22}/></div>
-                        </div>
+                    {kpis.map((k) => (
+                        <button
+                            key={k.id}
+                            type="button"
+                            className="ws-kpi-card ws-kpi-card--clickable"
+                            onClick={() => handleKpiClick(k)}
+                            aria-label={t('kpi.proof.aria', { label: k.label })}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, textAlign: 'start' }}
+                        >
+                            <div>
+                                <p className="ws-kpi-label">{k.label}</p>
+                                <p className="ws-kpi-value">{k.value}</p>
+                                {k.sub ? <p className="ws-kpi-sub">{k.sub}</p> : null}
+                                <p className="ws-kpi-proof-hint">{t('kpi.proof.clickHint')}</p>
+                            </div>
+                            <div className={`ws-kpi-icon ${k.iconClass}`}><k.Icon size={22} /></div>
+                        </button>
                     ))}
                 </div>
             )}
+            {kpiProofId ? (
+                <WorkshopDashboardKpiProofModal
+                    kpiId={kpiProofId}
+                    title={kpiProofTitle}
+                    selectedBranchId={selectedBranchId}
+                    appliedRangeFrom={appliedRangeFrom}
+                    appliedRangeTo={appliedRangeTo}
+                    lowStockProducts={lowStockProducts}
+                    onClose={() => setKpiProofId(null)}
+                    onGoInventory={() => {
+                        setKpiProofId(null);
+                        onTabChange?.('inventory');
+                    }}
+                    t={t}
+                />
+            ) : null}
             <div className="ws-section" style={{ marginBottom: 16 }}>
                 <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
                     <p style={{ fontWeight: 700, margin: 0 }}>{t('tech.title')}</p>
