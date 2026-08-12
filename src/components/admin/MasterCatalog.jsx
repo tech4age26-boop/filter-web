@@ -223,6 +223,7 @@ function validateProductPriceEditableRules(form) {
 function validateCatalogServicePrices(form) {
     return findFirstNegativeMoneyField([
         { label: 'Selling price', value: form.sellingPrice },
+        { label: 'Service cost', value: form.serviceCost },
         { label: 'Min corporate price', value: form.minPriceCorporate },
         { label: 'Max corporate price', value: form.maxPriceCorporate },
     ]);
@@ -359,6 +360,7 @@ const SERVICE_CSV_COLUMNS = [
     'Department',
     'Category',
     'UOM',
+    'Service Cost',
     'Sale Price Inclusive VAT 15%',
     'Sale Price Enclusive VAT 15%',
     'Allow Price Change',
@@ -557,6 +559,7 @@ export default function MasterCatalog() {
         description: '',
         unitOfMeasurement: 'ea',
         sellingPrice: '',
+        serviceCost: '0',
         isPriceEditable: true,
         serviceQtyEnabled: false,
         minPriceCorporate: '',
@@ -991,6 +994,10 @@ export default function MasterCatalog() {
         sku: service.sku || '',
         description: service.description || '',
         sellingPrice: service.sellingPrice == null ? '' : String(service.sellingPrice),
+        serviceCost:
+            service.serviceCost == null && service.service_cost == null
+                ? '0'
+                : String(service.serviceCost ?? service.service_cost ?? 0),
         isPriceEditable: toBoolPriceEditable(service),
         serviceQtyEnabled: toBoolServiceQty(service),
         minPriceCorporate:
@@ -1333,6 +1340,7 @@ export default function MasterCatalog() {
                 description: newService.description || undefined,
                 unitOfMeasurement: newService.unitOfMeasurement || 'ea',
                 sellingPrice: newService.sellingPrice === '' ? null : parseNumberOr(newService.sellingPrice, 0),
+                serviceCost: parseNumberOr(newService.serviceCost, 0),
                 isPriceEditable: !!newService.isPriceEditable,
                 serviceQty: newService.serviceQtyEnabled ? 1 : null,
                 minPriceCorporate: parseNumberOr(newService.minPriceCorporate, 0),
@@ -1346,6 +1354,7 @@ export default function MasterCatalog() {
                 description: '',
                 unitOfMeasurement: 'ea',
                 sellingPrice: '',
+                serviceCost: '0',
                 isPriceEditable: true,
                 serviceQtyEnabled: false,
                 minPriceCorporate: '',
@@ -1384,6 +1393,7 @@ export default function MasterCatalog() {
                     editingService.sellingPrice === ''
                         ? null
                         : parseNumberOr(editingService.sellingPrice, 0),
+                serviceCost: parseNumberOr(editingService.serviceCost, 0),
                 minPriceCorporate:
                     editingService.minPriceCorporate === '' || editingService.minPriceCorporate == null
                         ? undefined
@@ -2582,6 +2592,9 @@ export default function MasterCatalog() {
                                         ) : null}
                                     </div>
                                     <div className="mc-sc-price">{t('sale.sar', { price: p.sellingPrice ?? 0 })}</div>
+                                    <div className="mc-sc-sub" style={{ marginTop: 4 }}>
+                                        {t('label.serviceCost')}: {t('sale.sar', { price: p.serviceCost ?? p.service_cost ?? 0 })}
+                                    </div>
                                 </div>
                                 <div className="mc-sc-footer">
                                     <div
@@ -3071,6 +3084,20 @@ export default function MasterCatalog() {
                                         }
                                     />
                                 </div>
+                                <div className="mc-form-group">
+                                    <label>{t('label.serviceCost')}</label>
+                                    <input
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
+                                        placeholder="0"
+                                        value={newService.serviceCost}
+                                        onChange={(e) =>
+                                            setNewService((prev) => ({
+                                                ...prev,
+                                                serviceCost: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
+                                    />
+                                </div>
                             </div>
 
                             <div className="mc-form-row">
@@ -3232,6 +3259,23 @@ export default function MasterCatalog() {
                                             setEditingService((prev) => ({
                                                 ...prev,
                                                 sellingPrice: sanitizeNonNegativeMoneyInput(e.target.value),
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mc-form-row">
+                                <div className="mc-form-group">
+                                    <label>{t('label.serviceCost')}</label>
+                                    <input
+                                        {...NON_NEGATIVE_MONEY_INPUT_ATTRS}
+                                        placeholder="0"
+                                        value={editingService.serviceCost ?? '0'}
+                                        onChange={(e) =>
+                                            setEditingService((prev) => ({
+                                                ...prev,
+                                                serviceCost: sanitizeNonNegativeMoneyInput(e.target.value),
                                             }))
                                         }
                                     />
