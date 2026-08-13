@@ -754,6 +754,58 @@ function computeSummaryTotals(summaryRows, statement, bill) {
     };
 }
 
+/** Split an inclusive amount into Excl / VAT 15% / Incl (VAT = remainder so Incl stays exact). */
+function splitInclusiveVatAmount(inclRaw) {
+    const incl = Number(Number(inclRaw ?? 0).toFixed(2));
+    if (Math.abs(incl) < 0.005) return { excl: 0, vat: 0, incl: 0 };
+    const sign = incl < 0 ? -1 : 1;
+    const abs = Math.abs(incl);
+    const excl = Number((abs / 1.15).toFixed(2));
+    const vat = Number((abs - excl).toFixed(2));
+    return { excl: excl * sign, vat: vat * sign, incl: incl };
+}
+
+/**
+ * Monthly invoice body rows: service month lines + sales-return / receipt deductions
+ * so the table Total matches Amount due (invoices − returns − receipts).
+ */
+function buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill) {
+    const rows = [...(summaryRows ?? [])];
+    const dateLabel =
+        rows[0]?.date ||
+        formatBillGeneratedDateLabel(parseIsoDate(bill?.createdAt) || new Date());
+
+    const returns = Number(kpiSummary?.totalSalesReturns ?? 0);
+    if (returns > 0.005) {
+        const { excl, vat, incl } = splitInclusiveVatAmount(returns);
+        rows.push({
+            date: dateLabel,
+            descriptionEn: 'Sales returns',
+            descriptionAr: 'مرتجعات المبيعات',
+            invoiceExclVat: -excl,
+            vat15: -vat,
+            invoiceInclusiveVat: -incl,
+            isDeduction: true,
+        });
+    }
+
+    const receipts = Number(kpiSummary?.totalReceipts ?? 0);
+    if (receipts > 0.005) {
+        const { excl, vat, incl } = splitInclusiveVatAmount(receipts);
+        rows.push({
+            date: dateLabel,
+            descriptionEn: 'Receipts / payments',
+            descriptionAr: 'المقبوضات',
+            invoiceExclVat: -excl,
+            vat15: -vat,
+            invoiceInclusiveVat: -incl,
+            isDeduction: true,
+        });
+    }
+
+    return rows;
+}
+
 function resolveZatcaSellerName(corp, header) {
     const workshop = String(corp?.workshopName || header?.workshopName || '').trim();
     if (workshop) return workshop;
@@ -1308,9 +1360,14 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
         statement?.period?.endDate?.slice?.(0, 10) ||
         '';
     const period = formatPeriodLabel(dateFrom, dateTo);
-    const invoiceRows = summaryRows ?? [];
-    const { totalExcl, totalVat, totalIncl, balanceDue } =
-        totals ?? computeSummaryTotals(invoiceRows, statement, bill);
+    const invoiceRows = buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill);
+    const tableTotals = computeSummaryTotals(invoiceRows, statement, bill);
+    // Amount due stays from export (opening + invoices − receipts − returns).
+    const balanceDue = Number(totals?.balanceDue ?? tableTotals.totalIncl ?? 0);
+    // Footer Total nets sales returns (and receipts) so it matches Amount due when opening is 0.
+    const totalExcl = tableTotals.totalExcl;
+    const totalVat = tableTotals.totalVat;
+    const totalIncl = tableTotals.totalIncl;
 
     const rowsHtml = invoiceRows.map(buildMonthlyInvoiceRowHtml).join('');
     const minBodyRows = 4;
@@ -1435,12 +1492,20 @@ export async function exportCorporateGeneratedBillPdf({
     );
     totals.balanceDue = kpiSummary.closingBalance;
 
+    // Net VAT for ZATCA QR = invoices − sales returns (− receipts), same as table Total.
+    const monthlyTableRows = buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill);
+    const netTableTotals = computeSummaryTotals(monthlyTableRows, stmt, bill);
+    totals.totalExcl = netTableTotals.totalExcl;
+    totals.totalVat = netTableTotals.totalVat;
+    // Keep gross invoice total for KPI "Total Invoices"; net is only for table/QR.
+    totals.netIncl = netTableTotals.totalIncl;
+
     const qrDataUrl = await buildMonthlyInvoiceQrDataUrl({
         sellerName: resolveZatcaSellerName(corp, header),
         vatNumber: resolveZatcaSellerTaxId(corp, header),
         invoiceDate: bill?.createdAt || new Date().toISOString(),
-        grandTotal: totals.balanceDue > 0 ? totals.balanceDue : totals.totalIncl,
-        vatAmount: totals.totalVat,
+        grandTotal: totals.balanceDue > 0 ? totals.balanceDue : totals.netIncl,
+        vatAmount: Math.max(0, totals.totalVat),
     });
 
     const monthlyHtml = buildMonthlyInvoiceHtml({
