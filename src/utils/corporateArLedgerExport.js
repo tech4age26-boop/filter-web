@@ -600,7 +600,7 @@ function splitPeriodIntoMonthChunks(startStr, endStr) {
  * Ledger often keeps original (pre-discount) VAT on the invoice while Excl is already
  * total−vat (post-discount) — recalculate so VAT matches the Excl column.
  */
-function normalizeInvoiceAmounts(line) {
+export function normalizeInvoiceAmounts(line) {
     let excl = Number(line.invoiceExclVat ?? 0);
     const disc = Number(line.salesDiscounts ?? 0);
     let incl = Number(line.invoiceInclusiveVat ?? line.invoiceAmount ?? 0);
@@ -629,7 +629,7 @@ function normalizeInvoiceAmounts(line) {
  * Apply the same post-discount Excl/VAT/Incl math to statement detail rows and
  * rebuild running balances so the bottom of the bill PDF matches the monthly page.
  */
-function normalizeLedgerDetailLinesForBillPdf(lines, openingBalance = 0) {
+export function normalizeLedgerDetailLinesForBillPdf(lines, openingBalance = 0) {
     let running = Number(Number(openingBalance ?? 0).toFixed(2));
     return (lines ?? []).map((row) => {
         const next = { ...row };
@@ -657,6 +657,46 @@ function normalizeLedgerDetailLinesForBillPdf(lines, openingBalance = 0) {
         next.runningBalance = running;
         return next;
     });
+}
+
+/**
+ * UI + PDF: rewrite ledger VAT/Incl after discount and sync summary invoices/closing.
+ * Discounts column stays informational (already reflected in Excl / VAT / Incl).
+ */
+export function applyPostDiscountVatToLedgerStatement(ledger) {
+    if (!ledger || typeof ledger !== 'object') return ledger;
+    const opening = Number(ledger.summary?.openingBalance ?? 0);
+    const lines = normalizeLedgerDetailLinesForBillPdf(ledger.lines ?? [], opening);
+    const totalInvoiceAmount = Number(
+        lines
+            .filter((l) => l.type === 'Invoice')
+            .reduce((s, l) => s + Number(l.invoiceInclusiveVat ?? 0), 0)
+            .toFixed(2),
+    );
+    const totalReceipts = Number(ledger.summary?.totalReceipts ?? 0);
+    const totalSalesReturns = Number(
+        ledger.summary?.totalSalesReturns ?? ledger.summary?.totalSalesReturn ?? 0,
+    );
+    const closingBalance = Number(
+        (
+            opening +
+            totalInvoiceAmount -
+            totalReceipts -
+            totalSalesReturns
+        ).toFixed(2),
+    );
+    return {
+        ...ledger,
+        lines,
+        summary: {
+            ...(ledger.summary || {}),
+            openingBalance: opening,
+            totalInvoiceAmount,
+            closingBalance,
+            totalReceipts,
+            totalSalesReturns,
+        },
+    };
 }
 
 /**
