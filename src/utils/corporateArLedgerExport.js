@@ -595,7 +595,7 @@ function splitPeriodIntoMonthChunks(startStr, endStr) {
 }
 
 /**
- * Amounts for monthly bill PDF rows.
+ * Amounts for monthly bill PDF rows / detail invoice lines.
  * Excl shown is the taxable base after discount; VAT = 15% of that; Incl = Excl + VAT.
  * Ledger often keeps original (pre-discount) VAT on the invoice while Excl is already
  * total−vat (post-discount) — recalculate so VAT matches the Excl column.
@@ -623,6 +623,40 @@ function normalizeInvoiceAmounts(line) {
     const vat = Number((excl * 0.15).toFixed(2));
     incl = Number((excl + vat).toFixed(2));
     return { excl, vat, incl };
+}
+
+/**
+ * Apply the same post-discount Excl/VAT/Incl math to statement detail rows and
+ * rebuild running balances so the bottom of the bill PDF matches the monthly page.
+ */
+function normalizeLedgerDetailLinesForBillPdf(lines, openingBalance = 0) {
+    let running = Number(Number(openingBalance ?? 0).toFixed(2));
+    return (lines ?? []).map((row) => {
+        const next = { ...row };
+        if (row.type === 'Invoice') {
+            const a = normalizeInvoiceAmounts(row);
+            next.invoiceExclVat = a.excl;
+            next.vat15 = a.vat;
+            next.invoiceInclusiveVat = a.incl;
+        }
+
+        const counts =
+            row.countsInBalance !== false &&
+            (row.type === 'Sales Return'
+                ? row.status === 'Approved'
+                : row.type === 'Receipt'
+                  ? !String(row.status || '').includes('Unapproved')
+                  : true);
+
+        if (counts) {
+            if (row.type === 'Invoice') running += Number(next.invoiceInclusiveVat ?? 0);
+            else if (row.type === 'Sales Return') running -= Number(row.salesReturns ?? 0);
+            else if (row.type === 'Receipt') running -= Number(row.receipts ?? 0);
+            running = Number(running.toFixed(2));
+        }
+        next.runningBalance = running;
+        return next;
+    });
 }
 
 /**
@@ -1425,10 +1459,32 @@ export async function exportCorporateGeneratedBillPdf({
         const monthlyImg = await captureHtmlFragment(monthlyHtml, layout.contentW);
         addSinglePageImage(doc, monthlyImg, layout, false);
 
-        const detailLines = ledger?.lines ?? [];
-        if (detailLines.length > 0) {
-            const summary = ledger.summary ?? buildBillKpiSummary(ledger, stmt, bill, totals);
-            summary.openingBalance = Number(summary.openingBalance ?? 0);
+        const rawDetailLines = ledger?.lines ?? [];
+        if (rawDetailLines.length > 0) {
+            // Same post-discount VAT as the monthly invoice page (raw ledger still uses
+            // stored pre-discount vatAmount on many invoices).
+            const opening = Number(
+                kpiSummary.openingBalance ?? ledger?.summary?.openingBalance ?? 0,
+            );
+            const detailLines = normalizeLedgerDetailLinesForBillPdf(
+                rawDetailLines,
+                opening,
+            );
+            const summary = {
+                ...kpiSummary,
+                openingBalance: opening,
+                // Keep discount/receipt/return KPI labels from ledger; invoice + closing
+                // already synced to recalculated monthly totals above.
+                totalDiscounts: Number(
+                    kpiSummary.totalDiscounts ?? ledger?.summary?.totalDiscounts ?? 0,
+                ),
+                totalReceipts: Number(
+                    kpiSummary.totalReceipts ?? ledger?.summary?.totalReceipts ?? 0,
+                ),
+                totalSalesReturns: Number(
+                    kpiSummary.totalSalesReturns ?? ledger?.summary?.totalSalesReturns ?? 0,
+                ),
+            };
             const pages = await packLinesIntoPages(
                 detailLines,
                 summary,

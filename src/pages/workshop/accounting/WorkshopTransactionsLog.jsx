@@ -26,6 +26,8 @@ import { exportRowsToPdf, exportRowsToExcel } from '../../../utils/tableExport';
 import { downloadPosInvoicePdf } from '../../../utils/posInvoiceActions';
 import { formatPlateLettersFirst } from '../../../utils/formatPlate';
 import { accT } from '../../../utils/accountingI18n';
+import { riyadhBoundToApiIso } from '../../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from '../workshopAdminDatetimeRange';
 import '../../../styles/admin/AccountingPage.css';
 
 const LEGACY_METHOD_VALUES = ['all', 'cash', 'bank', 'petty_cash'];
@@ -239,13 +241,22 @@ export default function WorkshopTransactionsLog({
     const [branchDisplay, setBranchDisplay] = useState('');
     const [userId, setUserId] = useState('');
     const [userDisplay, setUserDisplay] = useState('');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [dateFrom, setDateFrom] = useState(() => (
+        isReceipts ? (loadWorkshopAdminDatetimeRange()?.dateFrom || '') : ''
+    ));
+    const [dateTo, setDateTo] = useState(() => (
+        isReceipts ? (loadWorkshopAdminDatetimeRange()?.dateTo || '') : ''
+    ));
     const [search, setSearch] = useState('');
-    const [applied, setApplied] = useState(() => ({
-        ...emptyApplied,
-        branchId: sidebarBranchToFilter(selectedBranchId),
-    }));
+    const [applied, setApplied] = useState(() => {
+        const shared = isReceipts ? loadWorkshopAdminDatetimeRange() : null;
+        return {
+            ...emptyApplied,
+            branchId: sidebarBranchToFilter(selectedBranchId),
+            dateFrom: shared?.dateFrom || '',
+            dateTo: shared?.dateTo || '',
+        };
+    });
     const [page, setPage] = useState(1);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
@@ -321,8 +332,13 @@ export default function WorkshopTransactionsLog({
         method: filters.method,
         branchId: filters.branchId || undefined,
         userId: filters.userId || undefined,
-        dateFrom: filters.dateFrom || undefined,
-        dateTo: filters.dateTo || undefined,
+        // datetime-local / calendar day → Asia/Riyadh wall → UTC ISO (not browser TZ)
+        dateFrom: filters.dateFrom
+            ? riyadhBoundToApiIso(filters.dateFrom, 'start')
+            : undefined,
+        dateTo: filters.dateTo
+            ? riyadhBoundToApiIso(filters.dateTo, 'end')
+            : undefined,
         search: filters.search.trim() || undefined,
         limit,
         offset,

@@ -170,8 +170,12 @@ function pad2(n) {
 
 import {
     toRiyadhDatetimeLocalValue,
-    riyadhRangeToApiIso,
+    workshopAdminRangeQueryParams,
 } from '../../utils/riyadhBusinessRange';
+import {
+    loadWorkshopAdminDatetimeRange,
+    saveWorkshopAdminDatetimeRange,
+} from './workshopAdminDatetimeRange';
 
 /** `YYYY-MM-DDTHH:mm` for `<input type="datetime-local" />` — Asia/Riyadh wall clock. */
 function toDatetimeLocalValue(d) {
@@ -186,11 +190,18 @@ function defaultLocalRangeLatest() {
     return { start, end };
 }
 
+function initialWorkshopReportsRange() {
+    const shared = loadWorkshopAdminDatetimeRange();
+    if (shared?.dateFrom && shared?.dateTo) {
+        return { start: shared.dateFrom, end: shared.dateTo };
+    }
+    return defaultLocalRangeLatest();
+}
+
 /** Full ISO strings for `/workshop-staff/reports-*` — datetime-local treated as Asia/Riyadh. */
 function rangeToApiIso(rangeFromLocal, rangeToLocal, t) {
     try {
-        const { startDate, endDate } = riyadhRangeToApiIso(rangeFromLocal, rangeToLocal);
-        return { startDate, endDate };
+        return workshopAdminRangeQueryParams(rangeFromLocal, rangeToLocal);
     } catch (err) {
         throw new Error(
             t
@@ -512,7 +523,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         [hasPermission],
     );
 
-    const initialRange = useMemo(() => defaultLocalRangeLatest(), []);
+    const initialRange = useMemo(() => initialWorkshopReportsRange(), []);
     // Applied range — what the fetches actually query.
     const [rangeFromLocal, setRangeFromLocal] = useState(initialRange.start);
     const [rangeToLocal, setRangeToLocal] = useState(initialRange.end);
@@ -604,11 +615,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         setOrdersListLoading(true);
         setOrdersListError('');
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
-            const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
-            });
+            const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
+            const params = workshopReportsAnalyticsParams(selectedBranchId, rangeParams);
             const limit = ORDERS_PAGE_SIZE;
             const offset = (ordersPage - 1) * limit;
             const q = ordersSearchDebounced.trim();
@@ -645,7 +653,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
     const fetchSummaryTabPage = useCallback(
         async (tabId, page = 1) => {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
+            const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const technicianId =
                 tabId === 'by_product'
                     ? byProductTechnicianId
@@ -653,8 +661,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                       ? byServiceTechnicianId
                       : '';
             const baseParams = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
+                ...rangeParams,
                 ...(technicianId ? { technicianId } : {}),
             });
             const params = {
@@ -718,19 +725,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         setOrdersPage(1);
         setSummaryPages(createEmptySummaryPages());
         try {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
-            const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
-            });
+            const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
+            const params = workshopReportsAnalyticsParams(selectedBranchId, rangeParams);
             const productParams = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
+                ...rangeParams,
                 technicianId: byProductTechnicianId,
             });
             const serviceParams = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
+                ...rangeParams,
                 technicianId: byServiceTechnicianId,
             });
             const [
@@ -834,6 +836,10 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         if (!rangeDirty) return;
         setRangeFromLocal(draftRangeFrom);
         setRangeToLocal(draftRangeTo);
+        saveWorkshopAdminDatetimeRange({
+            dateFrom: draftRangeFrom,
+            dateTo: draftRangeTo,
+        });
     }, [rangeDirty, draftRangeFrom, draftRangeTo]);
 
     useEffect(() => {
@@ -921,11 +927,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     }, [loadReports]);
 
     const fetchRecentOrderDetails = useCallback(async (target) => {
-        const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
-        const params = workshopReportsAnalyticsParams(selectedBranchId, {
-            startDate,
-            endDate,
-        });
+        const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
+        const params = workshopReportsAnalyticsParams(selectedBranchId, rangeParams);
         const targetKey = String(target ?? '');
         if (targetKey.startsWith('so:')) {
             return await getWorkshopRecentOpenOrderDetails(targetKey.slice(3), params);
@@ -990,11 +993,8 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 return;
             }
             const invoiceId = target.startsWith('inv:') ? target.slice(4) : target;
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
-            const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
-            });
+            const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
+            const params = workshopReportsAnalyticsParams(selectedBranchId, rangeParams);
             const res = await getWorkshopRecentOrderPdf(invoiceId, params);
             const invoiceObj = mapRecentPdfToInvoice(res, t);
             if (!invoiceObj) throw new Error(t('err.invalidInvoice'));
@@ -1079,10 +1079,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
 
     const loadDetails = useCallback(
         async (tabId, row) => {
-            const { startDate, endDate } = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
+            const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = workshopReportsAnalyticsParams(selectedBranchId, {
-                startDate,
-                endDate,
+                ...rangeParams,
                 ...(tabId === 'by_product' && byProductTechnicianId
                     ? { technicianId: byProductTechnicianId }
                     : {}),

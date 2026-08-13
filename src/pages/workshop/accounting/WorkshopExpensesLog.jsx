@@ -11,6 +11,7 @@ import { exportRowsToPdf, exportRowsToExcel } from '../../../utils/tableExport';
 import { expLogT } from '../../../utils/expensesLogI18n';
 import { LOCKER_EXPENSE_CATEGORIES } from '../../locker/lockerExpenseCategories';
 import { ADMIN_WALLET_EXPENSE_CATEGORIES } from '../../../constants/adminWalletExpenseCategories';
+import { riyadhBoundToApiIso } from '../../../utils/riyadhBusinessRange';
 import '../../../styles/admin/AccountingPage.css';
 
 const PAGE_SIZE = 50;
@@ -141,8 +142,12 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
     const buildListParams = useCallback((filters, { limit, offset }) => ({
         branchId: filters.branchId || undefined,
         userId: filters.userId || undefined,
-        dateFrom: filters.dateFrom || undefined,
-        dateTo: filters.dateTo || undefined,
+        dateFrom: filters.dateFrom
+            ? riyadhBoundToApiIso(filters.dateFrom, 'start')
+            : undefined,
+        dateTo: filters.dateTo
+            ? riyadhBoundToApiIso(filters.dateTo, 'end')
+            : undefined,
         category: filters.category || undefined,
         limit,
         offset,

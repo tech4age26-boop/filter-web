@@ -22,6 +22,8 @@ import {
 } from '../../../services/workshopStaffApi';
 
 import '../Workshop.css';
+import { riyadhDatetimeLocalToEpochMs } from '../../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from '../workshopAdminDatetimeRange';
 
 
 
@@ -76,19 +78,7 @@ const TYPE_COLORS = {
 
 
 function localDatetimeToEpochMs(local) {
-
-    if (!local || !String(local).trim()) return '';
-
-    const s = String(local).trim();
-
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return '';
-
-    const d = new Date(s);
-
-    if (Number.isNaN(d.getTime())) return '';
-
-    return String(d.getTime());
-
+    return riyadhDatetimeLocalToEpochMs(local);
 }
 
 
@@ -153,13 +143,21 @@ export default function WorkshopEmployeeLedgerTab({
 
     const [employeeSearchDraft, setEmployeeSearchDraft] = useState('');
 
-    const [draftStartDateTime, setDraftStartDateTime] = useState('');
+    const [draftStartDateTime, setDraftStartDateTime] = useState(
+        () => loadWorkshopAdminDatetimeRange()?.dateFrom || '',
+    );
 
-    const [draftEndDateTime, setDraftEndDateTime] = useState('');
+    const [draftEndDateTime, setDraftEndDateTime] = useState(
+        () => loadWorkshopAdminDatetimeRange()?.dateTo || '',
+    );
 
-    const [appliedStartDateTime, setAppliedStartDateTime] = useState('');
+    const [appliedStartDateTime, setAppliedStartDateTime] = useState(
+        () => loadWorkshopAdminDatetimeRange()?.dateFrom || '',
+    );
 
-    const [appliedEndDateTime, setAppliedEndDateTime] = useState('');
+    const [appliedEndDateTime, setAppliedEndDateTime] = useState(
+        () => loadWorkshopAdminDatetimeRange()?.dateTo || '',
+    );
 
     const [ledger, setLedger] = useState(null);
 

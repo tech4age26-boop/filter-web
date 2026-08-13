@@ -45,7 +45,12 @@ import {
     fmtRiyadhRangeLabel,
     riyadhPlRangeToLedgerCalendarDates,
     riyadhRangeToApiIso,
+    BUSINESS_TIMEZONE,
 } from '../../utils/riyadhBusinessRange';
+import {
+    loadWorkshopAdminDatetimeRange,
+    saveWorkshopAdminDatetimeRange,
+} from '../../pages/workshop/workshopAdminDatetimeRange';
 import { accT } from '../../utils/accountingI18n';
 
 const parseArr = (res) => {
@@ -281,6 +286,10 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     const [tbLoading, setTbLoading] = useState(false);
 
     const [plFilters, setPlFilters] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        if (shared?.dateFrom && shared?.dateTo) {
+            return { dateFrom: shared.dateFrom, dateTo: shared.dateTo, branchId: '' };
+        }
         const r = defaultRiyadhReportRangeDatetimeLocal();
         return { dateFrom: r.start, dateTo: r.end, branchId: '' };
     });
@@ -591,21 +600,29 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
         }
     };
 
-    const loadPL = async () => {
+    const loadPL = async (overrideFilters) => {
+        const filters = overrideFilters || plFilters;
         setPlLoading(true);
         setPlRangeError('');
         try {
-            let dateFrom = plFilters.dateFrom;
-            let dateTo = plFilters.dateTo;
+            let dateFrom = filters.dateFrom;
+            let dateTo = filters.dateTo;
             if (dateFrom && dateTo && (String(dateFrom).includes('T') || String(dateTo).includes('T'))) {
                 const iso = riyadhRangeToApiIso(dateFrom, dateTo);
                 dateFrom = iso.dateFrom;
                 dateTo = iso.dateTo;
             }
+            if (filters.dateFrom && filters.dateTo) {
+                saveWorkshopAdminDatetimeRange({
+                    dateFrom: filters.dateFrom,
+                    dateTo: filters.dateTo,
+                });
+            }
             const res = await getPLReport({
-                ...plFilters,
+                ...filters,
                 dateFrom,
                 dateTo,
+                clientTimeZone: BUSINESS_TIMEZONE,
             });
             setPlData(res || null);
         } catch (err) {
@@ -627,9 +644,33 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     };
 
     useEffect(() => {
-        if (activeTab === 'Trial Balance') loadTrialBalance();
-        if (activeTab === 'P&L') loadPL();
-        if (activeTab === 'Balance Sheet') loadBalanceSheet();
+        if (activeTab === 'Trial Balance') {
+            loadTrialBalance();
+            return;
+        }
+        if (activeTab === 'Balance Sheet') {
+            loadBalanceSheet();
+            return;
+        }
+        if (activeTab !== 'P&L') return;
+
+        const shared = loadWorkshopAdminDatetimeRange();
+        if (shared?.dateFrom && shared?.dateTo) {
+            const next = {
+                ...plFilters,
+                dateFrom: shared.dateFrom,
+                dateTo: shared.dateTo,
+            };
+            if (
+                next.dateFrom !== plFilters.dateFrom
+                || next.dateTo !== plFilters.dateTo
+            ) {
+                setPlFilters(next);
+            }
+            loadPL(next);
+            return;
+        }
+        loadPL();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab]);
 
