@@ -10,6 +10,8 @@ import {
 } from '../../services/workshopStaffApi';
 import { useAuth } from '../../context/AuthContext';
 import { wsrT } from '../../utils/workshopSalesReturnsI18n';
+import { riyadhBoundToApiIso } from '../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from './workshopAdminDatetimeRange';
 import './Workshop.css';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 
@@ -54,8 +56,8 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [dateFrom, setDateFrom] = useState(() => loadWorkshopAdminDatetimeRange()?.dateFrom || '');
+    const [dateTo, setDateTo] = useState(() => loadWorkshopAdminDatetimeRange()?.dateTo || '');
     const [invoiceNo, setInvoiceNo] = useState('');
     const [statusFilter, setStatusFilter] = useState('completed');
 
@@ -92,8 +94,8 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
             const res = await getWorkshopSalesReturns({
                 ...branchParams,
                 status: statusFilter || undefined,
-                dateFrom: dateFrom || undefined,
-                dateTo: dateTo || undefined,
+                dateFrom: dateFrom ? riyadhBoundToApiIso(dateFrom, 'start') : undefined,
+                dateTo: dateTo ? riyadhBoundToApiIso(dateTo, 'end') : undefined,
                 invoiceNo: invoiceNo.trim() || undefined,
                 limit: 100,
                 offset: 0,

@@ -3,7 +3,7 @@ import Modal from '../Modal';
 import InvoiceDetailsModal from '../pos/modern/InvoiceDetailsModal';
 import { apiFetch } from '../../services/api';
 import { getWorkshopRecentOrderPdf, qs } from '../../services/workshopStaffApi';
-import { riyadhRangeToApiIso } from '../../utils/riyadhBusinessRange';
+import { riyadhRangeToApiIso, workshopAdminRangeQueryParams } from '../../utils/riyadhBusinessRange';
 import WsTableScroll from './WsTableScroll';
 
 function SummaryGrid({ items }) {
@@ -70,11 +70,10 @@ export default function WorkshopDashboardKpiProofModal({
                     params.branchId = String(selectedBranchId);
                 }
                 if (appliedRangeFrom && appliedRangeTo) {
-                    const iso = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeTo);
-                    params.startDate = iso.startDate;
-                    params.endDate = iso.endDate;
-                    params.dateFrom = iso.dateFrom;
-                    params.dateTo = iso.dateTo;
+                    Object.assign(
+                        params,
+                        workshopAdminRangeQueryParams(appliedRangeFrom, appliedRangeTo),
+                    );
                 }
                 const res = await apiFetch(`/workshop-staff/dashboard/kpi-proof${qs(params)}`);
                 if (cancelled) return;

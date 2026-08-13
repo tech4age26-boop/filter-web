@@ -14,9 +14,8 @@ import {
     money,
     outlineBtnStyle,
     primaryBtnStyle,
-    startOfMonthISO,
-    todayISO,
 } from '../../supplier/accounting/SupplierAccountingShared';
+import { riyadhStartOfMonthDatetimeLocal, toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 const summaryCardStyle = {
     padding: 14,
@@ -43,8 +42,10 @@ export default function WorkshopVatReport() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
-    const [dateFrom, setDateFrom] = useState(startOfMonthISO());
-    const [dateTo, setDateTo] = useState(todayISO());
+    const [dateFrom, setDateFrom] = useState(() =>
+        riyadhStartOfMonthDatetimeLocal().slice(0, 10),
+    );
+    const [dateTo, setDateTo] = useState(() => toRiyadhDateISO());
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -68,8 +69,8 @@ export default function WorkshopVatReport() {
     }, [load]);
 
     function clearRange() {
-        setDateFrom(startOfMonthISO());
-        setDateTo(todayISO());
+        setDateFrom(riyadhStartOfMonthDatetimeLocal().slice(0, 10));
+        setDateTo(toRiyadhDateISO());
     }
 
     function onExportPdf() {

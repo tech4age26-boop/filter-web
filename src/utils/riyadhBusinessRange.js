@@ -96,6 +96,58 @@ export function riyadhRangeToApiIso(rangeFromLocal, rangeToLocal) {
     return { startDate: s.toISOString(), endDate: e.toISOString(), dateFrom: s.toISOString(), dateTo: e.toISOString() };
 }
 
+/**
+ * Standard query params for workshop analytics / dashboard / KPI proof APIs.
+ * Always Asia/Riyadh wall → UTC ISO (+ clientTimeZone hint).
+ */
+export function workshopAdminRangeQueryParams(rangeFromLocal, rangeToLocal) {
+    const iso = riyadhRangeToApiIso(rangeFromLocal, rangeToLocal);
+    return {
+        startDate: iso.startDate,
+        endDate: iso.endDate,
+        dateFrom: iso.dateFrom,
+        dateTo: iso.dateTo,
+        clientTimeZone: BUSINESS_TIMEZONE,
+    };
+}
+
+/** POS monitoring style `from` / `to` ISO bounds (Asia/Riyadh wall). */
+export function workshopAdminFromToQueryParams(rangeFromLocal, rangeToLocal) {
+    const iso = riyadhRangeToApiIso(rangeFromLocal, rangeToLocal);
+    return { from: iso.startDate, to: iso.endDate };
+}
+
+/**
+ * Convert one datetime-local (or calendar day / ISO) field to a UTC ISO string
+ * for APIs that take independent dateFrom/dateTo (Discounts, Sales Returns, etc.).
+ * Empty input → ''.
+ */
+export function riyadhBoundToApiIso(raw, edge = 'start') {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const wall = edge === 'end' ? `${s}T23:59:59` : `${s}T00:00:00`;
+        return riyadhWallToUtcDate(wall).toISOString();
+    }
+    // Already an absolute ISO with zone / Z — keep as-is.
+    if (/[zZ]|[+-]\d{2}:\d{2}$/.test(s)) {
+        const d = new Date(s);
+        if (Number.isNaN(d.getTime())) throw new Error(`Invalid datetime: ${raw}`);
+        return d.toISOString();
+    }
+    return riyadhWallToUtcDate(s).toISOString();
+}
+
+/** Epoch ms string for commission APIs — Asia/Riyadh wall, not browser local. */
+export function riyadhDatetimeLocalToEpochMs(local) {
+    const s = String(local || '').trim();
+    if (!s) return '';
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return '';
+    const d = riyadhWallToUtcDate(s);
+    if (Number.isNaN(d.getTime())) return '';
+    return String(d.getTime());
+}
+
 export function fmtRiyadhRangeLabel(wall) {
     const s = String(wall || '').trim();
     if (!s) return '—';

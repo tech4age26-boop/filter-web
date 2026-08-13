@@ -19,7 +19,13 @@ import { wsDashT } from '../../utils/workshopDashboardI18n';
 import {
     riyadhRangeToApiIso,
     fmtRiyadhRangeLabel,
+    workshopAdminRangeQueryParams,
 } from '../../utils/riyadhBusinessRange';
+import {
+    loadWorkshopAdminDatetimeRange,
+    saveWorkshopAdminDatetimeRange,
+    clearWorkshopAdminDatetimeRange,
+} from './workshopAdminDatetimeRange';
 
 /** Match WorkshopDepartments — branch and union handlers can return different wrapper shapes. */
 function extractProducts(res) {
@@ -127,10 +133,23 @@ export default function WorkshopDashboard({
     const [techLoadError, setTechLoadError] = useState('');
     const [showAllTechnicians, setShowAllTechnicians] = useState(false);
     // Draft = inputs; applied = what the API uses. Empty = default (today / month).
-    const [draftRangeFrom, setDraftRangeFrom] = useState('');
-    const [draftRangeTo, setDraftRangeTo] = useState('');
-    const [appliedRangeFrom, setAppliedRangeFrom] = useState('');
-    const [appliedRangeTo, setAppliedRangeTo] = useState('');
+    // Prefill from shared workshop datetime (same range as P&L / Reports when set).
+    const [draftRangeFrom, setDraftRangeFrom] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateFrom || '';
+    });
+    const [draftRangeTo, setDraftRangeTo] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateTo || '';
+    });
+    const [appliedRangeFrom, setAppliedRangeFrom] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateFrom || '';
+    });
+    const [appliedRangeTo, setAppliedRangeTo] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateTo || '';
+    });
     const [kpiProofId, setKpiProofId] = useState(null);
 
     const rangeDirty =
@@ -145,11 +164,10 @@ export default function WorkshopDashboard({
             const params = {};
             if (!isAll) params.branchId = String(selectedBranchId);
             if (appliedRangeFrom && appliedRangeTo) {
-                const iso = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeTo);
-                params.startDate = iso.startDate;
-                params.endDate = iso.endDate;
-                params.dateFrom = iso.dateFrom;
-                params.dateTo = iso.dateTo;
+                Object.assign(
+                    params,
+                    workshopAdminRangeQueryParams(appliedRangeFrom, appliedRangeTo),
+                );
             }
             const path = `/workshop-staff/dashboard${qs(params)}`;
             const response = await apiFetch(path);
@@ -172,6 +190,7 @@ export default function WorkshopDashboard({
         if (!from && !to) {
             setAppliedRangeFrom('');
             setAppliedRangeTo('');
+            clearWorkshopAdminDatetimeRange();
             return;
         }
         if (!from || !to) {
@@ -186,6 +205,7 @@ export default function WorkshopDashboard({
         }
         setAppliedRangeFrom(from);
         setAppliedRangeTo(to);
+        saveWorkshopAdminDatetimeRange({ dateFrom: from, dateTo: to });
     }, [draftRangeFrom, draftRangeTo, t]);
 
     const clearDateRange = useCallback(() => {
@@ -194,6 +214,7 @@ export default function WorkshopDashboard({
         setDraftRangeTo('');
         setAppliedRangeFrom('');
         setAppliedRangeTo('');
+        clearWorkshopAdminDatetimeRange();
     }, []);
 
     const loadTechnicians = useCallback(async () => {

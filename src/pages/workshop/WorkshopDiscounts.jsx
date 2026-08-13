@@ -7,6 +7,8 @@ import { branchScopeParams, getWorkshopDiscounts } from '../../services/workshop
 import { getMyDepartments } from '../../services/workshopCatalogApi';
 import { useAuth } from '../../context/AuthContext';
 import { wdscT } from '../../utils/workshopDiscountsI18n';
+import { riyadhBoundToApiIso } from '../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from './workshopAdminDatetimeRange';
 import './Workshop.css';
 
 function fmtDt(iso, locale) {
@@ -51,8 +53,8 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [dateFrom, setDateFrom] = useState(() => loadWorkshopAdminDatetimeRange()?.dateFrom || '');
+    const [dateTo, setDateTo] = useState(() => loadWorkshopAdminDatetimeRange()?.dateTo || '');
     const [departmentId, setDepartmentId] = useState('all');
     const [departments, setDepartments] = useState([]);
 
@@ -102,8 +104,8 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
             const res = await getWorkshopDiscounts({
                 ...branchParams,
                 departmentId: departmentId === 'all' ? undefined : departmentId,
-                dateFrom: dateFrom || undefined,
-                dateTo: dateTo || undefined,
+                dateFrom: dateFrom ? riyadhBoundToApiIso(dateFrom, 'start') : undefined,
+                dateTo: dateTo ? riyadhBoundToApiIso(dateTo, 'end') : undefined,
                 limit: 200,
                 offset: 0,
             });

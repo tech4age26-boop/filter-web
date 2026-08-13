@@ -9,6 +9,8 @@ import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import { useAuth } from '../../context/AuthContext';
 import { wcomT } from '../../utils/workshopCommissionsI18n';
+import { riyadhDatetimeLocalToEpochMs } from '../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from './workshopAdminDatetimeRange';
 
 const COMMISSIONS_TABS = [
     { key: 'payouts', labelKey: 'tab.payouts', permission: 'workshop.commissions.ledger.view' },
@@ -28,14 +30,9 @@ import './Workshop.css';
 
 const PAGE_SIZE = 25;
 
-/** Convert datetime-local value to epoch ms for API date-time filters. */
+/** Convert datetime-local value to epoch ms for API date-time filters (Asia/Riyadh wall). */
 function localDatetimeToEpochMs(local) {
-    if (!local || !String(local).trim()) return '';
-    const s = String(local).trim();
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return '';
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return '';
-    return String(d.getTime());
+    return riyadhDatetimeLocalToEpochMs(local);
 }
 
 function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmployeeId, page, workshopId) {
@@ -220,8 +217,12 @@ export default function WorkshopCommissions({
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterEmployeeId, setFilterEmployeeId] = useState('');
     const [employeeFilterText, setEmployeeFilterText] = useState('');
-    const [startDateTime, setStartDateTime] = useState('');
-    const [endDateTime, setEndDateTime] = useState('');
+    const [startDateTime, setStartDateTime] = useState(
+        () => loadWorkshopAdminDatetimeRange()?.dateFrom || '',
+    );
+    const [endDateTime, setEndDateTime] = useState(
+        () => loadWorkshopAdminDatetimeRange()?.dateTo || '',
+    );
     const [page, setPage] = useState(1);
     const [accruedTotalInScope, setAccruedTotalInScope] = useState(0);
     const [isLoading, setIsLoading] = useState(true);

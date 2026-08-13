@@ -8,7 +8,12 @@ import ForceCashierLogoutModal from '../../components/workshop/ForceCashierLogou
 import ClosingReportDetailModal from '../../components/workshop/ClosingReportDetailModal';
 import PosMonitoringKpiProofModal from '../../components/workshop/PosMonitoringKpiProofModal';
 import { wpmT } from '../../utils/workshopPosMonitoringI18n';
-import { riyadhRangeToApiIso } from '../../utils/riyadhBusinessRange';
+import { riyadhRangeToApiIso, workshopAdminFromToQueryParams } from '../../utils/riyadhBusinessRange';
+import {
+    loadWorkshopAdminDatetimeRange,
+    saveWorkshopAdminDatetimeRange,
+    clearWorkshopAdminDatetimeRange,
+} from './workshopAdminDatetimeRange';
 
 const CLOSING_PAGE_SIZE = 20;
 
@@ -48,10 +53,22 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
     const [selectedClosingReport, setSelectedClosingReport] = useState(null);
     const [kpiProofModalId, setKpiProofModalId] = useState(null);
 
-    const [draftRangeFrom, setDraftRangeFrom] = useState('');
-    const [draftRangeTo, setDraftRangeTo] = useState('');
-    const [appliedRangeFrom, setAppliedRangeFrom] = useState('');
-    const [appliedRangeTo, setAppliedRangeTo] = useState('');
+    const [draftRangeFrom, setDraftRangeFrom] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateFrom || '';
+    });
+    const [draftRangeTo, setDraftRangeTo] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateTo || '';
+    });
+    const [appliedRangeFrom, setAppliedRangeFrom] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateFrom || '';
+    });
+    const [appliedRangeTo, setAppliedRangeTo] = useState(() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        return shared?.dateTo || '';
+    });
     const [rangeError, setRangeError] = useState('');
     const [closingPage, setClosingPage] = useState(1);
 
@@ -77,13 +94,20 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                 closingPageSize: CLOSING_PAGE_SIZE,
             };
             if (appliedRangeFrom && appliedRangeTo) {
-                const iso = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeTo);
-                params.from = iso.startDate;
-                params.to = iso.endDate;
+                Object.assign(
+                    params,
+                    workshopAdminFromToQueryParams(appliedRangeFrom, appliedRangeTo),
+                );
             } else if (appliedRangeFrom) {
-                params.from = riyadhRangeToApiIso(appliedRangeFrom, appliedRangeFrom).startDate;
+                params.from = workshopAdminFromToQueryParams(
+                    appliedRangeFrom,
+                    appliedRangeFrom,
+                ).from;
             } else if (appliedRangeTo) {
-                params.to = riyadhRangeToApiIso(appliedRangeTo, appliedRangeTo).endDate;
+                params.to = workshopAdminFromToQueryParams(
+                    appliedRangeTo,
+                    appliedRangeTo,
+                ).to;
             }
             const response = await apiFetch(
                 `/workshop-staff/pos-monitoring${qs(params)}`,
@@ -114,6 +138,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
             setAppliedRangeFrom('');
             setAppliedRangeTo('');
             setClosingPage(1);
+            clearWorkshopAdminDatetimeRange();
             return;
         }
         if (!from || !to) {
@@ -129,6 +154,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         setAppliedRangeFrom(from);
         setAppliedRangeTo(to);
         setClosingPage(1);
+        saveWorkshopAdminDatetimeRange({ dateFrom: from, dateTo: to });
     }, [draftRangeFrom, draftRangeTo, t]);
 
     const clearDateRange = useCallback(() => {
@@ -138,6 +164,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         setAppliedRangeFrom('');
         setAppliedRangeTo('');
         setClosingPage(1);
+        clearWorkshopAdminDatetimeRange();
     }, []);
 
     const branchLabel = useMemo(() => {
