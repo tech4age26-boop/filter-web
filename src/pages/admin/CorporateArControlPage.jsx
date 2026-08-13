@@ -17,6 +17,7 @@ import {
     exportCorporateArLedgerExcel,
     exportCorporateArLedgerPdf,
     formatLedgerTypeShort,
+    applyPostDiscountVatToLedgerStatement,
 } from '../../utils/corporateArLedgerExport';
 import {
     loadSaAccountingDateRange,
@@ -102,7 +103,11 @@ export default function CorporateArControlPage() {
         if (corporateAccountId) loadLedger();
     }, [corporateAccountId, loadLedger]);
 
-    const allLedgerLines = ledger?.lines ?? [];
+    const ledgerDisplay = useMemo(
+        () => applyPostDiscountVatToLedgerStatement(ledger),
+        [ledger],
+    );
+    const allLedgerLines = ledgerDisplay?.lines ?? ledger?.lines ?? [];
 
     const filteredLines = useMemo(() => {
         const lines = allLedgerLines;
@@ -255,7 +260,7 @@ export default function CorporateArControlPage() {
     }
 
     const corp = ledger?.corporateAccount;
-    const sum = ledger?.summary ?? {};
+    const sum = ledgerDisplay?.summary ?? ledger?.summary ?? {};
 
     return (
         <div className="corporate-ar-page">

@@ -31,6 +31,7 @@ import {
     exportCorporateArLedgerPdf,
     exportCorporateGeneratedBillPdf,
     formatLedgerTypeShort,
+    applyPostDiscountVatToLedgerStatement,
 } from '../../utils/corporateArLedgerExport';
 import { exportRowsToExcel, exportRowsToPdf } from '../../utils/tableExport';
 import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingDateRange } from '../../pages/admin/saAccountingDateRange';
@@ -324,7 +325,12 @@ export default function CorporateBillingSection() {
         [customers, selectedAccountId],
     );
 
-    const allLedgerLines = ledger?.lines ?? [];
+    const allLedgerLinesRaw = ledger?.lines ?? [];
+    const ledgerDisplay = useMemo(
+        () => applyPostDiscountVatToLedgerStatement(ledger),
+        [ledger],
+    );
+    const allLedgerLines = ledgerDisplay?.lines ?? allLedgerLinesRaw;
 
     const filteredLines = useMemo(() => {
         const lines = allLedgerLines;
@@ -618,9 +624,16 @@ export default function CorporateBillingSection() {
         setSelectedBillIds(new Set(generatedBills.map((b) => String(b.id))));
     };
 
-    const billLedger = billDetail?.ledgerStatement;
+    const billLedgerRaw = billDetail?.ledgerStatement;
+    const billLedger = useMemo(
+        () => applyPostDiscountVatToLedgerStatement(billLedgerRaw),
+        [billLedgerRaw],
+    );
     const billLedgerLines = billLedger?.lines ?? [];
     const billSum = billLedger?.summary ?? billDetail?.kpis ?? {};
+    const billDueBalance = Number(
+        billSum.closingBalance ?? billDetail?.kpis?.balance ?? billDetail?.balance ?? 0,
+    );
 
     const thPair = (enKey, arKey) =>
         isAr
@@ -787,8 +800,8 @@ export default function CorporateBillingSection() {
         );
     }
 
-    const corp = ledger?.corporateAccount;
-    const sum = ledger?.summary ?? {};
+    const corp = ledgerDisplay?.corporateAccount ?? ledger?.corporateAccount;
+    const sum = ledgerDisplay?.summary ?? ledger?.summary ?? {};
     const displayName = corp?.companyName || selectedCustomer?.companyName || t('fallback.title');
 
     if (generateOpen) {
@@ -802,7 +815,7 @@ export default function CorporateBillingSection() {
                 dateTo={dateTo}
                 dueDate={generateDueDate}
                 onDueDateChange={setGenerateDueDate}
-                ledger={ledger}
+                ledger={ledgerDisplay ?? ledger}
                 generating={generating}
                 onGenerate={handleGenerateBill}
             />
@@ -817,7 +830,7 @@ export default function CorporateBillingSection() {
                 t={t}
                 billId={billDetail.id || selectedBillId}
                 billNo={billDetail.billNo}
-                balanceDue={Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0)}
+                balanceDue={billDueBalance}
                 onPaid={async () => {
                     setMarkPaidOpen(false);
                     await loadGeneratedBills();
@@ -1048,7 +1061,13 @@ export default function CorporateBillingSection() {
                                             <td className="table-cell">{b.dueDate}</td>
                                             <td className="table-cell">{billStatusLabel(b.status, t)}</td>
                                             <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
-                                                {t('money.sar', { amount: fmt(b.kpis?.balance) })}
+                                                {t('money.sar', {
+                                                    amount: fmt(
+                                                        selectedBillId === b.id && billLedger
+                                                            ? billDueBalance
+                                                            : b.kpis?.balance,
+                                                    ),
+                                                })}
                                             </td>
                                             <td className="table-cell">
                                                 {b.createdAt
@@ -1110,7 +1129,7 @@ export default function CorporateBillingSection() {
                                         {billDetail.status !== 'paid'
                                         && billDetail.status !== 'awaiting_approval'
                                         && billDetail.status !== 'pending_deletion'
-                                        && Number(billDetail.kpis?.balance ?? billDetail.balance ?? 0) > 0.05 ? (
+                                        && billDueBalance > 0.05 ? (
                                             <button
                                                 type="button"
                                                 className="btn-portal"
