@@ -17,6 +17,12 @@ import {
     todayISO,
 } from '../../admin/saAccountingDateRange';
 import {
+    fmtRiyadhRangeLabel,
+    isLedgerDateTimeBound,
+    toLedgerApiDateParam,
+    toLedgerFilterControlValue,
+} from '../../../utils/riyadhBusinessRange';
+import {
     isWorkshopLockerExpensesLedgerAccount,
     isWorkshopPettyCashExpenseLedgerAccount,
     isWorkshopPettyCashFundLedgerAccount,
@@ -56,10 +62,10 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     const urlBranchId = searchParams.get('branchId') || '';
 
     const [dateFrom, setDateFrom] = useState(
-        () => urlDateFrom || startOfMonthISO(),
+        () => toLedgerFilterControlValue(urlDateFrom) || startOfMonthISO(),
     );
     const [dateTo, setDateTo] = useState(
-        () => urlDateTo || todayISO(),
+        () => toLedgerFilterControlValue(urlDateTo) || todayISO(),
     );
     const [branchFilter, setBranchFilter] = useState(urlBranchId);
     const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
@@ -73,10 +79,12 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     const loadSeqRef = useRef(0);
 
     const entityLabel = workshop?.name || user?.workshopName || t('stmt.entity.workshop');
+    const useDateTimeFilters =
+        isLedgerDateTimeBound(dateFrom) || isLedgerDateTimeBound(dateTo);
 
     useEffect(() => {
-        if (urlDateFrom) setDateFrom(urlDateFrom);
-        if (urlDateTo) setDateTo(urlDateTo);
+        if (urlDateFrom) setDateFrom(toLedgerFilterControlValue(urlDateFrom));
+        if (urlDateTo) setDateTo(toLedgerFilterControlValue(urlDateTo));
         if (urlBranchId !== undefined && urlBranchId !== null) {
             setBranchFilter(urlBranchId);
         }
@@ -108,8 +116,8 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         const dateToParam =
             opts.dateTo !== undefined ? opts.dateTo : dateTo;
         const params = {
-            dateFrom: dateFromParam || undefined,
-            dateTo: dateToParam || undefined,
+            dateFrom: toLedgerApiDateParam(dateFromParam),
+            dateTo: toLedgerApiDateParam(dateToParam),
             limit: 10000,
             ...(!topupsOnlyParam && categoryParam ? { expenseCategory: categoryParam } : {}),
             ...(walletUserParam ? { walletUserId: walletUserParam } : {}),
@@ -140,8 +148,12 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         // Load on account change, and when deep-linked date/branch query changes
         // (e.g. P&L line → ledger proof for the same period).
         void load({
-            dateFrom: urlDateFrom || dateFrom,
-            dateTo: urlDateTo || dateTo,
+            dateFrom: urlDateFrom
+                ? toLedgerFilterControlValue(urlDateFrom)
+                : dateFrom,
+            dateTo: urlDateTo
+                ? toLedgerFilterControlValue(urlDateTo)
+                : dateTo,
             branchId: urlBranchId,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,8 +161,8 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
 
     async function fetchForExport() {
         const res = await accountsApi.getAccountLedger(accountId, {
-            dateFrom: dateFrom || undefined,
-            dateTo: dateTo || undefined,
+            dateFrom: toLedgerApiDateParam(dateFrom),
+            dateTo: toLedgerApiDateParam(dateTo),
             limit: 10000,
             ...(expenseCategoryFilter && !topupsOnly
                 ? { expenseCategory: expenseCategoryFilter }
@@ -396,14 +408,23 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
                 accountName={data?.header?.accountName || fallbackName}
                 accountType={accountType}
                 companyName={data?.header?.companyName || entityLabel || undefined}
-                periodFrom={data?.header?.from || dateFrom || '—'}
-                periodTo={data?.header?.to || dateTo || '—'}
+                periodFrom={
+                    fmtRiyadhRangeLabel(
+                        toLedgerFilterControlValue(data?.header?.from || dateFrom) || dateFrom,
+                    ) || '—'
+                }
+                periodTo={
+                    fmtRiyadhRangeLabel(
+                        toLedgerFilterControlValue(data?.header?.to || dateTo) || dateTo,
+                    ) || '—'
+                }
                 openingBalance={data?.openingBalance ?? 0}
                 rows={data?.rows ?? []}
                 totals={data?.totals}
                 normalDebit={normalDebit}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
+                useDateTimeFilters={useDateTimeFilters}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
                 onApply={applyFilters}

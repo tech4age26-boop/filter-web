@@ -167,8 +167,9 @@ function isDateTimeBoundLocal(raw) {
 /**
  * Map P&L datetime-local (Asia/Riyadh wall) to inclusive journal calendar
  * `YYYY-MM-DD` bounds matching backend `resolveJournalDateFilterBounds`
- * period mode (half-open datetime → inclusive DATE span). Use these for
- * ledger drill-down so type=date filters and journal DATE filters align.
+ * period mode (half-open datetime → inclusive DATE span).
+ * @deprecated Prefer {@link riyadhPlRangeToLedgerQueryParams} so same-day
+ * P&L drill-downs keep exact times (instant) instead of whole calendar days.
  */
 export function riyadhPlRangeToLedgerCalendarDates(rangeFromLocal, rangeToLocal) {
     const fromRaw = String(rangeFromLocal || '').trim();
@@ -189,6 +190,63 @@ export function riyadhPlRangeToLedgerCalendarDates(rangeFromLocal, rangeToLocal)
         dateTo = toRiyadhDateISO(new Date(endExclusive.getTime() - 1));
     }
     return { dateFrom, dateTo };
+}
+
+/**
+ * P&L → ledger drill-down query params. Same-day datetime ranges become ISO
+ * instants (match P&L / dashboard). Calendar-only ranges stay `YYYY-MM-DD`.
+ */
+export function riyadhPlRangeToLedgerQueryParams(rangeFromLocal, rangeToLocal) {
+    const fromRaw = String(rangeFromLocal || '').trim();
+    const toRaw = String(rangeToLocal || '').trim();
+    if (!fromRaw && !toRaw) return { dateFrom: '', dateTo: '' };
+
+    if (!isDateTimeBoundLocal(fromRaw) && !isDateTimeBoundLocal(toRaw)) {
+        return {
+            dateFrom: fromRaw.slice(0, 10) || '',
+            dateTo: toRaw.slice(0, 10) || '',
+        };
+    }
+
+    const iso = riyadhRangeToApiIso(fromRaw, toRaw);
+    return { dateFrom: iso.dateFrom, dateTo: iso.dateTo };
+}
+
+/** True when a ledger/API bound includes a time (ISO or datetime-local). */
+export function isLedgerDateTimeBound(raw) {
+    return isDateTimeBoundLocal(raw);
+}
+
+/**
+ * Normalize URL/API date bound for `<input type="date|datetime-local" />`.
+ * Calendar days stay `YYYY-MM-DD`; instants become Riyadh `YYYY-MM-DDTHH:mm`.
+ */
+export function toLedgerFilterControlValue(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    try {
+        if (/[zZ]|[+-]\d{2}:\d{2}$/.test(s)) {
+            return toRiyadhDatetimeLocalValue(new Date(s));
+        }
+        if (s.includes('T')) {
+            return toRiyadhDatetimeLocalValue(riyadhWallToUtcDate(s));
+        }
+    } catch {
+        /* fall through */
+    }
+    return s.slice(0, 16);
+}
+
+/**
+ * Convert ledger filter control value → API dateFrom/dateTo.
+ * Calendar day stays as-is; datetime-local → UTC ISO (Asia/Riyadh wall).
+ */
+export function toLedgerApiDateParam(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return undefined;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    return riyadhBoundToApiIso(s, 'start');
 }
 
 export { pad2 };

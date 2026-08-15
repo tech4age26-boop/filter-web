@@ -43,7 +43,7 @@ import {
 import {
     defaultRiyadhReportRangeDatetimeLocal,
     fmtRiyadhRangeLabel,
-    riyadhPlRangeToLedgerCalendarDates,
+    riyadhPlRangeToLedgerQueryParams,
     riyadhRangeToApiIso,
     BUSINESS_TIMEZONE,
 } from '../../utils/riyadhBusinessRange';
@@ -323,10 +323,18 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     const openPlAccountProof = useCallback(
         (row, accountType) => {
             if (!row?.id) return;
-            const { dateFrom, dateTo } = riyadhPlRangeToLedgerCalendarDates(
-                plFilters.dateFrom,
-                plFilters.dateTo,
-            );
+            let dateFrom = plFilters.dateFrom;
+            let dateTo = plFilters.dateTo;
+            try {
+                const q = riyadhPlRangeToLedgerQueryParams(
+                    plFilters.dateFrom,
+                    plFilters.dateTo,
+                );
+                dateFrom = q.dateFrom;
+                dateTo = q.dateTo;
+            } catch {
+                /* keep wall-clock locals if conversion fails */
+            }
             navigate(
                 buildWorkshopCoaNavigationUrl(
                     {
