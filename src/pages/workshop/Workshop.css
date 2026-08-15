@@ -1412,6 +1412,13 @@
     vertical-align: top;
 }
 
+.ws-kpi-proof-cell-sub {
+    margin-top: 2px;
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    font-weight: 500;
+}
+
 .ws-reports-tabs {
     display: flex;
     gap: 8px;

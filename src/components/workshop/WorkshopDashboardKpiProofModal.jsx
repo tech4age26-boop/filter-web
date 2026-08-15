@@ -273,39 +273,44 @@ export default function WorkshopDashboardKpiProofModal({
                                             <th>{t('kpi.proof.th.type')}</th>
                                             <th>{t('kpi.proof.th.item')}</th>
                                             <th>{t('kpi.proof.th.qty')}</th>
-                                            <th>{t('kpi.proof.th.purchasePrice')}</th>
-                                            <th>{t('kpi.proof.th.serviceCost')}</th>
+                                            <th>{t('kpi.proof.th.catalogCost')}</th>
                                             <th>{t('kpi.proof.th.unitCost')}</th>
                                             <th>{t('kpi.proof.th.costSource')}</th>
                                             <th>{t('kpi.proof.th.lineCost')}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {cogsLines.map((line, idx) => (
-                                            <tr key={`${line.invoice_id}-${idx}`}>
-                                                <td>{line.invoice_no || '—'}</td>
-                                                <td>
-                                                    {line.item_type === 'service'
-                                                        ? t('kpi.proof.type.service')
-                                                        : t('kpi.proof.type.product')}
-                                                </td>
-                                                <td>{line.item_name || '—'}</td>
-                                                <td>{line.qty ?? '—'}</td>
-                                                <td>
-                                                    {line.item_type === 'product'
-                                                        ? money(line.catalog_purchase_price ?? 0)
-                                                        : '—'}
-                                                </td>
-                                                <td>
-                                                    {line.item_type === 'service'
-                                                        ? money(line.service_cost ?? 0)
-                                                        : '—'}
-                                                </td>
-                                                <td>{money(line.unit_cost)}</td>
-                                                <td>{costSourceLabel(line.cost_source, t)}</td>
-                                                <td>{money(line.line_cost)}</td>
-                                            </tr>
-                                        ))}
+                                        {cogsLines.map((line, idx) => {
+                                            const isService = line.item_type === 'service';
+                                            const catalogCost = isService
+                                                ? line.service_cost
+                                                : line.catalog_purchase_price;
+                                            return (
+                                                <tr key={`${line.invoice_id}-${idx}`}>
+                                                    <td>{line.invoice_no || '—'}</td>
+                                                    <td>
+                                                        {isService
+                                                            ? t('kpi.proof.type.service')
+                                                            : t('kpi.proof.type.product')}
+                                                    </td>
+                                                    <td>{line.item_name || '—'}</td>
+                                                    <td>{line.qty ?? '—'}</td>
+                                                    <td>
+                                                        {catalogCost == null
+                                                            ? '—'
+                                                            : money(catalogCost)}
+                                                        <div className="ws-kpi-proof-cell-sub">
+                                                            {isService
+                                                                ? t('kpi.proof.th.serviceCost')
+                                                                : t('kpi.proof.th.purchasePrice')}
+                                                        </div>
+                                                    </td>
+                                                    <td>{money(line.unit_cost)}</td>
+                                                    <td>{costSourceLabel(line.cost_source, t)}</td>
+                                                    <td>{money(line.line_cost)}</td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </WsTableScroll>
