@@ -43,7 +43,7 @@ import {
 import {
     defaultRiyadhReportRangeDatetimeLocal,
     fmtRiyadhRangeLabel,
-    riyadhPlRangeToLedgerCalendarDates,
+    riyadhPlRangeToLedgerQueryParams,
     riyadhRangeToApiIso,
     BUSINESS_TIMEZONE,
 } from '../../utils/riyadhBusinessRange';
@@ -323,10 +323,19 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     const openPlAccountProof = useCallback(
         (row, accountType) => {
             if (!row?.id) return;
-            const { dateFrom, dateTo } = riyadhPlRangeToLedgerCalendarDates(
-                plFilters.dateFrom,
-                plFilters.dateTo,
-            );
+            // Prefer live filter values; fall back to last applied shared range.
+            const shared = loadWorkshopAdminDatetimeRange();
+            const rangeFrom = plFilters.dateFrom || shared?.dateFrom || '';
+            const rangeTo = plFilters.dateTo || shared?.dateTo || '';
+            let dateFrom = rangeFrom;
+            let dateTo = rangeTo;
+            try {
+                const q = riyadhPlRangeToLedgerQueryParams(rangeFrom, rangeTo);
+                dateFrom = q.dateFrom;
+                dateTo = q.dateTo;
+            } catch {
+                /* keep wall-clock locals if conversion fails */
+            }
             navigate(
                 buildWorkshopCoaNavigationUrl(
                     {
@@ -601,7 +610,13 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     };
 
     const loadPL = async (overrideFilters) => {
-        const filters = overrideFilters || plFilters;
+        // Guard: `<button onClick={loadPL}>` passes a MouseEvent as the first arg.
+        const filters =
+            overrideFilters
+            && typeof overrideFilters === 'object'
+            && ('dateFrom' in overrideFilters || 'dateTo' in overrideFilters)
+                ? overrideFilters
+                : plFilters;
         setPlLoading(true);
         setPlRangeError('');
         try {
@@ -619,9 +634,9 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                 });
             }
             const res = await getPLReport({
-                ...filters,
                 dateFrom,
                 dateTo,
+                branchId: filters.branchId || undefined,
                 clientTimeZone: BUSINESS_TIMEZONE,
             });
             setPlData(res || null);
@@ -902,7 +917,11 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             title="Asia/Riyadh"
                         />
                         {renderBranchPicker(plFilters.branchId, (v) => setPlFilters((p) => ({ ...p, branchId: v })))}
-                        <button type="button" onClick={loadPL} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
+                        <button
+                            type="button"
+                            onClick={() => void loadPL()}
+                            style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
+                        >
                             {t('date.apply')}
                         </button>
                         <button
