@@ -9,12 +9,25 @@ import WsTableScroll from './WsTableScroll';
 function SummaryGrid({ items }) {
     return (
         <div className="ws-kpi-proof-summary-grid">
-            {items.map((item) => (
-                <div key={item.label} className="ws-kpi-proof-stat">
-                    <span className="ws-kpi-proof-stat-label">{item.label}</span>
-                    <span className="ws-kpi-proof-stat-value">{item.value}</span>
-                </div>
-            ))}
+            {items.map((item) => {
+                const clickable = typeof item.onClick === 'function';
+                const Tag = clickable ? 'button' : 'div';
+                return (
+                    <Tag
+                        key={item.label}
+                        type={clickable ? 'button' : undefined}
+                        className={`ws-kpi-proof-stat${clickable ? ' ws-kpi-proof-stat--clickable' : ''}${item.active ? ' is-active' : ''}`}
+                        onClick={clickable ? item.onClick : undefined}
+                        title={item.title || undefined}
+                    >
+                        <span className="ws-kpi-proof-stat-label">{item.label}</span>
+                        <span className="ws-kpi-proof-stat-value">{item.value}</span>
+                        {item.hint ? (
+                            <span className="ws-kpi-proof-stat-hint">{item.hint}</span>
+                        ) : null}
+                    </Tag>
+                );
+            })}
         </div>
     );
 }
@@ -24,6 +37,12 @@ function mapRecentPdfToInvoice(raw) {
     const payload = raw.invoice || raw.data || raw;
     if (!payload || typeof payload !== 'object') return null;
     return payload;
+}
+
+function costSourceLabel(source, t) {
+    const key = `kpi.proof.costSource.${source || 'none'}`;
+    const translated = t(key);
+    return translated === key ? (source || '—') : translated;
 }
 
 /**
@@ -46,6 +65,7 @@ export default function WorkshopDashboardKpiProofModal({
     const [proof, setProof] = useState(null);
     const [invoicePreview, setInvoicePreview] = useState(null);
     const [invoiceBusyId, setInvoiceBusyId] = useState('');
+    const [showCogsLines, setShowCogsLines] = useState(false);
 
     const money = useCallback(
         (n) => t('money.sar', { amount: Number(n || 0).toLocaleString() }),
@@ -53,6 +73,7 @@ export default function WorkshopDashboardKpiProofModal({
     );
 
     useEffect(() => {
+        setShowCogsLines(false);
         if (!kpiId || kpiId === 'low_stock' || kpiId === 'pending_approvals') {
             setProof(null);
             setError('');
@@ -185,11 +206,19 @@ export default function WorkshopDashboardKpiProofModal({
         body = <p style={{ color: '#B91C1C' }}>{error}</p>;
     } else if (proof) {
         const invoices = Array.isArray(proof.invoices) ? proof.invoices : [];
+        const cogsLines = Array.isArray(proof.cogs_lines) ? proof.cogs_lines : [];
         const summaryItems =
             kpiId === 'gross_margin'
                 ? [
                     { label: t('kpi.proof.salesTotal'), value: money(proof.sales_total) },
-                    { label: t('kpi.proof.cogs'), value: money(proof.purchase_cost) },
+                    {
+                        label: t('kpi.proof.cogs'),
+                        value: money(proof.purchase_cost),
+                        hint: t('kpi.proof.cogsClickHint'),
+                        title: t('kpi.proof.cogsClickHint'),
+                        active: showCogsLines,
+                        onClick: () => setShowCogsLines((v) => !v),
+                    },
                     { label: t('kpi.proof.margin'), value: money(proof.gross_margin_profit) },
                     { label: t('kpi.proof.invoiceCount'), value: String(proof.invoice_count ?? 0) },
                 ]
@@ -207,64 +236,142 @@ export default function WorkshopDashboardKpiProofModal({
                 <p className="ws-kpi-proof-methodology">{proof.formula || '—'}</p>
                 <p className="ws-kpi-proof-methodology">{scopeLine}</p>
                 <SummaryGrid items={summaryItems} />
-                {proof.invoices_truncated ? (
-                    <p className="ws-kpi-proof-note">
-                        {t('kpi.proof.showingInvoices', {
-                            shown: invoices.length,
-                            total: proof.invoices_total_count,
-                        })}
-                    </p>
-                ) : null}
                 {error ? <p style={{ color: '#B91C1C', marginBottom: 8 }}>{error}</p> : null}
-                {invoices.length === 0 ? (
-                    <p className="ws-kpi-proof-note">{t('kpi.proof.emptyInvoices')}</p>
-                ) : (
-                    <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
-                        <table className="ws-table ws-kpi-proof-table">
-                            <thead>
-                                <tr>
-                                    <th>{t('kpi.proof.th.invoice')}</th>
-                                    <th>{t('kpi.proof.th.date')}</th>
-                                    {kpiId === 'pending_invoices' ? (
-                                        <th>{t('kpi.proof.th.status')}</th>
-                                    ) : null}
-                                    <th>{t('kpi.proof.th.amount')}</th>
-                                    <th style={{ width: 88 }}>{t('kpi.proof.th.action')}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {invoices.map((inv) => {
-                                    const id = inv.invoice_id || inv.invoiceId;
-                                    const busy = String(invoiceBusyId) === String(id);
-                                    return (
-                                        <tr key={String(id)}>
-                                            <td>{inv.invoice_no || inv.invoiceNo || '—'}</td>
-                                            <td>
-                                                {inv.issued_at
-                                                    ? new Date(inv.issued_at).toLocaleString()
-                                                    : inv.invoice_date || inv.invoiceDate || '—'}
-                                            </td>
-                                            {kpiId === 'pending_invoices' ? (
-                                                <td>{inv.payment_status || inv.paymentStatus || '—'}</td>
-                                            ) : null}
-                                            <td>{money(inv.amount)}</td>
-                                            <td>
-                                                <button
-                                                    type="button"
-                                                    className="btn-portal"
-                                                    style={{ padding: '4px 8px', fontSize: 12 }}
-                                                    disabled={busy || !id}
-                                                    onClick={() => void openInvoice(id)}
-                                                >
-                                                    {busy ? t('kpi.proof.opening') : t('kpi.proof.view')}
-                                                </button>
-                                            </td>
+
+                {kpiId === 'gross_margin' && showCogsLines ? (
+                    <>
+                        <div className="ws-kpi-proof-section-head">
+                            <strong>{t('kpi.proof.cogsLinesTitle')}</strong>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                style={{ padding: '4px 10px', fontSize: 12 }}
+                                onClick={() => setShowCogsLines(false)}
+                            >
+                                {t('kpi.proof.showInvoices')}
+                            </button>
+                        </div>
+                        {proof.cogs_lines_truncated ? (
+                            <p className="ws-kpi-proof-note">
+                                {t('kpi.proof.showingCogsLines', { shown: cogsLines.length })}
+                            </p>
+                        ) : null}
+                        <p className="ws-kpi-proof-note">
+                            {t('kpi.proof.cogsLinesSum', {
+                                sum: money(proof.cogs_lines_sum ?? proof.purchase_cost),
+                                total: money(proof.purchase_cost),
+                            })}
+                        </p>
+                        {cogsLines.length === 0 ? (
+                            <p className="ws-kpi-proof-note">{t('kpi.proof.emptyCogsLines')}</p>
+                        ) : (
+                            <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
+                                <table className="ws-table ws-kpi-proof-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{t('kpi.proof.th.invoice')}</th>
+                                            <th>{t('kpi.proof.th.type')}</th>
+                                            <th>{t('kpi.proof.th.item')}</th>
+                                            <th>{t('kpi.proof.th.qty')}</th>
+                                            <th>{t('kpi.proof.th.purchasePrice')}</th>
+                                            <th>{t('kpi.proof.th.serviceCost')}</th>
+                                            <th>{t('kpi.proof.th.unitCost')}</th>
+                                            <th>{t('kpi.proof.th.costSource')}</th>
+                                            <th>{t('kpi.proof.th.lineCost')}</th>
                                         </tr>
-                                    );
+                                    </thead>
+                                    <tbody>
+                                        {cogsLines.map((line, idx) => (
+                                            <tr key={`${line.invoice_id}-${idx}`}>
+                                                <td>{line.invoice_no || '—'}</td>
+                                                <td>
+                                                    {line.item_type === 'service'
+                                                        ? t('kpi.proof.type.service')
+                                                        : t('kpi.proof.type.product')}
+                                                </td>
+                                                <td>{line.item_name || '—'}</td>
+                                                <td>{line.qty ?? '—'}</td>
+                                                <td>
+                                                    {line.item_type === 'product'
+                                                        ? money(line.catalog_purchase_price ?? 0)
+                                                        : '—'}
+                                                </td>
+                                                <td>
+                                                    {line.item_type === 'service'
+                                                        ? money(line.service_cost ?? 0)
+                                                        : '—'}
+                                                </td>
+                                                <td>{money(line.unit_cost)}</td>
+                                                <td>{costSourceLabel(line.cost_source, t)}</td>
+                                                <td>{money(line.line_cost)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </WsTableScroll>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        {proof.invoices_truncated ? (
+                            <p className="ws-kpi-proof-note">
+                                {t('kpi.proof.showingInvoices', {
+                                    shown: invoices.length,
+                                    total: proof.invoices_total_count,
                                 })}
-                            </tbody>
-                        </table>
-                    </WsTableScroll>
+                            </p>
+                        ) : null}
+                        {invoices.length === 0 ? (
+                            <p className="ws-kpi-proof-note">{t('kpi.proof.emptyInvoices')}</p>
+                        ) : (
+                            <WsTableScroll bodyClassName="ws-kpi-proof-scroll">
+                                <table className="ws-table ws-kpi-proof-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{t('kpi.proof.th.invoice')}</th>
+                                            <th>{t('kpi.proof.th.date')}</th>
+                                            {kpiId === 'pending_invoices' ? (
+                                                <th>{t('kpi.proof.th.status')}</th>
+                                            ) : null}
+                                            <th>{t('kpi.proof.th.amount')}</th>
+                                            <th style={{ width: 88 }}>{t('kpi.proof.th.action')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {invoices.map((inv) => {
+                                            const id = inv.invoice_id || inv.invoiceId;
+                                            const busy = String(invoiceBusyId) === String(id);
+                                            return (
+                                                <tr key={String(id)}>
+                                                    <td>{inv.invoice_no || inv.invoiceNo || '—'}</td>
+                                                    <td>
+                                                        {inv.issued_at
+                                                            ? new Date(inv.issued_at).toLocaleString()
+                                                            : inv.invoice_date || inv.invoiceDate || '—'}
+                                                    </td>
+                                                    {kpiId === 'pending_invoices' ? (
+                                                        <td>{inv.payment_status || inv.paymentStatus || '—'}</td>
+                                                    ) : null}
+                                                    <td>{money(inv.amount)}</td>
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal"
+                                                            style={{ padding: '4px 8px', fontSize: 12 }}
+                                                            disabled={busy || !id}
+                                                            onClick={() => void openInvoice(id)}
+                                                        >
+                                                            {busy ? t('kpi.proof.opening') : t('kpi.proof.view')}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </WsTableScroll>
+                        )}
+                    </>
                 )}
             </>
         );

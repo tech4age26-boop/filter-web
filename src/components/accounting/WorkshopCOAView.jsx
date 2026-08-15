@@ -674,6 +674,17 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab]);
 
+    // Re-fetch P&L whenever branch or datetime filters change (not only on Apply).
+    useEffect(() => {
+        if (activeTab !== 'P&L') return undefined;
+        if (!plFilters.dateFrom || !plFilters.dateTo) return undefined;
+        const handle = window.setTimeout(() => {
+            void loadPL(plFilters);
+        }, 280);
+        return () => window.clearTimeout(handle);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId]);
+
     const branchSelectStyle = {
         appearance: 'none',
         border: `1px solid ${palette.border}`,
