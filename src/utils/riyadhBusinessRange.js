@@ -193,8 +193,11 @@ export function riyadhPlRangeToLedgerCalendarDates(rangeFromLocal, rangeToLocal)
 }
 
 /**
- * P&L → ledger drill-down query params. Same-day datetime ranges become ISO
- * instants (match P&L / dashboard). Calendar-only ranges stay `YYYY-MM-DD`.
+ * P&L → ledger drill-down query params.
+ * Same-day datetime ranges keep Asia/Riyadh wall-clock `YYYY-MM-DDTHH:mm`
+ * (exact P&L From/To). Calendar-only ranges stay `YYYY-MM-DD`.
+ * Do not convert to UTC ISO in the URL — `+` / `Z` encoding is easy to lose
+ * and the ledger inputs expect datetime-local values.
  */
 export function riyadhPlRangeToLedgerQueryParams(rangeFromLocal, rangeToLocal) {
     const fromRaw = String(rangeFromLocal || '').trim();
@@ -208,8 +211,21 @@ export function riyadhPlRangeToLedgerQueryParams(rangeFromLocal, rangeToLocal) {
         };
     }
 
-    const iso = riyadhRangeToApiIso(fromRaw, toRaw);
-    return { dateFrom: iso.dateFrom, dateTo: iso.dateTo };
+    const trimWall = (raw) => {
+        const s = String(raw || '').trim();
+        if (!s) return '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+        // datetime-local or ISO → Riyadh wall for the filter control / URL
+        if (/[zZ]|[+-]\d{2}:\d{2}$/.test(s)) {
+            return toRiyadhDatetimeLocalValue(new Date(s)) || s.slice(0, 16);
+        }
+        return s.slice(0, 16);
+    };
+
+    return {
+        dateFrom: trimWall(fromRaw),
+        dateTo: trimWall(toRaw),
+    };
 }
 
 /** True when a ledger/API bound includes a time (ISO or datetime-local). */

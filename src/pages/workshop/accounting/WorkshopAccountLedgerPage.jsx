@@ -22,6 +22,7 @@ import {
     toLedgerApiDateParam,
     toLedgerFilterControlValue,
 } from '../../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from '../workshopAdminDatetimeRange';
 import {
     isWorkshopLockerExpensesLedgerAccount,
     isWorkshopPettyCashExpenseLedgerAccount,
@@ -31,6 +32,35 @@ import {
 import { accT } from '../../../utils/accountingI18n';
 import { LOCKER_EXPENSE_CATEGORIES } from '../../locker/lockerExpenseCategories';
 import '../../../styles/admin/AccountingPage.css';
+
+/**
+ * Prefer exact datetime from the URL; if the link only carried calendar days
+ * but the workshop P&L/dashboard range is the same day with times, use that
+ * so drill-down totals match the P&L line (e.g. 12:00–12:15 → 148.09).
+ */
+function resolveLedgerFilterRange(urlDateFrom, urlDateTo) {
+    const from = toLedgerFilterControlValue(urlDateFrom);
+    const to = toLedgerFilterControlValue(urlDateTo);
+    if (isLedgerDateTimeBound(from) && isLedgerDateTimeBound(to)) {
+        return { dateFrom: from, dateTo: to };
+    }
+    const shared = loadWorkshopAdminDatetimeRange();
+    if (
+        shared?.dateFrom
+        && shared?.dateTo
+        && from
+        && to
+        && shared.dateFrom.slice(0, 10) === from.slice(0, 10)
+        && shared.dateTo.slice(0, 10) === to.slice(0, 10)
+    ) {
+        return { dateFrom: shared.dateFrom, dateTo: shared.dateTo };
+    }
+    if (from || to) return { dateFrom: from, dateTo: to };
+    if (shared?.dateFrom && shared?.dateTo) {
+        return { dateFrom: shared.dateFrom, dateTo: shared.dateTo };
+    }
+    return { dateFrom: '', dateTo: '' };
+}
 
 /**
  * Workshop admin — full-page ledger for petty cash fund [1280], employee petty
@@ -61,12 +91,14 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     const urlDateTo = searchParams.get('dateTo') || '';
     const urlBranchId = searchParams.get('branchId') || '';
 
-    const [dateFrom, setDateFrom] = useState(
-        () => toLedgerFilterControlValue(urlDateFrom) || startOfMonthISO(),
-    );
-    const [dateTo, setDateTo] = useState(
-        () => toLedgerFilterControlValue(urlDateTo) || todayISO(),
-    );
+    const [dateFrom, setDateFrom] = useState(() => {
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo);
+        return r.dateFrom || startOfMonthISO();
+    });
+    const [dateTo, setDateTo] = useState(() => {
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo);
+        return r.dateTo || todayISO();
+    });
     const [branchFilter, setBranchFilter] = useState(urlBranchId);
     const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
     const [expenseCategoryInput, setExpenseCategoryInput] = useState('');
@@ -83,8 +115,9 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         isLedgerDateTimeBound(dateFrom) || isLedgerDateTimeBound(dateTo);
 
     useEffect(() => {
-        if (urlDateFrom) setDateFrom(toLedgerFilterControlValue(urlDateFrom));
-        if (urlDateTo) setDateTo(toLedgerFilterControlValue(urlDateTo));
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo);
+        if (r.dateFrom) setDateFrom(r.dateFrom);
+        if (r.dateTo) setDateTo(r.dateTo);
         if (urlBranchId !== undefined && urlBranchId !== null) {
             setBranchFilter(urlBranchId);
         }
@@ -145,15 +178,10 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter, t]);
 
     useEffect(() => {
-        // Load on account change, and when deep-linked date/branch query changes
-        // (e.g. P&L line → ledger proof for the same period).
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo);
         void load({
-            dateFrom: urlDateFrom
-                ? toLedgerFilterControlValue(urlDateFrom)
-                : dateFrom,
-            dateTo: urlDateTo
-                ? toLedgerFilterControlValue(urlDateTo)
-                : dateTo,
+            dateFrom: r.dateFrom || dateFrom,
+            dateTo: r.dateTo || dateTo,
             branchId: urlBranchId,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
