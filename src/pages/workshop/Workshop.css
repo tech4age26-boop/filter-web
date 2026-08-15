@@ -1352,6 +1352,20 @@
     padding: 12px 14px;
 }
 
+.ws-kpi-proof-stat--clickable {
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    width: 100%;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ws-kpi-proof-stat--clickable:hover,
+.ws-kpi-proof-stat--clickable.is-active {
+    border-color: #F59E0B;
+    background: #FFFBEB;
+}
+
 .ws-kpi-proof-stat-label {
     display: block;
     font-size: 0.75rem;
@@ -1364,6 +1378,21 @@
     font-size: 1rem;
     font-weight: 600;
     color: var(--color-text);
+}
+
+.ws-kpi-proof-stat-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.68rem;
+    color: #B45309;
+}
+
+.ws-kpi-proof-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 12px 0 8px;
 }
 
 .ws-kpi-proof-scroll {

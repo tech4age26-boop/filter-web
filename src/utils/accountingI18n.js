@@ -847,7 +847,7 @@ const ACC_I18N = {
         'pl.printHeading': 'Profit & Loss Statement',
         'pl.period': 'Period: {from} — {to}',
         'pl.riyadhHint':
-            'Date/time is Asia/Riyadh (UTC+3), same instant window as the Dashboard. Datetime ranges filter invoice journals by issue time (not whole calendar days). P&L revenue is ex-VAT.',
+            'Date/time is Asia/Riyadh (UTC+3). Same-day ranges use exact times (like Dashboard). Multi-day ranges use accounting calendar days on journals. P&L revenue is ex-VAT.',
         'pl.clickHint': 'Click an account line to open its ledger (journals / invoices) for this period.',
         'pl.clickForProof': 'Open ledger proof for {name}',
         'pl.revenue': 'REVENUE',
@@ -1731,7 +1731,7 @@ const ACC_I18N = {
         'pl.printHeading': 'قائمة الأرباح والخسائر',
         'pl.period': 'الفترة: {from} — {to}',
         'pl.riyadhHint':
-            'التاريخ/الوقت حسب توقيت الرياض (UTC+3)، نفس نافذة اللحظة الزمنية للوحة التحكم. نطاق التاريخ والوقت يصفّي قيود الفواتير حسب وقت الإصدار (وليس أيام التقويم كاملة). إيراد قائمة الدخل بدون ضريبة.',
+            'التاريخ/الوقت حسب توقيت الرياض (UTC+3). النطاق في نفس اليوم يستخدم الوقت بدقة (مثل لوحة التحكم). النطاق متعدد الأيام يستخدم أيام القيود المحاسبية. إيراد قائمة الدخل بدون ضريبة.',
         'pl.clickHint': 'انقر على سطر حساب لفتح دفتر الأستاذ (القيود / الفواتير) لهذه الفترة.',
         'pl.clickForProof': 'فتح إثبات دفتر الأستاذ لـ {name}',
         'pl.revenue': 'الإيرادات',
