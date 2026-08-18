@@ -40,13 +40,16 @@ export function isWorkshopPettyCashLedgerAccount(account) {
     return isWorkshopPettyCashCoaControlAccount(account);
 }
 
-export function buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, branchId } = {}) {
+export function buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, branchId, startDate, endDate, proof } = {}) {
     const params = new URLSearchParams();
     if (account?.code) params.set('code', account.code);
     if (account?.name) params.set('name', account.name);
     if (account?.type) params.set('type', account.type);
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    if (proof) params.set('proof', String(proof));
     if (branchId && branchId !== 'all') params.set('branchId', String(branchId));
     const qs = params.toString();
     return `/workshop/accounting/ledger/${encodeURIComponent(account.id)}${qs ? `?${qs}` : ''}`;
@@ -68,16 +71,18 @@ export function isWorkshopVatCoaAccount(account) {
 /**
  * Workshop COA row navigation — petty cash ledger, cash/bank register, or generic statement.
  */
-export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branchId } = {}) {
+export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branchId, startDate, endDate, proof } = {}) {
     if (isWorkshopVatCoaAccount(account)) {
         const params = new URLSearchParams();
         if (dateFrom) params.set('dateFrom', dateFrom);
         if (dateTo) params.set('dateTo', dateTo);
+        if (startDate) params.set('startDate', startDate);
+        if (endDate) params.set('endDate', endDate);
         const qs = params.toString();
         return `/workshop/accounting/vat${qs ? `?${qs}` : ''}`;
     }
     if (isWorkshopPettyCashLedgerAccount(account)) {
-        return buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, branchId });
+        return buildWorkshopPettyCashLedgerUrl(account, { dateFrom, dateTo, branchId, startDate, endDate, proof });
     }
     if (isCashOrBankCoaAccount(account)) {
         const params = new URLSearchParams();
@@ -85,6 +90,8 @@ export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branc
         params.set('coaAccountId', String(account.id));
         if (dateFrom) params.set('dateFrom', dateFrom);
         if (dateTo) params.set('dateTo', dateTo);
+        if (startDate) params.set('startDate', startDate);
+        if (endDate) params.set('endDate', endDate);
         if (branchId && branchId !== 'all') params.set('branchId', String(branchId));
         const qs = params.toString();
         return `/workshop/accounting/cash-bank${qs ? `?${qs}` : ''}`;
@@ -95,6 +102,9 @@ export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branc
     if (account?.type) params.set('type', account.type);
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    if (proof) params.set('proof', String(proof));
     if (branchId && branchId !== 'all') params.set('branchId', String(branchId));
     const qs = params.toString();
     return `/workshop/accounting/ledger/${encodeURIComponent(account.id)}${qs ? `?${qs}` : ''}`;

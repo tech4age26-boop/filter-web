@@ -323,18 +323,28 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
     const openPlAccountProof = useCallback(
         (row, accountType) => {
             if (!row?.id) return;
-            // Prefer live filter values; fall back to last applied shared range.
             const shared = loadWorkshopAdminDatetimeRange();
             const rangeFrom = plFilters.dateFrom || shared?.dateFrom || '';
             const rangeTo = plFilters.dateTo || shared?.dateTo || '';
             let dateFrom = rangeFrom;
             let dateTo = rangeTo;
+            let startDate;
+            let endDate;
             try {
                 const q = riyadhPlRangeToLedgerQueryParams(rangeFrom, rangeTo);
                 dateFrom = q.dateFrom;
                 dateTo = q.dateTo;
             } catch {
                 /* keep wall-clock locals if conversion fails */
+            }
+            try {
+                if (rangeFrom && rangeTo) {
+                    const iso = riyadhRangeToApiIso(rangeFrom, rangeTo);
+                    startDate = iso.dateFrom;
+                    endDate = iso.dateTo;
+                }
+            } catch {
+                /* ISO optional — datetime-local still sent */
             }
             navigate(
                 buildWorkshopCoaNavigationUrl(
@@ -347,6 +357,9 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                     {
                         dateFrom: dateFrom || undefined,
                         dateTo: dateTo || undefined,
+                        startDate,
+                        endDate,
+                        proof: 'pl',
                         branchId: plFilters.branchId || '',
                     },
                 ),
