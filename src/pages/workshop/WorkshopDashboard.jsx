@@ -10,7 +10,6 @@ import {
     unwrapWorkshopBranchListResponse,
     getWorkshopStaffProducts,
     qs,
-    branchScopeParams,
 } from '../../services/workshopStaffApi';
 import { getMyProducts, getBranchProducts } from '../../services/workshopCatalogApi';
 import { ShimmerKpiGrid, ShimmerListRows } from '../../components/supplier/Shimmer';
@@ -118,6 +117,8 @@ export default function WorkshopDashboard({
     selectedBranchId = 'all',
     branches = [],
     onLowStockAlertsChange,
+    pendingApprovalsCount: pendingApprovalsFromLayout = 0,
+    onPendingApprovalsRefresh,
     locale: localeProp,
 }) {
     const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
@@ -128,8 +129,9 @@ export default function WorkshopDashboard({
     const [loadError, setLoadError] = useState('');
     const [rangeError, setRangeError] = useState('');
     const [lowStockProducts, setLowStockProducts] = useState([]);
-    const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
+    const [lowStockLoading, setLowStockLoading] = useState(false);
     const [technicians, setTechnicians] = useState([]);
+    const [techLoading, setTechLoading] = useState(false);
     const [techLoadError, setTechLoadError] = useState('');
     const [showAllTechnicians, setShowAllTechnicians] = useState(false);
     // Draft = inputs; applied = what the API uses. Empty = default (today / month).
@@ -156,7 +158,11 @@ export default function WorkshopDashboard({
         draftRangeFrom !== appliedRangeFrom || draftRangeTo !== appliedRangeTo;
     const hasAppliedRange = Boolean(appliedRangeFrom && appliedRangeTo);
 
+    const dashAbortRef = React.useRef(null);
     const loadDashboard = useCallback(async () => {
+        dashAbortRef.current?.abort();
+        const ac = new AbortController();
+        dashAbortRef.current = ac;
         setIsLoading(true);
         setLoadError('');
         try {
@@ -170,16 +176,18 @@ export default function WorkshopDashboard({
                 );
             }
             const path = `/workshop-staff/dashboard${qs(params)}`;
-            const response = await apiFetch(path);
+            const response = await apiFetch(path, { signal: ac.signal });
+            if (ac.signal.aborted) return;
             if (response?.success) {
                 setDashboardData(response);
                 return;
             }
             throw new Error(t('error.invalid'));
         } catch (error) {
+            if (ac.signal.aborted) return;
             setLoadError(error.message || t('error.load'));
         } finally {
-            setIsLoading(false);
+            if (!ac.signal.aborted) setIsLoading(false);
         }
     }, [selectedBranchId, appliedRangeFrom, appliedRangeTo, t]);
 
@@ -219,6 +227,7 @@ export default function WorkshopDashboard({
 
     const loadTechnicians = useCallback(async () => {
         setTechLoadError('');
+        setTechLoading(true);
         try {
             const isAll = !selectedBranchId || selectedBranchId === 'all';
             const params = isAll
@@ -237,11 +246,14 @@ export default function WorkshopDashboard({
         } catch (error) {
             setTechnicians([]);
             setTechLoadError(error.message || t('error.techFail'));
+        } finally {
+            setTechLoading(false);
         }
     }, [selectedBranchId, t]);
 
     useEffect(() => {
         loadDashboard();
+        return () => { dashAbortRef.current?.abort(); };
     }, [loadDashboard]);
 
     useEffect(() => {
@@ -255,6 +267,7 @@ export default function WorkshopDashboard({
      *   (Same branch-specific source as Dept & Products / Inventory.)
      */
     const loadLowStockProducts = useCallback(async () => {
+        setLowStockLoading(true);
         const applyLowStockFilter = (rawProducts) => {
             const normalized = rawProducts.map(normalizeCatalogRowForStock);
             return normalized.filter((p) => p.critical_level > 0 && p.stock_qty <= p.critical_level);
@@ -289,6 +302,8 @@ export default function WorkshopDashboard({
             setLowStockProducts(applyLowStockFilter(rawBranch));
         } catch {
             setLowStockProducts([]);
+        } finally {
+            setLowStockLoading(false);
         }
     }, [selectedBranchId]);
 
@@ -300,49 +315,7 @@ export default function WorkshopDashboard({
         onLowStockAlertsChange?.(lowStockProducts.length);
     }, [lowStockProducts, onLowStockAlertsChange]);
 
-    const loadPendingApprovalsCount = useCallback(async () => {
-        try {
-            const branch = branchScopeParams(selectedBranchId);
-            const [pettyRes, supplierRes] = await Promise.all([
-                apiFetch(
-                    `/workshop-staff/petty-cash/requests${qs({
-                        limit: 1,
-                        offset: 0,
-                        queue: 'all',
-                        status: 'pending',
-                        ...branch,
-                    })}`,
-                ),
-                apiFetch(
-                    `/workshop-staff/supplier-sales-invoices${qs({
-                        limit: 1,
-                        offset: 0,
-                        ...branch,
-                    })}`,
-                ).catch(() => ({ success: false, total: 0 })),
-            ]);
-            const petty = pettyRes?.success ? Number(pettyRes.total) || 0 : 0;
-            const sup = supplierRes?.success ? Number(supplierRes.total) || 0 : 0;
-            setPendingApprovalsCount(petty + sup);
-        } catch {
-            setPendingApprovalsCount(0);
-        }
-    }, [selectedBranchId]);
-
-    useEffect(() => {
-        loadPendingApprovalsCount();
-    }, [loadPendingApprovalsCount]);
-
-    useEffect(() => {
-        const handleApprovalsUpdated = () => {
-            loadPendingApprovalsCount();
-        };
-
-        window.addEventListener('workshop-approvals-updated', handleApprovalsUpdated);
-        return () => {
-            window.removeEventListener('workshop-approvals-updated', handleApprovalsUpdated);
-        };
-    }, [loadPendingApprovalsCount]);
+    const pendingApprovalsCount = pendingApprovalsFromLayout;
 
     const toNumber = (value) => {
         const parsed = Number(value);
@@ -508,7 +481,7 @@ export default function WorkshopDashboard({
                     onClick={() => {
                         loadDashboard();
                         loadLowStockProducts();
-                        loadPendingApprovalsCount();
+                        onPendingApprovalsRefresh?.();
                         loadTechnicians();
                     }}
                     disabled={isLoading}
@@ -628,7 +601,7 @@ export default function WorkshopDashboard({
                 {techLoadError && (
                     <p style={{ padding: '0 16px 12px', margin: 0, color: '#B91C1C', fontSize: '0.8125rem' }}>{techLoadError}</p>
                 )}
-                {isLoading && techniciansFiltered.length === 0 ? (
+                {techLoading && techniciansFiltered.length === 0 ? (
                     <div style={{ padding: '0 16px 16px' }}>
                         <ShimmerListRows rows={4} />
                     </div>

@@ -562,6 +562,8 @@ export default function WorkshopLayout() {
                         selectedBranchId={selectedBranch}
                         branches={activeBranches}
                         onLowStockAlertsChange={setDashboardLowStockCount}
+                        pendingApprovalsCount={pendingApprovals}
+                        onPendingApprovalsRefresh={loadPendingApprovalsCount}
                         locale={locale}
                     />
                 );
@@ -661,6 +663,8 @@ export default function WorkshopLayout() {
                     selectedBranchId={selectedBranch}
                     branches={activeBranches}
                     onLowStockAlertsChange={setDashboardLowStockCount}
+                    pendingApprovalsCount={pendingApprovals}
+                    onPendingApprovalsRefresh={loadPendingApprovalsCount}
                     locale={locale}
                 />
             );
