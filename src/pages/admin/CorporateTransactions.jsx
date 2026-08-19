@@ -19,6 +19,7 @@ import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportCon
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 import { ctT } from '../../utils/corporateTransactionsI18n';
 
+const PAGE_SIZE = 50;
 // Upper bound for the one-shot "export everything matching the filters" fetch.
 const EXPORT_LIMIT = 5000;
 const round2 = (n) => Number(Number(n ?? 0).toFixed(2));

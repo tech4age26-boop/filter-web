@@ -2368,6 +2368,10 @@ export default function SalesReports({ portal = 'admin' }) {
                 </>
             )}
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
             {portal !== 'admin' && (recentOrderDetailsLoading || recentOrderDetailsError || recentOrderDetails) && (
                 <Modal
                     title={t('modal.orderTitle', {

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import BranchesPageShell from '../../components/admin/BranchesPageShell';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
+import { PaginationControls } from '../../components/PaginationControls';
 import '../../styles/admin/BranchesPage.css';
 import '../../styles/admin/ApprovalsPage.css';
 import {
@@ -432,17 +433,29 @@ export default function BranchesPage() {
     const route = parseBranchesRoute(location.pathname);
     const pageMode = Boolean(route);
 
+    const BRANCHES_PAGE_SIZE = 50;
     const [workshops, setWorkshops] = useState([]);
     const [branches, setBranches] = useState([]);
+    const [allBranches, setAllBranches] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState(EMPTY_BRANCH);
     const [editLoading, setEditLoading] = useState(false);
     const [search, setSearch] = useState('');
+    const [searchDebounced, setSearchDebounced] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [workshopFilter, setWorkshopFilter] = useState('');
+    const [branchesOffset, setBranchesOffset] = useState(0);
+    const [branchesTotal, setBranchesTotal] = useState(0);
 
     const goBack = useCallback(() => navigate(BRANCHES_BASE), [navigate]);
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setSearchDebounced(search.trim());
+        }, 300);
+        return () => clearTimeout(t);
+    }, [search]);
 
     const onFormField = useCallback((field, value) => {
         setForm((prev) => ({ ...prev, [field]: value }));
@@ -455,11 +468,26 @@ export default function BranchesPage() {
 
     const refreshBranches = useCallback(
         (workshopId = workshopFilter) =>
-            getBranches(workshopId ? { workshopId } : {}).then((d) => {
-                const rows = Array.isArray(d) ? d : (d?.branches ?? d?.data ?? []);
+            Promise.all([
+                getBranches({
+                    workshopId: workshopId || undefined,
+                    limit: BRANCHES_PAGE_SIZE,
+                    offset: branchesOffset,
+                }),
+                getBranches({
+                    workshopId: workshopId || undefined,
+                    limit: 9999,
+                }),
+            ]).then(([d, fullD]) => {
+                const data = d.data || d;
+                const fullData = fullD.data || fullD;
+                const rows = Array.isArray(data) ? data : (data?.branches ?? data?.data ?? []);
+                const fullRows = Array.isArray(fullData) ? fullData : (fullData?.branches ?? fullData?.data ?? []);
                 setBranches(rows.map(normalizeBranch));
+                setBranchesTotal(data.total || 0);
+                setAllBranches(fullRows.map(normalizeBranch));
             }),
-        [workshopFilter],
+        [workshopFilter, branchesOffset],
     );
 
     useEffect(() => {
@@ -474,12 +502,16 @@ export default function BranchesPage() {
     }, []);
 
     useEffect(() => {
+        setBranchesOffset(0);
+    }, [workshopFilter]);
+
+    useEffect(() => {
         if (pageMode) return;
         setLoading(true);
         refreshBranches(workshopFilter)
             .catch(() => setBranches([]))
             .finally(() => setLoading(false));
-    }, [pageMode, workshopFilter, refreshBranches]);
+    }, [pageMode, workshopFilter, branchesOffset, refreshBranches]);
 
     useEffect(() => {
         if (route?.screen !== 'create') return;
@@ -515,8 +547,9 @@ export default function BranchesPage() {
     }, [route?.screen, route?.id, location.state]);
 
     const filtered = useMemo(() => {
-        const needle = search.trim().toLowerCase();
-        return branches.filter((b) => {
+        const needle = searchDebounced.trim().toLowerCase();
+        const source = needle ? allBranches : branches;
+        return source.filter((b) => {
             if (statusFilter === 'active' && !b.isActive) return false;
             if (statusFilter === 'inactive' && b.isActive) return false;
             if (!needle) return true;
@@ -534,13 +567,13 @@ export default function BranchesPage() {
                 .toLowerCase()
                 .includes(needle);
         });
-    }, [branches, search, statusFilter]);
+    }, [branches, allBranches, searchDebounced, statusFilter]);
 
-    const total = branches.length;
-    const activeCount = branches.filter((b) => b.isActive).length;
+    const total = branchesTotal;
+    const activeCount = allBranches.filter((b) => b.isActive).length;
     const workshopCount = useMemo(
-        () => new Set(branches.map((b) => b.mainWorkshopId).filter(Boolean)).size,
-        [branches],
+        () => new Set(allBranches.map((b) => b.mainWorkshopId).filter(Boolean)).size,
+        [allBranches],
     );
 
     const handleSaveCreate = async () => {
@@ -852,6 +885,16 @@ export default function BranchesPage() {
                         )}
                     </tbody>
                 </table>
+                {!searchDebounced && branchesTotal > 0 && (
+                    <PaginationControls
+                        total={branchesTotal}
+                        limit={BRANCHES_PAGE_SIZE}
+                        offset={branchesOffset}
+                        onPageChange={setBranchesOffset}
+                        loading={loading}
+                        t={t}
+                    />
+                )}
             </section>
         </div>
     );

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Plus, Pencil, ChevronDown, Loader } from 'lucide-react';
 import SuppliersPageShell from '../../components/admin/SuppliersPageShell';
+import { PaginationControls } from '../../components/PaginationControls';
 import '../../styles/admin/SuppliersPage.css';
 import '../../styles/admin/ApprovalsPage.css';
 import { getSuppliers, getSupplier, createSupplier, updateSupplier } from '../../services/superAdminApi';
@@ -269,19 +270,38 @@ export default function SuppliersPage() {
         navigate(SUPPLIERS_BASE);
     }, [navigate]);
 
+    const SUPPLIERS_PAGE_SIZE = 50;
     const [suppliers, setSuppliers] = useState([]);
+    const [allSuppliers, setAllSuppliers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [editFormLoading, setEditFormLoading] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState(null);
     const [supplierForm, setSupplierForm] = useState(EMPTY_SUPPLIER_FORM);
+    const [suppliersOffset, setSuppliersOffset] = useState(0);
+    const [suppliersTotal, setSuppliersTotal] = useState(0);
 
     const reload = () =>
-        getSuppliers({}).then((d) => setSuppliers((Array.isArray(d) ? d : (d?.suppliers ?? [])).map(normalizeSupplier)));
+        Promise.all([
+            getSuppliers({ limit: SUPPLIERS_PAGE_SIZE, offset: suppliersOffset }),
+            getSuppliers({ limit: 9999 }),
+        ])
+            .then(([d, fullD]) => {
+                const data = d.data || d;
+                const fullData = fullD.data || fullD;
+                setSuppliers((Array.isArray(data) ? data : (data?.suppliers ?? [])).map(normalizeSupplier));
+                setSuppliersTotal(data.total || 0);
+                setAllSuppliers((Array.isArray(fullData) ? fullData : (fullData?.suppliers ?? [])).map(normalizeSupplier));
+            });
 
     useEffect(() => {
-        reload().catch(() => {}).finally(() => setLoading(false));
-    }, []);
+        setLoading(true);
+        reload().catch(() => {
+            setSuppliers([]);
+            setSuppliersTotal(0);
+            setAllSuppliers([]);
+        }).finally(() => setLoading(false));
+    }, [suppliersOffset]);
 
     useEffect(() => {
         if (route?.screen === 'create') {
@@ -459,7 +479,7 @@ export default function SuppliersPage() {
             <header className="suppliers-page-header">
                 <div>
                     <h1 className="suppliers-title">{t('page.title')}</h1>
-                    <p className="suppliers-count">{t('page.count', { n: suppliers.length })}</p>
+                    <p className="suppliers-count">{t('page.count', { n: suppliersTotal })}</p>
                 </div>
                 <button
                     type="button"
@@ -512,6 +532,16 @@ export default function SuppliersPage() {
                         )}
                     </tbody>
                 </table>
+                {suppliersTotal > 0 && (
+                    <PaginationControls
+                        total={suppliersTotal}
+                        limit={SUPPLIERS_PAGE_SIZE}
+                        offset={suppliersOffset}
+                        onPageChange={setSuppliersOffset}
+                        loading={loading}
+                        t={t}
+                    />
+                )}
             </section>
         </div>
     );
