@@ -188,8 +188,8 @@ export const rejectSuperAdminCorporatePriceQuotation = (id, body) =>
 
 // ─── Branches ─────────────────────────────────────────────────────────────────
 
-export const getBranches = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/branches${qs({ workshopId })}`);
+export const getBranches = ({ workshopId, limit, offset } = {}) =>
+    apiFetch(`/super-admin/branches${qs({ workshopId, limit, offset })}`);
 
 export const getBranch = (id) =>
     apiFetch(`/super-admin/branches/${id}`);
@@ -299,8 +299,8 @@ export const setUserActive = (id, isActive) =>
 
 // ─── Technicians ──────────────────────────────────────────────────────────────
 
-export const getTechnicians = ({ workshopId, branchId } = {}) =>
-    apiFetch(`/super-admin/technicians${qs({ workshopId, branchId })}`);
+export const getTechnicians = ({ workshopId, branchId, limit, offset } = {}) =>
+    apiFetch(`/super-admin/technicians${qs({ workshopId, branchId, limit, offset })}`);
 
 export const getTechnician = (id) =>
     apiFetch(`/super-admin/technicians/${id}`);
@@ -313,8 +313,8 @@ export const updateTechnician = (id, body) =>
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 
-export const getSuppliers = ({ workshopId } = {}) =>
-    apiFetch(`/super-admin/suppliers${qs({ workshopId })}`);
+export const getSuppliers = ({ workshopId, limit, offset } = {}) =>
+    apiFetch(`/super-admin/suppliers${qs({ workshopId, limit, offset })}`);
 
 export const getSupplier = (id) =>
     apiFetch(`/super-admin/suppliers/${id}`);
@@ -417,8 +417,8 @@ export const deleteCategory = (id) =>
 
 // ─── Cashiers ─────────────────────────────────────────────────────────────────
 
-export const getCashiers = ({ workshopId, branchId } = {}) =>
-    apiFetch(`/super-admin/cashiers${qs({ workshopId, branchId })}`);
+export const getCashiers = ({ workshopId, branchId, limit, offset } = {}) =>
+    apiFetch(`/super-admin/cashiers${qs({ workshopId, branchId, limit, offset })}`);
 
 export const getCashier = (id) =>
     apiFetch(`/super-admin/cashiers/${id}`);
@@ -431,8 +431,8 @@ export const updateCashier = (id, body) =>
 
 // ─── Customers ────────────────────────────────────────────────────────────────
 
-export const getCustomers = ({ workshopId, customerType } = {}) =>
-    apiFetch(`/super-admin/customers${qs({ workshopId, customerType })}`);
+export const getCustomers = ({ workshopId, customerType, limit, offset } = {}) =>
+    apiFetch(`/super-admin/customers${qs({ workshopId, customerType, limit, offset })}`);
 
 export const getCustomerDetails = (id) =>
     apiFetch(`/super-admin/customers/${encodeURIComponent(String(id))}/details`);

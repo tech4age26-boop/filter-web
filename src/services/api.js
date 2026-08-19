@@ -3,10 +3,10 @@ import { notifyUserActivity } from '../utils/sessionIdle';
 // Production url
 // export const BASE_URL = "https://api.filtercarservices.com";
 // staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 // development url
 
-//export const BASE_URL = 'http://localhost:3000';
+export const BASE_URL = 'http://localhost:3000';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
@@ -215,7 +215,7 @@ export async function apiFetch(path, options = {}) {
     } catch (networkErr) {
       const hint =
         networkErr?.message === "Failed to fetch" ||
-        networkErr?.name === "TypeError"
+          networkErr?.name === "TypeError"
           ? `Cannot reach API at ${BASE_URL}. Start the backend (filter_backend → npm run start:dev) and retry.`
           : networkErr?.message || "Network request failed";
       console.error("[apiFetch] Network error", { path, method, url, error: networkErr });
