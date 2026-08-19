@@ -3,6 +3,16 @@ import { createPortal } from 'react-dom';
 import { X, Printer } from 'lucide-react';
 import CashierTaxInvoiceView from './CashierTaxInvoiceView';
 import './CashierTaxInvoiceView.css';
+import { printNode } from '../../../utils/printNode';
+
+/* Applied inside the isolated print document. Keeps the goods table within the
+   page width so the right border of the last column ("Total With VAT") isn't
+   clipped, and lets the sheet use the full A4 content box. */
+const PRINT_SHEET_CSS = `
+  .cti-root { width: 100% !important; max-width: none !important; margin: 0 !important; }
+  .cti-goods-table { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
+  .cti-goods-wrap { overflow: visible !important; }
+`;
 
 /**
  * Modal wrapper for the bilingual simplified tax invoice (Flutter CashierInvoicePreview).
@@ -20,15 +30,26 @@ export default function InvoiceDetailsModal({
   footerVariant = 'pos',
 }) {
   const scrollRef = useRef(null);
+  const sheetRef = useRef(null);
 
   if (!isOpen || !invoice) return null;
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (onPrint) {
       onPrint(invoice);
       return;
     }
-    window.print();
+    // Print the invoice sheet on its own instead of `window.print()`: the
+    // page-level @media print rules below only fire when the POS stylesheet
+    // set is loaded, so portals opened from other portals (corporate billing)
+    // used to print a blank sheet.
+    const ok = sheetRef.current
+      ? await printNode(sheetRef.current, {
+          title: invoice?.invoiceNo || invoice?.invoiceNumber || 'Invoice',
+          css: PRINT_SHEET_CSS,
+        })
+      : false;
+    if (!ok) window.print();
   };
 
   const isCorporate = footerVariant === 'corporate';
@@ -46,7 +67,9 @@ export default function InvoiceDetailsModal({
         </button>
 
         <div className="invoice-scroll" ref={scrollRef}>
-          <CashierTaxInvoiceView invoice={invoice} />
+          <div ref={sheetRef}>
+            <CashierTaxInvoiceView invoice={invoice} />
+          </div>
         </div>
 
         <div className="invoice-actions">
