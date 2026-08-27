@@ -436,7 +436,14 @@ function App() {
               }
             />
 
-            <Route path="/referral-management/*" element={<ReferralLayout />} />
+            <Route
+              path="/referral-management/*"
+              element={
+                <ProtectedRoute requiredType="marketing_user">
+                  <ReferralLayout />
+                </ProtectedRoute>
+              }
+            />
 
             <Route path="/technician/login" element={<PortalLoginPage />} />
 
@@ -449,7 +456,14 @@ function App() {
               }
             />
 
-            <Route path="/referrer-portal" element={<ReferrerLayout />}>
+            <Route
+              path="/referrer-portal"
+              element={
+                <ProtectedRoute requiredType="referrer_user">
+                  <ReferrerLayout />
+                </ProtectedRoute>
+              }
+            >
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<ReferrerDashboard />} />
               <Route path="add_referral" element={<AddReferral />} />
