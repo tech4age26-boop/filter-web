@@ -1,12 +1,11 @@
 import { notifyUserActivity } from '../utils/sessionIdle';
 
-// Production url
-// export const BASE_URL = "https://api.filtercarservices.com";
-// staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-// development url
-
-// export const BASE_URL = 'http://localhost:3000';
+// API host. Set VITE_API_BASE_URL to override (see .env.development for local dev).
+// When unset, falls back to staging — which is what production builds use today.
+// Production url: https://api.filtercarservices.com
+export const BASE_URL =
+  import.meta.env.VITE_API_BASE_URL?.trim() ||
+  'https://filterbackend-production.up.railway.app';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
