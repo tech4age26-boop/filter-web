@@ -1,9 +1,10 @@
+import React, { useState } from 'react';
 import { CreditCard, Wallet, TrendingUp } from 'lucide-react';
 import { MOCK_TRANSACTIONS, MOCK_PAYOUTS } from './ReferrerConstants';
 import PayoutModal from '../../components/PayoutModal';
 
 export default function ReferrerWallet() {
-    const [isPayoutModalOpen, setIsPayoutModalOpen] = React.useState(false);
+    const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
 
     return (
         <div className="rf-content">

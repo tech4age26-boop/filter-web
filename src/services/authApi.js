@@ -34,6 +34,33 @@ export async function userLogin(email, password) {
     });
 }
 
+/** Referrer portal login — only allows referrer_user accounts. */
+export async function referrerLogin(email, password) {
+    const data = await authRequest('/auth/referrer/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify({ email, password }),
+    });
+    if (data.success === false) {
+        throw new Error(data.message || 'Login failed');
+    }
+    return data;
+}
+
+/** Register a referrer portal account (called by marketing portal). */
+export async function referrerRegister(body) {
+    const res = await fetch(`${BASE_URL}/auth/referrer/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', accept: '*/*' },
+        body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.message || `Referrer registration failed: ${res.status}`);
+    }
+    return data;
+}
+
 export async function corporateLogin(email, password) {
     return authRequest('/auth/corporate/login', {
         method: 'POST',

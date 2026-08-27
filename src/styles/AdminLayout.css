@@ -122,6 +122,16 @@
     transition: all 0.2s ease;
     color: var(--sidebar-text);
     border-left: 3px solid transparent;
+    border-top: none;
+    border-right: none;
+    border-bottom: none;
+    background: transparent;
+    outline: none;
+    box-shadow: none;
+    width: 100%;
+    text-align: left;
+    appearance: none;
+    -webkit-appearance: none;
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;

@@ -272,6 +272,14 @@ export const marketingCreateReferrer = (body) =>
     body: JSON.stringify(body),
   });
 
+/** Create referrer profile + optional portal login account in one call.
+ *  Pass createPortalAccount=true + portalEmail + portalPassword to also create login. */
+export const marketingCreateReferrerWithAccount = (body) =>
+  apiFetch(`${ROOT}/referrers/with-account`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 export const marketingListReferrers = (params = {}) =>
   apiFetch(`${ROOT}/referrers${qs(params)}`);
 

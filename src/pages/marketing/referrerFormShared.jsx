@@ -4,6 +4,7 @@ export const initialReferrerForm = {
   category: 'Individual',
   mobile: '',
   email: '',
+  password: '',
   nationalId: '',
   status: 'Active',
   bankName: '',
