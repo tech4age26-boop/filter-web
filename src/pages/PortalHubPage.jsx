@@ -12,6 +12,7 @@ import {
     supplierLogin,
     technicianLogin,
     marketingLogin,
+    referrerLogin,
 } from '../services/authApi';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
@@ -93,8 +94,9 @@ export default function PortalHubPage() {
                 return supplierLogin(mail, pass);
             case 'marketing':
                 return marketingLogin(mail, pass);
+            case 'referrer-portal':
+                return referrerLogin(mail, pass);
             default:
-                // admin + referrer-portal fall back to the admin endpoint.
                 return adminLogin(mail, pass);
         }
     };

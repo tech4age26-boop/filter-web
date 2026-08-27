@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
     Plus, CreditCard, Bell, ChevronRight, TrendingUp
@@ -14,7 +14,7 @@ import PayoutModal from '../../components/PayoutModal';
 
 export default function ReferrerDashboard() {
     const navigate = useNavigate();
-    const [isPayoutModalOpen, setIsPayoutModalOpen] = React.useState(false);
+    const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
 
     return (
         <div className="rf-dashboard">
