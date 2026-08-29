@@ -1,8 +1,38 @@
 import React from 'react';
-import { X, DollarSign, CreditCard } from 'lucide-react';
+import { X, CreditCard, AlertCircle } from 'lucide-react';
+import { referrerGetPayoutDetails } from '../services/referrerPortalApi';
+import useReferrerData from '../pages/referrer-portal/useReferrerData';
 
 export default function PayoutModal({ isOpen, onClose, balance }) {
+    // The bank account was previously a hardcoded IBAN shown to every referrer.
+    // Load the signed-in referrer's own details instead. Fetched once on mount
+    // rather than on open, so the details are ready when the modal appears.
+    const { data, loading, error } = useReferrerData(referrerGetPayoutDetails, []);
+    const bank = data?.bank ?? null;
+
     if (!isOpen) return null;
+
+    const renderBank = () => {
+        if (loading) {
+            return <span style={{ opacity: 0.6 }}>Loading your bank details…</span>;
+        }
+        if (error) {
+            return <span style={{ color: '#dc2626' }}>{error}</span>;
+        }
+        if (!bank?.iban) {
+            return (
+                <span style={{ opacity: 0.7 }}>
+                    No bank account on file — contact the marketing team to add one.
+                </span>
+            );
+        }
+        return (
+            <span>
+                {bank.iban}
+                {bank.bankName ? ` · ${bank.bankName}` : ''}
+            </span>
+        );
+    };
 
     return (
         <div className="rf-modal-overlay" onClick={onClose}>
@@ -28,16 +58,29 @@ export default function PayoutModal({ isOpen, onClose, balance }) {
                     <label className="rf-label">Bank Account</label>
                     <div className="rf-input" style={{ background: 'var(--color-bg-muted)', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <CreditCard size={18} />
-                        <span>SA03 8000 0000 6080 1016 7519</span>
+                        {renderBank()}
                     </div>
                 </div>
 
+                {/*
+                  Submitting a payout is not implemented yet — there is no payout model
+                  or endpoint. The button used to be wired to onClose, which looked like
+                  it submitted and silently did nothing. Say so instead.
+                */}
+                <div
+                    className="rf-form-group"
+                    style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}
+                >
+                    <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <span>
+                        Payout requests aren’t available yet. Please contact the marketing
+                        team to arrange a payout.
+                    </span>
+                </div>
+
                 <div className="rf-modal-footer">
-                    <button className="rf-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={onClose}>
-                        Submit Request
-                    </button>
                     <button className="rf-btn-outline" style={{ flex: 1, justifyContent: 'center' }} onClick={onClose}>
-                        Cancel
+                        Close
                     </button>
                 </div>
             </div>
