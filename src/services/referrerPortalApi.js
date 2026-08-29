@@ -26,6 +26,14 @@ export const referrerGetWallet = () => apiFetch('/referrer/me/wallet');
 
 export const referrerGetPayoutDetails = () => apiFetch('/referrer/me/payout-details');
 
+export const referrerGetPayoutRequests = () => apiFetch('/referrer/me/payout-requests');
+
+export const referrerCreatePayoutRequest = (amount, notes) =>
+  apiFetch('/referrer/me/payout-requests', {
+    method: 'POST',
+    body: JSON.stringify({ amount, notes }),
+  });
+
 /** Format a number as SAR for display, e.g. 9600 -> "9,600.00". */
 export function formatSar(value) {
   const n = Number(value ?? 0);

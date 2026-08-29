@@ -84,6 +84,8 @@ export default function ReferrerDashboard() {
         isOpen={isPayoutModalOpen}
         onClose={() => setIsPayoutModalOpen(false)}
         balance={formatSar(stats?.available)}
+        available={stats?.available}
+        onSubmitted={() => meReq.reload()}
       />
 
       <header className="rf-header">
