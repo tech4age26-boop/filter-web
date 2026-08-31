@@ -301,6 +301,11 @@
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+    /* Match .rf-btn-primary so icons sit beside their label rather than
+       jammed against it. */
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .rf-btn-outline:hover {
@@ -484,3 +489,26 @@
     .rf-stats-grid { grid-template-columns: repeat(2, 1fr); }
     .rf-wallet-grid { grid-template-columns: 1fr; }
 }
+
+/* Disabled buttons: same shapes, clearly not actionable. */
+.rf-btn-primary:disabled,
+.rf-btn-outline:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.rf-btn-primary:disabled:hover {
+    background: var(--color-primary);
+}
+
+.rf-btn-outline:disabled:hover {
+    background: #FFFFFF;
+    border-color: var(--color-border);
+}
+
+/* Status badges for the referral lifecycle. The portal previously only had
+   badges for commission statuses, so submitted-referral rows rendered
+   unstyled. */
+.rf-badge-contacted { background: rgba(59, 130, 246, 0.1); color: #2563eb; }
+
+.rf-badge-approved { background: rgba(34, 197, 94, 0.1); color: #16a34a; }

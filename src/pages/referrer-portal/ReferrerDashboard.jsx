@@ -166,11 +166,15 @@ export default function ReferrerDashboard() {
                       formatter={(v) => [`${formatSar(v)} SAR`, 'Earnings']}
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: 'var(--shadow-premium)' }}
                     />
+                    {/* Linear, with a dot per month: monotone drew smooth curves
+                        between sparse monthly points, implying earnings in months
+                        where there were none. Misleading on a money chart. */}
                     <Area
-                      type="monotone"
+                      type="linear"
                       dataKey="earnings"
                       stroke="var(--color-primary)"
                       strokeWidth={3}
+                      dot={{ r: 3, fill: 'var(--color-primary)', strokeWidth: 0 }}
                       fillOpacity={1}
                       fill="url(#colorGold)"
                     />

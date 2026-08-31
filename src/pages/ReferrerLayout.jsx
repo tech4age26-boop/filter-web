@@ -68,6 +68,7 @@ export default function ReferrerLayout() {
                             isOpen={isUserMenuOpen}
                             onClose={() => setIsUserMenuOpen(false)}
                             onLogout={handleLogout}
+                            onSettings={() => navigate('/referrer-portal/settings')}
                             locale="en"
                         />
                     </div>
