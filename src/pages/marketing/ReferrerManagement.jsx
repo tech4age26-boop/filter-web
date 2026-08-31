@@ -24,10 +24,14 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  marketingApprovePayoutRequest,
   marketingDeleteReferrer,
   marketingGetReferralCommissionsDashboard,
   marketingGetReferralManagementDashboard,
+  marketingListPayoutRequests,
   marketingListReferrers,
+  marketingPayPayoutRequest,
+  marketingRejectPayoutRequest,
 } from '../../services/superAdminMarketingApi';
 import {
   mktRefCategoryLabel,
@@ -37,6 +41,13 @@ import {
 } from '../../utils/marketingReferrersI18n';
 import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
+
+const PAYOUT_STATUS_LABEL = {
+  pending: 'Awaiting review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  paid: 'Paid',
+};
 
 const TAB_IDS = [
   { id: 'dashboard', icon: BarChart3, labelKey: 'tab.dashboard' },
@@ -253,6 +264,10 @@ export const ReferrerManagement = () => {
   const basePath = marketingSectionPath(location.pathname, 'referrer-management');
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [payouts, setPayouts] = useState([]);
+  const [payoutsLoading, setPayoutsLoading] = useState(false);
+  const [payoutsError, setPayoutsError] = useState('');
+  const [payoutBusyId, setPayoutBusyId] = useState(null);
   const [journalTab, setJournalTab] = useState('entries');
 
   const [searchReferrer, setSearchReferrer] = useState('');
@@ -272,6 +287,51 @@ export const ReferrerManagement = () => {
       setActiveTab(tab);
     }
   }, [searchParams]);
+
+  const loadPayouts = useCallback(async () => {
+    setPayoutsLoading(true);
+    setPayoutsError('');
+    try {
+      const res = await marketingListPayoutRequests('all');
+      setPayouts(res?.payouts ?? []);
+    } catch (e) {
+      setPayoutsError(e?.message || 'Could not load payout requests.');
+      setPayouts([]);
+    } finally {
+      setPayoutsLoading(false);
+    }
+  }, []);
+
+  // Only fetch when the tab is actually opened.
+  useEffect(() => {
+    if (activeTab === 'payout') loadPayouts();
+  }, [activeTab, loadPayouts]);
+
+  /** Run an approve/reject/pay action, then refresh the list. */
+  const runPayoutAction = useCallback(
+    async (id, action) => {
+      setPayoutBusyId(id);
+      setPayoutsError('');
+      try {
+        if (action === 'approve') {
+          await marketingApprovePayoutRequest(id);
+        } else if (action === 'reject') {
+          const reason = window.prompt('Reason for rejecting this payout request?');
+          if (reason === null) return;
+          await marketingRejectPayoutRequest(id, reason);
+        } else if (action === 'pay') {
+          const notes = window.prompt('Payment reference (optional)') ?? undefined;
+          await marketingPayPayoutRequest(id, notes);
+        }
+        await loadPayouts();
+      } catch (e) {
+        setPayoutsError(e?.message || 'That action could not be completed.');
+      } finally {
+        setPayoutBusyId(null);
+      }
+    },
+    [loadPayouts],
+  );
 
   const loadReferrerManagement = useCallback(async () => {
     setLoading(true);
@@ -726,15 +786,20 @@ export const ReferrerManagement = () => {
         </button>
       </div>
 
+      {payoutsError && (
+        <div className="mk-card" style={{ padding: '0.9rem 1.1rem', marginBottom: '1rem', color: '#dc2626' }}>
+          {payoutsError}
+        </div>
+      )}
+
       <section className="mk-card mk-ref-table-card">
         <table className="mk-ref-table">
           <thead>
             <tr>
-              <th>{t('th.payoutNo')}</th>
+              <th>#</th>
               <th>{t('th.referrer')}</th>
               <th>{t('th.amount')}</th>
-              <th>{t('th.method')}</th>
-              <th>{t('th.journalEntry')}</th>
+              <th>Bank</th>
               <th>{t('th.status')}</th>
               <th>{t('th.date')}</th>
               <th>{t('th.actions')}</th>
@@ -742,11 +807,89 @@ export const ReferrerManagement = () => {
           </thead>
 
           <tbody>
-            <tr>
-              <td colSpan="8" className="mk-ref-empty-table">
-                {t('empty.payouts')}
-              </td>
-            </tr>
+            {payoutsLoading && (
+              <tr>
+                <td colSpan="7" className="mk-ref-empty-table">Loading payout requests…</td>
+              </tr>
+            )}
+
+            {!payoutsLoading && payouts.length === 0 && (
+              <tr>
+                <td colSpan="7" className="mk-ref-empty-table">
+                  No payout requests yet.
+                </td>
+              </tr>
+            )}
+
+            {!payoutsLoading &&
+              payouts.map((p) => {
+                const status = String(p.status || '').toLowerCase();
+                const busy = payoutBusyId === p.id;
+                return (
+                  <tr key={p.id}>
+                    <td>{p.id}</td>
+                    <td style={{ fontWeight: 600 }}>{p.referrerName || '—'}</td>
+                    <td style={{ fontWeight: 700 }}>{formatSar(p.amount)}</td>
+                    <td style={{ fontSize: '0.8rem', opacity: 0.75 }}>
+                      {p.bankIban || '—'}
+                    </td>
+                    <td>
+                      <span className={`mk-ref-badge mk-ref-badge-${status}`}>
+                        {PAYOUT_STATUS_LABEL[status] || p.status}
+                      </span>
+                    </td>
+                    <td>{p.createdAt ? String(p.createdAt).slice(0, 10) : '—'}</td>
+                    <td>
+                      {/* Actions follow the backend state machine: only a pending
+                          request can be approved or rejected, only an approved one
+                          can be marked paid. */}
+                      {status === 'pending' && (
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button
+                            type="button"
+                            className="mk-ref-primary-btn"
+                            disabled={busy}
+                            onClick={() => runPayoutAction(p.id, 'approve')}
+                          >
+                            {busy ? '…' : 'Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            className="mk-ref-ghost-btn"
+                            disabled={busy}
+                            onClick={() => runPayoutAction(p.id, 'reject')}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+
+                      {status === 'approved' && (
+                        <button
+                          type="button"
+                          className="mk-ref-primary-btn"
+                          disabled={busy}
+                          onClick={() => runPayoutAction(p.id, 'pay')}
+                        >
+                          {busy ? '…' : 'Mark paid'}
+                        </button>
+                      )}
+
+                      {status === 'rejected' && (
+                        <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                          {p.rejectionReason || 'Rejected'}
+                        </span>
+                      )}
+
+                      {status === 'paid' && (
+                        <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                          Paid {p.paidAt ? String(p.paidAt).slice(0, 10) : ''}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </section>

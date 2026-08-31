@@ -292,6 +292,42 @@ export const marketingUpdateReferrer = (id, body) =>
     body: JSON.stringify(body),
   });
 
+/* ---- Referrer payout requests ---- */
+
+export const marketingListPayoutRequests = (status) =>
+  apiFetch(
+    status && status !== 'all'
+      ? `${ROOT}/payout-requests?status=${encodeURIComponent(status)}`
+      : `${ROOT}/payout-requests`,
+  );
+
+export const marketingApprovePayoutRequest = (id) =>
+  apiFetch(`${ROOT}/payout-requests/${id}/approve`, { method: 'POST', body: '{}' });
+
+export const marketingRejectPayoutRequest = (id, reason) =>
+  apiFetch(`${ROOT}/payout-requests/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+
+export const marketingPayPayoutRequest = (id, notes) =>
+  apiFetch(`${ROOT}/payout-requests/${id}/pay`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+
+/* ---- Referrer portal access ---- */
+
+/** Attach an existing referrer login, or pass a password to create one. */
+export const marketingLinkPortalAccount = (referrerId, body) =>
+  apiFetch(`${ROOT}/referrers/${referrerId}/portal-account`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingUnlinkPortalAccount = (referrerId) =>
+  apiFetch(`${ROOT}/referrers/${referrerId}/portal-account`, { method: 'DELETE' });
+
 export const marketingDeleteReferrer = (id) =>
   apiFetch(`${ROOT}/referrers/${encodeURIComponent(String(id))}`, {
     method: 'DELETE',
