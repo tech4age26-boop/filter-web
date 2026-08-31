@@ -77,6 +77,23 @@ const EMPTY_REFERRER_PROFILE = {
     notes: '',
 };
 
+/* Supplier profile — keep in step with Super Admin → Suppliers → Add Supplier
+ * (pages/admin/SuppliersPage.jsx EMPTY_SUPPLIER_FORM). */
+const SUPPLIER_CATEGORY_VALUES = ['supplier', 'warehouse', 'other'];
+const EMPTY_SUPPLIER_PROFILE = {
+    supplierName: '',
+    category: 'supplier',
+    vatId: '',
+    crNumber: '',
+    contactPerson: '',
+    address: '',
+    street: '',
+    cityDistrict: '',
+    bankName: '',
+    iban: '',
+    status: 'active',
+};
+
 const WORKSHOP_ROLE_OPTIONS = [
     { id: 'workshop_owner' },
     { id: 'manager' },
@@ -1103,6 +1120,8 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
     const [assignRoleId, setAssignRoleId] = useState('');
     // Referrer profile — mirrors the Marketing portal's Add New Referrer form.
     const [referrer, setReferrer] = useState(EMPTY_REFERRER_PROFILE);
+    // Supplier profile — mirrors Super Admin → Suppliers → Add Supplier.
+    const [supplier, setSupplier] = useState(EMPTY_SUPPLIER_PROFILE);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [mobile, setMobile] = useState('');
@@ -1151,10 +1170,14 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
             setWorkshopRole('');
         }
         if (nextPortal !== 'referrer') setReferrer(EMPTY_REFERRER_PROFILE);
+        if (nextPortal !== 'supplier') setSupplier(EMPTY_SUPPLIER_PROFILE);
     };
 
     const setReferrerField = (field, value) =>
         setReferrer((prev) => ({ ...prev, [field]: value }));
+
+    const setSupplierField = (field, value) =>
+        setSupplier((prev) => ({ ...prev, [field]: value }));
 
     const handleSubmit = () => {
         if (!name.trim()) { alert(t('user.alert.name')); return; }
@@ -1190,6 +1213,9 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
             // Creates the matching marketing_referrers row so the account shows
             // up in Marketing → Referrer Management.
             ...(selectedPortal === 'referrer' ? { referrerProfile: referrer } : {}),
+            // Creates the matching suppliers row so the account shows up under
+            // Super Admin → Suppliers.
+            ...(selectedPortal === 'supplier' ? { supplierProfile: supplier } : {}),
         });
     };
 
@@ -1444,6 +1470,139 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
                     </>
                 )}
 
+                {selectedPortal === 'supplier' && (
+                    <>
+                        <div style={{
+                            marginTop: 4, marginBottom: 12, padding: '10px 14px',
+                            borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a',
+                            fontSize: '0.8125rem', color: '#92400e', fontWeight: 600,
+                            display: 'flex', alignItems: 'center', gap: 8,
+                        }}>
+                            <ScrollText size={14} /> {t('user.supplierSection')}
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierName')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    placeholder={t('user.supplierNamePh')}
+                                    value={supplier.supplierName}
+                                    onChange={(e) => setSupplierField('supplierName', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierCategory')}</label>
+                                <select
+                                    className="form-input" style={selectStyle}
+                                    value={supplier.category}
+                                    onChange={(e) => setSupplierField('category', e.target.value)}
+                                >
+                                    {SUPPLIER_CATEGORY_VALUES.map((v) => (
+                                        <option key={v} value={v}>{t(`user.supplierCat.${v}`)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierVatId')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.vatId}
+                                    onChange={(e) => setSupplierField('vatId', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierCrNumber')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.crNumber}
+                                    onChange={(e) => setSupplierField('crNumber', e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierContactPerson')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.contactPerson}
+                                    onChange={(e) => setSupplierField('contactPerson', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierStatus')}</label>
+                                <select
+                                    className="form-input" style={selectStyle}
+                                    value={supplier.status}
+                                    onChange={(e) => setSupplierField('status', e.target.value)}
+                                >
+                                    <option value="active">{t('user.referrerStatus.active')}</option>
+                                    <option value="inactive">{t('user.referrerStatus.inactive')}</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierAddress')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.address}
+                                    onChange={(e) => setSupplierField('address', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierStreet')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.street}
+                                    onChange={(e) => setSupplierField('street', e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierCityDistrict')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.cityDistrict}
+                                    onChange={(e) => setSupplierField('cityDistrict', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierBankName')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={supplier.bankName}
+                                    onChange={(e) => setSupplierField('bankName', e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.supplierIban')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    placeholder="SA..."
+                                    value={supplier.iban}
+                                    onChange={(e) => setSupplierField('iban', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1" />
+                        </div>
+
+                        <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: '#64748b' }}>
+                            {t('user.supplierHint')}
+                        </p>
+                    </>
+                )}
+
                 <div style={{
                     marginTop: 4, marginBottom: 12, padding: '10px 14px',
                     borderRadius: 10, background: '#eff6ff', border: '1px solid #bfdbfe',
@@ -1534,6 +1693,9 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
     const portalsMeta = getPortalsMeta(locale);
     const [roleId, setRoleId] = useState(user.role?.id ?? '');
     const [resetPassword, setResetPassword] = useState('');
+    const [name, setName] = useState(user.name ?? '');
+    const [email, setEmail] = useState(user.email ?? '');
+    const [mobile, setMobile] = useState(user.mobile ?? '');
     const [assignWallet, setAssignWallet] = useState(Boolean(user.walletEnabled));
     const initialPortal = portalIdForUser(user) || user.role?.portal || 'workshop';
     const [selectedPortal, setSelectedPortal] = useState(initialPortal);
@@ -1609,6 +1771,14 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
             alert(t('edit.alert.password'));
             return;
         }
+        if (!name.trim()) {
+            alert(t('user.alert.name'));
+            return;
+        }
+        if (!email.trim()) {
+            alert(t('user.alert.email'));
+            return;
+        }
         if (needsWorkshopScope && (!workshopId || !branchId)) {
             alert(t('edit.alert.workshopBranch'));
             return;
@@ -1617,6 +1787,13 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
             assignWallet,
             portal: selectedPortal,
         };
+        // Only send what actually changed, so an untouched field is never
+        // re-validated (and an unchanged email never trips the uniqueness check).
+        if (name.trim() !== (user.name ?? '')) opts.name = name.trim();
+        if (email.trim().toLowerCase() !== String(user.email ?? '').toLowerCase()) {
+            opts.email = email.trim().toLowerCase();
+        }
+        if (mobile.trim() !== (user.mobile ?? '')) opts.mobile = mobile.trim();
         if (needsWorkshopScope) {
             opts.workshopId = workshopId || null;
             opts.branchId = branchId || null;
@@ -1702,6 +1879,43 @@ function EditUserRoleModal({ user, roles, onClose, onSave, saving, asPage = fals
                                 <span style={{ color: '#94a3b8' }}>/ {user.branchName}</span>
                             )}
                         </div>
+                    </div>
+                </div>
+
+                {/* Account details — editable */}
+                <div style={{
+                    marginBottom: 14, padding: '12px 14px', borderRadius: 12,
+                    border: '2px solid #e2e8f0', background: '#fff',
+                }}>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem', marginBottom: 8 }}>
+                        {t('edit.accountDetails')}
+                    </div>
+                    <div className="form-row">
+                        <div className="form-group flex-1">
+                            <label>{t('user.name')}</label>
+                            <input
+                                type="text" className="form-input" style={selectStyle}
+                                value={name} onChange={(e) => setName(e.target.value)}
+                            />
+                        </div>
+                        <div className="form-group flex-1">
+                            <label>{t('user.email')}</label>
+                            <input
+                                type="email" className="form-input" style={selectStyle}
+                                value={email} onChange={(e) => setEmail(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="form-row">
+                        <div className="form-group flex-1">
+                            <label>{t('user.mobile')}</label>
+                            <input
+                                type="text" className="form-input" style={selectStyle}
+                                placeholder="+966 50 000 0000"
+                                value={mobile} onChange={(e) => setMobile(e.target.value)}
+                            />
+                        </div>
+                        <div className="form-group flex-1" />
                     </div>
                 </div>
 

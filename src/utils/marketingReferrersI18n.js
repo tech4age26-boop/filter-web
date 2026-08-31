@@ -144,7 +144,11 @@ const MKT_REF_I18N = {
     'form.save': 'Save',
     'err.referrerNotFound': 'Referrer not found.',
     'err.loadReferrer': 'Failed to load referrer.',
+    'form.portalPassword': 'Portal Password',
+    'form.portalPasswordPh': 'Set password for portal signup',
     'err.nameRequired': 'Full name is required.',
+    'err.emailRequired': 'Email is required — the referrer signs in with it.',
+    'err.passwordRequired': 'Portal password is required and must be at least 6 characters.',
     'err.saveReferrer': 'Failed to save referrer.',
 
     'ruleForm.title': 'New Commission Rule',
@@ -440,7 +444,11 @@ const MKT_REF_I18N = {
     'form.save': 'حفظ',
     'err.referrerNotFound': 'المُحيل غير موجود.',
     'err.loadReferrer': 'تعذّر تحميل المُحيل.',
+    'form.portalPassword': 'كلمة مرور البوابة',
+    'form.portalPasswordPh': 'عيّن كلمة مرور للدخول إلى البوابة',
     'err.nameRequired': 'الاسم الكامل مطلوب.',
+    'err.emailRequired': 'البريد الإلكتروني مطلوب — يسجّل المُحيل الدخول به.',
+    'err.passwordRequired': 'كلمة مرور البوابة مطلوبة ويجب ألا تقل عن 6 أحرف.',
     'err.saveReferrer': 'تعذّر حفظ المُحيل.',
 
     'ruleForm.title': 'قاعدة عمولة جديدة',

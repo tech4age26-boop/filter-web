@@ -98,14 +98,16 @@ export default function ReferrerFormPage() {
       return;
     }
 
-    const hasPassword = Boolean(form.password && form.password.trim());
-    if (!isEdit && hasPassword) {
+    // Every new referrer gets a portal login, so the account also shows up under
+    // Super Admin → Permissions → Users. Without one the referrer would exist in
+    // Marketing only, and the two tables would drift apart.
+    if (!isEdit) {
       if (!form.email.trim()) {
-        alert('Email is required when creating a portal password.');
+        alert(t('err.emailRequired'));
         return;
       }
-      if (form.password.trim().length < 6) {
-        alert('Password must be at least 6 characters.');
+      if (!form.password.trim() || form.password.trim().length < 6) {
+        alert(t('err.passwordRequired'));
         return;
       }
     }
@@ -120,13 +122,11 @@ export default function ReferrerFormPage() {
       } else {
         const createPayload = {
           ...payload,
-          createPortalAccount: hasPassword,
-          ...(hasPassword ? {
-            portalEmail: form.email.trim().toLowerCase(),
-            portalPassword: form.password.trim(),
-            portalMobile: form.mobile.trim() || undefined,
-            portalName: form.fullName.trim(),
-          } : {}),
+          createPortalAccount: true,
+          portalEmail: form.email.trim().toLowerCase(),
+          portalPassword: form.password.trim(),
+          portalMobile: form.mobile.trim() || undefined,
+          portalName: form.fullName.trim(),
         };
 
         const res = await marketingCreateReferrerWithAccount(createPayload);
@@ -189,14 +189,16 @@ export default function ReferrerFormPage() {
               value={form.email}
               onChange={(value) => setForm((prev) => ({ ...prev, email: value }))}
               placeholder="email@example.com"
+              required={!isEdit}
             />
             {!isEdit && (
               <InputField
-                label="Portal Password"
+                label={t('form.portalPassword')}
                 type="password"
                 value={form.password}
                 onChange={(value) => setForm((prev) => ({ ...prev, password: value }))}
-                placeholder="Set password for portal signup"
+                placeholder={t('form.portalPasswordPh')}
+                required
               />
             )}
             <InputField
