@@ -122,6 +122,17 @@ export function assignRoleToUser(userId, roleId, opts = {}) {
     if (Object.prototype.hasOwnProperty.call(opts, 'workshopRole')) {
         body.workshopRole = opts.workshopRole == null ? null : String(opts.workshopRole).trim() || null;
     }
+    // Profile edits — only forwarded when the caller actually changed them, so
+    // an untouched field is never re-validated server-side.
+    if (Object.prototype.hasOwnProperty.call(opts, 'name')) {
+        body.name = String(opts.name).trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'email')) {
+        body.email = String(opts.email).trim().toLowerCase();
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'mobile')) {
+        body.mobile = opts.mobile == null ? '' : String(opts.mobile).trim();
+    }
     return apiFetch(
         `/super-admin/permissions/users/${encodeURIComponent(userId)}/role`,
         {
