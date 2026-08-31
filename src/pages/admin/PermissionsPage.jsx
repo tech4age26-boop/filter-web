@@ -30,6 +30,7 @@ const PORTALS = [
     { id: 'technician',  icon: Briefcase,   color: '#ea580c' },
     { id: 'corporate',   icon: Building,    color: '#0891b2' },
     { id: 'supplier',    icon: ScrollText,  color: '#a16207' },
+    { id: 'referrer',    icon: Users,       color: '#be185d' },
 ];
 
 function getPortalsMeta(locale) {
@@ -56,11 +57,25 @@ const USER_TYPE_TO_PORTAL = {
     technician_user: 'technician',
     corporate_user: 'corporate',
     supplier_user:  'supplier',
+    referrer_user:  'referrer',
 };
 
 function portalIdForUser(user) {
     return USER_TYPE_TO_PORTAL[user?.userType] || user?.role?.portal || null;
 }
+
+/* Referrer profile — keep these in step with the Marketing portal's
+ * Add New Referrer form (pages/marketing/ReferrerFormPage.jsx). */
+const REFERRER_CATEGORY_VALUES = ['Individual', 'Corporate', 'Technician', 'Employee'];
+const REFERRER_STATUS_VALUES = ['active', 'inactive'];
+const EMPTY_REFERRER_PROFILE = {
+    category: 'Individual',
+    nationalId: '',
+    status: 'active',
+    bankName: '',
+    iban: '',
+    notes: '',
+};
 
 const WORKSHOP_ROLE_OPTIONS = [
     { id: 'workshop_owner' },
@@ -1079,11 +1094,15 @@ function TabPermissionRow({ tab, perms, onToggleAction, onToggleTab, t, locale }
 /* ────────────────────────────────────────────────────────────────────────── */
 
 function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }) {
-    const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+    const portalsMeta = getPortalsMeta(locale);
+    const [selectedPortal, setSelectedPortal] = useState('workshop');
+    const needsWorkshopScope = portalRequiresWorkshopScope(selectedPortal);
     const [workshopId, setWorkshopId] = useState('');
     const [branchId, setBranchId] = useState('');
     const [workshopRole, setWorkshopRole] = useState('');
     const [assignRoleId, setAssignRoleId] = useState('');
+    // Referrer profile — mirrors the Marketing portal's Add New Referrer form.
+    const [referrer, setReferrer] = useState(EMPTY_REFERRER_PROFILE);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [mobile, setMobile] = useState('');
@@ -1095,16 +1114,16 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
     const [loadingWs, setLoadingWs] = useState(false);
     const [loadingBr, setLoadingBr] = useState(false);
 
-    // Load workshops the first time the non-super-admin branch needs them.
+    // Load workshops the first time a branch-scoped portal needs them.
     useEffect(() => {
-        if (isSuperAdmin) return;
+        if (!needsWorkshopScope) return;
         if (workshops.length > 0) return;
         setLoadingWs(true);
         getWorkshopOptions()
             .then((res) => setWorkshops(res?.workshops ?? []))
             .catch(() => setWorkshops([]))
             .finally(() => setLoadingWs(false));
-    }, [isSuperAdmin, workshops.length]);
+    }, [needsWorkshopScope, workshops.length]);
 
     // Load branches whenever workshop changes.
     useEffect(() => {
@@ -1116,15 +1135,26 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
             .finally(() => setLoadingBr(false));
     }, [workshopId]);
 
-    // Strict portal filter:
-    //   - Super Admin toggle ON → only super_admin portal roles
-    //   - Super Admin toggle OFF (workshop + branch + employee flow) → only workshop portal roles
-    // Other portals (cashier / corporate / supplier / technician) have their own
-    // dedicated create flows, so we don't list those roles here.
-    const assignableRoles = useMemo(() => {
-        const targetPortal = isSuperAdmin ? 'super_admin' : 'workshop';
-        return roles.filter((r) => r.portal === targetPortal);
-    }, [roles, isSuperAdmin]);
+    // Only roles belonging to the selected login portal can be assigned — the
+    // backend derives the user's `userType` from the role's portal.
+    const assignableRoles = useMemo(
+        () => roles.filter((r) => r.portal === selectedPortal),
+        [roles, selectedPortal],
+    );
+
+    const handlePortalChange = (nextPortal) => {
+        setSelectedPortal(nextPortal);
+        setAssignRoleId('');
+        if (!portalRequiresWorkshopScope(nextPortal)) {
+            setWorkshopId('');
+            setBranchId('');
+            setWorkshopRole('');
+        }
+        if (nextPortal !== 'referrer') setReferrer(EMPTY_REFERRER_PROFILE);
+    };
+
+    const setReferrerField = (field, value) =>
+        setReferrer((prev) => ({ ...prev, [field]: value }));
 
     const handleSubmit = () => {
         if (!name.trim()) { alert(t('user.alert.name')); return; }
@@ -1133,27 +1163,33 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
             alert(t('user.alert.password'));
             return;
         }
-        if (!assignRoleId) {
+        // A role is only required when the portal actually has one to offer.
+        // With no role the user gets unrestricted access to their portal, which
+        // is the intended behaviour for portals that have no permission codes.
+        if (!assignRoleId && assignableRoles.length > 0) {
             alert(t('user.alert.role'));
             return;
         }
-        if (!isSuperAdmin) {
-            if (!workshopId || !branchId) {
-                alert(t('user.alert.workshopBranch'));
-                return;
-            }
+        if (needsWorkshopScope && (!workshopId || !branchId)) {
+            alert(t('user.alert.workshopBranch'));
+            return;
         }
         onSave({
             name: name.trim(),
             email: email.trim().toLowerCase(),
             password,
             mobile: mobile.trim() || undefined,
-            isSuperAdmin,
+            // The backend still keys the platform-admin path off this flag.
+            isSuperAdmin: selectedPortal === 'super_admin',
+            portal: selectedPortal,
             assignWallet,
-            workshopId: isSuperAdmin ? null : workshopId,
-            branchId: isSuperAdmin ? null : branchId,
-            workshopRole: isSuperAdmin ? null : (workshopRole || null),
-            roleId: assignRoleId,
+            workshopId: needsWorkshopScope ? workshopId : null,
+            branchId: needsWorkshopScope ? branchId : null,
+            workshopRole: selectedPortal === 'workshop' ? (workshopRole || null) : null,
+            roleId: assignRoleId || null,
+            // Creates the matching marketing_referrers row so the account shows
+            // up in Marketing → Referrer Management.
+            ...(selectedPortal === 'referrer' ? { referrerProfile: referrer } : {}),
         });
     };
 
@@ -1175,35 +1211,32 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
             )}
         >
             <div className="create-role-form">
-                {/* Super Admin toggle */}
+                {/* Portal access — decides which login portal the user gets */}
                 <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '12px 14px', borderRadius: 12,
-                    border: `2px solid ${isSuperAdmin ? '#7c3aed' : '#e2e8f0'}`,
-                    background: isSuperAdmin ? '#faf5ff' : '#fff',
-                    marginBottom: 16, transition: 'all 0.15s',
+                    marginBottom: 16, padding: '12px 14px', borderRadius: 12,
+                    border: '2px solid #e2e8f0', background: '#fff',
                 }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                        <div style={{
-                            width: 36, height: 36, borderRadius: 10,
-                            background: isSuperAdmin ? '#7c3aed' : '#f1f5f9',
-                            color: isSuperAdmin ? '#fff' : '#64748b',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                            <ShieldCheck size={18} />
-                        </div>
-                        <div>
-                            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem' }}>{t('user.superAdmin')}</div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                {t('user.superAdminHint')}
-                            </div>
-                        </div>
+                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9375rem', marginBottom: 8 }}>
+                        {t('user.portalAccess')}
                     </div>
-                    <ToggleSwitch checked={isSuperAdmin} onChange={(v) => {
-                        setIsSuperAdmin(v);
-                        if (v) { setWorkshopId(''); setBranchId(''); setWorkshopRole(''); }
-                        setAssignRoleId('');
-                    }} />
+                    <div className="form-group">
+                        <label>{t('edit.assignPortal')}</label>
+                        <select
+                            className="form-input"
+                            value={selectedPortal}
+                            onChange={(e) => handlePortalChange(e.target.value)}
+                            style={selectStyle}
+                        >
+                            {portalsMeta.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {t('edit.portalOption', { label: p.label, desc: p.desc })}
+                                </option>
+                            ))}
+                        </select>
+                        <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#64748b', lineHeight: 1.45 }}>
+                            {portalLoginHintT(locale, selectedPortal)}
+                        </p>
+                    </div>
                 </div>
 
                 <div style={{
@@ -1272,7 +1305,7 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
                     </div>
                 </div>
 
-                {!isSuperAdmin && (
+                {needsWorkshopScope && (
                     <>
                         <div className="form-row">
                             <div className="form-group flex-1">
@@ -1304,23 +1337,110 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
                             </div>
                         </div>
 
+                        {selectedPortal === 'workshop' && (
+                            <div className="form-row">
+                                <div className="form-group flex-1">
+                                    <label>{t('user.workshopRole')}</label>
+                                    <select
+                                        className="form-input" value={workshopRole}
+                                        onChange={(e) => setWorkshopRole(e.target.value)}
+                                        disabled={!branchId}
+                                        style={selectStyle}
+                                    >
+                                        <option value="">{t('user.none')}</option>
+                                        {WORKSHOP_ROLE_OPTIONS.map((r) => (
+                                            <option key={r.id} value={r.id}>{workshopRoleLabel(locale, r.id)}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group flex-1" />
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {selectedPortal === 'referrer' && (
+                    <>
+                        <div style={{
+                            marginTop: 4, marginBottom: 12, padding: '10px 14px',
+                            borderRadius: 10, background: '#fdf2f8', border: '1px solid #fbcfe8',
+                            fontSize: '0.8125rem', color: '#9d174d', fontWeight: 600,
+                            display: 'flex', alignItems: 'center', gap: 8,
+                        }}>
+                            <Users size={14} /> {t('user.referrerSection')}
+                        </div>
+
                         <div className="form-row">
                             <div className="form-group flex-1">
-                                <label>{t('user.workshopRole')}</label>
+                                <label>{t('user.referrerCategory')} *</label>
                                 <select
-                                    className="form-input" value={workshopRole}
-                                    onChange={(e) => setWorkshopRole(e.target.value)}
-                                    disabled={!branchId}
-                                    style={selectStyle}
+                                    className="form-input" style={selectStyle}
+                                    value={referrer.category}
+                                    onChange={(e) => setReferrerField('category', e.target.value)}
                                 >
-                                    <option value="">{t('user.none')}</option>
-                                    {WORKSHOP_ROLE_OPTIONS.map((r) => (
-                                        <option key={r.id} value={r.id}>{workshopRoleLabel(locale, r.id)}</option>
+                                    {REFERRER_CATEGORY_VALUES.map((v) => (
+                                        <option key={v} value={v}>
+                                            {t(`user.referrerCat.${v.toLowerCase()}`)}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
-                            <div className="form-group flex-1" />
+                            <div className="form-group flex-1">
+                                <label>{t('user.referrerNationalId')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={referrer.nationalId}
+                                    onChange={(e) => setReferrerField('nationalId', e.target.value)}
+                                />
+                            </div>
                         </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.referrerStatus')}</label>
+                                <select
+                                    className="form-input" style={selectStyle}
+                                    value={referrer.status}
+                                    onChange={(e) => setReferrerField('status', e.target.value)}
+                                >
+                                    {REFERRER_STATUS_VALUES.map((v) => (
+                                        <option key={v} value={v}>{t(`user.referrerStatus.${v}`)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.referrerBankName')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={referrer.bankName}
+                                    onChange={(e) => setReferrerField('bankName', e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="form-row">
+                            <div className="form-group flex-1">
+                                <label>{t('user.referrerIban')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    placeholder="SA..."
+                                    value={referrer.iban}
+                                    onChange={(e) => setReferrerField('iban', e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group flex-1">
+                                <label>{t('user.referrerNotes')}</label>
+                                <input
+                                    type="text" className="form-input" style={selectStyle}
+                                    value={referrer.notes}
+                                    onChange={(e) => setReferrerField('notes', e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <p style={{ margin: '0 0 12px', fontSize: '0.75rem', color: '#64748b' }}>
+                            {t('user.referrerHint')}
+                        </p>
                     </>
                 )}
 
@@ -1341,13 +1461,27 @@ function UserModal({ onClose, onSave, roles, saving, asPage = false, t, locale }
                             onChange={(e) => setAssignRoleId(e.target.value)}
                             style={selectStyle}
                         >
-                            <option value="">{t('user.selectRole')}</option>
+                            <option value="">
+                                {assignableRoles.length === 0
+                                    ? t('user.roleFullAccess')
+                                    : t('user.selectRole')}
+                            </option>
                             {assignableRoles.map((r) => (
                                 <option key={r.id} value={r.id}>
                                     {t('user.roleOption', { name: r.name, count: r.permissionCount })}
                                 </option>
                             ))}
                         </select>
+                        {!assignRoleId && (
+                            <small style={{
+                                display: 'block', marginTop: 6, color: '#166534',
+                                fontSize: '0.7rem', fontWeight: 600, lineHeight: 1.45,
+                            }}>
+                                {t('user.noRoleHint', {
+                                    portal: portalLabel(locale, selectedPortal) || selectedPortal,
+                                })}
+                            </small>
+                        )}
                         {assignableRoles.length === 0 && (
                             <small style={{ color: '#92400e', fontSize: '0.7rem' }}>
                                 {t('user.noRolesScope')}

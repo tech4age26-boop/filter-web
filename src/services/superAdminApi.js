@@ -431,8 +431,9 @@ export const updateCashier = (id, body) =>
 
 // ─── Customers ────────────────────────────────────────────────────────────────
 
-export const getCustomers = ({ workshopId, customerType, limit, offset } = {}) =>
-    apiFetch(`/super-admin/customers${qs({ workshopId, customerType, limit, offset })}`);
+/** `search` is matched server-side across name, mobile, WhatsApp, tax id, CR no. and company name. */
+export const getCustomers = ({ workshopId, customerType, limit, offset, search } = {}) =>
+    apiFetch(`/super-admin/customers${qs({ workshopId, customerType, limit, offset, search })}`);
 
 export const getCustomerDetails = (id) =>
     apiFetch(`/super-admin/customers/${encodeURIComponent(String(id))}/details`);

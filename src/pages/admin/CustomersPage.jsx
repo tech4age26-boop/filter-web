@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, NavLink, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Search, Plus, Users, Building, Pencil, FileText, Loader, Check } from 'lucide-react';
 import CustomersPageShell from '../../components/admin/CustomersPageShell';
@@ -120,7 +120,6 @@ export default function CustomersPage() {
     };
     const CUSTOMERS_PAGE_SIZE = 50;
     const [customers, setCustomers] = useState([]);
-    const [allCustomers, setAllCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
     const [searchDebounced, setSearchDebounced] = useState('');
@@ -138,33 +137,31 @@ export default function CustomersPage() {
 
     useEffect(() => {
         setCustomersOffset(0);
-    }, [typeFilter]);
+    }, [typeFilter, searchDebounced]);
 
     useEffect(() => {
         setLoading(true);
+        // Search runs server-side: the old client-side filter only ever saw the
+        // first page the API would return (it caps `limit` at 200), so customers
+        // past that cut-off were unfindable.
         Promise.all([
             getCustomers({
                 customerType: typeFilter === 'all' ? undefined : typeFilter,
                 limit: CUSTOMERS_PAGE_SIZE,
                 offset: customersOffset,
-            }),
-            getCustomers({
-                customerType: typeFilter === 'all' ? undefined : typeFilter,
-                limit: 9999,
+                search: searchDebounced.trim() || undefined,
             }),
             getCustomers({}),
             getCustomers({ customerType: 'corporate' }),
             getCustomers({ customerType: 'regular' }),
         ])
-            .then(([d, fullD, allD, corpD, walkInD]) => {
+            .then(([d, allD, corpD, walkInD]) => {
                 const data = d.data || d;
-                const fullData = fullD.data || fullD;
                 const allData = allD.data || allD;
                 const corpData = corpD.data || corpD;
                 const walkInData = walkInD.data || walkInD;
                 setCustomers(mapCustomersResponse(data.customers || data));
                 setCustomersTotal(data.total || 0);
-                setAllCustomers(mapCustomersResponse(fullData.customers || fullData));
                 setGrandTotal(allData.total || 0);
                 setCorporateTotal(corpData.total || 0);
                 setWalkInTotal(walkInData.total || 0);
@@ -172,13 +169,12 @@ export default function CustomersPage() {
             .catch(() => {
                 setCustomers([]);
                 setCustomersTotal(0);
-                setAllCustomers([]);
                 setGrandTotal(0);
                 setCorporateTotal(0);
                 setWalkInTotal(0);
             })
             .finally(() => setLoading(false));
-    }, [typeFilter, customersOffset]);
+    }, [typeFilter, customersOffset, searchDebounced]);
 
     useEffect(() => {
         const t = setTimeout(() => {
@@ -269,14 +265,8 @@ export default function CustomersPage() {
     const totalCustomersCount = grandTotal;
     const corporateCount = corporateTotal;
     const walkInCount = walkInTotal;
-    const filteredCustomers = useMemo(() => {
-        const q = searchDebounced.trim().toLowerCase();
-        if (!q) return customers;
-        return allCustomers.filter((c) =>
-            [c.name, c.mobile, c.whatsapp, c.taxId, c.workshopName]
-                .filter(Boolean)
-                .some((v) => String(v).toLowerCase().includes(q)));
-    }, [customers, allCustomers, searchDebounced]);
+    // The API already applied `search`, so this page of rows is the result set.
+    const filteredCustomers = customers;
 
     useEffect(() => {
         if (route?.screen === 'create') {
@@ -1155,7 +1145,7 @@ export default function CustomersPage() {
                         ))}
                     </tbody>
                 </table>
-                {!searchDebounced && customersTotal > 0 && (
+                {customersTotal > 0 && (
                     <PaginationControls
                         total={customersTotal}
                         limit={CUSTOMERS_PAGE_SIZE}
