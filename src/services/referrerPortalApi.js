@@ -26,6 +26,14 @@ export const referrerGetWallet = () => apiFetch('/referrer/me/wallet');
 
 export const referrerGetPayoutDetails = () => apiFetch('/referrer/me/payout-details');
 
+export const referrerGetMySubmissions = () => apiFetch('/referrer/me/submissions');
+
+export const referrerCreateSubmission = (body) =>
+  apiFetch('/referrer/me/submissions', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 export const referrerGetPayoutRequests = () => apiFetch('/referrer/me/payout-requests');
 
 export const referrerCreatePayoutRequest = (amount, notes) =>

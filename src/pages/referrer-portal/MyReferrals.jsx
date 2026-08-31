@@ -1,25 +1,35 @@
 import React, { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import {
-  referrerGetMyReferrals,
+  referrerGetMySubmissions,
   formatDate,
 } from '../../services/referrerPortalApi';
 import useReferrerData from './useReferrerData';
 import { EmptyState, ReferrerState } from './ReferrerStates';
 
-const FILTERS = ['All', 'Pending', 'Approved', 'Rejected'];
+const FILTERS = ['All', 'Pending', 'Contacted', 'Converted', 'Rejected'];
+
+const STATUS_LABEL = {
+  pending: 'Pending',
+  contacted: 'Contacted',
+  converted: 'Converted',
+  rejected: 'Rejected',
+};
 
 export default function MyReferrals() {
   const [filter, setFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const req = useReferrerData(referrerGetMyReferrals, []);
-  const referrals = useMemo(() => req.data?.referrals ?? [], [req.data]);
+  const req = useReferrerData(referrerGetMySubmissions, []);
+  const referrals = useMemo(() => req.data?.submissions ?? [], [req.data]);
 
   const filteredReferrals = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return referrals.filter((ref) => {
-      const matchesSearch = !term || String(ref.name || '').toLowerCase().includes(term);
+      const matchesSearch =
+        !term ||
+        String(ref.customerName || '').toLowerCase().includes(term) ||
+        String(ref.mobile || '').toLowerCase().includes(term);
       const matchesFilter =
         filter === 'All' ||
         String(ref.status || '').toLowerCase() === filter.toLowerCase();
@@ -102,28 +112,30 @@ export default function MyReferrals() {
 
           <div className="rf-card">
             {referrals.length === 0 ? (
-              <EmptyState message="You haven’t referred any accounts yet." />
+              <EmptyState message="You haven’t submitted any referrals yet." />
             ) : (
               <div className="rf-table-container">
                 <table className="rf-table">
                   <thead>
                     <tr>
-                      <th>ID</th>
-                      <th>Account Name</th>
+                      <th>Customer</th>
+                      <th>Mobile</th>
+                      <th>Service</th>
+                      <th>City</th>
                       <th>Status</th>
-                      <th>Date</th>
+                      <th>Submitted</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredReferrals.map((ref) => (
                       <tr key={ref.id}>
-                        <td style={{ color: 'var(--color-text-faint)', fontSize: '0.8rem' }}>
-                          {ref.id}
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{ref.name || '—'}</td>
+                        <td style={{ fontWeight: 600 }}>{ref.customerName || '—'}</td>
+                        <td style={{ color: 'var(--color-text-muted)' }}>{ref.mobile || '—'}</td>
+                        <td>{ref.serviceType || '—'}</td>
+                        <td>{ref.city || '—'}</td>
                         <td>
                           <span className={`rf-badge rf-badge-${String(ref.status).toLowerCase()}`}>
-                            {ref.status}
+                            {STATUS_LABEL[ref.status] || ref.status}
                           </span>
                         </td>
                         <td>{formatDate(ref.createdAt)}</td>
@@ -132,7 +144,7 @@ export default function MyReferrals() {
                     {filteredReferrals.length === 0 && (
                       <tr>
                         <td
-                          colSpan="4"
+                          colSpan="6"
                           style={{ textAlign: 'center', padding: '3rem', opacity: 0.5, fontStyle: 'italic' }}
                         >
                           No referrals match this filter.

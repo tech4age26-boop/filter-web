@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Copy, Check, Globe, Landmark, User, Info,
+  Copy, Check, Globe, Landmark, User, Info, QrCode, AlertCircle, Clock,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import {
   referrerGetMe,
   referrerGetPayoutDetails,
@@ -19,6 +20,19 @@ export default function ReferrerSettings() {
 
   const referrer = meReq.data?.referrer;
   const bank = bankReq.data?.bank;
+  const validity = meReq.data?.codeValidity;
+
+  const [showQr, setShowQr] = useState(false);
+  const qrCanvas = useRef(null);
+
+  // The QR encodes the code itself, so it carries exactly the same limits — once
+  // the code is exhausted or expired, every QR already handed out stops working
+  // too, because validity is checked server-side on the code, not on the image.
+  useEffect(() => {
+    if (!showQr || !qrCanvas.current || !referrer?.referralCode) return;
+    QRCode.toCanvas(qrCanvas.current, referrer.referralCode, { width: 200, margin: 1 })
+      .catch(() => {});
+  }, [showQr, referrer?.referralCode]);
 
   const copyCode = async () => {
     if (!referrer?.referralCode) return;
@@ -91,7 +105,68 @@ export default function ReferrerSettings() {
                 {copied ? <Check size={16} /> : <Copy size={16} />}
                 {copied ? 'Copied' : 'Copy Code'}
               </button>
+              <button
+                className="rf-btn-outline"
+                style={{ padding: '0.5rem 1rem' }}
+                onClick={() => setShowQr((v) => !v)}
+                disabled={!validity?.valid}
+              >
+                <QrCode size={16} />
+                {showQr ? 'Hide QR' : 'Show QR Code'}
+              </button>
             </div>
+
+            {/* Validity — a code is not necessarily usable just because it exists. */}
+            <div style={{ marginTop: '1rem' }}>
+              {validity && validity.valid === false ? (
+                <div
+                  style={{
+                    display: 'flex', gap: '0.6rem', alignItems: 'flex-start',
+                    background: 'rgba(220,38,38,0.06)',
+                    border: '1px solid rgba(220,38,38,0.25)',
+                    borderRadius: '12px', padding: '0.85rem 1rem',
+                    color: '#dc2626', fontSize: '0.87rem',
+                  }}
+                >
+                  <AlertCircle size={17} style={{ flexShrink: 0, marginTop: '1px' }} />
+                  <span>
+                    {validity.reason} A new code must be issued by the marketing team
+                    before you can submit more referrals.
+                  </span>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'flex', flexWrap: 'wrap', gap: '1.5rem',
+                    fontSize: '0.85rem', color: 'var(--color-text-muted)',
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Info size={15} />
+                    {validity?.maxUses === null || validity?.maxUses === undefined
+                      ? 'Unlimited uses'
+                      : `${validity.usesRemaining} of ${validity.maxUses} uses left`}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Clock size={15} />
+                    {validity?.expiresAt
+                      ? `Expires ${String(validity.expiresAt).slice(0, 10)}`
+                      : 'No expiry'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {showQr && validity?.valid && (
+              <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+                <canvas ref={qrCanvas} />
+                <p style={{ marginTop: '0.6rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  Scanning this gives the customer your code{' '}
+                  <strong>{referrer?.referralCode}</strong>. It stops working when the
+                  code expires or runs out of uses.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Commission terms — the real terms on this profile, replacing the
