@@ -15,12 +15,17 @@ export const referrerGetMe = () => apiFetch('/referrer/me');
 
 export const referrerGetMyReferrals = () => apiFetch('/referrer/me/referrals');
 
-export const referrerGetMyCommissions = (status) =>
-  apiFetch(
-    status && status !== 'all'
-      ? `/referrer/me/commissions?status=${encodeURIComponent(status)}`
-      : '/referrer/me/commissions',
+/** Build a query string from defined, non-empty params. */
+function qs(params = {}) {
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== null && v !== '' && v !== 'all',
   );
+  const s = new URLSearchParams(entries).toString();
+  return s ? `?${s}` : '';
+}
+
+export const referrerGetMyCommissions = (status, range = {}) =>
+  apiFetch(`/referrer/me/commissions${qs({ status, from: range.from, to: range.to })}`);
 
 export const referrerGetWallet = () => apiFetch('/referrer/me/wallet');
 
@@ -42,7 +47,8 @@ export const referrerCreatePayoutRequest = (amount, notes) =>
     body: JSON.stringify({ amount, notes }),
   });
 
-export const referrerGetMyRedemptions = () => apiFetch('/referrer/me/redemptions');
+export const referrerGetMyRedemptions = (range = {}) =>
+  apiFetch(`/referrer/me/redemptions${qs({ from: range.from, to: range.to })}`);
 
 export const referrerGetSubmissionRedemptions = (id) =>
   apiFetch(`/referrer/me/submissions/${id}/redemptions`);
