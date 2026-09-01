@@ -177,7 +177,7 @@ function DetailDrawer({ id, onClose, locale, t }) {
     );
 }
 
-function LogTab({ tab, locale, t }) {
+export function LogTab({ tab, locale, t, refreshToken = 0 }) {
     const [data, setData] = useState({ journals: [], total: 0 });
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -204,7 +204,7 @@ function LogTab({ tab, locale, t }) {
     }, [tab, offset, dateFrom, dateTo, search, t]);
 
     useEffect(() => { setOffset(0); }, [tab, dateFrom, dateTo, search]);
-    useEffect(() => { load(); }, [load]);
+    useEffect(() => { load(); }, [load, refreshToken]);
 
     const cols = listColumnsForTab(tab, t);
     const showPrCols = tab === 'payments' || tab === 'receipts' || tab === 'all';
@@ -315,7 +315,7 @@ export default function SupplierJournalLogs({ initialTab = 'payments', locale: l
                     </div>
                 )}
             >
-                <LogTab tab={tab} locale={locale} t={t} />
+                <LogTab tab={tab} locale={locale} t={t} refreshToken={0} />
             </AcctCard>
         </div>
     );

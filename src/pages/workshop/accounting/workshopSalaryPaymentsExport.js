@@ -155,18 +155,18 @@ function mapExportRows(rows) {
     return (rows || []).map((s) => {
         const m = moneyFields(s);
         return {
-            date: fmtDate(s.paymentDate),
-            employee: s.employeeName || '-',
-            branch: s.branchName || '-',
-            period: s.period || '-',
+        date: fmtDate(s.paymentDate),
+        employee: s.employeeName || '-',
+        branch: s.branchName || '-',
+        period: s.period || '-',
             salary: fmtMoney(m.salary),
             rewardBonus: fmtMoney(m.rewardBonus),
             commission: fmtMoney(m.commission),
             grossSalary: fmtMoney(m.grossSalary),
             deductions: fmtMoney(m.deductions),
             netPaid: fmtMoney(m.netPaid),
-            signature: '',
-            technician: formatAckStatus(s.technicianAckStatus, s.technicianAckAt),
+        signature: '',
+        technician: formatAckStatus(s.technicianAckStatus, s.technicianAckAt),
             departmentName: s.departmentName || 'General',
             role: s.role || 'staff',
             roleRank: Number.isFinite(Number(s.roleRank)) ? Number(s.roleRank) : 50,
@@ -322,12 +322,12 @@ function totalsCellsHtml(totals, label, extraClass = '') {
 
 function sharedPdfStyles(isFirstPage) {
     return `
-        .salary-pdf {
-            font-family: 'Poppins', 'Noto Sans Arabic', sans-serif;
-            color: #0f172a;
-            background: #fff;
+            .salary-pdf {
+                font-family: 'Poppins', 'Noto Sans Arabic', sans-serif;
+                color: #0f172a;
+                background: #fff;
             padding: 0;
-            box-sizing: border-box;
+                box-sizing: border-box;
             width: ${PDF_CAPTURE_WIDTH}px;
         }
         .salary-pdf .ar { display: block; font-size: 0.92em; font-weight: 600; }
@@ -339,19 +339,19 @@ function sharedPdfStyles(isFirstPage) {
             margin-bottom: 4px;
             padding-bottom: 4px;
             border-bottom: 2px solid #0f172a;
-        }
-        .salary-pdf h1 {
+            }
+            .salary-pdf h1 {
             margin: 0;
             font-size: ${isFirstPage ? 14 : 12}pt;
-            font-weight: 700;
-        }
+                font-weight: 700;
+            }
         .salary-pdf-banner-sub {
             margin: 1px 0 0;
             font-size: 9pt;
             color: #64748b;
             font-weight: 600;
         }
-        .salary-pdf-meta {
+            .salary-pdf-meta {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 2px 12px;
@@ -361,18 +361,18 @@ function sharedPdfStyles(isFirstPage) {
             margin-bottom: 4px;
         }
         .salary-pdf-meta strong { color: #0f172a; }
-        .salary-pdf table {
-            width: 100%;
-            border-collapse: collapse;
+            .salary-pdf table {
+                width: 100%;
+                border-collapse: collapse;
             font-size: 11pt;
-            table-layout: fixed;
-        }
+                table-layout: fixed;
+            }
         .salary-pdf thead th {
             height: ${THEAD_HEIGHT_PT}pt;
             background: #0f172a;
             color: #fff;
-            font-weight: 700;
-            text-align: left;
+                font-weight: 700;
+                text-align: left;
             padding: 2px 4px;
             border: 1px solid #0f172a;
             font-size: 8pt;
@@ -389,8 +389,8 @@ function sharedPdfStyles(isFirstPage) {
             padding: 0 4px;
             border: 1px solid #cbd5e1;
             vertical-align: middle;
-            word-wrap: break-word;
-            overflow-wrap: anywhere;
+                word-wrap: break-word;
+                overflow-wrap: anywhere;
             line-height: 1.2;
             box-sizing: border-box;
             font-size: 11pt;
@@ -432,7 +432,7 @@ function sharedPdfStyles(isFirstPage) {
             font-size: 9pt;
         }
         .salary-pdf .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-        .salary-pdf .bold { font-weight: 700; }
+            .salary-pdf .bold { font-weight: 700; }
         .salary-pdf .sig { background: #fff; min-width: 56px; }
         .salary-pdf-pagefoot {
             display: flex;
@@ -865,11 +865,11 @@ export async function exportSalaryPaymentsPdf({
 
     try {
         const sampleArgs = {
-            branchName,
-            dateFrom,
-            dateTo,
-            employeeSearch,
-            totalNet,
+        branchName,
+        dateFrom,
+        dateTo,
+        employeeSearch,
+        totalNet,
             totalRecords,
         };
         const { budgetFirstPx, budgetContPx, usableWpt, heights } = await measureLayout(mount, sampleArgs);
@@ -984,20 +984,20 @@ export function exportSalaryPaymentsExcel({
         if (b.type === 'data') {
             const r = b.row;
             dataRows.push([
-                r.date,
-                r.employee,
-                r.branch,
-                r.period,
+        r.date,
+        r.employee,
+        r.branch,
+        r.period,
                 r.departmentName,
-                r.salary,
-                r.rewardBonus,
-                r.commission,
+        r.salary,
+        r.rewardBonus,
+        r.commission,
                 r.grossSalary,
-                r.deductions,
-                r.netPaid,
-                r.signature,
-                r.technician,
-            ]);
+        r.deductions,
+        r.netPaid,
+        r.signature,
+        r.technician,
+    ]);
             rowHeights.push({ hpt: ROW_HEIGHT_PT });
         }
     }

@@ -5082,6 +5082,11 @@
     color: #92400e;
 }
 
+.mgr-si-status--awaiting {
+    background: #e0f2fe;
+    color: #075985;
+}
+
 .mgr-si-status--draft {
     background: #e5e7eb;
     color: #374151;

@@ -7,6 +7,7 @@ import {
     PieChart,
     Boxes,
     MessageCircle,
+    RotateCcw,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
@@ -25,37 +26,37 @@ export const NAV_GROUPS = [
     { label: 'STORAGE FACILITY', items: [
         { id: 'storage_facility', label: 'Storage brands', icon: Boxes },
     ]},
-    { label: 'FINANCE', items: [
-        { id: 'sales_invoices', label: 'Sales Invoices (AR)', icon: FileText },
+    { label: 'SALES', items: [
+        { id: 'affiliated_workshops', label: 'Affiliated Filter workshops', icon: Factory },
+        { id: 'nonaffiliated_customers', label: 'Non-affiliated customers / workshops', icon: UserCircle2 },
+        { id: 'sales_quotes', label: 'Sales Quotes', icon: ClipboardList },
+        { id: 'sales_invoices', label: 'Sales Invoices', icon: FileText },
         { id: 'sales_returns', label: 'Sales Returns', icon: Receipt },
-        {
-            id: 'affiliated_workshops',
-            label: 'Affiliated Filter workshops',
-            icon: Factory,
-        },
-        {
-            id: 'nonaffiliated_customers',
-            label: 'Non-affiliated customers / workshops',
-            icon: UserCircle2,
-        },
+    ]},
+    { label: 'PURCHASES', items: [
+        { id: 'purchase_invoices', label: 'Purchase Invoices', icon: ShoppingCart },
+        { id: 'debit_notes', label: 'Debit Notes', icon: RotateCcw },
         { id: 'workshop_purchase_invoices', label: 'Workshop purchases', icon: ClipboardList },
-        { id: 'purchase_invoices', label: 'Purchase Invoices (AP)', icon: ShoppingCart },
-        { 
-            id: 'accounting', 
-            label: 'Accounting', 
-            icon: Landmark,
+    ]},
+    { label: 'CASH', items: [
+        { id: 'cash_accounts', label: 'Bank and Cash Accounts', icon: Landmark },
+        { id: 'receipts', label: 'Receipts', icon: Receipt },
+        { id: 'payments', label: 'Payments', icon: BadgeDollarSign },
+    ]},
+    { label: 'ACCOUNTING', items: [
+        {
+            id: 'accounting',
+            label: 'Accounting',
+            icon: BookOpen,
             subItems: [
                 { id: 'accounting_coa', label: 'Chart of Accounts', icon: FileSpreadsheet },
-                { id: 'accounting_hub', label: 'Transaction Hub', icon: ArrowLeftRight },
-                { id: 'accounting_logs_payments', label: 'Payments Log', icon: BadgeDollarSign },
-                { id: 'accounting_logs_receipts', label: 'Receipts Log', icon: Receipt },
-                { id: 'accounting_logs_journals', label: 'Journal Log', icon: FileText },
+                { id: 'accounting_journals', label: 'Journal Entries', icon: FileText },
                 { id: 'accounting_vat', label: 'VAT', icon: Receipt },
                 { id: 'accounting_reports_tb', label: 'Trial Balance', icon: BookOpen },
                 { id: 'accounting_reports_pl', label: 'Profit & Loss', icon: PieChart },
                 { id: 'accounting_reports_bs', label: 'Balance Sheet', icon: FileSpreadsheet },
                 { id: 'accounting_reports_cf', label: 'Cash Flow', icon: DollarSign },
-            ]
+            ],
         },
     ]},
 ];

@@ -288,9 +288,9 @@ export default function InventoryPage() {
     };
 
     if (createOpen || editOpen || newDeptOpen || editDeptOpen || newCategoryOpen || editCategoryOpen || newUomOpen || editUomOpen) {
-        return (
+    return (
             <>
-{createOpen && (
+                        {createOpen && (
                             <AdminModalAsScreen
                                 title="Add New Product / Service"
                                 onClose={() => setCreateOpen(false)}
@@ -691,7 +691,7 @@ export default function InventoryPage() {
                                 </div>
                             </AdminModalAsScreen>
                         )}
-{/* New Department Modal */}
+                        {/* New Department Modal */}
                         {newDeptOpen && (
                             <AdminModalAsScreen
                                 title="Add Department"
@@ -797,7 +797,7 @@ export default function InventoryPage() {
                                 </div>
                             </AdminModalAsScreen>
                         )}
-{(newUomOpen || editUomOpen) && (
+                        {(newUomOpen || editUomOpen) && (
                             <AdminModalAsScreen
                                 title={editUomOpen ? "Edit Unit of Measure" : "New Unit of Measure"}
                                 onClose={() => { setNewUomOpen(false); setEditUomOpen(false); setEditingUom(null); }}

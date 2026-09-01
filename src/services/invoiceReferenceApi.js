@@ -5,13 +5,25 @@ function unwrapReference(res) {
     return String(res.reference ?? res.ref ?? '').trim();
 }
 
-/** Supplier sales invoice — SI-### */
+/** Supplier sales invoice — SI-### (next unused number in the global sequence) */
 export const getNextSupplierSalesInvoiceReference = (options = {}) =>
-    apiFetch('/supplier/invoices/next-reference', options).then(unwrapReference);
+    apiFetch('/supplier/invoices/next-reference', options)
+        .catch((err) => {
+            const msg = String(err?.message || '');
+            if (!/cannot get|404|not found/i.test(msg)) throw err;
+            return apiFetch('/supplier/next-sales-invoice-reference', options);
+        })
+        .then(unwrapReference);
 
 /** Supplier super-supplier purchase — PI-### */
 export const getNextSupplierPurchaseInvoiceReference = (options = {}) =>
     apiFetch('/supplier/super-supplier-purchases/next-reference', options).then(
+        unwrapReference,
+    );
+
+/** Supplier super-supplier debit note — DN-### */
+export const getNextSupplierDebitNoteReference = (options = {}) =>
+    apiFetch('/supplier/super-supplier-debit-notes/next-reference', options).then(
         unwrapReference,
     );
 

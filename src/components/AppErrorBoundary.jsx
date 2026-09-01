@@ -1,5 +1,16 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { isChunkLoadError, reloadOnceForStaleChunk } from '../utils/lazyWithRetry';
+
+/** Clears a caught page crash when the user navigates to another route. */
+export function AppErrorBoundaryWithRouter({ children }) {
+    const location = useLocation();
+    return (
+        <AppErrorBoundary resetKey={location.pathname + location.search}>
+            {children}
+        </AppErrorBoundary>
+    );
+}
 
 export default class AppErrorBoundary extends React.Component {
     constructor(props) {
@@ -9,6 +20,12 @@ export default class AppErrorBoundary extends React.Component {
 
     static getDerivedStateFromError(error) {
         return { error };
+    }
+
+    componentDidUpdate(prevProps) {
+        if (this.state.error && this.props.resetKey !== prevProps.resetKey) {
+            this.setState({ error: null });
+        }
     }
 
     componentDidCatch(error, info) {
@@ -68,6 +85,7 @@ export default class AppErrorBoundary extends React.Component {
                         >
                             {String(this.state.error?.message || this.state.error)}
                         </pre>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                         <button
                             type="button"
                             onClick={() => {
@@ -75,7 +93,6 @@ export default class AppErrorBoundary extends React.Component {
                                 window.location.reload();
                             }}
                             style={{
-                                marginTop: 16,
                                 padding: '10px 16px',
                                 border: 'none',
                                 borderRadius: 8,
@@ -86,6 +103,24 @@ export default class AppErrorBoundary extends React.Component {
                         >
                             Reload page
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                sessionStorage.removeItem('filter_chunk_reload');
+                                window.location.assign('/');
+                            }}
+                            style={{
+                                padding: '10px 16px',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 8,
+                                background: '#fff',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                            }}
+                        >
+                            Go to home
+                        </button>
+                        </div>
                     </div>
                 </div>
             );

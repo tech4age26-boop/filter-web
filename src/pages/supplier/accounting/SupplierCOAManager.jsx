@@ -12,9 +12,21 @@ import {
     deleteSupplierAccount,
     getSupplierAccounts,
     getSupplierAccountsTree,
+    listSupplierPartyOpenings,
     unwrapSupplierAccountingList,
     updateSupplierAccount,
+    upsertSupplierPartyOpening,
 } from '../../../services/supplierAccountingApi';
+import {
+    listSupplierAffiliatedWorkshops,
+    listSupplierExternalParties,
+    listSupplierSuperSuppliers,
+} from '../../../services/supplierApi';
+import {
+    formatAffiliatedBranchCustomerLabel,
+    formatAffiliatedWorkshopCustomerLabel,
+} from '../../../utils/affiliatedCustomerLabels';
+import SupplierAccountingCombobox from './SupplierAccountingCombobox';
 import {
     ACCOUNT_SUBTYPES_BY_TYPE,
     ACCOUNT_TYPES,
@@ -34,6 +46,7 @@ import {
     todayISO,
     coaNetBalance,
     formatCoaBalance,
+    isSupplierAccountActive,
 } from './SupplierAccountingShared';
 import { saccT } from '../../../utils/supplierAccountingI18n';
 
@@ -59,6 +72,39 @@ function buildRollupMap(nodes) {
     }
     for (const n of nodes || []) walk(n);
     return map;
+}
+
+const PARTY_BALANCE_SEEDS = new Set([
+    'AR_AFFILIATED',
+    'AR_NON_AFFILIATED',
+    'AP_SUPER_SUPPLIER',
+]);
+
+function partySeedOf(account) {
+    const key = account?.seedKey;
+    return key && PARTY_BALANCE_SEEDS.has(key) ? key : null;
+}
+
+function partySeedFromForm(form, accounts) {
+    const self = (accounts || []).find((a) => String(a.id) === String(form.id));
+    const fromSelf = partySeedOf(self);
+    if (fromSelf) return fromSelf;
+    const parent = (accounts || []).find((a) => String(a.id) === String(form.parentId));
+    return partySeedOf(parent);
+}
+
+function partyPayloadFromCombo(seedKey, value) {
+    const raw = String(value || '').trim();
+    if (!raw) return {};
+    if (seedKey === 'AP_SUPER_SUPPLIER') {
+        return { partyType: 'super_supplier', partyId: raw };
+    }
+    const [kind, id] = raw.split('|');
+    if (!id) return {};
+    if (kind === 'branch') return { partyType: 'branch', partyId: id };
+    if (kind === 'workshop') return { partyType: 'workshop', partyId: id };
+    if (kind === 'external') return { partyType: 'external_party', externalPartyId: id };
+    return {};
 }
 
 const TYPE_LABEL_KEYS = {
@@ -112,11 +158,112 @@ function formFromInitial(initial) {
     };
 }
 
+function PartyOpeningFields({
+    t,
+    seedKey,
+    partyOptions,
+    partyValue,
+    onPartyChange,
+    partyLocked = false,
+    serialHint = '',
+    openingBalance,
+    openingBalanceDate,
+    openingOffsetAccountId,
+    onOpeningChange,
+    equityContraOptions,
+}) {
+    return (
+        <>
+            <Field label={t('coa.form.party')} hint={t('coa.form.partyHint')} required>
+                <SupplierAccountingCombobox
+                    options={partyOptions}
+                    value={partyValue}
+                    onChange={onPartyChange}
+                    placeholder={t('coa.form.partyPh')}
+                    entityLabel={t('coa.form.party')}
+                    emptyHint={t('coa.form.selectParty')}
+                    disabled={partyLocked}
+                    required
+                />
+            </Field>
+            {serialHint ? (
+                <Field label={t('coa.form.serial')} hint={t('coa.form.serialHint')}>
+                    <input style={inputStyle} value={serialHint} readOnly />
+                </Field>
+            ) : null}
+            <Field label={t('coa.form.openingBal')} hint={t('coa.form.partyOpeningHint')}>
+                <input
+                    type="number"
+                    step="0.01"
+                    style={inputStyle}
+                    value={openingBalance}
+                    onChange={(e) =>
+                        onOpeningChange({ openingBalance: e.target.value })
+                    }
+                />
+            </Field>
+            <Field label={t('coa.form.openingDate')} hint={t('coa.form.openingDateHint')}>
+                <input
+                    type="date"
+                    style={inputStyle}
+                    value={openingBalanceDate || ''}
+                    onChange={(e) =>
+                        onOpeningChange({ openingBalanceDate: e.target.value })
+                    }
+                />
+            </Field>
+            {seedKey !== 'AP_SUPER_SUPPLIER' ? (
+                <Field label={t('coa.form.openingContra')} hint={t('coa.form.openingContraHint')}>
+                    <select
+                        style={inputStyle}
+                        value={openingOffsetAccountId || ''}
+                        onChange={(e) =>
+                            onOpeningChange({ openingOffsetAccountId: e.target.value })
+                        }
+                    >
+                        <option value="">{t('coa.form.openingSuspense')}</option>
+                        {equityContraOptions.map((a) => (
+                            <option key={a.id} value={a.id}>
+                                [{a.code}] {a.name}
+                            </option>
+                        ))}
+                    </select>
+                </Field>
+            ) : (
+                <Field label={t('coa.form.openingContra')} hint={t('coa.form.openingContraHint')}>
+                    <select
+                        style={inputStyle}
+                        value={openingOffsetAccountId || ''}
+                        onChange={(e) =>
+                            onOpeningChange({ openingOffsetAccountId: e.target.value })
+                        }
+                    >
+                        <option value="">{t('coa.form.openingSuspense')}</option>
+                        {equityContraOptions.map((a) => (
+                            <option key={a.id} value={a.id}>
+                                [{a.code}] {a.name}
+                            </option>
+                        ))}
+                    </select>
+                </Field>
+            )}
+        </>
+    );
+}
+
 function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
     const [form, setForm] = useState(() => formFromInitial(initial));
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const isEdit = !!initial?.id;
+    const [partyValue, setPartyValue] = useState('');
+    const [partyOptions, setPartyOptions] = useState([]);
+    const [nextSerial, setNextSerial] = useState('');
+    const [apiNextSerial, setApiNextSerial] = useState('');
+    const [existingOpenings, setExistingOpenings] = useState([]);
+    const partySeedKey = partySeedFromForm(form, accounts);
+    const isPartyControl = Boolean(partySeedOf(initial) || partySeedKey);
+    const isPartyOpeningCreate = Boolean(partySeedKey && !isEdit);
 
     useEffect(() => {
         setForm(formFromInitial(initial));
@@ -127,6 +274,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
             (a) =>
                 a.type === 'EQUITY' &&
                 !a.hasChildren &&
+                isSupplierAccountActive(a) &&
                 String(a.id) !== String(form.id) &&
                 a.seedKey !== 'OPENING_SUSPENSE',
         );
@@ -144,12 +292,165 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
         (a) => a.type === form.type && a.id !== form.id,
     );
 
+    useEffect(() => {
+        if (!partySeedKey) {
+            setPartyOptions([]);
+            setExistingOpenings([]);
+            setNextSerial('');
+            setApiNextSerial('');
+            setPartyValue('');
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const [affRes, extRes, ssRes, openRes] = await Promise.all([
+                    partySeedKey === 'AR_AFFILIATED'
+                        ? listSupplierAffiliatedWorkshops()
+                        : Promise.resolve({ rows: [] }),
+                    partySeedKey === 'AR_NON_AFFILIATED'
+                        ? listSupplierExternalParties()
+                        : Promise.resolve({ parties: [] }),
+                    partySeedKey === 'AP_SUPER_SUPPLIER'
+                        ? listSupplierSuperSuppliers()
+                        : Promise.resolve({ superSuppliers: [] }),
+                    listSupplierPartyOpenings({ seedKey: partySeedKey }),
+                ]);
+                if (cancelled) return;
+                const opts = [];
+                if (partySeedKey === 'AR_AFFILIATED') {
+                    const rows = Array.isArray(affRes?.rows) ? affRes.rows : [];
+                    const workshopsWithBranchPins = new Set(
+                        rows
+                            .filter((r) => r.scope === 'branch' && r.branchId)
+                            .map((r) => String(r.workshopId)),
+                    );
+                    for (const r of rows) {
+                        if (r.scope === 'branch' && r.branchId) {
+                            opts.push({
+                                id: `branch|${r.branchId}`,
+                                label: formatAffiliatedBranchCustomerLabel(
+                                    r.workshopName,
+                                    r.branchName,
+                                ),
+                            });
+                        } else if (
+                            r.scope === 'workshop' &&
+                            r.workshopId &&
+                            !workshopsWithBranchPins.has(String(r.workshopId))
+                        ) {
+                            opts.push({
+                                id: `workshop|${r.workshopId}`,
+                                label: formatAffiliatedWorkshopCustomerLabel(r.workshopName),
+                            });
+                        }
+                    }
+                } else if (partySeedKey === 'AR_NON_AFFILIATED') {
+                    const parties = Array.isArray(extRes?.parties) ? extRes.parties : [];
+                    for (const p of parties) {
+                        if (!p.id) continue;
+                        opts.push({
+                            id: `external|${p.id}`,
+                            label: p.displayName || p.name || String(p.id),
+                        });
+                    }
+                } else {
+                    const list = Array.isArray(ssRes?.superSuppliers)
+                        ? ssRes.superSuppliers
+                        : [];
+                    for (const s of list) {
+                        opts.push({
+                            id: String(s.id),
+                            label: s.name || s.companyName || String(s.id),
+                        });
+                    }
+                }
+                setPartyOptions(opts);
+                const listed = Array.isArray(openRes?.openings)
+                    ? openRes.openings
+                    : Array.isArray(openRes?.data?.openings)
+                      ? openRes.data.openings
+                      : [];
+                setExistingOpenings(listed);
+                const next =
+                    openRes?.nextSerial?.[partySeedKey] ||
+                    openRes?.data?.nextSerial?.[partySeedKey] ||
+                    '';
+                setApiNextSerial(next);
+                setNextSerial(next);
+            } catch {
+                if (!cancelled) setPartyOptions([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [partySeedKey]);
+
+    function applyPartySelection(value) {
+        setPartyValue(value);
+        if (!partySeedKey || !value) {
+            return;
+        }
+        const party = partyPayloadFromCombo(partySeedKey, value);
+        const hit = existingOpenings.find((o) => {
+            if (o.seedKey && o.seedKey !== partySeedKey) return false;
+            if (party.externalPartyId) {
+                return String(o.externalPartyId || '') === String(party.externalPartyId);
+            }
+            return (
+                String(o.partyType || '') === String(party.partyType || '') &&
+                String(o.partyId || '') === String(party.partyId || '')
+            );
+        });
+        if (hit) {
+            setNextSerial(hit.serialCode || apiNextSerial);
+            setForm((f) => ({
+                ...f,
+                openingBalance: hit.openingBalance ?? 0,
+                openingBalanceDate: hit.openingBalanceDate
+                    ? String(hit.openingBalanceDate).slice(0, 10)
+                    : todayISO(),
+                openingOffsetAccountId: hit.openingOffsetAccountId || '',
+            }));
+            return;
+        }
+        setNextSerial(apiNextSerial);
+        setForm((f) => ({
+            ...f,
+            openingBalance: 0,
+            openingBalanceDate: todayISO(),
+            openingOffsetAccountId: '',
+        }));
+    }
+
     async function submit(e) {
         e.preventDefault();
         setErr('');
         setSaving(true);
         try {
             const ob = Number(form.openingBalance || 0);
+            if (partySeedKey && Math.abs(ob) >= 0.005 && !partyValue) {
+                throw new Error(t('coa.err.partyRequired'));
+            }
+            if (partySeedKey && partyValue) {
+                const party = partyPayloadFromCombo(partySeedKey, partyValue);
+                await upsertSupplierPartyOpening({
+                    seedKey: partySeedKey,
+                    ...party,
+                    openingBalance: ob,
+                    openingBalanceDate:
+                        Math.abs(ob) >= 0.005
+                            ? (form.openingBalanceDate || todayISO()).slice(0, 10)
+                            : form.openingBalanceDate || undefined,
+                    openingOffsetAccountId: form.openingOffsetAccountId || undefined,
+                });
+            }
+            if (isPartyControl && !isEdit) {
+                if (!partyValue) throw new Error(t('coa.err.partyRequired'));
+                onSaved();
+                return;
+            }
             const body = {
                 name: String(form.name ?? '').trim(),
                 type: form.type,
@@ -159,19 +460,21 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
                 status: form.status,
                 cashFlowCategory: form.cashFlowCategory || undefined,
                 isCashEquivalent: !!form.isCashEquivalent,
-                openingBalance: ob,
+                openingBalance: isPartyControl ? 0 : ob,
             };
-            if (Math.abs(ob) >= 0.005) {
-                body.openingBalanceDate = (form.openingBalanceDate || todayISO()).slice(0, 10);
-            } else {
-                body.openingBalanceDate = '';
-            }
-            if (isEdit) {
-                body.openingOffsetAccountId = form.openingOffsetAccountId
-                    ? String(form.openingOffsetAccountId)
-                    : '';
-            } else if (form.openingOffsetAccountId) {
-                body.openingOffsetAccountId = String(form.openingOffsetAccountId);
+            if (!isPartyControl) {
+                if (Math.abs(ob) >= 0.005) {
+                    body.openingBalanceDate = (form.openingBalanceDate || todayISO()).slice(0, 10);
+                } else {
+                    body.openingBalanceDate = '';
+                }
+                if (isEdit) {
+                    body.openingOffsetAccountId = form.openingOffsetAccountId
+                        ? String(form.openingOffsetAccountId)
+                        : '';
+                } else if (form.openingOffsetAccountId) {
+                    body.openingOffsetAccountId = String(form.openingOffsetAccountId);
+                }
             }
             const codeTrim = String(form.code ?? '').trim();
             if (codeTrim) body.code = codeTrim;
@@ -209,13 +512,13 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
                     placeholder={t('coa.form.codePh') || t('coa.form.codeHint')}
                 />
             </Field>
-            <Field label={t('coa.form.name')} required>
+            <Field label={t('coa.form.name')} required={!isPartyOpeningCreate}>
                 <input
                     style={inputStyle}
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     placeholder={t('coa.form.namePh')}
-                    required
+                    required={!isPartyOpeningCreate}
                 />
             </Field>
             <Field label={t('coa.form.type')} required>
@@ -252,10 +555,36 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
                     {parentOptions.map((p) => (
                         <option key={p.id} value={p.id}>
                             [{p.code}] {p.name}
+                            {isSupplierAccountActive(p) ? '' : ` (${t('coa.badge.inactive')})`}
                         </option>
                     ))}
                 </select>
             </Field>
+            {partySeedKey ? (
+                <PartyOpeningFields
+                    t={t}
+                    seedKey={partySeedKey}
+                    partyOptions={partyOptions}
+                    partyValue={partyValue}
+                    onPartyChange={applyPartySelection}
+                    serialHint={nextSerial}
+                    openingBalance={form.openingBalance}
+                    openingBalanceDate={form.openingBalanceDate}
+                    openingOffsetAccountId={form.openingOffsetAccountId}
+                    onOpeningChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                    equityContraOptions={
+                        partySeedKey === 'AP_SUPER_SUPPLIER'
+                            ? (accounts || []).filter(
+                                  (a) =>
+                                      (a.type === 'ASSET' || a.type === 'EXPENSE') &&
+                                      !a.hasChildren &&
+                                      !a.isCashEquivalent &&
+                                      isSupplierAccountActive(a),
+                              )
+                            : equityContraOptions
+                    }
+                />
+            ) : null}
             <Field label={t('coa.form.cashFlow')} hint={t('coa.form.cashFlowHint')}>
                 <select
                     style={inputStyle}
@@ -267,6 +596,12 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
                     ))}
                 </select>
             </Field>
+            {partySeedKey ? (
+                <div style={{ gridColumn: '1 / -1', fontSize: 12, color: '#64748B' }}>
+                    {t('coa.form.controlOpeningBlocked')}
+                </div>
+            ) : (
+                <>
             <Field label={t('coa.form.openingBal')}>
                 <input
                     type="number"
@@ -302,6 +637,8 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
                     ))}
                 </select>
             </Field>
+                </>
+            )}
             <Field label={t('coa.form.status')}>
                 <select
                     style={inputStyle}
@@ -336,7 +673,7 @@ function AccountForm({ initial, accounts, onCancel, onSaved, locale, t }) {
                 <button type="submit" style={primaryBtnStyle} disabled={saving}>
                     {saving
                         ? t('coa.btn.saving')
-                        : isEdit
+                        : isEdit || isPartyOpeningCreate
                           ? t('coa.btn.saveChanges')
                           : t('coa.btn.createAccount')}
                 </button>
@@ -361,6 +698,7 @@ export default function SupplierCOAManager({ locale: localeProp }) {
     const [filterType, setFilterType] = useState('');
     const [creating, setCreating] = useState(false);
     const [editing, setEditing] = useState(null);
+    const [partyOpening, setPartyOpening] = useState(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const coaLedgerQueryConsumed = useRef(false);
 
@@ -475,6 +813,23 @@ export default function SupplierCOAManager({ locale: localeProp }) {
         }
     }
 
+    async function handleToggleStatus(account) {
+        const next = isSupplierAccountActive(account) ? 'inactive' : 'active';
+        const ok = confirm(
+            t(next === 'inactive' ? 'coa.confirm.deactivate' : 'coa.confirm.activate', {
+                code: account.code,
+                name: account.name,
+            }),
+        );
+        if (!ok) return;
+        try {
+            await updateSupplierAccount(account.id, { status: next });
+            await reload();
+        } catch (e) {
+            alert(e?.message || t('coa.err.status'));
+        }
+    }
+
     function openAccountLedger(account, partyFilter = {}) {
         navigateToAccountLedger(account, partyFilter);
     }
@@ -515,6 +870,11 @@ export default function SupplierCOAManager({ locale: localeProp }) {
                 >
                     <td style={{ paddingLeft: 28 + depth * 22, color: '#475569' }}>
                         <span style={{ marginRight: 6, color: '#94A3B8' }}>↳</span>
+                        {pb.serialCode ? (
+                            <span style={{ fontWeight: 700, color: '#0F172A', marginRight: 6 }}>
+                                [{pb.serialCode}]
+                            </span>
+                        ) : null}
                         {pb.label}
                         {pb.lineCount != null ? (
                             <span style={{ marginLeft: 8, fontSize: 11, color: '#94A3B8' }}>
@@ -523,31 +883,55 @@ export default function SupplierCOAManager({ locale: localeProp }) {
                         ) : null}
                     </td>
                     <td style={{ color: '#64748B' }}>{pb.partyType || t('emdash')}</td>
-                    <td style={{ color: '#94A3B8' }}>{t('emdash')}</td>
+                    <td style={{ color: '#0F172A', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                        {pb.serialCode || t('emdash')}
+                    </td>
                     <td style={{ textAlign: 'right' }}>{Number(pbd) > 0 ? money(pbd, 'SAR', { locale }) : t('emdash')}</td>
                     <td style={{ textAlign: 'right' }}>{Number(pbc) > 0 ? money(pbc, 'SAR', { locale }) : t('emdash')}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatCoaBalance(a.type, pbd, pbc, 'SAR', locale)}</td>
                     <td style={{ textAlign: 'right' }}>
-                        {canOpenLedger ? (
+                        <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end' }}>
                             <button
                                 type="button"
                                 style={{ ...outlineBtnStyle, fontSize: 11, padding: '4px 8px' }}
                                 onClick={() =>
-                                    openAccountLedger(a, {
+                                    setPartyOpening({
+                                        seedKey: a.seedKey,
+                                        account: a,
+                                        label: pb.label,
                                         partyType: pb.partyType || '',
                                         partyId: pb.partyId || '',
                                         externalPartyId: pb.externalPartyId || '',
-                                    })}
+                                        serialCode: pb.serialCode || '',
+                                        openingBalance: pb.openingBalance ?? 0,
+                                        openingBalanceDate: pb.openingBalanceDate || todayISO(),
+                                        openingOffsetAccountId: pb.openingOffsetAccountId || '',
+                                    })
+                                }
                             >
-                                {t('coa.btn.ledger')}
+                                {t('coa.btn.opening')}
                             </button>
-                        ) : null}
+                            {canOpenLedger ? (
+                                <button
+                                    type="button"
+                                    style={{ ...outlineBtnStyle, fontSize: 11, padding: '4px 8px' }}
+                                    onClick={() =>
+                                        openAccountLedger(a, {
+                                            partyType: pb.partyType || '',
+                                            partyId: pb.partyId || '',
+                                            externalPartyId: pb.externalPartyId || '',
+                                        })}
+                                >
+                                    {t('coa.btn.ledger')}
+                                </button>
+                            ) : null}
+                        </div>
                     </td>
                 </tr>
             );
         });
         return [
-            <tr key={a.id}>
+            <tr key={a.id} style={isSupplierAccountActive(a) ? undefined : { opacity: 0.62 }}>
                 <td style={{ paddingLeft: 12 + depth * 22 }}>
                     {canOpenLedger ? (
                         <button
@@ -569,6 +953,11 @@ export default function SupplierCOAManager({ locale: localeProp }) {
                     {a.isAutoSeed ? (
                         <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
                             {t('coa.badge.system')}
+                        </span>
+                    ) : null}
+                    {!isSupplierAccountActive(a) ? (
+                        <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#FEE2E2', color: '#991B1B', fontWeight: 700 }}>
+                            {t('coa.badge.inactive')}
                         </span>
                     ) : null}
                     {isVatPayable ? (
@@ -598,6 +987,12 @@ export default function SupplierCOAManager({ locale: localeProp }) {
                             {
                                 label: t('coa.btn.edit'),
                                 onClick: () => setEditing(a),
+                            },
+                            {
+                                label: isSupplierAccountActive(a)
+                                    ? t('coa.btn.deactivate')
+                                    : t('coa.btn.activate'),
+                                onClick: () => handleToggleStatus(a),
                             },
                             {
                                 label: t('coa.btn.delete'),
@@ -701,6 +1096,140 @@ export default function SupplierCOAManager({ locale: localeProp }) {
                     </div>
                 )}
             </AcctCard>
+
+            {partyOpening ? (
+                <PartyOpeningModal
+                    draft={partyOpening}
+                    accounts={accounts}
+                    locale={locale}
+                    t={t}
+                    onClose={() => setPartyOpening(null)}
+                    onSaved={() => {
+                        setPartyOpening(null);
+                        reload();
+                    }}
+                />
+            ) : null}
         </div>
+    );
+}
+
+function PartyOpeningModal({ draft, accounts, locale, t, onClose, onSaved }) {
+    const [form, setForm] = useState({
+        openingBalance: draft.openingBalance ?? 0,
+        openingBalanceDate: draft.openingBalanceDate
+            ? String(draft.openingBalanceDate).slice(0, 10)
+            : todayISO(),
+        openingOffsetAccountId: draft.openingOffsetAccountId || '',
+    });
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState('');
+    const equityContraOptions = useMemo(() => {
+        if (draft.seedKey === 'AP_SUPER_SUPPLIER') {
+            return (accounts || []).filter(
+                (a) =>
+                    (a.type === 'ASSET' || a.type === 'EXPENSE') &&
+                    !a.hasChildren &&
+                    !a.isCashEquivalent &&
+                    isSupplierAccountActive(a),
+            );
+        }
+        return (accounts || []).filter(
+            (a) =>
+                a.type === 'EQUITY' &&
+                !a.hasChildren &&
+                a.seedKey !== 'OPENING_SUSPENSE' &&
+                isSupplierAccountActive(a),
+        );
+    }, [accounts, draft.seedKey]);
+
+    async function submit(e) {
+        e.preventDefault();
+        setErr('');
+        setSaving(true);
+        try {
+            const ob = Number(form.openingBalance || 0);
+            await upsertSupplierPartyOpening({
+                seedKey: draft.seedKey,
+                partyType: draft.partyType || undefined,
+                partyId: draft.partyId || undefined,
+                externalPartyId: draft.externalPartyId || undefined,
+                openingBalance: ob,
+                openingBalanceDate:
+                    Math.abs(ob) >= 0.005
+                        ? (form.openingBalanceDate || todayISO()).slice(0, 10)
+                        : form.openingBalanceDate || undefined,
+                openingOffsetAccountId: form.openingOffsetAccountId || undefined,
+            });
+            onSaved();
+        } catch (e2) {
+            setErr(e2?.message || t('coa.err.save'));
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    return (
+        <Modal
+            title={t('coa.party.openingTitle', { name: draft.label || t('coa.form.party') })}
+            onClose={onClose}
+            width={560}
+            footer={
+                <>
+                    <button type="button" className="btn-portal-outline" onClick={onClose} disabled={saving}>
+                        {t('btn.cancel')}
+                    </button>
+                    <button type="submit" className="btn-portal" form="party-opening-form" disabled={saving}>
+                        {saving ? t('coa.btn.saving') : t('coa.btn.saveChanges')}
+                    </button>
+                </>
+            }
+        >
+            <form id="party-opening-form" onSubmit={submit} style={{ display: 'grid', gap: 12 }}>
+                {draft.serialCode ? (
+                    <Field label={t('coa.form.serial')} hint={t('coa.form.serialHint')}>
+                        <input style={inputStyle} value={draft.serialCode} readOnly />
+                    </Field>
+                ) : null}
+                <Field label={t('coa.form.openingBal')} hint={t('coa.form.partyOpeningHint')}>
+                    <input
+                        type="number"
+                        step="0.01"
+                        style={inputStyle}
+                        value={form.openingBalance}
+                        onChange={(e) =>
+                            setForm((f) => ({ ...f, openingBalance: e.target.value }))
+                        }
+                    />
+                </Field>
+                <Field label={t('coa.form.openingDate')} hint={t('coa.form.openingDateHint')}>
+                    <input
+                        type="date"
+                        style={inputStyle}
+                        value={form.openingBalanceDate || ''}
+                        onChange={(e) =>
+                            setForm((f) => ({ ...f, openingBalanceDate: e.target.value }))
+                        }
+                    />
+                </Field>
+                <Field label={t('coa.form.openingContra')} hint={t('coa.form.openingContraHint')}>
+                    <select
+                        style={inputStyle}
+                        value={form.openingOffsetAccountId || ''}
+                        onChange={(e) =>
+                            setForm((f) => ({ ...f, openingOffsetAccountId: e.target.value }))
+                        }
+                    >
+                        <option value="">{t('coa.form.openingSuspense')}</option>
+                        {equityContraOptions.map((a) => (
+                            <option key={a.id} value={a.id}>
+                                [{a.code}] {a.name}
+                            </option>
+                        ))}
+                    </select>
+                </Field>
+                {err ? <AcctError message={err} /> : null}
+            </form>
+        </Modal>
     );
 }

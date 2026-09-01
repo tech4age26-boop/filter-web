@@ -1082,7 +1082,7 @@ function HqJournalEntryModal({ scope, onClose, onPosted, t }) {
                 <div className="sa-acc-modal-row">
                     <label>{t('th.date')}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
                     <label className="grow">{t('je.description')}<input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('je.memo')} /></label>
-                                </div>
+            </div>
                 <table className="sa-acc-table">
                     <thead><tr><th>{t('th.account')}</th><th className="num">{t('th.debit')}</th><th className="num">{t('th.credit')}</th><th /></tr></thead>
                     <tbody>

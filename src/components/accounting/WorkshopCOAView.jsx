@@ -43,6 +43,8 @@ import {
 import {
     defaultRiyadhReportRangeDatetimeLocal,
     fmtRiyadhRangeLabel,
+    riyadhPlRangeToLedgerCalendarDates,
+    workshopAdminRangeQueryParams,
     riyadhPlRangeToLedgerQueryParams,
     riyadhRangeToApiIso,
     BUSINESS_TIMEZONE,
@@ -236,7 +238,16 @@ const fmtDateLabel = (d) => {
  * on the New Account modal lets a branch-specific account live alongside shared
  * ones (cash registers, branch bank accounts, etc.).
  */
-export default function WorkshopCOAView({ readOnly = false, locale: localeProp }) {
+function plBranchFromLayout(selectedBranchId) {
+    if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') return '';
+    return String(selectedBranchId);
+}
+
+export default function WorkshopCOAView({
+    readOnly = false,
+    locale: localeProp,
+    selectedBranchId = 'all',
+}) {
     const locale =
         localeProp ||
         (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
@@ -287,11 +298,12 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
 
     const [plFilters, setPlFilters] = useState(() => {
         const shared = loadWorkshopAdminDatetimeRange();
+        const branchId = plBranchFromLayout(selectedBranchId);
         if (shared?.dateFrom && shared?.dateTo) {
-            return { dateFrom: shared.dateFrom, dateTo: shared.dateTo, branchId: '' };
+            return { dateFrom: shared.dateFrom, dateTo: shared.dateTo, branchId };
         }
         const r = defaultRiyadhReportRangeDatetimeLocal();
-        return { dateFrom: r.start, dateTo: r.end, branchId: '' };
+        return { dateFrom: r.start, dateTo: r.end, branchId };
     });
     const [plData, setPlData] = useState(null);
     const [plLoading, setPlLoading] = useState(false);
@@ -367,6 +379,16 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
         },
         [navigate, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId],
     );
+
+    const openSalesReturnsProof = useCallback(() => {
+        if (plFilters.dateFrom && plFilters.dateTo) {
+            saveWorkshopAdminDatetimeRange({
+                dateFrom: plFilters.dateFrom,
+                dateTo: plFilters.dateTo,
+            });
+        }
+        navigate('/workshop/sales-returns');
+    }, [navigate, plFilters.dateFrom, plFilters.dateTo]);
 
     useEffect(() => {
         let cancelled = false;
@@ -633,13 +655,7 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
         setPlLoading(true);
         setPlRangeError('');
         try {
-            let dateFrom = filters.dateFrom;
-            let dateTo = filters.dateTo;
-            if (dateFrom && dateTo && (String(dateFrom).includes('T') || String(dateTo).includes('T'))) {
-                const iso = riyadhRangeToApiIso(dateFrom, dateTo);
-                dateFrom = iso.dateFrom;
-                dateTo = iso.dateTo;
-            }
+            const rangeParams = workshopAdminRangeQueryParams(filters.dateFrom, filters.dateTo);
             if (filters.dateFrom && filters.dateTo) {
                 saveWorkshopAdminDatetimeRange({
                     dateFrom: filters.dateFrom,
@@ -647,10 +663,8 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                 });
             }
             const res = await getPLReport({
-                dateFrom,
-                dateTo,
+                ...rangeParams,
                 branchId: filters.branchId || undefined,
-                clientTimeZone: BUSINESS_TIMEZONE,
             });
             setPlData(res || null);
         } catch (err) {
@@ -682,25 +696,30 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
         }
         if (activeTab !== 'P&L') return;
 
+        const layoutBranch = plBranchFromLayout(selectedBranchId);
         const shared = loadWorkshopAdminDatetimeRange();
         if (shared?.dateFrom && shared?.dateTo) {
             const next = {
                 ...plFilters,
                 dateFrom: shared.dateFrom,
                 dateTo: shared.dateTo,
+                branchId: layoutBranch,
             };
             if (
                 next.dateFrom !== plFilters.dateFrom
                 || next.dateTo !== plFilters.dateTo
+                || next.branchId !== plFilters.branchId
             ) {
                 setPlFilters(next);
             }
             loadPL(next);
             return;
         }
-        loadPL();
+        const withBranch = { ...plFilters, branchId: layoutBranch };
+        if (withBranch.branchId !== plFilters.branchId) setPlFilters(withBranch);
+        loadPL(withBranch);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab]);
+    }, [activeTab, selectedBranchId]);
 
     // Re-fetch P&L whenever branch or datetime filters change (not only on Apply).
     useEffect(() => {
@@ -861,6 +880,8 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
             const d = plData || {
                 revenue: [],
                 totalRevenue: 0,
+                salesReturns: { amount: 0 },
+                netRevenue: 0,
                 costOfGoodsSold: [],
                 totalCOGS: 0,
                 grossProfit: 0,
@@ -872,6 +893,10 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                 totalOtherExpenses: 0,
                 netIncome: 0,
             };
+            const salesReturnsAmount = Number(d.salesReturns?.amount ?? 0);
+            const netSales = Number(
+                d.netRevenue != null ? d.netRevenue : Number(d.totalRevenue || 0) - salesReturnsAmount,
+            );
             const sectionHeader = { marginTop: 18, fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700 };
             const rowStyle = {
                 display: 'flex',
@@ -972,6 +997,32 @@ export default function WorkshopCOAView({ readOnly = false, locale: localeProp }
                             <div style={{ ...rowStyle, fontWeight: 700, color: '#16a34a' }}>
                                 <span>{t('pl.totalRevenue')}</span>
                                 <span>{fmtMoney(d.totalRevenue, t)}</span>
+                            </div>
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                title={t('pl.clickSalesReturns')}
+                                style={clickableRowStyle}
+                                onClick={openSalesReturnsProof}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        openSalesReturnsProof();
+                                    }
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#f1f5f9';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                }}
+                            >
+                                <span style={{ color: '#dc2626', fontWeight: 600 }}>{t('pl.salesReturns')}</span>
+                                <span style={{ color: '#dc2626', fontWeight: 600 }}>{fmtMoney(salesReturnsAmount, t)}</span>
+                            </div>
+                            <div style={{ ...rowStyle, fontWeight: 800, color: '#16a34a' }}>
+                                <span>{t('pl.netSales')}</span>
+                                <span>{fmtMoney(netSales, t)}</span>
                             </div>
                             <div style={sectionHeader}>{t('pl.cogs')}</div>
                             {d.costOfGoodsSold.length === 0 ? (

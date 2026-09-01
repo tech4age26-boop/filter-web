@@ -1058,13 +1058,13 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                     const basis = invoiceLineReturnBasis(item);
                     const typedQty = Number(lineQty[String(item.id)] || 0);
                     return {
-                        sourcePurchaseInvoiceItemId: String(item.id),
+                sourcePurchaseInvoiceItemId: String(item.id),
                         qty: typedQty,
-                        reason: lineReason[String(item.id)] || '',
+                reason: lineReason[String(item.id)] || '',
                         uom: basis.uom,
                     };
                 })
-                .filter((item) => item.qty > 0);
+            .filter((item) => item.qty > 0);
         } else {
             lines = manualLines
                 .map((line) => ({
@@ -1207,7 +1207,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 {t('btn.search')}
                             </button>
                         </div>
-                    </div>
+            </div>
 
                     {error ? <div className="mgr-si-error">{error}</div> : null}
                     {success ? (
@@ -1231,7 +1231,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                             {loading && filteredRows.length === 0 ? (
                                 <div style={{ padding: 16 }}>
                                     <ShimmerTable rows={8} columns={6} />
-                                </div>
+                    </div>
                             ) : (
                                 <table className="mgr-si-table">
                                     <thead>
@@ -1259,7 +1259,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                     />
                                                     <div style={{ fontWeight: 700, marginBottom: 8 }}>
                                                         {t('empty.title')}
-                                                    </div>
+                                            </div>
                                                     <p
                                                         style={{
                                                             margin: 0,
@@ -1339,8 +1339,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                     ) : null}
                                 </table>
                             )}
-                        </div>
-                    </div>
+                                        </div>
+                                    </div>
                 </>
             ) : null}
 
@@ -1371,7 +1371,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                     disabled={saving}
                                 >
                                     {t('btn.cancel')}
-                                </button>
+                                        </button>
                             </div>
                             <div className="pi-footer-right">
                                 {formError ? (
@@ -1409,9 +1409,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                     ) : (
                                         t('btn.create')
                                     )}
-                                </button>
-                            </div>
-                        </div>
+                                        </button>
+                                    </div>
+                                </div>
                     }
                 >
                     <form className="pi-form-container" onSubmit={handleSubmit}>
@@ -1420,7 +1420,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 <ShimmerTextBlock lines={5} />
                                 <div style={{ marginTop: 18 }}>
                                     <ShimmerTable rows={5} columns={6} />
-                                </div>
+                        </div>
                             </div>
                         ) : (
                             <div className="dn-create">
@@ -1456,7 +1456,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                             )}
                                         </p>
                                     </div>
-                                </div>
+                </div>
 
                                 <div className="dn-panels">
                                     <section className="dn-panel">
@@ -1504,7 +1504,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         <Hash size={14} aria-hidden />
                                                         {t('label.referenceAuto')}
                                                     </span>
-                                                </label>
+                        </label>
                                             </div>
                                             <div className="dn-field dn-field--full">
                                                 <label htmlFor="dn-description">
@@ -1680,8 +1680,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 ) : (
                                                     <div className="dn-lines-scroll">
                                                         <table className="dn-lines-table">
-                                                            <thead>
-                                                                <tr>
+                                <thead>
+                                    <tr>
                                                                     <th className="dn-th-item">{t('th.item')}</th>
                                                                     <th className="dn-th-inv-qty">{t('th.invQty')}</th>
                                                                     <th className="dn-th-uom">{t('th.uom')}</th>
@@ -1689,9 +1689,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                     <th className="dn-th-price">{t('th.unitPrice')}</th>
                                                                     <th className="dn-th-total">{t('th.total')}</th>
                                                                     <th className="dn-th-reason">{t('th.reason')}</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody>
+                                    </tr>
+                                </thead>
+                                <tbody>
                                                                 {(invoiceDetail?.items || []).map(
                                                                     (item, idx) => {
                                                                         const basis = invoiceLineReturnBasis(item);
@@ -1745,15 +1745,15 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                 </td>
                                                                                 <td className="dn-td-num dn-return-qty-cell">
                                                                                     <div className="dn-qty-with-uom">
-                                                                                        <input
-                                                                                            type="number"
-                                                                                            min="0"
+                                                <input
+                                                    type="number"
+                                                    min="0"
                                                                                             max={
                                                                                                 maxReturnQty != null
                                                                                                     ? maxReturnQty
                                                                                                     : undefined
                                                                                             }
-                                                                                            step="0.001"
+                                                    step="0.001"
                                                                                             className="dn-input dn-input--qty"
                                                                                             value={
                                                                                                 lineQty[
@@ -1762,10 +1762,10 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                                     )
                                                                                                 ] ?? ''
                                                                                             }
-                                                                                            onChange={(e) =>
+                                                    onChange={(e) =>
                                                                                                 setLineQty(
                                                                                                     (prev) => ({
-                                                                                                        ...prev,
+                                                            ...prev,
                                                                                                         [String(
                                                                                                             item.id,
                                                                                                         )]:
@@ -1790,7 +1790,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                             {basis.uom}
                                                                                         </span>
                                                                                     </div>
-                                                                                </td>
+                                            </td>
                                                                                 <td className="dn-td-num dn-td-muted">
                                                                                     {sarFmt(item.unitPrice)}
                                                                                 </td>
@@ -1800,7 +1800,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                         : t('emdash')}
                                                                                 </td>
                                                                                 <td className="dn-td-reason">
-                                                                                    <input
+                                                <input
                                                                                         type="text"
                                                                                         className="dn-input"
                                                                                         value={
@@ -1810,10 +1810,10 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                                 )
                                                                                             ] ?? ''
                                                                                         }
-                                                                                        onChange={(e) =>
+                                                    onChange={(e) =>
                                                                                             setLineReason(
                                                                                                 (prev) => ({
-                                                                                                    ...prev,
+                                                            ...prev,
                                                                                                     [String(
                                                                                                         item.id,
                                                                                                     )]:
@@ -1825,9 +1825,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                         }
                                                                                         placeholder={t('reason.placeholder')}
                                                                                         disabled={saving}
-                                                                                    />
-                                                                                </td>
-                                                                            </tr>
+                                                />
+                                            </td>
+                                        </tr>
                                                                         );
                                                                     },
                                                                 )}
@@ -1856,7 +1856,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                     <th className="dn-th-total">{t('th.total')}</th>
                                                                     <th className="dn-th-reason">{t('th.reason')}</th>
                                                                     <th className="dn-th-action" aria-label={t('th.remove')} />
-                                                                </tr>
+                                        </tr>
                                                             </thead>
                                                             <tbody>
                                                                 {manualLines.map((line, idx) => {
@@ -1993,7 +1993,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                                             >
                                                                                                 {uomHint}
                                                                                             </span>
-                                                                                        ) : null}
+                                    ) : null}
                                                                                     </>
                                                                                 ) : (
                                                                                     <span className="dn-td-muted">
@@ -2099,9 +2099,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                                         </tr>
                                                                     );
                                                                 })}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
+                                </tbody>
+                            </table>
+                        </div>
                                                     <div className="dn-lines-footer">
                                                         <button
                                                             type="button"
@@ -2111,25 +2111,25 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                         >
                                                             <Plus size={16} />
                                                             {t('btn.addLine')}
-                                                        </button>
-                                                    </div>
+                            </button>
+                        </div>
                                                 </>
                                             )}
-                                        </div>
+                            </div>
 
                                         <div className="dn-summary">
                                             <span className="dn-summary__label">{t('lines.summary')}</span>
                                             <span className="dn-summary__amount">
                                                 {money(sarFmt(estimatedTotal))}
                                             </span>
-                                        </div>
+                            </div>
                                     </section>
-                                </div>
+                                    </div>
                             </div>
                         )}
                     </form>
                 </InlineFormScreen>
-            ) : null}
+                    ) : null}
 
             {viewReturnId ? (
                 <InlineFormScreen
@@ -2144,8 +2144,8 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                             <div className="pi-title-main">
                                 <RotateCcw size={24} />
                                 <span>{t('form.title')}</span>
-                            </div>
-                        </div>
+                </div>
+            </div>
                     }
                     onBack={closeView}
                     backLabel={t('btn.back')}

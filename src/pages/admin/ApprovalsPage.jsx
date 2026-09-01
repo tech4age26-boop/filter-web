@@ -2621,7 +2621,7 @@ function CorporatePaymentApprovalDetailsModal({ id, item, onClose, onApprove, on
         })}`;
 
     if (invoice) {
-        return (
+    return (
             <AdminScreenShell
                 title={invoice.invoiceNo || 'Tax invoice'}
                 onBack={() => setInvoice(null)}
@@ -2854,7 +2854,7 @@ function SalesReturnApprovalDetailsModal({ id, item, onClose, onApprove, onRejec
     const title = data?.returnNo ?? data?.creditNoteNo ?? item?.meta?.returnNo ?? `#${id}`;
 
     if (invoice) {
-        return (
+    return (
             <AdminScreenShell
                 title={invoice.invoiceNo || 'Tax invoice'}
                 onBack={() => setInvoice(null)}
@@ -3424,8 +3424,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                               reviewer: r.reviewedByUser,
                               date: r.requestedAt || r.updatedAt || r.createdAt,
                               reference: r.billNo ?? '',
-                              raw: r,
-                          }));
+                          raw: r,
+                      }));
                   })
                   .catch(() => [])
             : Promise.resolve([]);
@@ -4281,8 +4281,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             <>
                 <Toast toast={toast} />
                 {renderApprovalRouteView()}
-            </>
-        );
+        </>
+    );
     }
 
     if (isTab) return content;

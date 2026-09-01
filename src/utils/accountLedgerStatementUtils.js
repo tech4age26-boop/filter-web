@@ -1,5 +1,22 @@
 /** Shared helpers for COA ledger statement pages (monitor + supplier). */
 
+const TRAILING_REF_RE = /\s*[—–-]\s*Ref\s+(.+)$/i;
+
+/** Keep description clean; reference is its own statement column. */
+export function ledgerRowDescriptionAndReference(line) {
+    const rawDesc = String(
+        line?.description ||
+            line?.lineDescription ||
+            line?.journalDescription ||
+            '',
+    ).trim();
+    const explicit = String(line?.reference ?? '').trim();
+    const fromDesc = TRAILING_REF_RE.exec(rawDesc);
+    const description = rawDesc.replace(TRAILING_REF_RE, '').trim() || '—';
+    const reference = explicit || (fromDesc ? String(fromDesc[1] || '').trim() : '');
+    return { description, reference };
+}
+
 function mapLegacyLedgerLines(lines) {
     return lines.map((line) => {
         const dateRaw = line.date;
@@ -7,14 +24,12 @@ function mapLegacyLedgerLines(lines) {
             dateRaw instanceof Date
                 ? dateRaw.toISOString().slice(0, 10)
                 : String(dateRaw ?? '').slice(0, 10);
+        const { description, reference } = ledgerRowDescriptionAndReference(line);
         return {
             id: line.id,
             date: dateStr,
-            description:
-                line.description ||
-                line.lineDescription ||
-                line.journalDescription ||
-                '—',
+            description,
+            reference,
             debit: Number(line.debit ?? 0),
             credit: Number(line.credit ?? 0),
             runningBalance: Number(line.runningBalance ?? 0),
@@ -22,6 +37,8 @@ function mapLegacyLedgerLines(lines) {
             expenseCategoryLabel: line.expenseCategoryLabel,
             expenseProofUrl: line.expenseProofUrl,
             hasExpenseProof: line.hasExpenseProof,
+            counterpartyLabel: line.counterpartyLabel,
+            offsetAccountLabel: line.offsetAccountLabel,
         };
     });
 }
@@ -34,7 +51,15 @@ export function unwrapLedgerPayload(res) {
             : null;
     const payload =
         nested && (nested.rows || nested.lines) ? nested : res;
-    if (Array.isArray(payload.rows)) return payload;
+    if (Array.isArray(payload.rows)) {
+        return {
+            ...payload,
+            rows: payload.rows.map((row) => ({
+                ...row,
+                ...ledgerRowDescriptionAndReference(row),
+            })),
+        };
+    }
     if (Array.isArray(payload.lines) && payload.lines.length) {
         return { ...payload, rows: mapLegacyLedgerLines(payload.lines) };
     }

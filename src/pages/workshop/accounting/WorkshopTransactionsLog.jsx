@@ -216,19 +216,19 @@ export default function WorkshopTransactionsLog({
             ? ` · ${t('txlog.sys')}`
             : '';
         const pos = row.sourceType === 'pos_invoice' ? ' · POS' : '';
-        return (
-            <span style={{
-                display: 'inline-flex',
-                background: color.bg,
-                color: color.fg,
-                padding: '2px 10px',
-                borderRadius: 12,
-                fontSize: '0.7rem',
-                fontWeight: 600,
-            }}>
+    return (
+        <span style={{
+            display: 'inline-flex',
+            background: color.bg,
+            color: color.fg,
+            padding: '2px 10px',
+            borderRadius: 12,
+            fontSize: '0.7rem',
+            fontWeight: 600,
+        }}>
                 {label}{pos}{sys}
-            </span>
-        );
+        </span>
+    );
     }, [t]);
 
     const [method, setMethod] = useState('all');
@@ -573,11 +573,11 @@ export default function WorkshopTransactionsLog({
                             menuMinWidth={220}
                         />
                     ) : (
-                        <select className="form-input-field" value={method} onChange={(e) => setMethod(e.target.value)}>
+                    <select className="form-input-field" value={method} onChange={(e) => setMethod(e.target.value)}>
                             {LEGACY_METHOD_VALUES.map((value) => (
                                 <option key={value} value={value}>{methodLabel(value)}</option>
-                            ))}
-                        </select>
+                        ))}
+                    </select>
                     )}
                 </div>
                 <div>
@@ -591,7 +591,7 @@ export default function WorkshopTransactionsLog({
                             const next = !opt?.id || opt.id === 'all' ? '' : String(opt.id);
                             setBranchId(next);
                             setBranchDisplay('');
-                            setUserId('');
+                        setUserId('');
                             setUserDisplay('');
                         }}
                         placeholder={t('txlog.branchSearchPh')}
@@ -709,9 +709,9 @@ export default function WorkshopTransactionsLog({
                             onPdf={() => runExport('pdf')}
                             onExcel={() => runExport('excel')}
                         />
-                        <button type="button" className="btn-portal-outline" onClick={reload} disabled={loading}>
+                    <button type="button" className="btn-portal-outline" onClick={reload} disabled={loading}>
                             <RefreshCw size={14} style={{ marginRight: 6 }} /> {t('txlog.refresh')}
-                        </button>
+                    </button>
                     </div>
                 </header>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -736,23 +736,23 @@ export default function WorkshopTransactionsLog({
                             const canOpen = Boolean(r.reference || r.sourceId);
                             const busy = detailLoadingId === String(r.id);
                             return (
-                                <tr key={r.id}>
+                            <tr key={r.id}>
                                     <td className="table-cell">
                                         {isReceipts
                                             ? formatEntryDateTime(r.entryDate)
                                             : new Date(r.entryDate).toLocaleDateString()}
                                     </td>
-                                    <td className="table-cell" style={{ color: r.direction === 'in' ? '#16A34A' : '#DC2626' }}>
+                                <td className="table-cell" style={{ color: r.direction === 'in' ? '#16A34A' : '#DC2626' }}>
                                         {r.direction === 'in' ? t('txlog.dir.in') : t('txlog.dir.out')}
-                                    </td>
-                                    <td className="table-cell">SAR {fmt(r.amount)}</td>
+                                </td>
+                                <td className="table-cell">SAR {fmt(r.amount)}</td>
                                     <td className="table-cell">{methodChip(r)}</td>
                                     <td className="table-cell">
                                         {r.account?.name || '—'}
                                         {r.account?.coaCode ? <span style={{ color: '#94A3B8' }}> · {r.account.coaCode}</span> : null}
                                     </td>
-                                    <td className="table-cell">{r.account?.branchName ?? '—'}</td>
-                                    <td className="table-cell">{r.account?.ownerUserName ?? '—'}</td>
+                                <td className="table-cell">{r.account?.branchName ?? '—'}</td>
+                                <td className="table-cell">{r.account?.ownerUserName ?? '—'}</td>
                                     <td className="table-cell">
                                         {canOpen ? (
                                             <button
@@ -775,10 +775,10 @@ export default function WorkshopTransactionsLog({
                                             </button>
                                         ) : refLabel}
                                     </td>
-                                    <td className="table-cell" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {r.description ?? '—'}
-                                    </td>
-                                </tr>
+                                <td className="table-cell" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {r.description ?? '—'}
+                                </td>
+                            </tr>
                             );
                         })}
                     </tbody>

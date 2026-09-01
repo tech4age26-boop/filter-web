@@ -7,6 +7,10 @@ import {
     publicReceiveSupplierSalesInvoiceWithPassword,
     buildReceivedQtyByInvoiceItemIdPayload,
 } from '../services/publicVerifyApi';
+import {
+    liveStockReceiveSummaryText,
+    effectiveLineReceiveQty,
+} from '../utils/publicReceiveStockSummary';
 import './PublicWpiVerifyPage.css';
 
 function fmtMoney(n, cur = 'SAR') {
@@ -33,18 +37,8 @@ function fmtQty(n) {
     return v.toFixed(2).replace(/\.?0+$/, '');
 }
 
-function stockReceiveSummaryText(data) {
-    if (data?.stockReceiveSummary) return data.stockReceiveSummary;
-    const totals = Array.isArray(data?.totalsByWorkshopUnit) ? data.totalsByWorkshopUnit : [];
-    if (totals.length === 1) {
-        return `Branch inventory will increase by +${fmtQty(totals[0].qty)} ${totals[0].unit}`;
-    }
-    if (totals.length > 1) {
-        return `Branch inventory will increase by ${totals
-            .map((t) => `+${fmtQty(t.qty)} ${t.unit}`)
-            .join(' · ')} (each product uses its own catalog UOM)`;
-    }
-    return null;
+function stockReceiveSummaryText(data, receiveQtyByItemId) {
+    return liveStockReceiveSummaryText(data, receiveQtyByItemId);
 }
 
 function lineConversionRule(ln) {
@@ -77,11 +71,13 @@ export default function PublicSinvVerifyPage() {
     const [receiveCriticalByPid, setReceiveCriticalByPid] = useState({});
     /** Per supplier-invoice line: actual received qty in workshop UOM (empty = same as invoiced). */
     const [receiveQtyByItemId, setReceiveQtyByItemId] = useState({});
+    const [receiveLogin, setReceiveLogin] = useState('');
 
     const closeReceiveModal = () => {
         if (receiveSubmitting) return;
         setReceiveOpen(false);
         setReceivePassword('');
+        setReceiveLogin('');
         setReceiveError('');
     };
 
@@ -90,6 +86,10 @@ export default function PublicSinvVerifyPage() {
         if (receiveSubmitting) return;
         if (!receivePassword.trim()) {
             setReceiveError('Enter the workshop or branch password.');
+            return;
+        }
+        if (!receiveLogin.trim()) {
+            setReceiveError('Enter the receiving user name or email (the person who received the stock).');
             return;
         }
         setReceiveSubmitting(true);
@@ -117,10 +117,12 @@ export default function PublicSinvVerifyPage() {
                     data?.lines,
                     receiveQtyByItemId,
                 ),
+                receiverLogin: receiveLogin,
             });
             setReceiveResult(res);
             setReceiveOpen(false);
             setReceivePassword('');
+            setReceiveLogin('');
         } catch (err) {
             setReceiveError(err?.message || 'Could not authenticate. Check the password and try again.');
         } finally {
@@ -365,7 +367,7 @@ export default function PublicSinvVerifyPage() {
 
                             {Array.isArray(data.lines) && data.lines.length > 0 ? (
                                 <>
-                                    {stockReceiveSummaryText(data) ? (
+                                    {stockReceiveSummaryText(data, receiveQtyByItemId) ? (
                                         <div
                                             style={{
                                                 marginBottom: 14,
@@ -381,7 +383,7 @@ export default function PublicSinvVerifyPage() {
                                             <strong style={{ display: 'block', marginBottom: 6 }}>
                                                 Stock receive (when you confirm)
                                             </strong>
-                                            {stockReceiveSummaryText(data)}. Each line uses that
+                                            {stockReceiveSummaryText(data, receiveQtyByItemId)}. Each line uses that
                                             product&apos;s catalog rule (e.g. 1 Box = 12 Liter, or 1 Box
                                             = 10 Pcs). Chart of accounts (AP + inventory) posts on receive.
                                         </div>
@@ -411,7 +413,9 @@ export default function PublicSinvVerifyPage() {
                                         >
                                             If you received the full invoiced quantity, leave{' '}
                                             <strong>Received qty</strong> empty. Enter a value only when
-                                            the physical count differs (workshop UOM).
+                                            the physical count differs (workshop UOM). The blue summary
+                                            and <strong>Branch stock +</strong> update to the quantity
+                                            this branch will actually receive.
                                         </p>
                                     ) : null}
                                     <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
@@ -453,6 +457,14 @@ export default function PublicSinvVerifyPage() {
                                                     );
                                                     const wsUnit =
                                                         ln.workshopReceiveUnit ?? ln.unit ?? 'Liter';
+                                                    const liveReceiveQty = effectiveLineReceiveQty(
+                                                        ln,
+                                                        receiveQtyByItemId,
+                                                    );
+                                                    const stockPlusLabel =
+                                                        liveReceiveQty != null
+                                                            ? `+${fmtQty(liveReceiveQty)} ${wsUnit}`
+                                                            : ln.stockIncreaseLabel ?? '—';
                                                     return (
                                                     <tr
                                                         key={itemId ?? `line-${i}`}
@@ -477,10 +489,7 @@ export default function PublicSinvVerifyPage() {
                                                             {lineConversionRule(ln) ?? 'Same UOM'}
                                                         </td>
                                                         <td style={{ padding: 8, color: '#047857', fontWeight: 700 }}>
-                                                            {ln.stockIncreaseLabel ??
-                                                                (ln.workshopReceiveQty != null
-                                                                    ? `+${fmtQty(ln.workshopReceiveQty)} ${wsUnit}`
-                                                                    : '—')}
+                                                            {stockPlusLabel}
                                                         </td>
                                                         {canEditReceive && itemId ? (
                                                             <td style={{ padding: 8, minWidth: 120 }}>
@@ -819,13 +828,13 @@ export default function PublicSinvVerifyPage() {
                             </h2>
                         </div>
                         <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: '#475569', lineHeight: 1.45 }}>
-                            Enter the branch login password OR the workshop owner / admin password to mark this invoice
+                            Enter the receiving user name or email, then the branch or workshop password, to mark this invoice
                             as received and update inventory for{' '}
                             <strong>{data?.branchName || data?.workshopName || 'this workshop'}</strong>.
-                            {stockReceiveSummaryText(data) ? (
+                            {stockReceiveSummaryText(data, receiveQtyByItemId) ? (
                                 <>
                                     {' '}
-                                    Stock update: <strong>{stockReceiveSummaryText(data)}</strong>.
+                                    Stock update: <strong>{stockReceiveSummaryText(data, receiveQtyByItemId)}</strong>.
                                 </>
                             ) : null}
                         </p>
@@ -839,6 +848,37 @@ export default function PublicSinvVerifyPage() {
                                 confirm receipt and apply inventory.
                             </p>
                         )}
+                        <label
+                            htmlFor="public-sinv-receive-login"
+                            style={{
+                                display: 'block',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#334155',
+                                marginBottom: 6,
+                            }}
+                        >
+                            Receiving user (name or email)
+                        </label>
+                        <input
+                            id="public-sinv-receive-login"
+                            type="text"
+                            autoComplete="username"
+                            placeholder="e.g. Naif"
+                            value={receiveLogin}
+                            onChange={(e) => setReceiveLogin(e.target.value)}
+                            disabled={receiveSubmitting}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                border: '1px solid #cbd5e1',
+                                background: '#f8fafc',
+                                fontSize: '0.9375rem',
+                                outline: 'none',
+                                marginBottom: 12,
+                            }}
+                        />
                         <label
                             htmlFor="public-sinv-receive-password"
                             style={{

@@ -457,8 +457,8 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                         {lockedWalletPeer ? (
                             <>{request?.sourceUserName || t('approve.sourceUser')}
                             {sourceUserBalance != null ? ` — SAR ${formatSar(sourceUserBalance)}` : ''}</>
-                        ) : (
-                            <select
+            ) : (
+                <select
                                 className="admin-wallets-modal-textarea"
                                 style={{ marginTop: 6, width: '100%', minHeight: 0, padding: '8px 10px' }}
                                 value={sourceUserId}
@@ -474,10 +474,10 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                                         {u.wallet?.balance != null
                                             ? ` — SAR ${formatSar(u.wallet.balance)}`
                                             : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        )}
+                        </option>
+                    ))}
+                </select>
+            )}
                     </p>
                     <p style={{ margin: 0, fontSize: '0.875rem' }}>
                         <strong>{t('approve.toWallet')}</strong> {recipientName}

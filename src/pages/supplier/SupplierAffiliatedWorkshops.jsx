@@ -1,35 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, FileText, Plus } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import Modal from '../../components/Modal';
 import {
     bulkAddSupplierAffiliatedWorkshops,
-    getSupplierAffiliatedBranchTransactions,
-    getSupplierAffiliatedWorkshopTransactions,
     getSupplierFinancePlatformWorkshops,
     listSupplierAffiliatedWorkshops,
     patchSupplierAffiliatedBranchActive,
     patchSupplierAffiliatedWorkshopActive,
 } from '../../services/supplierApi';
-import {
-    exportAffiliatedTransactionLedgerExcel,
-    exportAffiliatedTransactionLedgerPdf,
-} from './supplierInventoryExport';
 import { sawT } from '../../utils/supplierAffiliatedWorkshopsI18n';
-
-const logToolbarExportBtnStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '8px 14px',
-    borderRadius: 8,
-    border: '1px solid var(--color-border)',
-    background: '#fff',
-    fontSize: '0.8125rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    color: 'var(--color-text-dark)',
-};
+import {
+    formatAffiliatedBranchCustomerLabel,
+    formatAffiliatedWorkshopCustomerLabel,
+} from '../../utils/affiliatedCustomerLabels';
+import { navigateToSupplierCustomerLedger } from './openSupplierCustomerLedger';
 
 function fmtMoney(amount, currencyCode = 'SAR', t) {
     const n = Number(amount || 0);
@@ -70,30 +55,6 @@ function rowIsActive(row) {
     return row.isActive !== false;
 }
 
-async function fetchAffiliatedLog(row, params = {}) {
-    if (rowIsBranch(row)) {
-        return getSupplierAffiliatedBranchTransactions(row.branchId, params);
-    }
-    return getSupplierAffiliatedWorkshopTransactions(row.workshopId, params);
-}
-
-import {
-    buildSalesArLedgerRows,
-    isSupplierCustomerFinancialTx,
-} from './supplierFinanceTransactionUtils';
-import {
-    formatAffiliatedBranchCustomerLabel,
-    formatAffiliatedWorkshopCustomerLabel,
-} from '../../utils/affiliatedCustomerLabels';
-
-function fmtLedgerAmt(value, t) {
-    if (value == null || Number.isNaN(value)) return t('emdash');
-    return Number(value).toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    });
-}
-
 /** Wrap known phrase fragments in <strong> / <code> inside a localized full string. */
 function decoratePhrases(text, specs) {
     if (!text || !specs?.length) return text;
@@ -130,44 +91,10 @@ export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
     const [pickedWorkshopOnlyIds, setPickedWorkshopOnlyIds] = useState(() => new Set());
     const [adding, setAdding] = useState(false);
 
-    const [logRow, setLogRow] = useState(null);
-    const [logFrom, setLogFrom] = useState('');
-    const [logTo, setLogTo] = useState('');
-    const [logTx, setLogTx] = useState([]);
-    const [logLoading, setLogLoading] = useState(false);
+    const [openingLedger, setOpeningLedger] = useState(false);
 
     const activePatchBusyRef = useRef(new Set());
     const [activePatchBusyKeys, setActivePatchBusyKeys] = useState(() => new Set());
-
-    const affiliatedLedgerLines = useMemo(
-        () => buildSalesArLedgerRows(logTx),
-        [logTx],
-    );
-
-    const logExportSubtitle = useMemo(() => {
-        if (!logRow) return '';
-        const scopeLabel = rowIsBranch(logRow)
-            ? formatAffiliatedBranchCustomerLabel(
-                  logRow.workshopName,
-                  logRow.branchName || logRow.branchId,
-              )
-            : formatAffiliatedWorkshopCustomerLabel(
-                  logRow.workshopName || logRow.workshopId,
-              );
-        let rangeBit = t('export.allDates');
-        if (logFrom && logTo) rangeBit = `${logFrom} → ${logTo}`;
-        else if (logFrom) rangeBit = t('export.from', { date: logFrom });
-        else if (logTo) rangeBit = t('export.to', { date: logTo });
-        return `${scopeLabel} · ${rangeBit} · ${t('export.rows', { n: affiliatedLedgerLines.length })}`;
-    }, [logRow, logFrom, logTo, affiliatedLedgerLines.length, t]);
-
-    const logExportFilenameBase = useMemo(() => {
-        if (!logRow) return 'supplier-affiliated-transaction-log';
-        if (rowIsBranch(logRow)) {
-            return `supplier-affiliated-log-branch-${String(logRow.branchId || '').slice(0, 40)}`;
-        }
-        return `supplier-affiliated-log-workshop-${String(logRow.workshopId || '').slice(0, 40)}`;
-    }, [logRow]);
 
     const loadList = useCallback(async () => {
         setErr('');
@@ -312,10 +239,6 @@ export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
                 });
             }
             setRows((prev) => mergeAffiliatedRowsActive(prev, r, isActive));
-            setLogRow((prev) => {
-                if (!prev || rowActivePatchKey(prev) !== k) return prev;
-                return { ...prev, isActive };
-            });
         } catch (e) {
             console.error(e);
             setErr(e?.message || t('err.status'));
@@ -329,39 +252,34 @@ export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
         }
     };
 
-    const openLog = async (row) => {
-        setLogRow(row);
-        setLogFrom('');
-        setLogTo('');
-        setLogTx([]);
-        setLogLoading(true);
+    const openPartyLedger = async (row) => {
+        setErr('');
+        setOpeningLedger(true);
         try {
-            const res = await fetchAffiliatedLog(row, {});
-            const txs = Array.isArray(res?.transactions) ? res.transactions : [];
-            setLogTx(txs.filter(isSupplierCustomerFinancialTx));
+            const partyLabel = rowIsBranch(row)
+                ? formatAffiliatedBranchCustomerLabel(
+                      row.workshopName,
+                      row.branchName || row.branchId,
+                  )
+                : formatAffiliatedWorkshopCustomerLabel(
+                      row.workshopName || row.workshopId,
+                  );
+            const party = rowIsBranch(row)
+                ? { partyType: 'branch', partyId: String(row.branchId) }
+                : { partyType: 'workshop', partyId: String(row.workshopId) };
+            if (!party.partyId) return;
+            await navigateToSupplierCustomerLedger(navigate, {
+                seedKey: 'AR_AFFILIATED',
+                from: 'affiliated_workshops',
+                partyLabel,
+                ...party,
+                missingAccountMessage: t('err.ledgerAccount'),
+            });
         } catch (e) {
             console.error(e);
-            setErr(e?.message || t('err.tx'));
+            setErr(e?.message || t('err.ledger'));
         } finally {
-            setLogLoading(false);
-        }
-    };
-
-    const applyLogFilter = async () => {
-        if (!logRow) return;
-        setLogLoading(true);
-        try {
-            const params = {};
-            if (logFrom.trim()) params.from = logFrom.trim();
-            if (logTo.trim()) params.to = logTo.trim();
-            const res = await fetchAffiliatedLog(logRow, params);
-            const txs = Array.isArray(res?.transactions) ? res.transactions : [];
-            setLogTx(txs.filter(isSupplierCustomerFinancialTx));
-        } catch (e) {
-            console.error(e);
-            setErr(e?.message || t('err.filter'));
-        } finally {
-            setLogLoading(false);
+            setOpeningLedger(false);
         }
     };
 
@@ -424,11 +342,13 @@ export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
                                 return (
                                 <tr
                                     key={`${r.scope || 'row'}-${r.id}`}
+                                    className="ws-inv-row-clickable"
                                     style={{
                                         cursor: 'pointer',
                                         opacity: rowIsActive(r) ? 1 : 0.55,
                                     }}
-                                    onClick={() => openLog(r)}
+                                    title={t('row.openStatement')}
+                                    onClick={() => !openingLedger && openPartyLedger(r)}
                                 >
                                     <td>
                                         <div style={{ fontWeight: 700 }}>{r.workshopName || t('emdash')}</div>
@@ -509,6 +429,24 @@ export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
                                                 {t('toggle.active')}
                                             </span>
                                         </div>
+                                        <button
+                                            type="button"
+                                            className="btn-portal-outline"
+                                            style={{
+                                                marginTop: 8,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 4,
+                                                padding: '6px 10px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 700,
+                                            }}
+                                            disabled={openingLedger}
+                                            onClick={() => openPartyLedger(r)}
+                                        >
+                                            {t('btn.statement')}
+                                            <ChevronRight size={14} aria-hidden />
+                                        </button>
                                     </td>
                                 </tr>
                                 );
@@ -792,283 +730,6 @@ export default function SupplierAffiliatedWorkshops({ locale: localeProp }) {
                 </Modal>
             ) : null}
 
-            {logRow ? (
-                <Modal
-                    title={t('log.title', {
-                        name: rowIsBranch(logRow)
-                            ? formatAffiliatedBranchCustomerLabel(
-                                  logRow.workshopName,
-                                  logRow.branchName || logRow.branchId,
-                              )
-                            : formatAffiliatedWorkshopCustomerLabel(
-                                  logRow.workshopName || logRow.workshopId,
-                              ),
-                    })}
-                    onClose={() => setLogRow(null)}
-                    width={980}
-                    footer={
-                        <button type="button" className="btn-portal-outline" onClick={() => setLogRow(null)}>
-                            {t('btn.close')}
-                        </button>
-                    }
-                >
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: 10,
-                            alignItems: 'flex-end',
-                            marginBottom: 14,
-                        }}
-                    >
-                        <div>
-                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>{t('log.from')}</div>
-                            <input
-                                type="date"
-                                value={logFrom}
-                                onChange={(e) => setLogFrom(e.target.value)}
-                                style={{ padding: 8, borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)' }}
-                            />
-                        </div>
-                        <div>
-                            <div style={{ fontSize: '0.7rem', fontWeight: 700, marginBottom: 4 }}>{t('log.to')}</div>
-                            <input
-                                type="date"
-                                value={logTo}
-                                onChange={(e) => setLogTo(e.target.value)}
-                                style={{ padding: 8, borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)' }}
-                            />
-                        </div>
-                        <button type="button" className="btn-portal" onClick={applyLogFilter} disabled={logLoading}>
-                            {logLoading ? t('btn.loading') : t('btn.applyRange')}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            onClick={async () => {
-                                setLogFrom('');
-                                setLogTo('');
-                                if (!logRow) return;
-                                setLogLoading(true);
-                                try {
-                                    const res = await fetchAffiliatedLog(logRow, {});
-                                    const txs = Array.isArray(res?.transactions) ? res.transactions : [];
-                                    setLogTx(txs.filter(isSupplierCustomerFinancialTx));
-                                } finally {
-                                    setLogLoading(false);
-                                }
-                            }}
-                            disabled={logLoading}
-                        >
-                            {t('btn.clearFilter')}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            onClick={() => {
-                                const params = new URLSearchParams({
-                                    openLedgerSeed: 'AR_AFFILIATED',
-                                });
-                                if (rowIsBranch(logRow) && logRow.branchId) {
-                                    params.set('partyType', 'branch');
-                                    params.set('partyId', String(logRow.branchId));
-                                } else {
-                                    const ws = String(logRow?.workshopId ?? '').trim();
-                                    if (!ws) return;
-                                    params.set('partyType', 'workshop');
-                                    params.set('partyId', ws);
-                                }
-                                navigate(`/supplier/accounting/coa?${params.toString()}`);
-                                setLogRow(null);
-                            }}
-                            disabled={
-                                rowIsBranch(logRow)
-                                    ? !logRow?.branchId
-                                    : !logRow?.workshopId
-                            }
-                            title={t('log.coaTitle')}
-                        >
-                            {t('btn.coaLedger')}
-                        </button>
-                        <div
-                            style={{
-                                display: 'inline-flex',
-                                flexWrap: 'wrap',
-                                alignItems: 'center',
-                                gap: 8,
-                                marginLeft: 'auto',
-                            }}
-                        >
-                            <button
-                                type="button"
-                                disabled={logLoading || affiliatedLedgerLines.length === 0}
-                                title={
-                                    logLoading || affiliatedLedgerLines.length === 0
-                                        ? t('log.exportNothing')
-                                        : t('log.exportPdf')
-                                }
-                                onClick={() => {
-                                    exportAffiliatedTransactionLedgerPdf(
-                                        affiliatedLedgerLines,
-                                        logExportSubtitle,
-                                        logExportFilenameBase,
-                                    );
-                                }}
-                                style={{
-                                    ...logToolbarExportBtnStyle,
-                                    opacity:
-                                        logLoading || affiliatedLedgerLines.length === 0 ? 0.5 : 1,
-                                    cursor:
-                                        logLoading || affiliatedLedgerLines.length === 0
-                                            ? 'not-allowed'
-                                            : 'pointer',
-                                }}
-                            >
-                                <FileText size={14} aria-hidden /> {t('btn.pdf')}
-                            </button>
-                            <button
-                                type="button"
-                                disabled={logLoading || affiliatedLedgerLines.length === 0}
-                                title={
-                                    logLoading || affiliatedLedgerLines.length === 0
-                                        ? t('log.exportNothingRange')
-                                        : t('log.exportExcel')
-                                }
-                                onClick={() => {
-                                    exportAffiliatedTransactionLedgerExcel(
-                                        affiliatedLedgerLines,
-                                        logExportFilenameBase,
-                                    );
-                                }}
-                                style={{
-                                    ...logToolbarExportBtnStyle,
-                                    opacity:
-                                        logLoading || affiliatedLedgerLines.length === 0 ? 0.5 : 1,
-                                    cursor:
-                                        logLoading || affiliatedLedgerLines.length === 0
-                                            ? 'not-allowed'
-                                            : 'pointer',
-                                }}
-                            >
-                                <FileSpreadsheet size={14} aria-hidden /> {t('btn.excel')}
-                            </button>
-                        </div>
-                    </div>
-                    <p
-                        style={{
-                            margin: '0 0 10px',
-                            fontSize: '0.78rem',
-                            opacity: 0.75,
-                            lineHeight: 1.45,
-                        }}
-                    >
-                        {decoratePhrases(t('log.hint'), [
-                            { phrase: t('log.hint.oldest'), as: 'strong' },
-                            { phrase: t('log.hint.debt'), as: 'strong' },
-                            { phrase: t('log.hint.credit'), as: 'strong' },
-                        ])}
-                    </p>
-                    <div style={{ maxHeight: 420, overflow: 'auto' }}>
-                        <table className="ws-table">
-                            <thead>
-                                <tr>
-                                    <th>{t('log.th.when')}</th>
-                                    <th>{t('log.th.type')}</th>
-                                    <th>{t('log.th.title')}</th>
-                                    <th style={{ whiteSpace: 'nowrap' }}>{t('log.th.debt')}</th>
-                                    <th style={{ whiteSpace: 'nowrap' }}>{t('log.th.credit')}</th>
-                                    <th style={{ whiteSpace: 'nowrap' }}>{t('log.th.balance')}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {logLoading ? (
-                                    <tr>
-                                        <td colSpan={6}>{t('loading')}</td>
-                                    </tr>
-                                ) : affiliatedLedgerLines.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={6}>{t('log.empty')}</td>
-                                    </tr>
-                                ) : (
-                                    affiliatedLedgerLines.map((line) => {
-                                        const raw = line.raw;
-                                        return (
-                                            <tr key={raw.id}>
-                                                <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem' }}>
-                                                    {new Date(raw.createdAt).toLocaleString()}
-                                                </td>
-                                                <td style={{ fontSize: '0.8rem' }}>{raw.transactionType}</td>
-                                                <td>
-                                                    <div style={{ fontWeight: 600 }}>{raw.title}</div>
-                                                    {raw.description ? (
-                                                        <div
-                                                            style={{
-                                                                fontSize: '0.78rem',
-                                                                opacity: 0.75,
-                                                            }}
-                                                        >
-                                                            {raw.description}
-                                                        </div>
-                                                    ) : null}
-                                                </td>
-                                                <td
-                                                    style={{
-                                                        whiteSpace: 'nowrap',
-                                                        textAlign: 'right',
-                                                        fontVariantNumeric: 'tabular-nums',
-                                                    }}
-                                                >
-                                                    {line.debit != null ? (
-                                                        <>
-                                                            {fmtLedgerAmt(line.debit, t)}{' '}
-                                                            <span style={{ opacity: 0.65 }}>
-                                                                {line.currencyCode}
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        t('emdash')
-                                                    )}
-                                                </td>
-                                                <td
-                                                    style={{
-                                                        whiteSpace: 'nowrap',
-                                                        textAlign: 'right',
-                                                        fontVariantNumeric: 'tabular-nums',
-                                                    }}
-                                                >
-                                                    {line.credit != null ? (
-                                                        <>
-                                                            {fmtLedgerAmt(line.credit, t)}{' '}
-                                                            <span style={{ opacity: 0.65 }}>
-                                                                {line.currencyCode}
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        t('emdash')
-                                                    )}
-                                                </td>
-                                                <td
-                                                    style={{
-                                                        whiteSpace: 'nowrap',
-                                                        textAlign: 'right',
-                                                        fontWeight: 700,
-                                                        fontVariantNumeric: 'tabular-nums',
-                                                    }}
-                                                >
-                                                    {fmtLedgerAmt(line.balance, t)}{' '}
-                                                    <span style={{ opacity: 0.65 }}>
-                                                        {line.currencyCode}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </Modal>
-            ) : null}
         </div>
     );
 }

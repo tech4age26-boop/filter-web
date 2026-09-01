@@ -41,6 +41,14 @@ import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurch
 import { formatAffiliatedBranchCustomerLabel } from '../../utils/affiliatedCustomerLabels';
 import { resolveInvoiceLineProductName } from '../../utils/invoiceLineLabel';
 import { ssiT, SSI_MARK_PAID_METHOD_KEYS } from '../../utils/supplierSalesInvoicesI18n';
+import {
+    getSupplierAccounts,
+    getSupplierSalesQuote,
+    listSupplierSalesQuotes,
+    unwrapSupplierAccountingList,
+} from '../../services/supplierAccountingApi';
+import { activeLeafAccounts } from './accounting/SupplierAccountingShared';
+import SupplierAccountingCombobox from './accounting/SupplierAccountingCombobox';
 
 function localizeCustomerGroup(group, t) {
     const g = String(group || '').trim();
@@ -55,6 +63,7 @@ function localizeCustomerGroup(group, t) {
 const SI_PRESET_LINE_KEY = 'supplier_sales_invoice_preset_line';
 
 const SALES_INVOICE_FROM_ALERT_KEY = 'salesInvoiceFromAlert';
+const SALES_INVOICE_FROM_QUOTE_KEY = 'salesInvoiceFromQuote';
 const FOCUS_SALES_INVOICE_ID_KEY = 'supplier_focus_sales_invoice_id';
 const WORKSHOP_PURCHASE_SI_PREFILL_KEY = 'supplier_workshop_purchase_sales_prefill';
 
@@ -240,6 +249,9 @@ function salesInvoicePaymentSelectValue(balance) {
 
 /** Display-only AR settlement state for list rows (no quick unpaid toggle here). */
 function salesInvoiceArSettlementLabel(inv, t) {
+    if (isAwaitingWorkshopReceipt(inv)) {
+        return { text: t('status.awaitingReceipt'), tone: 'slate', code: 'awaiting' };
+    }
     const bal = Number(inv?.balance ?? 0);
     const paid = Number(inv?.paid ?? 0);
     if (bal <= 0.005) return { text: t('settle.paid'), tone: 'green', code: 'paid' };
@@ -268,7 +280,19 @@ function salesInvoiceCustomerLabel(inv) {
         : inv.branch || '—';
 }
 
+function isAwaitingWorkshopReceipt(inv) {
+    if (inv?.collectible === false) return true;
+    const s = String(inv?.workshopReviewStatus ?? '').trim().toLowerCase();
+    return s === 'pending';
+}
+
 function salesInvoiceMgrStatus(inv, t) {
+    if (isAwaitingWorkshopReceipt(inv)) {
+        return {
+            label: t('status.awaitingReceipt'),
+            cls: 'mgr-si-status mgr-si-status--awaiting',
+        };
+    }
     const balance = Number(inv?.balance ?? 0);
     const paid = Number(inv?.paid ?? 0);
     const due = String(inv?.dueDate ?? '').slice(0, 10);
@@ -339,6 +363,7 @@ function buildTransactionHubReceiptPrefill(inv, t = (k, v) => ssiT('en', k, v)) 
         generalNote: invoiceNo ? t('note.paymentReceived', { no: invoiceNo }) : '',
         cashBankLabel: String(inv?.cashBankAccount || '').trim() || undefined,
         salesInvoiceId: inv?.id != null ? String(inv.id) : undefined,
+        allocatedInvoiceId: inv?.id != null ? String(inv.id) : undefined,
         lines: [
             {
                 lineDate: today,
@@ -369,6 +394,8 @@ function mapSupplierInvoicesListFromResponse(invRes) {
         returnsTotal: Number(inv.returnsTotal ?? 0),
         returnCount: Number(inv.returnCount ?? 0),
         status: inv.status || 'pending_payment',
+        workshopReviewStatus: inv.workshopReviewStatus ?? null,
+        collectible: inv.collectible !== false,
         paymentStatus: salesInvoicePaymentSelectValue(inv.outstanding),
         vendorRef: inv.deliveryNoteUrl || '—',
         productLabel: inv.productLabel ?? '—',
@@ -427,11 +454,6 @@ const INVENTORY_ITEMS = [
     },
 ];
 
-const ACCOUNT_OPTIONS = [
-    { code: '4100', name: 'Sales Revenue' },
-    { code: '1410', name: 'Inventory Asset' },
-];
-
 const TAXES = [
     { id: 1, name: 'VAT 15%', percent: 15, code: 'VAT 15%', rate: 0.15 },
     { id: 2, name: 'VAT 5%', percent: 5, code: 'VAT 5%', rate: 0.05 },
@@ -441,8 +463,6 @@ const TAXES = [
 
 const CASH_ACCOUNTS = ['Main Cash', 'Bank — Al Rajhi', 'Bank — SNB'];
 
-const SEARCH_QUICK_PICK = 15;
-const SEARCH_MAX_RESULTS = 50;
 /** stock-balances page size — backend allows up to 2000; search also hits API when typing. */
 const CATALOG_STOCK_BALANCES_LIMIT = 2000;
 const CATALOG_REMOTE_SEARCH_MIN_CHARS = 2;
@@ -457,6 +477,35 @@ function matchesCatalogSearchQuery(item, queryLower) {
 
 function roundMoney2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function accountOptionLabel(opt) {
+    if (!opt) return '';
+    return `${opt.code} - ${opt.name}`;
+}
+
+function mapActiveLeafAccountOptions(accounts) {
+    const leaves = activeLeafAccounts(accounts)
+        .map((a) => ({
+            code: String(a.code || '').trim(),
+            name: String(a.name || '').trim() || String(a.code || '').trim(),
+            seedKey: a.seedKey ?? null,
+        }))
+        .filter((a) => a.code);
+    leaves.sort((a, b) =>
+        a.code.localeCompare(b.code, undefined, { numeric: true }),
+    );
+    return leaves;
+}
+
+function defaultSalesInvoiceAccountLabel(options) {
+    const list = Array.isArray(options) ? options : [];
+    const hit =
+        list.find((a) => String(a.code) === '4100') ||
+        list.find((a) => /sales|revenue/i.test(String(a.seedKey || ''))) ||
+        list.find((a) => /sales|revenue/i.test(String(a.name || ''))) ||
+        list[0];
+    return hit ? accountOptionLabel(hit) : '4100 - Sales Revenue';
 }
 
 /**
@@ -661,7 +710,7 @@ function normalizeStockCatalogRow(item, t = (k, v) => ssiT('en', k, v)) {
                     amount: t('money.sar', { amount: suggestedWh.toFixed(2) }),
                     unit: warehouseUnit,
                 })
-              : '';
+            : '';
     const stockHint = [listHint, costHint].filter(Boolean).join(' · ');
 
 /** `stock-balances` row `productId` is supplier_products.id — POST as supplierProductId for workshop catalog resolution. */
@@ -717,7 +766,7 @@ const lastSaleMeta =
         ? [saleDateRaw, buyerLabel].filter(Boolean).join(' • ')
         : catalogSalePrice > 0
           ? t('hint.stockSalesPrice')
-          : '';
+        : '';
 
 /** Workshop-side sellable qty cap (aligned with supplier stock-balances payload). */
     const stockQtyWorkshop = Number(item.currentBalanceWorkshop ?? NaN);
@@ -908,6 +957,56 @@ function nextLineId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const UNUSED_QUOTE_STATUSES = new Set(['sent', 'accepted']);
+
+function quotesFromResponse(res) {
+    if (Array.isArray(res?.items)) return res.items;
+    if (Array.isArray(res?.data?.items)) return res.data.items;
+    if (Array.isArray(res?.data)) return res.data;
+    return [];
+}
+
+function customerKeyFromQuote(quote) {
+    if (!quote) return '';
+    if (quote.externalPartyId) return `external:${quote.externalPartyId}`;
+    if (quote.branchId) return `affiliated:branch:${quote.branchId}`;
+    if (quote.workshopId) return `affiliated:workshop:${quote.workshopId}`;
+    return '';
+}
+
+function quoteMatchesCustomer(quote, customer) {
+    if (!quote || !customer) return false;
+    const type = String(customer.customerType || '');
+    const isExternal = type === 'external_party' || type === 'non_affiliated';
+    if (isExternal && customer.externalPartyId) {
+        return String(quote.externalPartyId || '') === String(customer.externalPartyId);
+    }
+    if ((type === 'affiliated_branch' || customer.branchId) && customer.branchId) {
+        if (quote.branchId) {
+            return String(quote.branchId) === String(customer.branchId);
+        }
+    }
+    if (type === 'affiliated_workshop' && customer.workshopId) {
+        return (
+            !quote.branchId &&
+            String(quote.workshopId || '') === String(customer.workshopId)
+        );
+    }
+    if (customer.branchId && quote.branchId) {
+        return String(quote.branchId) === String(customer.branchId);
+    }
+    if (customer.externalPartyId && quote.externalPartyId) {
+        return String(quote.externalPartyId) === String(customer.externalPartyId);
+    }
+    return false;
+}
+
+function taxCodeFromVatRate(vatRate) {
+    const pct = Number(vatRate);
+    const hit = TAXES.find((tx) => Math.abs(tx.percent - pct) < 0.01);
+    return hit?.code || 'VAT 15%';
+}
+
 export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     const locale =
         localeProp ||
@@ -969,6 +1068,10 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
     const [customerPickerIndex, setCustomerPickerIndex] = useState(-1);
     const [cashAccount, setCashAccount] = useState('');
+    const [coaAccounts, setCoaAccounts] = useState([]);
+    const [availableQuotes, setAvailableQuotes] = useState([]);
+    const [selectedQuoteId, setSelectedQuoteId] = useState('');
+    const [selectedQuoteNo, setSelectedQuoteNo] = useState('');
     const [description, setDescription] = useState('');
     const [internalNotes, setInternalNotes] = useState('');
 
@@ -1074,6 +1177,103 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     }, [saveError]);
 
     useEffect(() => {
+        let cancelled = false;
+        getSupplierAccounts()
+            .then((res) => {
+                if (!cancelled) setCoaAccounts(unwrapSupplierAccountingList(res));
+            })
+            .catch(() => {
+                if (!cancelled) setCoaAccounts([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const invoiceAccountOptions = useMemo(
+        () => mapActiveLeafAccountOptions(coaAccounts),
+        [coaAccounts],
+    );
+    const defaultAccountLabel = useMemo(
+        () => defaultSalesInvoiceAccountLabel(invoiceAccountOptions),
+        [invoiceAccountOptions],
+    );
+    const invoiceCashOptions = useMemo(() => {
+        const cash = activeLeafAccounts(coaAccounts).filter((a) => a.isCashEquivalent);
+        if (cash.length) return cash.map((a) => `[${a.code}] ${a.name}`);
+        return CASH_ACCOUNTS;
+    }, [coaAccounts]);
+
+    const unusedQuotes = useMemo(
+        () =>
+            (availableQuotes || []).filter((q) =>
+                UNUSED_QUOTE_STATUSES.has(String(q.status || '').toLowerCase()),
+            ),
+        [availableQuotes],
+    );
+
+    const quoteComboLabel = useCallback(
+        (q) =>
+            [q.quoteNo, q.quoteDate, t('money.sar', { amount: Number(q.grandTotal || 0).toFixed(2) })]
+                .filter(Boolean)
+                .join(' · '),
+        [t],
+    );
+
+    const quoteComboOptions = useMemo(() => {
+        const rows = [];
+        const seen = new Set();
+        const push = (q) => {
+            if (!q?.id) return;
+            const id = String(q.id);
+            if (seen.has(id)) return;
+            seen.add(id);
+            rows.push({
+                id,
+                label: quoteComboLabel(q),
+                searchText: `${q.quoteNo || ''} ${q.quoteDate || ''} ${q.notes || ''}`,
+            });
+        };
+        if (selectedCustomer) {
+            unusedQuotes.filter((q) => quoteMatchesCustomer(q, selectedCustomer)).forEach(push);
+        }
+        if (selectedQuoteId) {
+            const linked =
+                unusedQuotes.find((q) => String(q.id) === String(selectedQuoteId)) ||
+                (availableQuotes || []).find((q) => String(q.id) === String(selectedQuoteId));
+            if (linked) push(linked);
+            else if (selectedQuoteNo) {
+                push({
+                    id: selectedQuoteId,
+                    quoteNo: selectedQuoteNo,
+                    quoteDate: '',
+                    grandTotal: 0,
+                    notes: '',
+                });
+            }
+        }
+        return rows;
+    }, [
+        unusedQuotes,
+        availableQuotes,
+        selectedCustomer,
+        selectedQuoteId,
+        selectedQuoteNo,
+        quoteComboLabel,
+    ]);
+
+    useEffect(() => {
+        if (!selectedQuoteId || !selectedCustomer) return;
+        const quote =
+            unusedQuotes.find((q) => String(q.id) === String(selectedQuoteId)) ||
+            (availableQuotes || []).find((q) => String(q.id) === String(selectedQuoteId));
+        if (quote && !quoteMatchesCustomer(quote, selectedCustomer)) {
+            setSelectedQuoteId('');
+            setSelectedQuoteNo('');
+        }
+    }, [selectedCustomer, selectedQuoteId, unusedQuotes, availableQuotes]);
+
+    useEffect(() => {
         const pending = pendingFocusLineFieldRef.current;
         if (!pending) return;
         pendingFocusLineFieldRef.current = null;
@@ -1095,6 +1295,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     /** Workshop purchase order id when issuing AR from Prepare sales invoice. */
     const workshopPurchaseSourceIdRef = useRef(null);
     const workshopPurchasePrefillRef = useRef(null);
+    const invoiceFromQuoteRef = useRef(false);
 
     const getSearchSuggestions = useCallback(
         (query) => {
@@ -1103,15 +1304,13 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 mergeInventoryLists(catalogSearchRemote, []),
             );
             const items = [...pool].sort((a, b) =>
-                String(a.name || '').localeCompare(String(b.name || ''), undefined, {
-                    sensitivity: 'base',
-                }),
-            );
-            const q = query.trim().toLowerCase();
-            if (!q) return items.slice(0, SEARCH_QUICK_PICK);
-            return items
-                .filter((i) => matchesCatalogSearchQuery(i, q))
-                .slice(0, SEARCH_MAX_RESULTS);
+            String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+                sensitivity: 'base',
+            }),
+        );
+        const q = query.trim().toLowerCase();
+        if (!q) return items;
+        return items.filter((i) => matchesCatalogSearchQuery(i, q));
         },
         [inventoryItems, catalogSearchRemote],
     );
@@ -1249,7 +1448,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             id: lineId,
             sku: item.sku || '',
             item: item.name,
-            account: '4100 - Sales Revenue',
+            account: defaultAccountLabel,
             description: '',
             uom: item.unit || item.warehouseUnit || 'Box',
             warehouseUnit: item.warehouseUnit ?? null,
@@ -1274,7 +1473,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         setShowDropdown(false);
         pendingFocusLineFieldRef.current = { lineId, fieldName: 'account' };
         return lineId;
-    }, [amountsTaxInclusive]);
+    }, [amountsTaxInclusive, defaultAccountLabel]);
 
     const removeLineItem = (lineId) => {
         setLineItems((prev) => prev.filter((l) => l.id !== lineId));
@@ -1286,7 +1485,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             id: lineId,
             sku: '',
             item: '',
-            account: '4100 - Sales Revenue',
+            account: defaultAccountLabel,
             description: '',
             uom: 'pcs',
             qty: 1,
@@ -1303,7 +1502,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         };
         const newLine = applyLineTotals(rawLine, amountsTaxInclusive);
         setLineItems((prev) => [...prev, newLine]);
-        pendingFocusLineFieldRef.current = { lineId, fieldName: 'account' };
+        pendingFocusLineFieldRef.current = { lineId, fieldName: 'item' };
         return lineId;
     };
 
@@ -1312,8 +1511,12 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         const fields = getLineTabFields();
         const fieldIdx = fields.indexOf(fieldName);
         if (fieldIdx < 0 || fieldIdx !== fields.length - 1) return;
-        if (lineIndex !== lineItems.length - 1) return;
         e.preventDefault();
+        const nextLine = lineItems[lineIndex + 1];
+        if (nextLine) {
+            focusLineField(nextLine.id, 'item');
+            return;
+        }
         addEmptyLine();
     };
 
@@ -1324,12 +1527,12 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 openInvoiceLineSearch();
                 return;
             }
-            if (e.key === 'ArrowDown') {
+        if (e.key === 'ArrowDown') {
                 setSelectedIndex((i) =>
                     i < searchResults.length - 1 ? i + 1 : i,
                 );
             } else {
-                setSelectedIndex((i) => (i > 0 ? i - 1 : i));
+            setSelectedIndex((i) => (i > 0 ? i - 1 : i));
             }
             return;
         }
@@ -1439,7 +1642,98 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         setEditingInvoiceStatus(null);
         workshopPurchaseSourceIdRef.current = null;
         workshopPurchasePrefillRef.current = null;
+        invoiceFromQuoteRef.current = false;
+        setSelectedQuoteId('');
+        setSelectedQuoteNo('');
     };
+
+    const applyQuoteToInvoiceForm = useCallback(
+        (quote) => {
+            if (!quote) return;
+            const key = customerKeyFromQuote(quote);
+            if (key) {
+                setSelectedCustomerKey(key);
+                setCustomerSearchQuery('');
+                setCustomerPickerOpen(false);
+            }
+            if (!String(description || '').trim() && quote.notes) {
+                setDescription(String(quote.notes));
+            }
+            const items = Array.isArray(quote.items) ? quote.items : [];
+            const lines = items
+                .filter((it) => String(it.productName || '').trim())
+                .map((it) => {
+                    const vatRate = Number(it.vatRate != null ? it.vatRate : 15);
+                    const taxCode = taxCodeFromVatRate(vatRate);
+                    const rate = TAXES.find((tx) => tx.code === taxCode)?.rate ?? 0.15;
+                    const ex = Number(it.unitPrice || 0);
+                    const price = amountsTaxInclusive ? roundMoney2(ex * (1 + rate)) : ex;
+                    const rawLine = {
+                        id: nextLineId(),
+                        sku: '',
+                        item: it.productName,
+                        account: defaultAccountLabel,
+                        description: it.lineDescription || '',
+                        uom: it.unit || 'pcs',
+                        qty: Number(it.qty) || 1,
+                        price,
+                        discount: 0,
+                        discountMode: 'percent',
+                        taxCode,
+                        taxAmt: '0.00',
+                        totalFinal: '0.00',
+                        supplierProductId: it.supplierProductId || '',
+                        hasPreviousSale: false,
+                        lastSalePrice: 0,
+                        lastSaleMeta: '',
+                    };
+                    return applyLineTotals(rawLine, amountsTaxInclusive);
+                });
+            setLineItems(lines.length ? lines : []);
+            if (items.some((it) => String(it.lineDescription || '').trim())) {
+                setShowDesc(true);
+            }
+            setSelectedQuoteId(String(quote.id));
+            setSelectedQuoteNo(quote.quoteNo || '');
+            setAvailableQuotes((prev) => {
+                const id = String(quote.id);
+                const rest = (prev || []).filter((q) => String(q.id) !== id);
+                return [quote, ...rest];
+            });
+            if (quote.notes && String(quote.notes).trim()) {
+                setInternalNotes((prev) => prev || String(quote.notes).trim());
+            }
+        },
+        [amountsTaxInclusive, description],
+    );
+
+    const onQuoteComboChange = useCallback(
+        async (id) => {
+            const next = String(id || '').trim();
+            if (!next) {
+                setSelectedQuoteId('');
+                setSelectedQuoteNo('');
+                return;
+            }
+            const listed = unusedQuotes.find((q) => String(q.id) === next);
+            try {
+                let quote = listed?.items?.length ? listed : null;
+                if (!quote) {
+                    const fetched = await getSupplierSalesQuote(next);
+                    quote = fetched?.id ? fetched : fetched?.data;
+                }
+                if (!quote) return;
+                if (String(quote.status || '').toLowerCase() === 'invoiced') {
+                    setSaveError(t('err.quoteInvoiced'));
+                    return;
+                }
+                applyQuoteToInvoiceForm(quote);
+            } catch (ex) {
+                setSaveError(ex?.message || t('err.quoteInvoiced'));
+            }
+        },
+        [unusedQuotes, applyQuoteToInvoiceForm, t],
+    );
 
     const applyWorkshopPurchasePrefill = useCallback(
         (prefill) => {
@@ -1587,21 +1881,21 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 return;
             }
         } else {
-            const invalidLine = normalizedLines.find(
-                (line) => !line.productName || !(line.qty > 0) || line.unitPrice < 0,
-            );
-            if (invalidLine) {
-                setSaveError(
+        const invalidLine = normalizedLines.find(
+            (line) => !line.productName || !(line.qty > 0) || line.unitPrice < 0,
+        );
+        if (invalidLine) {
+            setSaveError(
                     t('err.lineInvalid', { n: invalidLine.index + 1 }),
-                );
-                return;
-            }
+            );
+            return;
+        }
             const insufficientStock = collectInsufficientStockLines(
                 lineItems,
                 normalizedLines,
                 inventoryItems,
             );
-            if (insufficientStock.length > 0) {
+            if (insufficientStock.length > 0 && !invoiceFromQuoteRef.current) {
                 const detail = insufficientStock
                     .map(
                         (row) =>
@@ -1614,16 +1908,20 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 if (!proceed) return;
             }
         }
+        const insufficientIds = collectInsufficientStockLines(
+            lineItems,
+            normalizedLines,
+            inventoryItems,
+        ).map((row) => row.productId);
+        const quoteLineIds = invoiceFromQuoteRef.current
+            ? lineItems
+                  .map((row) =>
+                      String(row.supplierProductId ?? row.supplierStockProductId ?? '').trim(),
+                  )
+                  .filter(Boolean)
+            : [];
         const allowInsufficientStockProductIds = !isDraftSave
-            ? [
-                  ...new Set(
-                      collectInsufficientStockLines(
-                          lineItems,
-                          normalizedLines,
-                          inventoryItems,
-                      ).map((row) => row.productId),
-                  ),
-              ]
+            ? [...new Set([...insufficientIds, ...quoteLineIds])]
             : [];
         setSavingAction(isDraftSave ? 'draft' : 'issue');
         const due =
@@ -1632,25 +1930,25 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             const row = lineItems[idx];
             const discRaw =
                 parseFloat(String(row?.discount ?? 0).replace(',', '.')) || 0;
-            const body = {
-                productName: line.productName,
-                qty: line.qty,
-                unitPrice: line.unitPrice,
-                vatRate: line.vatRate,
-                unit: line.unit,
-                ...(line.sku ? { sku: line.sku } : {}),
-                ...(String(row?.supplierStockProductId ?? '').trim()
-                    ? { supplierProductId: String(row.supplierStockProductId).trim() }
-                    : String(row?.supplierProductId ?? '').trim()
-                      ? { supplierProductId: String(row.supplierProductId).trim() }
-                      : {}),
-                ...(row?.workshopCatalogProductId
-                    ? { productId: String(row.workshopCatalogProductId) }
-                    : {}),
-                lineDiscount: discRaw,
-                lineDiscountMode:
-                    row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
-            };
+    const body = {
+        productName: line.productName,
+        qty: line.qty,
+        unitPrice: line.unitPrice,
+        vatRate: line.vatRate,
+        unit: line.unit,
+        ...(line.sku ? { sku: line.sku } : {}),
+        ...(String(row?.supplierStockProductId ?? '').trim()
+            ? { supplierProductId: String(row.supplierStockProductId).trim() }
+            : String(row?.supplierProductId ?? '').trim()
+              ? { supplierProductId: String(row.supplierProductId).trim() }
+              : {}),
+        ...(row?.workshopCatalogProductId
+            ? { productId: String(row.workshopCatalogProductId) }
+            : {}),
+        lineDiscount: discRaw,
+        lineDiscountMode:
+            row?.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
+    };    
             const desc = String(row?.description ?? '').trim();
             if (desc) {
                 body.lineDescription = desc;
@@ -1687,6 +1985,9 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             ...(allowInsufficientStockProductIds.length
                 ? { allowInsufficientStockProductIds }
                 : {}),
+            ...(invoiceModalMode === 'create' && selectedQuoteId
+                ? { quoteId: selectedQuoteId, quoteNo: selectedQuoteNo || undefined }
+                : {}),
         };
         const stockOverridePayload =
             allowInsufficientStockProductIds.length > 0
@@ -1718,11 +2019,28 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 }
             } else {
                 const prefix = isDraftSave ? 'DRAFT' : 'WPI-SI';
-                const invoiceNo =
-                    (refNo && String(refNo).trim()) ||
-                    `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+                let invoiceNo = (refNo && String(refNo).trim()) || '';
+                if (refAutoGenerate) {
+                    try {
+                        const next = await getNextSupplierSalesInvoiceReference();
+                        if (next) {
+                            invoiceNo = next;
+                            setRefNo(next);
+                        }
+                    } catch (refErr) {
+                        console.error('Failed to allocate sales invoice number:', refErr);
+                    }
+                    if (!invoiceNo) {
+                        throw new Error(
+                            'Could not generate a unique invoice number. Try Auto-generate again.',
+                        );
+                    }
+                } else if (!invoiceNo) {
+                    invoiceNo = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
+                }
                 const res = await createSupplierInvoice({
                     invoiceNo,
+                    ...(refAutoGenerate ? { autoGenerateInvoiceNo: true } : {}),
                     invoiceDate: issueDate,
                     dueDate: due,
                     ...(selectedCustomer.branchId
@@ -1757,7 +2075,10 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             await loadInvoiceList();
         } catch (err) {
             console.error('Save supplier invoice failed:', err);
-            setSaveError(err?.message || t('err.saveInvoice'));
+            const msg = String(err?.message || '');
+            setSaveError(
+                /already been invoiced/i.test(msg) ? t('err.quoteInvoiced') : (msg || t('err.saveInvoice')),
+            );
         } finally {
             setSavingAction(null);
         }
@@ -1850,7 +2171,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                             id: nextLineId(),
                             sku: String(it.sku ?? '').trim(),
                             item: it.productName,
-                            account: '4100 - Sales Revenue',
+                            account: defaultAccountLabel,
                             description: String(it.lineDescription ?? '').trim(),
                             uom: it.unit || it.supplierProduct?.warehouseUnit || 'pcs',
                             qtyWorkshop: it.qtyWorkshop ?? null,
@@ -2081,6 +2402,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     };
 
     const goRecordPaymentInHub = (inv) => {
+        if (isAwaitingWorkshopReceipt(inv)) return;
         const prefill = buildTransactionHubReceiptPrefill(inv, t);
         try {
             sessionStorage.setItem(
@@ -2090,7 +2412,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         } catch {
             /* ignore quota / private mode */
         }
-        navigate('/supplier/accounting/hub', {
+        navigate('/supplier/receipts', {
             state: { [TRANSACTION_HUB_RECEIPT_PREFILL_KEY]: prefill },
         });
     };
@@ -2107,7 +2429,11 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             const res = await listSupplierCashBankAccounts();
             const list = extractSupplierAccountsPayload(res)
                 .map((raw) => mapSupplierCashBankAccountForPickers(raw, t))
-                .filter(Boolean);
+                .filter(Boolean)
+                .filter(
+                    (a) =>
+                        String(a.raw?.status || 'active').toLowerCase() !== 'inactive',
+                );
             setMarkPaidAccounts(list);
             if (invoiceAcc) {
                 const exact = list.find(
@@ -2236,11 +2562,19 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         if (invoiceListFilter === 'unpaid') {
             rows = rows.filter((inv) => Number(inv.balance ?? 0) > 0.005);
         } else if (invoiceListFilter === 'paid') {
-            rows = rows.filter((inv) => Number(inv.balance ?? 0) <= 0.005);
+            rows = rows.filter(
+                (inv) =>
+                    Number(inv.balance ?? 0) <= 0.005 && !isAwaitingWorkshopReceipt(inv),
+            );
         } else if (invoiceListFilter === 'overdue') {
             rows = rows.filter((inv) => {
                 const due = String(inv.dueDate ?? '').slice(0, 10);
-                return Number(inv.balance ?? 0) > 0.005 && due && due < today;
+                return (
+                    Number(inv.balance ?? 0) > 0.005 &&
+                    due &&
+                    due < today &&
+                    !isAwaitingWorkshopReceipt(inv)
+                );
             });
         }
         return rows;
@@ -2288,8 +2622,8 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
 
     const commitItemPickerLineText = (openLineId) => {
         if (openLineId == null) return;
-        const text = String(itemPickerInputRef.current ?? '').trim();
-        setLineItems((prev) =>
+                const text = String(itemPickerInputRef.current ?? '').trim();
+                setLineItems((prev) =>
             prev.map((l) => {
                 if (l.id !== openLineId) return l;
                 if (!text && lineHasLinkedCatalogProduct(l)) return l;
@@ -2301,9 +2635,9 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
 
     const closeLineItemPicker = (openLineId = itemPickerLineIdRef.current) => {
         commitItemPickerLineText(openLineId);
-        setItemPickerLineId(null);
-        setItemPickerInput('');
-        setItemPickerFilter('');
+                setItemPickerLineId(null);
+                setItemPickerInput('');
+                setItemPickerFilter('');
         setItemPickerMenuOpen(false);
     };
 
@@ -2662,6 +2996,23 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         }
     }, [modalOpen]);
 
+    useEffect(() => {
+        if (!modalOpen || invoiceModalMode !== 'create') {
+            return undefined;
+        }
+        let cancelled = false;
+        listSupplierSalesQuotes()
+            .then((res) => {
+                if (!cancelled) setAvailableQuotes(quotesFromResponse(res));
+            })
+            .catch(() => {
+                if (!cancelled) setAvailableQuotes([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [modalOpen, invoiceModalMode]);
+
     /** Server catalog search — finds products outside the preloaded page (name + SKU on API). */
     useEffect(() => {
         if (!modalOpen) return undefined;
@@ -2679,7 +3030,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         const timer = setTimeout(async () => {
             try {
                 const params = {
-                    limit: SEARCH_MAX_RESULTS,
+                    limit: CATALOG_STOCK_BALANCES_LIMIT,
                     search: q,
                 };
                 const bid = selectedCustomer?.branchId
@@ -2754,6 +3105,24 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             setModalOpen(true);
             return;
         }
+        const fromQuote = location.state?.[SALES_INVOICE_FROM_QUOTE_KEY];
+        if (fromQuote && fromQuote.quoteId) {
+            navigate(location.pathname + location.search, { replace: true, state: {} });
+            setInvoiceModalMode('create');
+            setEditingInvoiceId(null);
+            resetInvoiceForm();
+            invoiceFromQuoteRef.current = true;
+            setModalOpen(true);
+            getSupplierSalesQuote(fromQuote.quoteId)
+                .then((fetched) => {
+                    const quote = fetched?.id ? fetched : fetched?.data;
+                    if (quote) applyQuoteToInvoiceForm(quote);
+                })
+                .catch((ex) => {
+                    setSaveError(ex?.message || t('err.quoteInvoiced'));
+                });
+            return;
+        }
         try {
             if (sessionStorage.getItem('supplier_open_new_sales_invoice') === '1') {
                 sessionStorage.removeItem('supplier_open_new_sales_invoice');
@@ -2786,7 +3155,15 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         } catch {
             /* ignore */
         }
-    }, [location.state, location.pathname, location.search, navigate, applyWorkshopPurchasePrefill]);
+    }, [
+        location.state,
+        location.pathname,
+        location.search,
+        navigate,
+        applyWorkshopPurchasePrefill,
+        applyQuoteToInvoiceForm,
+        t,
+    ]);
 
     useEffect(() => {
         if (!modalOpen || !inventoryInitialLoadDone) return;
@@ -2823,7 +3200,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     id: lineId,
                     sku: String(ln.sku ?? '').trim(),
                     item: nameTrim,
-                    account: '4100 - Sales Revenue',
+                    account: defaultAccountLabel,
                     description: String(ln.lineDescription ?? '').trim(),
                     uom: String(ln.unit || 'pcs').trim() || 'pcs',
                     qty: String(qty),
@@ -2950,7 +3327,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                         >
                             <Plus size={16} /> {t('btn.newInvoice')}
                         </button>
-                    </div>
+            </div>
                 </div>
                 <h2 className="mgr-si-title">{t('page.title')}</h2>
                 <p className="mgr-si-subtitle">
@@ -2974,7 +3351,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                         <option value="overdue">{t('filter.overdue')}</option>
                         <option value="paid">{t('filter.paid')}</option>
                     </select>
-                </div>
+            </div>
                 <div className="mgr-si-search-wrap">
                     <div className="mgr-si-search-input-wrap">
                         <Search size={16} className="mgr-si-search-icon" aria-hidden />
@@ -2986,16 +3363,16 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                             onChange={(e) => setInvoiceListSearch(e.target.value)}
                             aria-label={t('search.aria')}
                         />
-                    </div>
-                    <button
+                </div>
+                <button
                         type="button"
                         className="mgr-si-search-btn"
                         onClick={() => void loadInvoiceList()}
                     >
                         {t('btn.search')}
-                    </button>
-                </div>
+                </button>
             </div>
+                </div>
 
             {listError ? (
                 <div className="mgr-si-error">{listError}</div>
@@ -3010,7 +3387,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     ) : (
                         <>
                             <table className="mgr-si-table">
-                                <thead>
+                            <thead>
                                     <tr className="table-header-row">
                                         <th className="table-th">{t('th.issueDate')}</th>
                                         <th className="table-th">{t('th.dueDate')}</th>
@@ -3021,25 +3398,25 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                         <th className="table-th">{t('th.balanceDue')}</th>
                                         <th className="table-th">{t('th.status')}</th>
                                         <th className="table-th mgr-si-th-actions">{t('th.actions')}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
+                                </tr>
+                            </thead>
+                            <tbody>
                                     {!listLoading && filteredList.length === 0 ? (
                                         <tr>
                                             <td colSpan={9} className="table-cell table-empty">
-                                                <FileText
+                                            <FileText
                                                     size={36}
-                                                    style={{
-                                                        opacity: 0.25,
-                                                        margin: '0 auto 12px',
-                                                        display: 'block',
-                                                    }}
-                                                />
+                                                style={{
+                                                    opacity: 0.25,
+                                                    margin: '0 auto 12px',
+                                                    display: 'block',
+                                                }}
+                                            />
                                                 <div style={{ fontWeight: 700, marginBottom: 8 }}>
                                                     {list.length === 0
                                                         ? t('empty.noneYet')
                                                         : t('empty.noMatch')}
-                                                </div>
+                                            </div>
                                                 {list.length === 0 ? (
                                                     <>
                                                         <div
@@ -3049,27 +3426,27 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                             }}
                                                         >
                                                             {t('empty.hint')}
-                                                        </div>
-                                                        <button
-                                                            type="button"
+                                            </div>
+                                            <button
+                                                type="button"
                                                             className="mgr-si-btn-new"
-                                                            onClick={openNewInvoiceModal}
-                                                        >
+                                                onClick={openNewInvoiceModal}
+                                            >
                                                             <Plus size={15} /> {t('btn.createFirst')}
-                                                        </button>
+                                            </button>
                                                     </>
                                                 ) : null}
-                                            </td>
-                                        </tr>
-                                    ) : (
+                                        </td>
+                                    </tr>
+                                ) : (
                                         filteredList.map((inv) => {
                                             const isDraft = inv.status === 'draft';
-                                            const canMutate = inv.status === 'pending_payment';
+                                        const canMutate = inv.status === 'pending_payment';
                                             const canEdit = isDraft || canMutate;
                                             const mgrStatus = salesInvoiceMgrStatus(inv, t);
                                             const arSettle = salesInvoiceArSettlementLabel(inv, t);
                                             const refLabel = inv.invoiceNo || inv.id;
-                                            return (
+                                        return (
                                                 <tr key={inv.id} className="table-row">
                                                     <td className="table-cell mgr-si-cell-date">
                                                         {formatSalesInvoiceMgrDate(inv.date)}
@@ -3086,48 +3463,54 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         >
                                                             {refLabel}
                                                         </button>
-                                                    </td>
-                                                    <td
+                                                </td>
+                                                <td
                                                         className="table-cell mgr-si-cell-customer"
                                                         title={salesInvoiceCustomerLabel(inv)}
                                                     >
                                                         {salesInvoiceCustomerLabel(inv)}
-                                                    </td>
-                                                    <td
+                                                </td>
+                                                <td
                                                         className="table-cell mgr-si-cell-desc"
                                                         title={inv.productLabel || ''}
-                                                    >
+                                                >
                                                         {inv.productLabel && inv.productLabel !== '—'
                                                             ? inv.productLabel
                                                             : '—'}
-                                                    </td>
+                                                </td>
                                                     <td className="table-cell mgr-si-cell-amount">
                                                         {t('money.sar', { amount: salesInvoiceSarFmt(inv.amount) })}
-                                                    </td>
+                                                </td>
                                                     <td className="table-cell mgr-si-cell-balance">
-                                                        <span>{t('money.sar', { amount: salesInvoiceSarFmt(inv.balance) })}</span>
-                                                        {Number(inv.returnsTotal || 0) > 0 ? (
+                                                        <span>
+                                                            {arSettle.code === 'awaiting'
+                                                                ? '—'
+                                                                : t('money.sar', {
+                                                                      amount: salesInvoiceSarFmt(inv.balance),
+                                                                  })}
+                                                        </span>
+                                                    {Number(inv.returnsTotal || 0) > 0 ? (
                                                             <div className="mgr-si-returns-note">
                                                                 {t('returns.note', {
                                                                     amount: t('money.sar', {
                                                                         amount: salesInvoiceSarFmt(inv.returnsTotal),
                                                                     }),
                                                                 })}
-                                                            </div>
-                                                        ) : null}
-                                                        {arSettle.code !== 'paid' && canMutate ? (
-                                                            <button
-                                                                type="button"
+                                                        </div>
+                                                    ) : null}
+                                                        {arSettle.code !== 'paid' && arSettle.code !== 'awaiting' ? (
+                                                        <button
+                                                            type="button"
                                                                 className="mgr-si-record-pay"
                                                                 onClick={() => goRecordPaymentInHub(inv)}
                                                             >
-                                                                {t('btn.recordPayment')}
-                                                            </button>
-                                                        ) : null}
-                                                    </td>
+                                                                {t('btn.newReceipt')}
+                                                        </button>
+                                                    ) : null}
+                                                </td>
                                                     <td className="table-cell">
                                                         <span className={mgrStatus.cls}>{mgrStatus.label}</span>
-                                                    </td>
+                                                </td>
                                                     <td className="table-cell mgr-si-cell-actions">
                                                         <RowActionsMenu
                                                             ariaLabel={t('actions.aria', { no: inv.invoiceNo || inv.id })}
@@ -3142,6 +3525,13 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                                     disabled: salesInvoicePdfBusy,
                                                                 },
                                                                 {
+                                                                    label: t('action.newReceipt'),
+                                                                    onClick: () => goRecordPaymentInHub(inv),
+                                                                    disabled:
+                                                                        arSettle.code === 'paid' ||
+                                                                        arSettle.code === 'awaiting',
+                                                                },
+                                                                {
                                                                     label: t('action.recordReturn'),
                                                                     onClick: () => openReturnModal(inv),
                                                                 },
@@ -3152,53 +3542,53 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                                 },
                                                             ]}
                                                         />
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
-                            </table>
-                            {!listLoading && invoiceListTotal > 0 && invoiceListTotalPages > 1 ? (
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                        {!listLoading && invoiceListTotal > 0 && invoiceListTotalPages > 1 ? (
                                 <div className="mgr-si-pagination">
-                                    <button
-                                        type="button"
-                                        className="btn-portal-outline"
-                                        disabled={listLoading || invoiceListPage <= 1}
-                                        onClick={() =>
-                                            loadInvoiceList({ page: invoiceListPage - 1 })
-                                        }
-                                    >
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    disabled={listLoading || invoiceListPage <= 1}
+                                    onClick={() =>
+                                        loadInvoiceList({ page: invoiceListPage - 1 })
+                                    }
+                                >
                                         {t('btn.previous')}
-                                    </button>
+                                </button>
                                     <span className="mgr-si-pagination-meta">
                                         {t('page.meta', {
                                             page: invoiceListPage,
                                             pages: invoiceListTotalPages,
                                         })}
-                                        {invoiceListTotal > 0
+                                    {invoiceListTotal > 0
                                             ? t('page.range', {
                                                   start: invoiceRangeStart,
                                                   end: invoiceRangeEnd,
                                                   total: invoiceListTotal,
                                               })
-                                            : ''}
-                                    </span>
-                                    <button
-                                        type="button"
-                                        className="btn-portal-outline"
-                                        disabled={
-                                            listLoading ||
-                                            invoiceListPage >= invoiceListTotalPages
-                                        }
-                                        onClick={() =>
-                                            loadInvoiceList({ page: invoiceListPage + 1 })
-                                        }
-                                    >
+                                        : ''}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="btn-portal-outline"
+                                    disabled={
+                                        listLoading ||
+                                        invoiceListPage >= invoiceListTotalPages
+                                    }
+                                    onClick={() =>
+                                        loadInvoiceList({ page: invoiceListPage + 1 })
+                                    }
+                                >
                                         {t('btn.next')}
-                                    </button>
-                                </div>
-                            ) : null}
+                                </button>
+                            </div>
+                        ) : null}
                         </>
                     )}
                 </div>
@@ -3258,7 +3648,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                         </div>
                                     ) : null}
                                     {showDraftSaveButton ? (
-                                        <button
+                                    <button
                                             type="button"
                                             className="btn-pi-draft"
                                             onClick={() => void handleSaveInvoice('draft')}
@@ -3403,13 +3793,13 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                         invoiceModalMode === 'edit' ? t('label.invoiceNo') : t('label.refOptional')
                                     }
                                     placeholder={t('label.refPlaceholder')}
-                                    value={refNo}
+                                        value={refNo}
                                     onChange={setRefNo}
-                                    readOnly={invoiceModalMode === 'edit'}
+                                        readOnly={invoiceModalMode === 'edit'}
                                     autoGenerate={refAutoGenerate}
                                     onAutoGenerateChange={setRefAutoGenerate}
                                     fetchNextReference={getNextSupplierSalesInvoiceReference}
-                                />
+                                    />
                             </div>
 
                             <div className="pi-header-grid">
@@ -3552,6 +3942,25 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                         </span>
                                     ) : null}
                                 </div>
+                                {invoiceModalMode === 'create' ? (
+                                    <div className="pi-field">
+                                        <label>{t('label.salesQuote')}</label>
+                                        <SupplierAccountingCombobox
+                                            options={quoteComboOptions}
+                                            value={selectedQuoteId}
+                                            onChange={onQuoteComboChange}
+                                            placeholder={t('ph.salesQuote')}
+                                            entityLabel={t('label.salesQuote')}
+                                            emptyHint={
+                                                selectedCustomer
+                                                    ? t('empty.noQuotes')
+                                                    : t('empty.selectCustomerForQuotes')
+                                            }
+                                            menuMinWidth={320}
+                                        />
+                                        <span className="pi-sub-label">{t('label.salesQuoteHint')}</span>
+                                    </div>
+                                ) : null}
                                 <div className="pi-field">
                                     <label>{t('label.cashBank')}</label>
                                     <select
@@ -3559,7 +3968,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                         onChange={(e) => setCashAccount(e.target.value)}
                                     >
                                         <option value="">{t('opt.selectAccount')}</option>
-                                        {CASH_ACCOUNTS.map((a) => (
+                                        {invoiceCashOptions.map((a) => (
                                             <option key={a} value={a}>
                                                 {a}
                                             </option>
@@ -3916,7 +4325,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                     )
                                                 }
                                             >
-                                                {ACCOUNT_OPTIONS.map((opt) => (
+                                                {invoiceAccountOptions.map((opt) => (
                                                     <option
                                                         key={opt.code}
                                                         value={`${opt.code} - ${opt.name}`}
@@ -3924,6 +4333,16 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         {opt.code} - {opt.name}
                                                     </option>
                                                 ))}
+                                                {line.account &&
+                                                !invoiceAccountOptions.some(
+                                                    (opt) =>
+                                                        `${opt.code} - ${opt.name}` ===
+                                                        line.account,
+                                                ) ? (
+                                                    <option value={line.account}>
+                                                        {line.account}
+                                                    </option>
+                                                ) : null}
                                             </select>
                                         </div>
                                         {showDesc && (
@@ -3987,21 +4406,21 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                     ))}
                                                 </select>
                                             ) : (
-                                                <input
-                                                    type="text"
-                                                    className="pi-row-input"
+                                            <input
+                                                type="text"
+                                                className="pi-row-input"
                                                     placeholder={t('ph.uom')}
-                                                    value={line.uom ?? ''}
+                                                value={line.uom ?? ''}
                                                     ref={(el) => {
                                                         lineFieldRefs.current[`${line.id}:uom`] = el;
                                                     }}
-                                                    onChange={(e) =>
-                                                        updateLineItem(
-                                                            line.id,
-                                                            'uom',
-                                                            e.target.value,
-                                                        )
-                                                    }
+                                                onChange={(e) =>
+                                                    updateLineItem(
+                                                        line.id,
+                                                        'uom',
+                                                        e.target.value,
+                                                    )
+                                                }
                                                     onKeyDown={(e) =>
                                                         handleLineFieldTab(
                                                             e,
@@ -4326,8 +4745,8 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         <span>
                                                             {t('money.sar', {
                                                                 amount: Number(ls.price).toLocaleString(undefined, {
-                                                                    minimumFractionDigits: 2,
-                                                                    maximumFractionDigits: 4,
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 4,
                                                                 }),
                                                             })}
                                                         </span>
@@ -4634,7 +5053,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                             </div>
                                         ) : null}
                                         {summary.showInvoiceDiscountRow ? (
-                                            <div className="pi-summary-row">
+                                        <div className="pi-summary-row">
                                                 <span>{t('summary.afterDisc')}</span>
                                                 <span>{t('money.sar', { amount: summary.amountAfterDiscount })}</span>
                                             </div>
@@ -4958,10 +5377,10 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         readOnly
                                                         value={t('money.sar', {
                                                             amount: Number(
-                                                                returnInvoiceDetail.invoice.grandTotal ?? 0,
-                                                            ).toLocaleString(undefined, {
-                                                                minimumFractionDigits: 2,
-                                                                maximumFractionDigits: 2,
+                                                            returnInvoiceDetail.invoice.grandTotal ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
                                                             }),
                                                         })}
                                                     />
@@ -4972,10 +5391,10 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         readOnly
                                                         value={t('money.sar', {
                                                             amount: Number(
-                                                                returnInvoiceDetail.invoice.paid ?? 0,
-                                                            ).toLocaleString(undefined, {
-                                                                minimumFractionDigits: 2,
-                                                                maximumFractionDigits: 2,
+                                                            returnInvoiceDetail.invoice.paid ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
                                                             }),
                                                         })}
                                                     />
@@ -4986,10 +5405,10 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         readOnly
                                                         value={t('money.sar', {
                                                             amount: Number(
-                                                                returnInvoiceDetail.invoice.returnsTotal ?? 0,
-                                                            ).toLocaleString(undefined, {
-                                                                minimumFractionDigits: 2,
-                                                                maximumFractionDigits: 2,
+                                                            returnInvoiceDetail.invoice.returnsTotal ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
                                                             }),
                                                         })}
                                                     />
@@ -5003,10 +5422,10 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                         style={{ fontWeight: 700, color: '#b91c1c' }}
                                                         value={t('money.sar', {
                                                             amount: Number(
-                                                                returnInvoiceDetail.invoice.outstanding ?? 0,
-                                                            ).toLocaleString(undefined, {
-                                                                minimumFractionDigits: 2,
-                                                                maximumFractionDigits: 2,
+                                                            returnInvoiceDetail.invoice.outstanding ?? 0,
+                                                        ).toLocaleString(undefined, {
+                                                            minimumFractionDigits: 2,
+                                                            maximumFractionDigits: 2,
                                                             }),
                                                         })}
                                                     />
@@ -5050,8 +5469,8 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                                                             {r.returnDate?.slice(0, 10) || t('emdash')} ·{' '}
                                                             {t('money.sar', {
                                                                 amount: Number(r.grandTotal || 0).toLocaleString(undefined, {
-                                                                    minimumFractionDigits: 2,
-                                                                    maximumFractionDigits: 2,
+                                                                minimumFractionDigits: 2,
+                                                                maximumFractionDigits: 2,
                                                                 }),
                                                             })}
                                                         </li>

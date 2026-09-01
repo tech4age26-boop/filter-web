@@ -96,6 +96,16 @@
     color: #b71c1c;
     border-color: #ffcdd2;
 }
+.wpi-view__badge--edited {
+    background: #fef9c3;
+    color: #854d0e;
+    border-color: #fde047;
+}
+.wpi-view__edited-meta {
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.35;
+}
 
 /* ─── Invoice sheet ─── */
 .wpi-view__sheet {
@@ -1116,6 +1126,14 @@
     .wpi-view__sheet {
         box-shadow: none;
         border: none;
+    }
+
+    body:has(.quote-print-sheet) .inline-form-screen__topbar,
+    body:has(.quote-print-sheet) .quote-view-actions,
+    body:has(.quote-print-sheet) .ws-sidebar,
+    body:has(.quote-print-sheet) .ws-topbar,
+    body:has(.quote-print-sheet) .workshop-topbar {
+        display: none !important;
     }
 }
 

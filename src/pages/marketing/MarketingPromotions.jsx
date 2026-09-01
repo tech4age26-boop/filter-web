@@ -198,36 +198,36 @@ export const MarketingPromotions = () => {
         </div>
       ) : (
         <>
-          <div className="mkp-header">
-            <div>
+      <div className="mkp-header">
+        <div>
               <h1>{t('page.title')}</h1>
               <p>{t('page.subtitle')}</p>
-            </div>
+        </div>
 
             <button type="button" onClick={openNewPage} className="mkp-new-btn">
-              <Plus size={15} strokeWidth={2.5} />
+          <Plus size={15} strokeWidth={2.5} />
               {t('btn.new')}
-            </button>
-          </div>
+        </button>
+      </div>
 
-          <div className="mkp-filters">
-            <label className="mkp-search">
-              <Search size={14} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
+      <div className="mkp-filters">
+        <label className="mkp-search">
+          <Search size={14} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
                 placeholder={t('search.placeholder')}
-              />
-            </label>
+          />
+        </label>
 
-            <SelectField
-              value={statusFilter}
-              onChange={setStatusFilter}
+        <SelectField
+          value={statusFilter}
+          onChange={setStatusFilter}
               options={statusSelectOptions}
               locale={locale}
-              small
-            />
-          </div>
+          small
+        />
+      </div>
         </>
       )}
 
@@ -327,18 +327,18 @@ export const MarketingPromotions = () => {
                   <div className="mkp-card-stat">
                     <span className="mkp-card-stat-label">{t('stat.usage')}</span>
                     <strong>{formatPromotionUsageLabel(item, locale)}</strong>
-                  </div>
+                </div>
                   <div className="mkp-card-stat">
                     <span className="mkp-card-stat-label">{t('stat.discountGiven')}</span>
                     <strong>
                       {formatPromotionSar(item.totalDiscountProvided, locale)}
                     </strong>
-                  </div>
+              </div>
                   <div className="mkp-card-stat">
                     <span className="mkp-card-stat-label">{t('stat.revenue')}</span>
                     <strong>{formatPromotionSar(item.totalRevenue, locale)}</strong>
-                  </div>
-                </div>
+          </div>
+      </div>
 
                 <div className="mkp-card-activation">
                   <div className="mkp-card-activation-label">
@@ -348,10 +348,10 @@ export const MarketingPromotions = () => {
                     <span className="mkp-card-activation-hint">
                       {activationToggleHint(item, locale)}
                     </span>
-                  </div>
+              </div>
 
-                  <button
-                    type="button"
+              <button
+                type="button"
                     className={`mkp-card-activation-toggle ${
                       item.isActive ? 'on' : 'off'
                     } ${!canTogglePromotionActivation(item) ? 'disabled' : ''}`}
@@ -375,8 +375,8 @@ export const MarketingPromotions = () => {
                         ? t('activation.active')
                         : t('activation.inactive')}
                     </span>
-                  </button>
-                </div>
+              </button>
+            </div>
 
                 <div className="mkp-card-footer">
                   <button type="button" onClick={() => openDetailsPage(item.id)}>
@@ -392,20 +392,20 @@ export const MarketingPromotions = () => {
                   <button type="button" onClick={() => openEditPage(item.id)}>
                     <Edit3 size={14} />
                     {t('btn.edit')}
-                  </button>
+                    </button>
 
-                  <button
-                    type="button"
+                <button
+                  type="button"
                     className="danger"
                     onClick={() => handleDelete(item.id)}
                   >
                     <Trash2 size={14} />
                     {t('btn.delete')}
-                  </button>
-                </div>
+                </button>
               </div>
-            ))}
           </div>
+            ))}
+        </div>
         )}
       </div>
     </div>

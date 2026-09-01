@@ -82,6 +82,18 @@ import ReferrerPayoutFormPage from './pages/marketing/ReferrerPayoutFormPage';
 
 const WorkshopLayout = lazyWithRetry(() => import('./pages/WorkshopLayout'));
 const SupplierLayout = lazyWithRetry(() => import('./pages/SupplierLayout'));
+const ConnectLayout = lazyWithRetry(() => import('./pages/connect/ConnectLayout'));
+const ConnectHome = lazyWithRetry(() => import('./pages/connect/ConnectHome'));
+const ConnectAssistantPage = lazyWithRetry(() => import('./pages/connect/ConnectAssistantPage'));
+const ConnectSettingsPage = lazyWithRetry(() => import('./pages/connect/ConnectSettingsPage'));
+const ConnectKbPage = lazyWithRetry(() => import('./pages/connect/ConnectKbPage'));
+const ConnectIntelPage = lazyWithRetry(() => import('./pages/connect/ConnectIntelPage'));
+const ConnectTasksPage = lazyWithRetry(() => import('./pages/connect/ConnectTasksPage'));
+const ConnectTaskCreatePage = lazyWithRetry(() => import('./pages/connect/ConnectTaskCreatePage'));
+const ConnectTaskDetailPage = lazyWithRetry(() => import('./pages/connect/ConnectTaskDetailPage'));
+const ConnectExpensesPage = lazyWithRetry(() => import('./pages/connect/ConnectExpensesPage'));
+const ConnectExpenseDetailPage = lazyWithRetry(() => import('./pages/connect/ConnectExpenseDetailPage'));
+const ConnectBudgetPage = lazyWithRetry(() => import('./pages/connect/ConnectBudgetPage'));
 import CorporateLayout from './pages/CorporateLayout';
 import ReferralLayout from './pages/ReferralLayout';
 import TechnicianLayout from './pages/TechnicianLayout';
@@ -100,7 +112,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import IdleSessionWatcher from './components/IdleSessionWatcher';
 import { PlatformChatUnreadProvider } from './context/PlatformChatUnreadContext';
 import { firstVisibleAdminPath } from './utils/permissions';
-import AppErrorBoundary from './components/AppErrorBoundary';
+import AppErrorBoundary, { AppErrorBoundaryWithRouter } from './components/AppErrorBoundary';
 import { PageLoadingFallback } from './components/PageLoadingFallback';
 
 /** Index redirect for `/admin` — picks the first sidebar page the user can view. */
@@ -149,6 +161,7 @@ function App() {
           <PlatformChatUnreadProvider>
             <Router>
               <IdleSessionWatcher />
+              <AppErrorBoundaryWithRouter>
               <Routes>
             <Route path="/" element={<PortalHubPage />} />
 
@@ -407,6 +420,33 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* FILTER CONNECT — cross-portal command center. Open to any signed-in user;
+                data scope is enforced server-side from the session, not by this route. */}
+            <Route
+              path="/connect"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ConnectLayout />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<ConnectHome />} />
+              <Route path="ai" element={<ConnectAssistantPage />} />
+              <Route path="tasks" element={<ConnectTasksPage />} />
+              <Route path="tasks/new" element={<ConnectTaskCreatePage />} />
+              <Route path="tasks/:id" element={<ConnectTaskDetailPage />} />
+              <Route path="expenses" element={<ConnectExpensesPage />} />
+              <Route path="expenses/:id" element={<ConnectExpenseDetailPage />} />
+              <Route path="budget" element={<ConnectBudgetPage />} />
+              <Route path="kb" element={<ConnectKbPage />} />
+              <Route path="intel" element={<ConnectIntelPage />} />
+              <Route path="settings" element={<ConnectSettingsPage />} />
+              <Route path="assistant" element={<Navigate to="/connect/ai" replace />} />
+              <Route path="*" element={<Navigate to="/connect" replace />} />
+            </Route>
+
             <Route path="/locker/login" element={<PortalLoginPage />} />
             <Route
               path="/locker/*"
@@ -476,6 +516,7 @@ function App() {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+              </AppErrorBoundaryWithRouter>
         </Router>
         </PlatformChatUnreadProvider>
       </MarketingProvider>

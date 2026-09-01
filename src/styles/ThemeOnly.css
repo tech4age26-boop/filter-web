@@ -494,6 +494,13 @@
     text-transform: capitalize;
 }
 
+.supplier-portal .mgr-si-status--awaiting {
+    background: #0369a1 !important;
+    color: #ffffff !important;
+    border: 1px solid #0369a1 !important;
+    text-transform: capitalize;
+}
+
 .supplier-portal .mgr-si-status--draft {
     background: #4B5563 !important;
     color: #ffffff !important;

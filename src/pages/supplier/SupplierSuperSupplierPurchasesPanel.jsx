@@ -292,18 +292,29 @@ export default function SupplierSuperSupplierPurchasesPanel({
         );
     };
 
-    const statusTone = (s) => {
+    const statusTone = (s, lastEditedAt) => {
         const x = (s || '').toLowerCase();
         if (x === 'cancelled') return 'ws-badge--red';
         if (x === 'draft') return 'ws-badge--yellow';
+        if (lastEditedAt) return 'ws-badge--yellow';
         return 'ws-badge--green';
     };
 
-    const statusLabel = (s) => {
+    const statusLabel = (s, lastEditedAt) => {
+        const x = String(s || '').toLowerCase();
+        if (x === 'cancelled') return s;
+        if (x === 'draft') return s;
+        if (lastEditedAt || x === 'edited') return t('sspPanel.status.edited');
         if (s == null || s === '') return t('sspPanel.status.posted');
-        const x = String(s).toLowerCase();
         if (x === 'posted') return t('sspPanel.status.posted');
         return s;
+    };
+
+    const formatEditedWhen = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return String(iso);
+        return d.toLocaleString();
     };
 
     const em = t('emdash');
@@ -516,9 +527,24 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                         </strong>
                                     </td>
                                     <td>
-                                        <span className={`ws-badge ${statusTone(r.status)}`}>
-                                            {statusLabel(r.status)}
+                                        <span className={`ws-badge ${statusTone(r.status, r.lastEditedAt)}`}>
+                                            {statusLabel(r.status, r.lastEditedAt)}
                                         </span>
+                                        {r.lastEditedAt ? (
+                                            <div
+                                                style={{
+                                                    marginTop: 4,
+                                                    fontSize: '0.6875rem',
+                                                    color: 'var(--color-text-muted)',
+                                                    lineHeight: 1.35,
+                                                }}
+                                            >
+                                                {t('sspPanel.edited.meta', {
+                                                    when: formatEditedWhen(r.lastEditedAt),
+                                                    user: r.lastEditedByName || t('emdash'),
+                                                })}
+                                            </div>
+                                        ) : null}
                                     </td>
                                     <td>
                                         <RowActionsMenu

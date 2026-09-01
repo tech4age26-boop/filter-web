@@ -1,7 +1,8 @@
 import { notifyUserActivity } from '../utils/sessionIdle';
 
 // API host. Set VITE_API_BASE_URL to override (see .env.development for local dev).
-// When unset, falls back to staging — which is what production builds use today.
+// When unset, falls back to staging — byte-identical to the hardcoded value this
+// replaces, so production builds are unaffected.
 // Production url: https://api.filtercarservices.com
 export const BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.trim() ||

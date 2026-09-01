@@ -19,14 +19,24 @@ export default function InvoiceRefField({
 }) {
     const [loading, setLoading] = useState(false);
 
+    const [refError, setRefError] = useState('');
+
     const applyNextReference = useCallback(async () => {
         if (!fetchNextReference) return;
         setLoading(true);
+        setRefError('');
         try {
             const ref = await fetchNextReference();
-            if (ref) onChange(ref);
+            if (ref) {
+                onChange(ref);
+            } else {
+                setRefError('Could not generate the next invoice number.');
+            }
         } catch (err) {
             console.error('Failed to fetch next invoice reference:', err);
+            setRefError(
+                err?.message || 'Could not generate the next invoice number.',
+            );
         } finally {
             setLoading(false);
         }
@@ -84,6 +94,9 @@ export default function InvoiceRefField({
                         />
                         {loading ? generatingLabel : autoGenerateLabel}
                     </label>
+                ) : null}
+                {refError ? (
+                    <span style={{ fontSize: '0.75rem', color: '#b91c1c' }}>{refError}</span>
                 ) : null}
             </div>
         </div>

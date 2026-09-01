@@ -5,6 +5,9 @@ import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { useAuth } from '../../context/AuthContext';
 import { wpT } from '../../utils/workshopPurchasesI18n';
+import { waT } from '../../utils/workshopApprovalsI18n';
+import { apiFetch } from '../../services/api';
+import { buildReceivedQtyByInvoiceItemIdPayload } from '../../utils/receivedQtyPayload';
 
 const PURCHASES_TABS = [
     { id: 'invoices',      labelKey: 'tab.invoices',     permission: 'workshop.purchases.invoices.view' },
@@ -509,10 +512,32 @@ function mapWorkshopPurchaseInvoiceForViewDetail(row) {
         notes: row.notes ?? '',
         description: row.description ?? '',
         items: items.map((it) => {
-            const qty = Number(it.quantity ?? it.qty ?? 0);
-            const unitEx = Number(
+            const billedQtyRaw = it.billedQty ?? it.billed_qty;
+            const billedQty =
+                billedQtyRaw != null && Number.isFinite(Number(billedQtyRaw))
+                    ? Number(billedQtyRaw)
+                    : null;
+            const billedUomRaw = String(it.billedUom ?? it.billed_uom ?? '').trim();
+            const qty = billedQty != null ? billedQty : Number(it.quantity ?? it.qty ?? 0);
+            const uom =
+                billedUomRaw ||
+                String(it.uom ?? it.unit ?? 'piece').trim() ||
+                'piece';
+            const lineTotalEx = Number(
+                it.lineTotal ?? it.line_total ?? 0,
+            );
+            let unitEx = Number(
                 it.unitPriceExVat ?? it.unit_price_ex_vat ?? it.unitPrice ?? it.unit_price ?? 0,
             );
+            if (
+                billedQty != null &&
+                billedQty > 0 &&
+                Number.isFinite(lineTotalEx) &&
+                lineTotalEx > 0 &&
+                Math.abs(qty * unitEx - lineTotalEx) > 0.05
+            ) {
+                unitEx = lineTotalEx / billedQty;
+            }
             const taxAmt = Number(it.taxAmount ?? it.tax_amount ?? 0);
             const lineTotalIncl = Number(it.total ?? it.lineTotalInclVat ?? it.line_total_incl_vat ?? 0);
             const taxCode = String(it.taxCode ?? it.tax_code ?? TAX_LABEL).trim() || TAX_LABEL;
@@ -539,10 +564,12 @@ function mapWorkshopPurchaseInvoiceForViewDetail(row) {
                 arabicName: productNameArabic,
                 qty,
                 quantity: qty,
+                billedQty: billedQty,
+                billedUom: billedUomRaw || uom,
                 qtyWorkshop: wsQty != null ? Number(wsQty) : null,
                 workshopUnit: wsUnit,
-                unit: String(it.uom ?? it.unit ?? 'piece') || 'piece',
-                uom: String(it.uom ?? it.unit ?? 'piece') || 'piece',
+                unit: uom,
+                uom,
                 unitPrice: unitEx,
                 unit_price: unitEx,
                 unitPriceExVat: unitEx,
@@ -702,6 +729,14 @@ function formatViewInvoiceDiscount(raw) {
     return '—';
 }
 
+function pendingSiId(inv) {
+    if (!inv || inv.invoiceKind === 'local' || inv._invoiceKind === 'local') return '';
+    if (String(inv.status || '').toLowerCase() !== 'pending') return '';
+    if (inv.stock_updated) return '';
+    const sid = inv.supplier_invoice_id ?? inv.supplierInvoiceId;
+    return sid != null && String(sid).trim() !== '' ? String(sid) : '';
+}
+
 export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [], locale: localeProp }) {
     const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
     const t = useCallback((key, vars) => wpT(locale, key, vars), [locale]);
@@ -777,6 +812,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [editingDraftLoadingId, setEditingDraftLoadingId] = useState(null);
     const [viewModalOpen, setViewModalOpen] = useState(false);
     const [viewInvoiceRow, setViewInvoiceRow] = useState(null);
+    const [siApproveModal, setSiApproveModal] = useState(null);
+    const [siCriticalStock, setSiCriticalStock] = useState({});
+    const [siReceivedQty, setSiReceivedQty] = useState({});
+    const [siActionLoading, setSiActionLoading] = useState('');
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
     const [viewInvoiceError, setViewInvoiceError] = useState('');
     /** Branch that receives stock for this invoice (modal); independent of sidebar when user picks another branch. */
@@ -991,7 +1030,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             const branchParams = branchScopeParams(listScope);
             const [res, localRes] = await Promise.all([
                 listWorkshopSupplierPurchaseInvoices({
-                    limit: 100,
+                    limit: 300,
                     offset: 0,
                     ...branchParams,
                 }),
@@ -1035,6 +1074,87 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         clearDraftEditSession();
     }, [clearDraftEditSession]);
 
+    const openSiApproveForInvoice = useCallback(async (inv) => {
+        const sid = pendingSiId(inv);
+        if (!sid) return;
+        setSiActionLoading(`preview-${sid}`);
+        setInvoicesError('');
+        try {
+            const preview = await apiFetch(
+                `/workshop-staff/supplier-sales-invoices/${encodeURIComponent(sid)}/approval-preview`,
+            );
+            const init = {};
+            (preview.newProducts || []).forEach((p) => {
+                init[String(p.productId)] = '0';
+            });
+            setSiCriticalStock(init);
+            setSiReceivedQty({});
+            setSiApproveModal({ row: inv, preview, supplierInvoiceId: sid });
+        } catch (error) {
+            setInvoicesError(error.message || t('err.approveSupplierInvoice'));
+        } finally {
+            setSiActionLoading('');
+        }
+    }, [t]);
+
+    const submitSiApproveFromPurchases = useCallback(async () => {
+        if (!siApproveModal) return;
+        const sid = siApproveModal.supplierInvoiceId;
+        const criticalStockByProductId = {};
+        const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+            ? siApproveModal.preview.newProducts
+            : [];
+        const keys =
+            newProds.length > 0
+                ? newProds.map((p) => String(p.productId))
+                : Object.keys(siCriticalStock);
+        for (const pid of keys) {
+            const raw = siCriticalStock[pid] ?? '0';
+            const n = parseFloat(String(raw).replace(',', '.'));
+            if (Number.isFinite(n) && n >= 0) {
+                criticalStockByProductId[pid] = n;
+            }
+        }
+        setSiActionLoading(`approve-${sid}`);
+        setInvoicesError('');
+        try {
+            const receiveLines = Array.isArray(siApproveModal.preview?.receiveLines)
+                ? siApproveModal.preview.receiveLines
+                : [];
+            await apiFetch(
+                `/workshop-staff/supplier-sales-invoices/${encodeURIComponent(sid)}/approve`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        criticalStockByProductId,
+                        receivedQtyByInvoiceItemId: buildReceivedQtyByInvoiceItemIdPayload(
+                            receiveLines,
+                            siReceivedQty,
+                        ),
+                    }),
+                },
+            );
+            setSiApproveModal(null);
+            setSiCriticalStock({});
+            setSiReceivedQty({});
+            closeViewInvoiceModal();
+            await loadPurchaseInvoices();
+            window.dispatchEvent(new Event('workshop-approvals-updated'));
+            window.dispatchEvent(
+                new CustomEvent('workshop-inventory-updated', {
+                    detail: {
+                        branchId: siApproveModal.row?.branch_id ?? siApproveModal.row?.branchId ?? null,
+                        source: 'approve_supplier_invoice',
+                    },
+                }),
+            );
+        } catch (error) {
+            setInvoicesError(error.message || t('err.approveSupplierInvoice'));
+        } finally {
+            setSiActionLoading('');
+        }
+    }, [siApproveModal, siCriticalStock, siReceivedQty, t, loadPurchaseInvoices, closeViewInvoiceModal]);
 
     const openViewInvoiceModal = useCallback(async (listRow) => {
         if (!listRow?.id) return;
@@ -3251,6 +3371,136 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         );
     }
 
+    if (siApproveModal) {
+        const at = (key, vars) => waT(locale, key, vars);
+        const newProds = Array.isArray(siApproveModal.preview?.newProducts)
+            ? siApproveModal.preview.newProducts
+            : [];
+        const unresolved = Array.isArray(siApproveModal.preview?.unresolvedLineNames)
+            ? siApproveModal.preview.unresolvedLineNames
+            : [];
+        const receiveLines = Array.isArray(siApproveModal.preview?.receiveLines)
+            ? siApproveModal.preview.receiveLines
+            : [];
+        const branchNm = siApproveModal.preview?.branchName || at('fallback.thisBranch');
+        return (
+            <WorkshopSubScreen
+                title={at('siApprove.title')}
+                subtitle={at('siApprove.subtitle')}
+                backLabel={at('siApprove.back')}
+                onBack={() => {
+                    if (siActionLoading) return;
+                    setSiApproveModal(null);
+                }}
+                backDisabled={Boolean(siActionLoading)}
+                size="wide"
+                footer={(
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', width: '100%' }}>
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => setSiApproveModal(null)}
+                            disabled={Boolean(siActionLoading)}
+                        >
+                            {t('btn.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn-submit"
+                            onClick={() => void submitSiApproveFromPurchases()}
+                            disabled={Boolean(siActionLoading)}
+                        >
+                            {String(siActionLoading).startsWith('approve-')
+                                ? at('btn.approving')
+                                : at('btn.okApproveInventory')}
+                        </button>
+                    </div>
+                )}
+            >
+                <div className="ws-section" style={{ padding: 20 }}>
+                    {invoicesError ? (
+                        <p style={{ margin: '0 0 12px', color: '#B91C1C', fontSize: '0.875rem' }}>{invoicesError}</p>
+                    ) : null}
+                    <div style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5 }}>
+                        <p style={{ margin: '0 0 10px' }}>
+                            {newProds.length > 0
+                                ? at('siApprove.newProductsIntro', { branch: branchNm })
+                                : unresolved.length > 0
+                                  ? at('siApprove.unresolvedIntro')
+                                  : at('siApprove.reviewIntro')}
+                        </p>
+                        {unresolved.length > 0 ? (
+                            <div
+                                style={{
+                                    padding: 10,
+                                    borderRadius: 8,
+                                    background: '#FFFBEB',
+                                    border: '1px solid #FDE68A',
+                                    color: '#92400E',
+                                    marginBottom: 12,
+                                    fontSize: '0.8125rem',
+                                }}
+                            >
+                                {at('siApprove.unmatched', { names: unresolved.join(', ') })}
+                            </div>
+                        ) : null}
+                        {receiveLines.length > 0 ? (
+                            <div style={{ marginTop: 16, overflowX: 'auto' }}>
+                                <p style={{ margin: '0 0 8px', fontSize: '0.8125rem', fontWeight: 700 }}>
+                                    {at('siApprove.receiveTitle')}
+                                </p>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                                    <thead>
+                                        <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+                                            <th style={{ padding: '8px 6px' }}>{at('siApprove.th.product')}</th>
+                                            <th style={{ padding: '8px 6px', textAlign: 'right' }}>{at('siApprove.th.receivedQty')}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {receiveLines.map((ln) => {
+                                            const itemId = String(ln.invoiceItemId ?? '');
+                                            const wsUnit = ln.workshopReceiveUnit ?? at('unit.liter');
+                                            return (
+                                                <tr key={itemId || ln.itemName} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                    <td style={{ padding: '8px 6px' }}>{ln.itemName}</td>
+                                                    <td style={{ padding: '8px 6px', textAlign: 'right' }}>
+                                                        {itemId ? (
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                placeholder={`${ln.workshopReceiveQty} ${wsUnit}`}
+                                                                value={siReceivedQty[itemId] ?? ''}
+                                                                onChange={(e) =>
+                                                                    setSiReceivedQty((prev) => ({
+                                                                        ...prev,
+                                                                        [itemId]: e.target.value,
+                                                                    }))
+                                                                }
+                                                                style={{
+                                                                    width: 100,
+                                                                    padding: '6px 8px',
+                                                                    borderRadius: 6,
+                                                                    border: '1px solid #cbd5e1',
+                                                                    textAlign: 'right',
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            t('emdash')
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            </WorkshopSubScreen>
+        );
+    }
+
     if (viewModalOpen && viewInvoiceRow) {
         return (
             <WorkshopSubScreen
@@ -3267,6 +3517,17 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             <button type="button" className="btn-pi-cancel" onClick={closeViewInvoiceModal}>
                                 {t('btn.close')}
                             </button>
+                            {pendingSiId(viewInvoiceRow) ? (
+                                <button
+                                    type="button"
+                                    className="btn-submit"
+                                    style={{ marginLeft: 8 }}
+                                    disabled={Boolean(siActionLoading)}
+                                    onClick={() => void openSiApproveForInvoice(viewInvoiceRow)}
+                                >
+                                    {t('btn.approve')}
+                                </button>
+                            ) : null}
                         </div>
                     </div>
                 )}
@@ -3867,6 +4128,21 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         {t('btn.view')}
                                                     </button>
                                                 )}
+                                                {pendingSiId(inv) ? (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal"
+                                                        style={{ padding: '4px 10px', fontSize: '0.75rem', background: '#16A34A', color: '#fff', border: 'none' }}
+                                                        disabled={Boolean(siActionLoading)}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            void openSiApproveForInvoice(inv);
+                                                        }}
+                                                    >
+                                                        {t('btn.approve')}
+                                                    </button>
+                                                ) : null}
                                             </div>
                                         </td>
                                     </tr>
