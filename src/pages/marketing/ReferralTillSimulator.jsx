@@ -27,7 +27,7 @@ import {
  * screen implies POS attribution is finished, which it is not.
  */
 export default function ReferralTillSimulator({ formatSar }) {
-  const [form, setForm] = useState({ referralCode: '', vehiclePlate: '', amount: '' });
+  const [form, setForm] = useState({ referralCode: '', vehiclePlate: '', amount: '', mobileLast4: '' });
   const [checking, setChecking] = useState(false);
   const [recording, setRecording] = useState(false);
   const [check, setCheck] = useState(null);
@@ -63,6 +63,7 @@ export default function ReferralTillSimulator({ formatSar }) {
     referralCode: form.referralCode.trim(),
     vehiclePlate: form.vehiclePlate.trim(),
     amount: form.amount === '' ? undefined : Number(form.amount),
+    mobileLast4: form.mobileLast4.trim() || undefined,
   });
 
   const runCheck = async () => {
@@ -92,7 +93,7 @@ export default function ReferralTillSimulator({ formatSar }) {
       } else {
         setResult(res);
         setCheck(null);
-        setForm({ referralCode: '', vehiclePlate: '', amount: '' });
+        setForm({ referralCode: '', vehiclePlate: '', amount: '', mobileLast4: '' });
         await loadRecent();
       }
     } catch (e) {
@@ -135,6 +136,9 @@ export default function ReferralTillSimulator({ formatSar }) {
           accept referral codes yet — that needs the commission rules agreed first,
           because it writes into live sales and accounting. This calls the same
           endpoints the POS will call, so the full chain can be demonstrated safely.
+          Both code kinds work here: a shared referrer code, or a personal code
+          issued to one customer (which needs their mobile digits and locks to the
+          first car that uses it).
         </span>
       </div>
 
@@ -164,6 +168,18 @@ export default function ReferralTillSimulator({ formatSar }) {
               placeholder="e.g. 1234 ABJ"
               value={form.vehiclePlate}
               onChange={set('vehiclePlate')}
+              disabled={recording}
+            />
+          </div>
+          <div>
+            <label className="mk-ref-form-label">Customer Mobile (last 4)</label>
+            <input
+              className="mk-ref-input"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="e.g. 4567"
+              value={form.mobileLast4}
+              onChange={set('mobileLast4')}
               disabled={recording}
             />
           </div>
@@ -285,6 +301,12 @@ export default function ReferralTillSimulator({ formatSar }) {
                   A pending commission was created and {result.redemption?.referrerName} was
                   notified — check their wallet and notifications.
                 </p>
+                {result.boundToPlate && (
+                  <p style={{ margin: '0.3rem 0 0', color: '#15803d', fontWeight: 600 }}>
+                    This personal code is now locked to {result.boundToPlate}. No other
+                    vehicle can use it.
+                  </p>
+                )}
               </div>
             </div>
           </div>

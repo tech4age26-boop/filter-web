@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Search, Pencil, XCircle, History, Check, X, AlertCircle } from 'lucide-react';
+import { Search, Pencil, XCircle, History, Check, X, AlertCircle, Copy, Lock } from 'lucide-react';
 import {
   referrerGetMySubmissions,
   referrerGetSubmissionRedemptions,
@@ -36,6 +36,17 @@ export default function MyReferrals() {
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState('');
+  const [copiedCode, setCopiedCode] = useState('');
+
+  const copyCode = async (code) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(''), 2000);
+    } catch {
+      // Clipboard can be blocked; the code is on screen to copy by hand.
+    }
+  };
 
   const startEdit = (ref) => {
     setRowError('');
@@ -221,9 +232,9 @@ export default function MyReferrals() {
                   <thead>
                     <tr>
                       <th>Customer</th>
+                      <th>Their Code</th>
                       <th>Mobile</th>
                       <th>Vehicle Plate</th>
-                      <th>City</th>
                       <th>Status</th>
                       <th>Submitted</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
@@ -241,13 +252,49 @@ export default function MyReferrals() {
                             <td style={{ fontWeight: 600 }}>
                               {editing ? cellInput('customerName', 'Customer') : ref.customerName || '—'}
                             </td>
+                            <td>
+                              {/* The code belongs to this one customer. Uses left and
+                                  the locked vehicle are shown, because both decide
+                                  whether it will still work. */}
+                              {ref.code ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                  <button
+                                    onClick={() => copyCode(ref.code)}
+                                    title="Copy code"
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      padding: 0,
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.35rem',
+                                      fontWeight: 700,
+                                      fontFamily: 'monospace',
+                                      color: 'var(--color-primary)',
+                                      fontSize: '0.85rem',
+                                    }}
+                                  >
+                                    {ref.code}
+                                    {copiedCode === ref.code ? <Check size={13} /> : <Copy size={13} />}
+                                  </button>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--color-text-faint)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                    {ref.boundPlate && <Lock size={11} />}
+                                    {ref.boundPlate
+                                      ? `locked to ${ref.boundPlate}`
+                                      : `${ref.codeUsesLeft} use${ref.codeUsesLeft === 1 ? '' : 's'} left`}
+                                  </span>
+                                </div>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
                             <td style={{ color: 'var(--color-text-muted)' }}>
                               {editing ? cellInput('mobile', 'Mobile') : ref.mobile || '—'}
                             </td>
                             <td style={{ fontWeight: 600 }}>
                               {editing ? cellInput('vehiclePlate', 'Plate') : ref.vehiclePlate || '—'}
                             </td>
-                            <td>{editing ? cellInput('city', 'City') : ref.city || '—'}</td>
                             <td>
                               <span className={`rf-badge rf-badge-${status}`}>
                                 {STATUS_LABEL[status] || ref.status}
