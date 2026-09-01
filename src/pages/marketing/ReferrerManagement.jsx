@@ -22,6 +22,7 @@ import {
   Scale,
   RefreshCw,
   Trash2,
+  ScanLine,
 } from 'lucide-react';
 import {
   marketingApprovePayoutRequest,
@@ -39,6 +40,7 @@ import {
   mktRefStatusLabel,
   mktRefT,
 } from '../../utils/marketingReferrersI18n';
+import ReferralTillSimulator from './ReferralTillSimulator';
 import { marketingSectionPath } from './marketingRouteUtils';
 import './MarketingUniversal.css';
 
@@ -55,6 +57,7 @@ const TAB_IDS = [
   { id: 'tracker', icon: ListChecks, labelKey: 'tab.tracker' },
   { id: 'rules', icon: SlidersHorizontal, labelKey: 'tab.rules' },
   { id: 'payout', icon: CreditCard, labelKey: 'tab.payout' },
+  { id: 'redeem', icon: ScanLine, labelKey: 'tab.redeem' },
   { id: 'journals', icon: BookOpen, labelKey: 'tab.journals' },
 ];
 
@@ -1055,6 +1058,7 @@ export const ReferrerManagement = () => {
       {activeTab === 'tracker' && renderTracker()}
       {activeTab === 'rules' && renderRules()}
       {activeTab === 'payout' && renderPayout()}
+      {activeTab === 'redeem' && <ReferralTillSimulator formatSar={formatSar} />}
       {activeTab === 'journals' && renderJournals()}
     </div>
   );

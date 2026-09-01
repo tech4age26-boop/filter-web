@@ -316,6 +316,24 @@ export const marketingPayPayoutRequest = (id, notes) =>
     body: JSON.stringify({ notes }),
   });
 
+/* ---- Referral code redemption (till simulator) ---- */
+
+export const marketingValidateRedemption = (body) =>
+  apiFetch('/referral-redemptions/validate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingRecordRedemption = (body) =>
+  apiFetch('/referral-redemptions', { method: 'POST', body: JSON.stringify(body) });
+
+export const marketingListRedemptions = (params = {}) => {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+  ).toString();
+  return apiFetch(`/referral-redemptions${qs ? `?${qs}` : ''}`);
+};
+
 /* ---- Referrer portal access ---- */
 
 /** Attach an existing referrer login, or pass a password to create one. */
