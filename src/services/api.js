@@ -215,7 +215,7 @@ export async function apiFetch(path, options = {}) {
     } catch (networkErr) {
       const hint =
         networkErr?.message === "Failed to fetch" ||
-        networkErr?.name === "TypeError"
+          networkErr?.name === "TypeError"
           ? `Cannot reach API at ${BASE_URL}. Start the backend (filter_backend → npm run start:dev) and retry.`
           : networkErr?.message || "Network request failed";
       console.error("[apiFetch] Network error", { path, method, url, error: networkErr });

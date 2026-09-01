@@ -17,6 +17,13 @@ import {
     todayISO,
 } from '../../admin/saAccountingDateRange';
 import {
+    fmtRiyadhRangeLabel,
+    isLedgerDateTimeBound,
+    toLedgerApiDateParam,
+    toLedgerFilterControlValue,
+} from '../../../utils/riyadhBusinessRange';
+import { loadWorkshopAdminDatetimeRange } from '../workshopAdminDatetimeRange';
+import {
     isWorkshopLockerExpensesLedgerAccount,
     isWorkshopPettyCashExpenseLedgerAccount,
     isWorkshopPettyCashFundLedgerAccount,
@@ -25,6 +32,46 @@ import {
 import { accT } from '../../../utils/accountingI18n';
 import { LOCKER_EXPENSE_CATEGORIES } from '../../locker/lockerExpenseCategories';
 import '../../../styles/admin/AccountingPage.css';
+
+/**
+ * Prefer the exact ISO window from P&L (`startDate`/`endDate`), then datetime
+ * in `dateFrom`/`dateTo`, then the last applied workshop datetime range.
+ * Date-only URL params must not expand a 15-minute P&L proof into a full day.
+ */
+function resolveLedgerFilterRange(urlDateFrom, urlDateTo, urlStartDate, urlEndDate) {
+    if (urlStartDate && urlEndDate) {
+        return {
+            dateFrom: toLedgerFilterControlValue(urlStartDate) || urlStartDate,
+            dateTo: toLedgerFilterControlValue(urlEndDate) || urlEndDate,
+            apiFrom: urlStartDate,
+            apiTo: urlEndDate,
+        };
+    }
+    const from = toLedgerFilterControlValue(urlDateFrom);
+    const to = toLedgerFilterControlValue(urlDateTo);
+    if (isLedgerDateTimeBound(from) && isLedgerDateTimeBound(to)) {
+        return { dateFrom: from, dateTo: to };
+    }
+    const shared = loadWorkshopAdminDatetimeRange();
+    if (shared?.dateFrom && shared?.dateTo) {
+        const fromDay = String(from || urlDateFrom || '').slice(0, 10);
+        const toDay = String(to || urlDateTo || '').slice(0, 10);
+        const sharedFromDay = shared.dateFrom.slice(0, 10);
+        const sharedToDay = shared.dateTo.slice(0, 10);
+        const urlIsDateOnly = !isLedgerDateTimeBound(from) && !isLedgerDateTimeBound(to);
+        if (
+            !fromDay
+            || !toDay
+            || (urlIsDateOnly
+                && fromDay === sharedFromDay
+                && (toDay === sharedToDay || toDay === sharedFromDay))
+        ) {
+            return { dateFrom: shared.dateFrom, dateTo: shared.dateTo };
+        }
+    }
+    if (from || to) return { dateFrom: from, dateTo: to };
+    return { dateFrom: '', dateTo: '' };
+}
 
 /**
  * Workshop admin — full-page ledger for petty cash fund [1280], employee petty
@@ -53,14 +100,19 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     const fallbackType = searchParams.get('type') || '';
     const urlDateFrom = searchParams.get('dateFrom') || '';
     const urlDateTo = searchParams.get('dateTo') || '';
+    const urlStartDate = searchParams.get('startDate') || '';
+    const urlEndDate = searchParams.get('endDate') || '';
+    const urlProof = searchParams.get('proof') || '';
     const urlBranchId = searchParams.get('branchId') || '';
 
-    const [dateFrom, setDateFrom] = useState(
-        () => urlDateFrom || startOfMonthISO(),
-    );
-    const [dateTo, setDateTo] = useState(
-        () => urlDateTo || todayISO(),
-    );
+    const [dateFrom, setDateFrom] = useState(() => {
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo, urlStartDate, urlEndDate);
+        return r.dateFrom || startOfMonthISO();
+    });
+    const [dateTo, setDateTo] = useState(() => {
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo, urlStartDate, urlEndDate);
+        return r.dateTo || todayISO();
+    });
     const [branchFilter, setBranchFilter] = useState(urlBranchId);
     const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('');
     const [expenseCategoryInput, setExpenseCategoryInput] = useState('');
@@ -73,14 +125,20 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
     const loadSeqRef = useRef(0);
 
     const entityLabel = workshop?.name || user?.workshopName || t('stmt.entity.workshop');
+    const isPlProof = urlProof === 'pl';
+    const useDateTimeFilters =
+        isPlProof
+        || isLedgerDateTimeBound(dateFrom)
+        || isLedgerDateTimeBound(dateTo);
 
     useEffect(() => {
-        if (urlDateFrom) setDateFrom(urlDateFrom);
-        if (urlDateTo) setDateTo(urlDateTo);
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo, urlStartDate, urlEndDate);
+        if (r.dateFrom) setDateFrom(r.dateFrom);
+        if (r.dateTo) setDateTo(r.dateTo);
         if (urlBranchId !== undefined && urlBranchId !== null) {
             setBranchFilter(urlBranchId);
         }
-    }, [accountId, urlDateFrom, urlDateTo, urlBranchId]);
+    }, [accountId, urlDateFrom, urlDateTo, urlStartDate, urlEndDate, urlBranchId]);
 
     const load = useCallback(async (opts = {}) => {
         if (!accountId) {
@@ -107,9 +165,14 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
             opts.dateFrom !== undefined ? opts.dateFrom : dateFrom;
         const dateToParam =
             opts.dateTo !== undefined ? opts.dateTo : dateTo;
+        const apiFrom = opts.apiFrom || toLedgerApiDateParam(dateFromParam);
+        const apiTo = opts.apiTo || toLedgerApiDateParam(dateToParam);
         const params = {
-            dateFrom: dateFromParam || undefined,
-            dateTo: dateToParam || undefined,
+            dateFrom: apiFrom,
+            dateTo: apiTo,
+            ...(apiFrom && isLedgerDateTimeBound(String(apiFrom)) ? { startDate: apiFrom } : {}),
+            ...(apiTo && isLedgerDateTimeBound(String(apiTo)) ? { endDate: apiTo } : {}),
+            ...(isPlProof ? { selfOnly: 'true' } : {}),
             limit: 10000,
             ...(!topupsOnlyParam && categoryParam ? { expenseCategory: categoryParam } : {}),
             ...(walletUserParam ? { walletUserId: walletUserParam } : {}),
@@ -134,23 +197,29 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         } finally {
             if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter, t]);
+    }, [accountId, dateFrom, dateTo, expenseCategoryFilter, walletUserFilter, topupsOnly, branchFilter, isPlProof, t]);
 
     useEffect(() => {
-        // Load on account change, and when deep-linked date/branch query changes
-        // (e.g. P&L line → ledger proof for the same period).
+        const r = resolveLedgerFilterRange(urlDateFrom, urlDateTo, urlStartDate, urlEndDate);
         void load({
-            dateFrom: urlDateFrom || dateFrom,
-            dateTo: urlDateTo || dateTo,
+            dateFrom: r.dateFrom || dateFrom,
+            dateTo: r.dateTo || dateTo,
+            apiFrom: r.apiFrom,
+            apiTo: r.apiTo,
             branchId: urlBranchId,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [accountId, urlDateFrom, urlDateTo, urlBranchId]);
+    }, [accountId, urlDateFrom, urlDateTo, urlStartDate, urlEndDate, urlBranchId, urlProof]);
 
     async function fetchForExport() {
+        const apiFrom = toLedgerApiDateParam(dateFrom);
+        const apiTo = toLedgerApiDateParam(dateTo);
         const res = await accountsApi.getAccountLedger(accountId, {
-            dateFrom: dateFrom || undefined,
-            dateTo: dateTo || undefined,
+            dateFrom: apiFrom,
+            dateTo: apiTo,
+            ...(apiFrom && isLedgerDateTimeBound(String(apiFrom)) ? { startDate: apiFrom } : {}),
+            ...(apiTo && isLedgerDateTimeBound(String(apiTo)) ? { endDate: apiTo } : {}),
+            ...(isPlProof ? { selfOnly: 'true' } : {}),
             limit: 10000,
             ...(expenseCategoryFilter && !topupsOnly
                 ? { expenseCategory: expenseCategoryFilter }
@@ -285,7 +354,9 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         isWorkshopPettyCashFundLedger
         || isWorkshopPettyCashExpenseLedger
         || isWorkshopLockerExpensesLedger;
-    const scopeNote = isWorkshopLockerExpensesLedger
+    const scopeNote = isPlProof
+        ? `P&L proof — only journals in this exact time window (Total Debit should match the P&L line). ${entityLabel}`
+        : isWorkshopLockerExpensesLedger
         ? t('stmt.scope.locker', { entity: entityLabel })
         : isWorkshopPettyCashExpenseLedger
             ? t('stmt.scope.expense', { entity: entityLabel })
@@ -396,14 +467,23 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
                 accountName={data?.header?.accountName || fallbackName}
                 accountType={accountType}
                 companyName={data?.header?.companyName || entityLabel || undefined}
-                periodFrom={data?.header?.from || dateFrom || '—'}
-                periodTo={data?.header?.to || dateTo || '—'}
+                periodFrom={
+                    fmtRiyadhRangeLabel(
+                        toLedgerFilterControlValue(data?.header?.from || dateFrom) || dateFrom,
+                    ) || '—'
+                }
+                periodTo={
+                    fmtRiyadhRangeLabel(
+                        toLedgerFilterControlValue(data?.header?.to || dateTo) || dateTo,
+                    ) || '—'
+                }
                 openingBalance={data?.openingBalance ?? 0}
                 rows={data?.rows ?? []}
                 totals={data?.totals}
                 normalDebit={normalDebit}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
+                useDateTimeFilters={useDateTimeFilters}
                 onDateFromChange={setDateFrom}
                 onDateToChange={setDateTo}
                 onApply={applyFilters}

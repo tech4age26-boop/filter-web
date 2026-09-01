@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import {
-  marketingCreateReferrer,
+  marketingCreateReferrerWithAccount,
   marketingGetReferrer,
   marketingUpdateReferrer,
 } from '../../services/superAdminMarketingApi';
@@ -72,6 +72,7 @@ export default function ReferrerFormPage() {
             category: matchedCat,
             mobile: item.mobile || item.phone || '',
             email: item.email || '',
+            password: '',
             nationalId: item.nationalId || item.national_id || '',
             status: matchedStatus,
             bankName: item.bankName || item.bank_name || '',
@@ -97,15 +98,47 @@ export default function ReferrerFormPage() {
       return;
     }
 
+    // Every new referrer gets a portal login, so the account also shows up under
+    // Super Admin → Permissions → Users. Without one the referrer would exist in
+    // Marketing only, and the two tables would drift apart.
+    if (!isEdit) {
+      if (!form.email.trim()) {
+        alert(t('err.emailRequired'));
+        return;
+      }
+      if (!form.password.trim() || form.password.trim().length < 6) {
+        alert(t('err.passwordRequired'));
+        return;
+      }
+    }
+
     try {
       setSaving(true);
       const payload = buildReferrerPayload(form);
-      if (form.id) {
+
+      if (isEdit) {
         await marketingUpdateReferrer(form.id, payload);
+        goBack();
       } else {
-        await marketingCreateReferrer(payload);
+        const createPayload = {
+          ...payload,
+          createPortalAccount: true,
+          portalEmail: form.email.trim().toLowerCase(),
+          portalPassword: form.password.trim(),
+          portalMobile: form.mobile.trim() || undefined,
+          portalName: form.fullName.trim(),
+        };
+
+        const res = await marketingCreateReferrerWithAccount(createPayload);
+
+        if (res?.portalAccountError) {
+          alert(`Referrer created, but portal account failed: ${res.portalAccountError}`);
+          goBack();
+          return;
+        }
+
+        goBack();
       }
-      goBack();
     } catch (err) {
       alert(err?.message || t('err.saveReferrer'));
     } finally {
@@ -155,7 +188,19 @@ export default function ReferrerFormPage() {
               label={t('form.email')}
               value={form.email}
               onChange={(value) => setForm((prev) => ({ ...prev, email: value }))}
+              placeholder="email@example.com"
+              required={!isEdit}
             />
+            {!isEdit && (
+              <InputField
+                label={t('form.portalPassword')}
+                type="password"
+                value={form.password}
+                onChange={(value) => setForm((prev) => ({ ...prev, password: value }))}
+                placeholder={t('form.portalPasswordPh')}
+                required
+              />
+            )}
             <InputField
               label={t('form.nationalId')}
               value={form.nationalId}
@@ -188,7 +233,7 @@ export default function ReferrerFormPage() {
             />
           </div>
 
-          <div className="mkp-form-page-footer">
+          <div className="mkp-form-page-footer" style={{ marginTop: 24 }}>
             <button type="button" className="mk-ref-secondary-btn" onClick={goBack} disabled={saving}>
               {t('form.cancel')}
             </button>
@@ -201,3 +246,4 @@ export default function ReferrerFormPage() {
     </MarketingFormShell>
   );
 }
+

@@ -1,8 +1,9 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, NavLink, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
 import { Search, Plus, Users, Building, Pencil, FileText, Loader, Check } from 'lucide-react';
 import CustomersPageShell from '../../components/admin/CustomersPageShell';
 import CorporateBillingSection from '../../components/admin/CorporateBillingSection';
+import { PaginationControls } from '../../components/PaginationControls';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/admin/CustomersPage.css';
 import '../../styles/admin/ApprovalsPage.css';
@@ -19,12 +20,18 @@ import { parseAllCustomersRoute, customersRoutes, ALL_CUSTOMERS_BASE } from '../
 import { custT, CUST_SUB_LABEL_KEYS } from '../../utils/customersI18n';
 
 const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function readCorporateBranchCache() {
     try {
         const raw = localStorage.getItem(CORPORATE_BRANCH_CACHE_KEY);
         if (!raw) return { workshops: [], branches: [] };
         const o = JSON.parse(raw);
+        const savedAt = o?.savedAt || 0;
+        if (Date.now() - savedAt > CACHE_TTL_MS) {
+            localStorage.removeItem(CORPORATE_BRANCH_CACHE_KEY);
+            return { workshops: [], branches: [] };
+        }
         return {
             workshops: Array.isArray(o?.workshops) ? o.workshops : [],
             branches: Array.isArray(o?.branches) ? o.branches : [],
@@ -111,25 +118,70 @@ export default function CustomersPage() {
         const base = `/admin/customers/${path}`;
         return location.pathname === base || location.pathname.startsWith(`${base}/`);
     };
+    const CUSTOMERS_PAGE_SIZE = 50;
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [searchDebounced, setSearchDebounced] = useState('');
     const [typeFilter, setTypeFilter] = useState('all');
     const [detailsLoading, setDetailsLoading] = useState(false);
     const [detailsData, setDetailsData] = useState(null);
+    const [customersOffset, setCustomersOffset] = useState(0);
+    const [customersTotal, setCustomersTotal] = useState(0);
+    const [grandTotal, setGrandTotal] = useState(0);
+    const [corporateTotal, setCorporateTotal] = useState(0);
+    const [walkInTotal, setWalkInTotal] = useState(0);
     const branchCacheInit = readCorporateBranchCache();
     const [workshops, setWorkshops] = useState(() => branchCacheInit.workshops);
     const [allBranches, setAllBranches] = useState(() => branchCacheInit.branches);
 
     useEffect(() => {
+        setCustomersOffset(0);
+    }, [typeFilter, searchDebounced]);
+
+    useEffect(() => {
         setLoading(true);
-        getCustomers({ customerType: typeFilter === 'all' ? undefined : typeFilter })
-            .then((d) => {
-                setCustomers(mapCustomersResponse(d));
+        // Search runs server-side: the old client-side filter only ever saw the
+        // first page the API would return (it caps `limit` at 200), so customers
+        // past that cut-off were unfindable.
+        Promise.all([
+            getCustomers({
+                customerType: typeFilter === 'all' ? undefined : typeFilter,
+                limit: CUSTOMERS_PAGE_SIZE,
+                offset: customersOffset,
+                search: searchDebounced.trim() || undefined,
+            }),
+            getCustomers({}),
+            getCustomers({ customerType: 'corporate' }),
+            getCustomers({ customerType: 'regular' }),
+        ])
+            .then(([d, allD, corpD, walkInD]) => {
+                const data = d.data || d;
+                const allData = allD.data || allD;
+                const corpData = corpD.data || corpD;
+                const walkInData = walkInD.data || walkInD;
+                setCustomers(mapCustomersResponse(data.customers || data));
+                setCustomersTotal(data.total || 0);
+                setGrandTotal(allData.total || 0);
+                setCorporateTotal(corpData.total || 0);
+                setWalkInTotal(walkInData.total || 0);
             })
-            .catch(() => {})
+            .catch(() => {
+                setCustomers([]);
+                setCustomersTotal(0);
+                setGrandTotal(0);
+                setCorporateTotal(0);
+                setWalkInTotal(0);
+            })
             .finally(() => setLoading(false));
-    }, [typeFilter]);
+    }, [typeFilter, customersOffset, searchDebounced]);
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setSearchDebounced(search.trim());
+        }, 300);
+        return () => clearTimeout(t);
+    }, [search]);
 
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [saving, setSaving] = useState(false);
@@ -210,16 +262,11 @@ export default function CustomersPage() {
         };
     }, [t]);
 
-    const corporateCount = customers.filter((c) => c.customerType === 'corporate').length;
-    const walkInCount = customers.filter((c) => c.customerType === 'regular').length;
-    const filteredCustomers = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        if (!q) return customers;
-        return customers.filter((c) =>
-            [c.name, c.mobile, c.whatsapp, c.taxId, c.workshopName]
-                .filter(Boolean)
-                .some((v) => String(v).toLowerCase().includes(q)));
-    }, [customers, search]);
+    const totalCustomersCount = grandTotal;
+    const corporateCount = corporateTotal;
+    const walkInCount = walkInTotal;
+    // The API already applied `search`, so this page of rows is the result set.
+    const filteredCustomers = customers;
 
     useEffect(() => {
         if (route?.screen === 'create') {
@@ -991,7 +1038,7 @@ export default function CustomersPage() {
                     <Users size={20} color="var(--color-primary)" />
                     <div>
                         <p className="mini-label">{t('stat.total')}</p>
-                        <h4 className="mini-val">{customers.length}</h4>
+                        <h4 className="mini-val">{totalCustomersCount}</h4>
                     </div>
                 </div>
                 <div className="stat-mini-card">
@@ -1098,6 +1145,15 @@ export default function CustomersPage() {
                         ))}
                     </tbody>
                 </table>
+                {customersTotal > 0 && (
+                    <PaginationControls
+                        total={customersTotal}
+                        limit={CUSTOMERS_PAGE_SIZE}
+                        offset={customersOffset}
+                        onPageChange={setCustomersOffset}
+                        loading={loading}
+                    />
+                )}
             </section>
             </>
             )}

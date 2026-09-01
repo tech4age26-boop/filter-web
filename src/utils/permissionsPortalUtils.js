@@ -9,6 +9,7 @@ export function userTypeForPortal(portal, workshopStaffRole = null) {
     if (portal === 'cashier') return 'cashier_user';
     if (portal === 'corporate') return 'corporate_user';
     if (portal === 'supplier') return 'supplier_user';
+    if (portal === 'referrer') return 'referrer_user';
     if (workshopStaffRole === 'workshop_owner') return 'workshop_owner';
     return 'workshop_user';
 }
@@ -28,6 +29,8 @@ export function portalLoginHint(portal) {
             return 'User signs in at the Corporate portal. Requires corporate account linkage.';
         case 'supplier':
             return 'User signs in at the Supplier portal. Requires supplier profile linkage.';
+        case 'referrer':
+            return 'User signs in at the Referrer portal (/referrer-portal). Link a marketing referrer profile from Marketing → Referrers.';
         default:
             return '';
     }

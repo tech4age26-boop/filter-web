@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import EmployeesPageShell from '../../components/admin/EmployeesPageShell';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
+import { PaginationControls } from '../../components/PaginationControls';
 import '../../styles/admin/EmployeesPage.css';
 import '../../styles/admin/ApprovalsPage.css';
 import {
@@ -307,20 +308,34 @@ export default function EmployeesPage() {
     const route = parseEmployeesRoute(location.pathname);
     const pageMode = Boolean(route);
 
+    const EMPLOYEES_PAGE_SIZE = 50;
     const [employees, setEmployees] = useState([]);
+    const [allEmployees, setAllEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState(EMPTY_FORM);
     const [editMeta, setEditMeta] = useState({ id: null, role: 'cashier' });
     const [editLoading, setEditLoading] = useState(false);
     const [search, setSearch] = useState('');
+    const [searchDebounced, setSearchDebounced] = useState('');
     const [roleFilter, setRoleFilter] = useState('all');
     const [workshopOptions, setWorkshopOptions] = useState([]);
     const [branchOptions, setBranchOptions] = useState([]);
     const [formBranchOptions, setFormBranchOptions] = useState([]);
     const [workshopFilter, setWorkshopFilter] = useState('');
     const [branchFilter, setBranchFilter] = useState('');
+    const [employeesOffset, setEmployeesOffset] = useState(0);
+    const [employeesTotal, setEmployeesTotal] = useState(0);
+    const [technicianTotal, setTechnicianTotal] = useState(0);
+    const [cashierTotal, setCashierTotal] = useState(0);
     const latestFetchRef = useRef(0);
+
+    useEffect(() => {
+        const t = setTimeout(() => {
+            setSearchDebounced(search.trim());
+        }, 300);
+        return () => clearTimeout(t);
+    }, [search]);
 
     const goBack = useCallback(() => navigate(EMPLOYEES_BASE), [navigate]);
 
@@ -336,49 +351,102 @@ export default function EmployeesPage() {
     const reloadEmployees = useCallback(async () => {
         const fetchId = ++latestFetchRef.current;
         setLoading(true);
-        const params = {
+        const paginatedParams = {
             workshopId: workshopFilter || undefined,
             branchId: branchFilter || undefined,
+            limit: EMPLOYEES_PAGE_SIZE,
+            offset: employeesOffset,
+        };
+        const fullParams = {
+            workshopId: workshopFilter || undefined,
+            branchId: branchFilter || undefined,
+            limit: 9999,
         };
         try {
+            const globalTechCount = await getTechnicians({ limit: 9999 });
+            const globalCashierCount = await getCashiers({ limit: 9999 });
+            const globalTechData = globalTechCount.data || globalTechCount;
+            const globalCashierData = globalCashierCount.data || globalCashierCount;
+            if (fetchId !== latestFetchRef.current) return;
+            setTechnicianTotal(globalTechData.total || 0);
+            setCashierTotal(globalCashierData.total || 0);
+
             if (roleFilter === 'technician') {
-                const techs = await getTechnicians(params);
-                const techList = pickArray(techs, ['technicians'])
+                const [techs, techsAll] = await Promise.all([
+                    getTechnicians(paginatedParams),
+                    getTechnicians(fullParams),
+                ]);
+                const techData = techs.data || techs;
+                const techDataAll = techsAll.data || techsAll;
+                const techList = pickArray(techData, ['technicians'])
+                    .map((u) => normalizeEmployee(u, 'technician'))
+                    .filter((u) => inferRole(u) === 'technician');
+                const techListAll = pickArray(techDataAll, ['technicians'])
                     .map((u) => normalizeEmployee(u, 'technician'))
                     .filter((u) => inferRole(u) === 'technician');
                 if (fetchId !== latestFetchRef.current) return;
                 setEmployees(techList);
+                setEmployeesTotal(techData.total || 0);
+                setAllEmployees(techListAll);
                 return;
             }
             if (roleFilter === 'cashier') {
-                const cashiers = await getCashiers(params);
-                const cashierList = pickArray(cashiers, ['cashiers'])
+                const [cashiers, cashiersAll] = await Promise.all([
+                    getCashiers(paginatedParams),
+                    getCashiers(fullParams),
+                ]);
+                const cashierData = cashiers.data || cashiers;
+                const cashierDataAll = cashiersAll.data || cashiersAll;
+                const cashierList = pickArray(cashierData, ['cashiers'])
+                    .map((u) => normalizeEmployee(u, 'cashier'))
+                    .filter((u) => inferRole(u) === 'cashier');
+                const cashierListAll = pickArray(cashierDataAll, ['cashiers'])
                     .map((u) => normalizeEmployee(u, 'cashier'))
                     .filter((u) => inferRole(u) === 'cashier');
                 if (fetchId !== latestFetchRef.current) return;
                 setEmployees(cashierList);
+                setEmployeesTotal(cashierData.total || 0);
+                setAllEmployees(cashierListAll);
                 return;
             }
-            const [techs, cashiers] = await Promise.all([
-                getTechnicians(params),
-                getCashiers(params),
+            const [techs, cashiers, techsAll, cashiersAll] = await Promise.all([
+                getTechnicians(paginatedParams),
+                getCashiers(paginatedParams),
+                getTechnicians(fullParams),
+                getCashiers(fullParams),
             ]);
-            const techList = pickArray(techs, ['technicians'])
+            const techData = techs.data || techs;
+            const cashierData = cashiers.data || cashiers;
+            const techDataAll = techsAll.data || techsAll;
+            const cashierDataAll = cashiersAll.data || cashiersAll;
+            const techList = pickArray(techData, ['technicians'])
                 .map((u) => normalizeEmployee(u, 'technician'))
                 .filter((u) => inferRole(u) === 'technician');
-            const cashierList = pickArray(cashiers, ['cashiers'])
+            const cashierList = pickArray(cashierData, ['cashiers'])
+                .map((u) => normalizeEmployee(u, 'cashier'))
+                .filter((u) => inferRole(u) === 'cashier');
+            const techListAll = pickArray(techDataAll, ['technicians'])
+                .map((u) => normalizeEmployee(u, 'technician'))
+                .filter((u) => inferRole(u) === 'technician');
+            const cashierListAll = pickArray(cashierDataAll, ['cashiers'])
                 .map((u) => normalizeEmployee(u, 'cashier'))
                 .filter((u) => inferRole(u) === 'cashier');
             if (fetchId !== latestFetchRef.current) return;
             setEmployees([...techList, ...cashierList]);
+            setEmployeesTotal((techData.total || 0) + (cashierData.total || 0));
+            setAllEmployees([...techListAll, ...cashierListAll]);
         } catch {
             if (fetchId !== latestFetchRef.current) return;
             setEmployees([]);
+            setEmployeesTotal(0);
+            setAllEmployees([]);
+            setTechnicianTotal(0);
+            setCashierTotal(0);
         } finally {
             if (fetchId !== latestFetchRef.current) return;
             setLoading(false);
         }
-    }, [roleFilter, workshopFilter, branchFilter]);
+    }, [roleFilter, workshopFilter, branchFilter, employeesOffset]);
 
     useEffect(() => {
         getWorkshopOptions()
@@ -437,6 +505,10 @@ export default function EmployeesPage() {
             })
             .catch(() => setFormBranchOptions([]));
     }, [form.workshopId]);
+
+    useEffect(() => {
+        setEmployeesOffset(0);
+    }, [roleFilter, workshopFilter, branchFilter]);
 
     useEffect(() => {
         if (pageMode) return;
@@ -505,8 +577,9 @@ export default function EmployeesPage() {
     }, [route?.screen, route?.id, location.state]);
 
     const filtered = useMemo(() => {
-        const needle = search.trim().toLowerCase();
-        return employees.filter((e) => {
+        const needle = searchDebounced.trim().toLowerCase();
+        const source = needle ? allEmployees : employees;
+        return source.filter((e) => {
             if (roleFilter !== 'all' && inferRole(e) !== roleFilter) return false;
             if (!needle) return true;
             return [e.name, e.mobile, e.email, e.workshopName, e.branch, e.role]
@@ -514,12 +587,12 @@ export default function EmployeesPage() {
                 .toLowerCase()
                 .includes(needle);
         });
-    }, [employees, search, roleFilter]);
+    }, [employees, allEmployees, searchDebounced, roleFilter]);
 
-    const total = employees.length;
-    const activeCount = employees.filter((e) => e.status === 'active').length;
-    const technicianCount = employees.filter((e) => inferRole(e) === 'technician').length;
-    const cashierCount = employees.filter((e) => inferRole(e) === 'cashier').length;
+    const total = employeesTotal;
+    const activeCount = allEmployees.filter((e) => e.status === 'active').length;
+    const technicianCount = technicianTotal;
+    const cashierCount = cashierTotal;
 
     const handleSaveCreate = async () => {
         if (!form.name.trim() || !form.workshopId || !form.branchId) {
@@ -898,6 +971,16 @@ export default function EmployeesPage() {
                         )}
                     </tbody>
                 </table>
+                {!searchDebounced && employeesTotal > 0 && (
+                    <PaginationControls
+                        total={employeesTotal}
+                        limit={EMPLOYEES_PAGE_SIZE}
+                        offset={employeesOffset}
+                        onPageChange={setEmployeesOffset}
+                        loading={loading}
+                        t={t}
+                    />
+                )}
             </section>
         </div>
     );

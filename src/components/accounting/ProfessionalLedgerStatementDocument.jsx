@@ -40,6 +40,7 @@ export default function ProfessionalLedgerStatementDocument({
     normalDebit = true,
     dateFrom = '',
     dateTo = '',
+    useDateTimeFilters = false,
     onDateFromChange,
     onDateToChange,
     onApply,
@@ -145,7 +146,7 @@ export default function ProfessionalLedgerStatementDocument({
                     <label htmlFor="pls-from">From</label>
                     <input
                         id="pls-from"
-                        type="date"
+                        type={useDateTimeFilters ? 'datetime-local' : 'date'}
                         value={dateFrom}
                         onChange={(e) => onDateFromChange?.(e.target.value)}
                     />
@@ -154,7 +155,7 @@ export default function ProfessionalLedgerStatementDocument({
                     <label htmlFor="pls-to">To</label>
                     <input
                         id="pls-to"
-                        type="date"
+                        type={useDateTimeFilters ? 'datetime-local' : 'date'}
                         value={dateTo}
                         onChange={(e) => onDateToChange?.(e.target.value)}
                     />

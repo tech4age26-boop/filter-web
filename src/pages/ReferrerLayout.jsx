@@ -1,58 +1,84 @@
-import React from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, DollarSign } from 'lucide-react';
-import { REFERRER_NAV_ITEMS, MOCK_REFERRER } from './referrer-portal/ReferrerConstants';
+import React, { useState } from 'react';
+import { Outlet, useNavigate, useLocation, NavLink } from 'react-router-dom';
+import { ChevronDown } from 'lucide-react';
+import { REFERRER_NAV_ITEMS } from './referrer-portal/ReferrerConstants';
 import './referrer-portal/ReferrerPortal.css';
+import '../styles/AdminLayout.css';
+import { useAuth } from '../context/AuthContext';
+import UserProfileMenu from '../components/UserProfileMenu';
 
 export default function ReferrerLayout() {
     const navigate = useNavigate();
     const location = useLocation();
+    const { user, logout } = useAuth();
+    const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-    const activeTab = location.pathname.split('/').pop();
+    const handleLogout = () => {
+        logout();
+        navigate('/referrer-portal/login', { replace: true });
+    };
+
+    const displayName = user?.name || user?.email || 'Referrer User';
+    const userRole = 'REFERRER PORTAL';
+    const initials = displayName
+        .split(' ')
+        .map((n) => n[0])
+        .filter(Boolean)
+        .join('')
+        .toUpperCase()
+        .substring(0, 2) || 'RF';
 
     return (
-        <div className="rf-layout">
-            <aside className="rf-sidebar">
-                <div className="rf-logo-section">
-                    <div className="rf-logo-icon">
-                        <DollarSign size={24} strokeWidth={3} />
-                    </div>
-                    <div className="rf-logo-text">
-                        <p className="rf-logo-title">Filter Referrer Portal</p>
-                    </div>
+        <div className="admin-layout" style={{ minHeight: '100vh', height: '100vh', overflow: 'hidden' }}>
+            <aside className="sidebar">
+                <div className="sidebar-logo">
+                    <h2 className="logo-main">
+                        FILTER <span className="logo-sub">ERP</span>
+                    </h2>
+                    <p className="logo-desc">FILTER ERP · REFERRER PORTAL</p>
                 </div>
 
-                <nav className="rf-nav">
+                <nav className="sidebar-nav">
+                    <div className="sidebar-section-label">NAVIGATION</div>
                     {REFERRER_NAV_ITEMS.map((item) => (
-                        <button
+                        <NavLink
                             key={item.id}
-                            className={`rf-nav-item ${activeTab === item.id || (activeTab === 'referrer-portal' && item.id === 'dashboard') ? 'active' : ''}`}
-                            onClick={() => navigate(`/referrer-portal/${item.id}`)}
+                            to={item.id === 'dashboard' ? '/referrer-portal/dashboard' : `/referrer-portal/${item.id}`}
+                            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
                         >
-                            <item.icon size={20} />
+                            <item.icon size={18} />
                             <span>{item.label}</span>
-                        </button>
+                        </NavLink>
                     ))}
                 </nav>
 
-                <div className="rf-sidebar-footer">
-                    <div className="rf-user-card">
-                        <div className="rf-user-avatar">{MOCK_REFERRER.avatar}</div>
-                        <div className="rf-user-info">
-                            <p className="rf-user-name">{MOCK_REFERRER.name}</p>
-                            <p className="rf-user-id">{MOCK_REFERRER.id} • {MOCK_REFERRER.type}</p>
+                <div className="sidebar-footer">
+                    <div
+                        className={`user-pill ${isUserMenuOpen ? 'menu-open' : ''}`}
+                        onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    >
+                        <div className="user-avatar">{initials}</div>
+                        <div className="user-details">
+                            <p className="user-name">{displayName}</p>
+                            <p className="user-role">{userRole}</p>
                         </div>
+                        <ChevronDown className="user-menu-chevron" size={14} />
+
+                        <UserProfileMenu
+                            isOpen={isUserMenuOpen}
+                            onClose={() => setIsUserMenuOpen(false)}
+                            onLogout={handleLogout}
+                            locale="en"
+                        />
                     </div>
-                    <button className="rf-logout-btn" onClick={() => navigate('/')}>
-                        <LogOut size={18} />
-                        <span>Logout</span>
-                    </button>
                 </div>
             </aside>
 
-            <main className="rf-main">
+            <main className="main-content" style={{ flex: 1, overflowY: 'auto', background: 'var(--color-bg-canvas)' }}>
                 <Outlet />
             </main>
         </div>
     );
 }
+
+

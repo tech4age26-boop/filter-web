@@ -45,6 +45,9 @@ import {
     fmtRiyadhRangeLabel,
     riyadhPlRangeToLedgerCalendarDates,
     workshopAdminRangeQueryParams,
+    riyadhPlRangeToLedgerQueryParams,
+    riyadhRangeToApiIso,
+    BUSINESS_TIMEZONE,
 } from '../../utils/riyadhBusinessRange';
 import {
     loadWorkshopAdminDatetimeRange,
@@ -332,10 +335,29 @@ export default function WorkshopCOAView({
     const openPlAccountProof = useCallback(
         (row, accountType) => {
             if (!row?.id) return;
-            const { dateFrom, dateTo } = riyadhPlRangeToLedgerCalendarDates(
-                plFilters.dateFrom,
-                plFilters.dateTo,
-            );
+            const shared = loadWorkshopAdminDatetimeRange();
+            const rangeFrom = plFilters.dateFrom || shared?.dateFrom || '';
+            const rangeTo = plFilters.dateTo || shared?.dateTo || '';
+            let dateFrom = rangeFrom;
+            let dateTo = rangeTo;
+            let startDate;
+            let endDate;
+            try {
+                const q = riyadhPlRangeToLedgerQueryParams(rangeFrom, rangeTo);
+                dateFrom = q.dateFrom;
+                dateTo = q.dateTo;
+            } catch {
+                /* keep wall-clock locals if conversion fails */
+            }
+            try {
+                if (rangeFrom && rangeTo) {
+                    const iso = riyadhRangeToApiIso(rangeFrom, rangeTo);
+                    startDate = iso.dateFrom;
+                    endDate = iso.dateTo;
+                }
+            } catch {
+                /* ISO optional — datetime-local still sent */
+            }
             navigate(
                 buildWorkshopCoaNavigationUrl(
                     {
@@ -347,6 +369,9 @@ export default function WorkshopCOAView({
                     {
                         dateFrom: dateFrom || undefined,
                         dateTo: dateTo || undefined,
+                        startDate,
+                        endDate,
+                        proof: 'pl',
                         branchId: plFilters.branchId || '',
                     },
                 ),
@@ -620,8 +645,11 @@ export default function WorkshopCOAView({
     };
 
     const loadPL = async (overrideFilters) => {
+        // Guard: `<button onClick={loadPL}>` passes a MouseEvent as the first arg.
         const filters =
-            overrideFilters && typeof overrideFilters === 'object' && 'dateFrom' in overrideFilters
+            overrideFilters
+            && typeof overrideFilters === 'object'
+            && ('dateFrom' in overrideFilters || 'dateTo' in overrideFilters)
                 ? overrideFilters
                 : plFilters;
         setPlLoading(true);
@@ -635,8 +663,8 @@ export default function WorkshopCOAView({
                 });
             }
             const res = await getPLReport({
-                branchId: filters.branchId,
                 ...rangeParams,
+                branchId: filters.branchId || undefined,
             });
             setPlData(res || null);
         } catch (err) {
@@ -692,6 +720,17 @@ export default function WorkshopCOAView({
         loadPL(withBranch);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, selectedBranchId]);
+
+    // Re-fetch P&L whenever branch or datetime filters change (not only on Apply).
+    useEffect(() => {
+        if (activeTab !== 'P&L') return undefined;
+        if (!plFilters.dateFrom || !plFilters.dateTo) return undefined;
+        const handle = window.setTimeout(() => {
+            void loadPL(plFilters);
+        }, 280);
+        return () => window.clearTimeout(handle);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId]);
 
     const branchSelectStyle = {
         appearance: 'none',
@@ -916,7 +955,11 @@ export default function WorkshopCOAView({
                             title="Asia/Riyadh"
                         />
                         {renderBranchPicker(plFilters.branchId, (v) => setPlFilters((p) => ({ ...p, branchId: v })))}
-                        <button type="button" onClick={() => void loadPL()} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
+                        <button
+                            type="button"
+                            onClick={() => void loadPL()}
+                            style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
+                        >
                             {t('date.apply')}
                         </button>
                         <button

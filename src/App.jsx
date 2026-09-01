@@ -14,29 +14,30 @@ import TierManagementPage from './pages/admin/TierManagementPage';
 import TaxCodePage from './pages/admin/TaxCodePage';
 import LegalPagesPage from './pages/admin/LegalPagesPage';
 import MobileAppMenuPage from './pages/admin/MobileAppMenuPage';
-import InventoryPage from './pages/admin/InventoryPage';
-import CustomersPage from './pages/admin/CustomersPage';
-import SuppliersPage from './pages/admin/SuppliersPage';
-import EmployeesPage from './pages/admin/EmployeesPage';
-import BranchesPage from './pages/admin/BranchesPage';
-import SalesPage from './pages/admin/SalesPage';
-import AdvancedReportDrilldownPage from './pages/advanced-reports/AdvancedReportDrilldownPage';
-import AccountingPage from './pages/admin/AccountingPage';
-import MonitorAccountLedgerPage from './pages/admin/MonitorAccountLedgerPage';
-import CorporateArControlPage from './pages/admin/CorporateArControlPage';
-import BnplSettlementControlPage from './pages/admin/BnplSettlementControlPage';
-import HqCashBankAccountPage from './pages/admin/HqCashBankAccountPage';
-import FleetManagementPage from './pages/admin/FleetManagementPage';
-import WarehousePortalPage from './pages/admin/WarehousePortalPage';
-import AdminStorageFacilityPage from './pages/admin/AdminStorageFacilityPage';
-import LockerManagementPage from './pages/admin/LockerManagementPage';
-import PlatformChatPage from './pages/admin/PlatformChatPage';
-import ReferralCommissionsPage from './pages/admin/ReferralCommissionsPage';
-import SoftPosSettlement from './pages/admin/SoftPosSettlement';
-import MarketingPortalPage from './pages/admin/MarketingPortalPage';
-import WorkshopManagementPage from './pages/admin/WorkshopManagementPage';
-import AdminStaffAppPage from './pages/admin/AdminStaffAppPage';
-import ReportingPage from './pages/admin/ReportingPage';
+// Lazy-loaded admin pages (heavy, not needed on initial load)
+const InventoryPage = lazyWithRetry(() => import('./pages/admin/InventoryPage'));
+const CustomersPage = lazyWithRetry(() => import('./pages/admin/CustomersPage'));
+const SuppliersPage = lazyWithRetry(() => import('./pages/admin/SuppliersPage'));
+const EmployeesPage = lazyWithRetry(() => import('./pages/admin/EmployeesPage'));
+const BranchesPage = lazyWithRetry(() => import('./pages/admin/BranchesPage'));
+const SalesPage = lazyWithRetry(() => import('./pages/admin/SalesPage'));
+const AdvancedReportDrilldownPage = lazyWithRetry(() => import('./pages/advanced-reports/AdvancedReportDrilldownPage'));
+const AccountingPage = lazyWithRetry(() => import('./pages/admin/AccountingPage'));
+const MonitorAccountLedgerPage = lazyWithRetry(() => import('./pages/admin/MonitorAccountLedgerPage'));
+const CorporateArControlPage = lazyWithRetry(() => import('./pages/admin/CorporateArControlPage'));
+const BnplSettlementControlPage = lazyWithRetry(() => import('./pages/admin/BnplSettlementControlPage'));
+const HqCashBankAccountPage = lazyWithRetry(() => import('./pages/admin/HqCashBankAccountPage'));
+const FleetManagementPage = lazyWithRetry(() => import('./pages/admin/FleetManagementPage'));
+const WarehousePortalPage = lazyWithRetry(() => import('./pages/admin/WarehousePortalPage'));
+const AdminStorageFacilityPage = lazyWithRetry(() => import('./pages/admin/AdminStorageFacilityPage'));
+const LockerManagementPage = lazyWithRetry(() => import('./pages/admin/LockerManagementPage'));
+const PlatformChatPage = lazyWithRetry(() => import('./pages/admin/PlatformChatPage'));
+const ReferralCommissionsPage = lazyWithRetry(() => import('./pages/admin/ReferralCommissionsPage'));
+const SoftPosSettlement = lazyWithRetry(() => import('./pages/admin/SoftPosSettlement'));
+const MarketingPortalPage = lazyWithRetry(() => import('./pages/admin/MarketingPortalPage'));
+const WorkshopManagementPage = lazyWithRetry(() => import('./pages/admin/WorkshopManagementPage'));
+const AdminStaffAppPage = lazyWithRetry(() => import('./pages/admin/AdminStaffAppPage'));
+const ReportingPage = lazyWithRetry(() => import('./pages/admin/ReportingPage'));
 import PortalLoginPage from './pages/PortalLoginPage';
 import PortalSignupPage from './pages/PortalSignupPage';
 import PortalHubPage from './pages/PortalHubPage';
@@ -112,6 +113,7 @@ import IdleSessionWatcher from './components/IdleSessionWatcher';
 import { PlatformChatUnreadProvider } from './context/PlatformChatUnreadContext';
 import { firstVisibleAdminPath } from './utils/permissions';
 import AppErrorBoundary, { AppErrorBoundaryWithRouter } from './components/AppErrorBoundary';
+import { PageLoadingFallback } from './components/PageLoadingFallback';
 
 /** Index redirect for `/admin` — picks the first sidebar page the user can view. */
 function AdminIndexRedirect() {
@@ -268,8 +270,8 @@ function App() {
               <Route path="demo-invoices" element={<DemoInvoicesPage />} />
               <Route path="demo-invoices/new" element={<DemoInvoicesPage />} />
               <Route path="demo-invoices/:invoiceId/edit" element={<DemoInvoicesPage />} />
-              <Route path="demo-invoices/:invoiceId/view" element={<DemoInvoicesPage />} />
-              <Route path="chat" element={<PlatformChatPage />} />
+              <Route path="demo-invoices/:invoiceId/view" element={<Suspense fallback={<PageLoadingFallback />}><DemoInvoicesPage /></Suspense>} />
+              <Route path="chat" element={<Suspense fallback={<PageLoadingFallback />}><PlatformChatPage /></Suspense>} />
 
               <Route
                 path="inventory"
@@ -283,28 +285,28 @@ function App() {
                 path="inventory/categories"
                 element={<Navigate to="/admin/inventory/master-catalog" replace />}
               />
-              <Route path="inventory/master-catalog/*" element={<InventoryPage />} />
-              <Route path="inventory/:subTab" element={<InventoryPage />} />
+              <Route path="inventory/master-catalog/*" element={<Suspense fallback={<PageLoadingFallback />}><InventoryPage /></Suspense>} />
+              <Route path="inventory/:subTab" element={<Suspense fallback={<PageLoadingFallback />}><InventoryPage /></Suspense>} />
 
               <Route
                 path="customers"
                 element={<Navigate to="/admin/customers/all-customers" replace />}
               />
-              <Route path="customers/all-customers/*" element={<CustomersPage />} />
-              <Route path="customers/:subTab" element={<CustomersPage />} />
+              <Route path="customers/all-customers/*" element={<Suspense fallback={<PageLoadingFallback />}><CustomersPage /></Suspense>} />
+              <Route path="customers/:subTab" element={<Suspense fallback={<PageLoadingFallback />}><CustomersPage /></Suspense>} />
 
-              <Route path="suppliers/*" element={<SuppliersPage />} />
-              <Route path="storage-facility" element={<AdminStorageFacilityPage />} />
-              <Route path="storage-facility/:supplierId" element={<AdminStorageFacilityPage />} />
-              <Route path="employees/*" element={<EmployeesPage />} />
-              <Route path="branches/*" element={<BranchesPage />} />
-              <Route path="workshop/*" element={<WorkshopManagementPage />} />
-              <Route path="staff-app" element={<AdminStaffAppPage />} />
+              <Route path="suppliers/*" element={<Suspense fallback={<PageLoadingFallback />}><SuppliersPage /></Suspense>} />
+              <Route path="storage-facility" element={<Suspense fallback={<PageLoadingFallback />}><AdminStorageFacilityPage /></Suspense>} />
+              <Route path="storage-facility/:supplierId" element={<Suspense fallback={<PageLoadingFallback />}><AdminStorageFacilityPage /></Suspense>} />
+              <Route path="employees/*" element={<Suspense fallback={<PageLoadingFallback />}><EmployeesPage /></Suspense>} />
+              <Route path="branches/*" element={<Suspense fallback={<PageLoadingFallback />}><BranchesPage /></Suspense>} />
+              <Route path="workshop/*" element={<Suspense fallback={<PageLoadingFallback />}><WorkshopManagementPage /></Suspense>} />
+              <Route path="staff-app" element={<Suspense fallback={<PageLoadingFallback />}><AdminStaffAppPage /></Suspense>} />
               <Route path="staff-app/users" element={<Navigate to="/admin/employees" replace />} />
               <Route path="staff-app/approvals" element={<Navigate to="/admin/approvals" replace />} />
               <Route path="staff-app/wallets" element={<Navigate to="/admin/staff-app" replace />} />
               <Route path="staff-app/approval-limits" element={<Navigate to="/admin/accounting/expenses" replace />} />
-              <Route path="staff-app/:subTab" element={<AdminStaffAppPage />} />
+              <Route path="staff-app/:subTab" element={<Suspense fallback={<PageLoadingFallback />}><AdminStaffAppPage /></Suspense>} />
 
               <Route
                 path="sales"
@@ -312,26 +314,26 @@ function App() {
               />
               <Route
                 path="sales/advanced-reports/drilldown"
-                element={<AdvancedReportDrilldownPage portal="admin" />}
+                element={<Suspense fallback={<PageLoadingFallback />}><AdvancedReportDrilldownPage portal="admin" /></Suspense>}
               />
-              <Route path="sales/:subTab" element={<SalesPage />} />
+              <Route path="sales/:subTab" element={<Suspense fallback={<PageLoadingFallback />}><SalesPage /></Suspense>} />
 
               <Route
                 path="accounting"
                 element={<Navigate to="/admin/accounting/chart-of-accounts" replace />}
               />
-              <Route path="accounting/ledger/:accountId" element={<MonitorAccountLedgerPage />} />
-              <Route path="accounting/corporate-ar/:corporateAccountId" element={<CorporateArControlPage />} />
-              <Route path="accounting/corporate-ar" element={<CorporateArControlPage />} />
-              <Route path="accounting/bnpl-settlement" element={<BnplSettlementControlPage />} />
-              <Route path="accounting/cash-bank/new" element={<HqCashBankAccountPage />} />
-              <Route path="accounting/cash-bank/:accountId/edit" element={<HqCashBankAccountPage />} />
-              <Route path="accounting/:subTab" element={<AccountingPage />} />
+              <Route path="accounting/ledger/:accountId" element={<Suspense fallback={<PageLoadingFallback />}><MonitorAccountLedgerPage /></Suspense>} />
+              <Route path="accounting/corporate-ar/:corporateAccountId" element={<Suspense fallback={<PageLoadingFallback />}><CorporateArControlPage /></Suspense>} />
+              <Route path="accounting/corporate-ar" element={<Suspense fallback={<PageLoadingFallback />}><CorporateArControlPage /></Suspense>} />
+              <Route path="accounting/bnpl-settlement" element={<Suspense fallback={<PageLoadingFallback />}><BnplSettlementControlPage /></Suspense>} />
+              <Route path="accounting/cash-bank/new" element={<Suspense fallback={<PageLoadingFallback />}><HqCashBankAccountPage /></Suspense>} />
+              <Route path="accounting/cash-bank/:accountId/edit" element={<Suspense fallback={<PageLoadingFallback />}><HqCashBankAccountPage /></Suspense>} />
+              <Route path="accounting/:subTab" element={<Suspense fallback={<PageLoadingFallback />}><AccountingPage /></Suspense>} />
 
-              <Route path="softpos-settlement" element={<SoftPosSettlement />} />
-              <Route path="fleet-management" element={<FleetManagementPage />} />
-              <Route path="warehouse-portal" element={<WarehousePortalPage />} />
-              <Route path="locker-management" element={<LockerManagementPage />} />
+              <Route path="softpos-settlement" element={<Suspense fallback={<PageLoadingFallback />}><SoftPosSettlement /></Suspense>} />
+              <Route path="fleet-management" element={<Suspense fallback={<PageLoadingFallback />}><FleetManagementPage /></Suspense>} />
+              <Route path="warehouse-portal" element={<Suspense fallback={<PageLoadingFallback />}><WarehousePortalPage /></Suspense>} />
+              <Route path="locker-management" element={<Suspense fallback={<PageLoadingFallback />}><LockerManagementPage /></Suspense>} />
             </Route>
 
             <Route
