@@ -269,6 +269,8 @@ export function firstVisibleWorkshopPath(user) {
     if (!codes || !user.role) return '/workshop/dashboard';
 
     for (const item of NAV_ITEMS) {
+        // Shortcuts to other portals are not workshop tabs and must never be a landing target.
+        if (item.externalPath) continue;
         if (item.subItems?.length) {
             const visibleSubs = item.subItems.filter((s) =>
                 workshopUserCanAccessCode(user, codes, s.permission),

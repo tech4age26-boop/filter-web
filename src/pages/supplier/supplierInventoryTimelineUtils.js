@@ -6,6 +6,7 @@
 export function humanizeSupplierTimelineSource(source) {
     const s = String(source || 'manual').toLowerCase();
     if (s === 'super_supplier_purchase') return 'Purchase invoice (AP)';
+    if (s === 'super_supplier_debit_note') return 'Debit note';
     if (s === 'supplier_purchase_invoice') return 'Supplier purchase (approved)';
     if (s === 'pos') return 'POS';
     if (s === 'sales_invoice') return 'Sales invoice';
@@ -18,6 +19,7 @@ export function humanizeSupplierTimelineSource(source) {
 export function humanizeSupplierTimelineRefType(type) {
     const t = String(type || '').toLowerCase();
     if (t === 'super_supplier_purchase') return 'Purchase invoice';
+    if (t === 'super_supplier_debit_note') return 'Debit note';
     if (t === 'workshop_supplier_purchase_invoice') return 'Workshop purchase invoice';
     if (t === 'supplier_invoice') return 'Sales invoice';
     if (t === 'purchase_order') return 'Purchase order';
@@ -30,6 +32,7 @@ export const SUPPLIER_STOCK_MOVEMENT_TX_TYPES = new Set([
     'inventory_out_sales_invoice',
     'inventory_in_sales_return',
     'inventory_in_super_supplier_purchase',
+    'inventory_out_super_supplier_debit_note',
     'workshop_supplier_purchase_invoice_approved',
     'purchase_order_delivered',
 ]);
@@ -120,6 +123,27 @@ function invoiceRef(h) {
     };
 }
 
+function superSupplierDebitNoteRef(h, meta) {
+    const debitNoteId =
+        meta.debitNoteId != null
+            ? String(meta.debitNoteId)
+            : h.referenceId != null
+              ? String(h.referenceId)
+              : '';
+    return {
+        type: 'super_supplier_debit_note',
+        id: debitNoteId,
+        invoiceNumber:
+            meta.invoiceNo != null
+                ? String(meta.invoiceNo)
+                : debitNoteId
+                  ? `DN-${debitNoteId}`
+                  : undefined,
+        superSupplierName: meta.superSupplierName != null ? String(meta.superSupplierName) : null,
+        referenceNo: meta.referenceNo != null ? String(meta.referenceNo) : null,
+    };
+}
+
 function superSupplierPurchaseRef(h, meta) {
     const purchaseId =
         meta.purchaseId != null
@@ -198,6 +222,26 @@ export function normalizeSupplierTimelineEntry(h) {
         }
         if (reference.vendorRef) {
             reason += ` · Ref ${reference.vendorRef}`;
+        }
+    } else if (type === 'inventory_out_super_supplier_debit_note') {
+        source = 'super_supplier_debit_note';
+        reference = superSupplierDebitNoteRef(h, meta);
+        const dnPrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
+        const dnNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        if (dnPrev != null && dnNext != null) {
+            delta = dnNext - dnPrev;
+        } else {
+            const signed = warehouseDeltaFromMeta(meta, true);
+            if (signed != null && signed !== 0) {
+                delta = signed < 0 ? signed : -Math.abs(signed);
+            }
+        }
+        const productLabel = readMetaStr(meta, 'productName') || h.productName || '';
+        reason = productLabel
+            ? `Purchase return — ${productLabel}`
+            : 'Purchase return — debit note';
+        if (reference.invoiceNumber) {
+            reason += ` · ${reference.invoiceNumber}`;
         }
     } else if (type === 'stock_adjusted') {
         const prevTotal = readMetaQty(meta, 'previousTotalWarehouseQty');
@@ -439,6 +483,39 @@ export function fillSupplierTimelineRunningQty(entries, _currentQtyOnHand, produ
     return filled;
 }
 
+/**
+ * One timeline row per document+product for debit notes, sales invoices,
+ * and super-supplier purchases. Amendments must not look like extra documents
+ * (keep the newest row).
+ */
+export function collapseInPlaceDocumentTimelineEntries(entries) {
+    if (!Array.isArray(entries) || entries.length < 2) return entries || [];
+    const newestFirst = [...entries].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const seen = new Set();
+    const kept = [];
+    for (const entry of newestFirst) {
+        const src = String(entry.source || '');
+        if (
+            src !== 'super_supplier_debit_note' &&
+            src !== 'sales_invoice' &&
+            src !== 'super_supplier_purchase'
+        ) {
+            kept.push(entry);
+            continue;
+        }
+        const refId = String(entry.reference?.id || '');
+        if (!refId) {
+            kept.push(entry);
+            continue;
+        }
+        const key = `${src}:${refId}:${entry.supplierProductId || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        kept.push(entry);
+    }
+    return kept;
+}
+
 /** Unit price (SAR) per warehouse unit for API stock balance rows. */
 export function warehouseUnitPriceFromItem(item) {
     if (!item) return 0;
@@ -493,6 +570,16 @@ export function formatSupplierTimelineSourceRef(e) {
         if (ref) parts.push(`Ref ${ref}`);
         return parts.join(' · ');
     }
+    if (e.source === 'super_supplier_debit_note') {
+        const num = e.reference?.invoiceNumber || e.invoiceNo || e.reference?.id;
+        const vendor = e.reference?.superSupplierName;
+        const ref = e.reference?.referenceNo;
+        const parts = ['Debit note'];
+        if (num) parts.push(`#${num}`);
+        if (vendor) parts.push(vendor);
+        if (ref && String(ref) !== String(num)) parts.push(`Ref ${ref}`);
+        return parts.join(' · ');
+    }
     if (e.source === 'sales_invoice' && e.invoiceNo) {
         return `Sales invoice · #${e.invoiceNo}`;
     }
@@ -543,9 +630,10 @@ export function mapSupplierHistoryToMovementRegister(list, warehouseQtyByProduct
             return enrichEntryWithProductUom(e, pid ? productUomByProductId[pid] : null);
         })
         .filter((e) => e && isMeaningfulStockMovementEntry(e));
+    const collapsed = collapseInPlaceDocumentTimelineEntries(entries);
 
     const byProduct = new Map();
-    for (const entry of entries) {
+    for (const entry of collapsed) {
         const pid = entry.supplierProductId || '_unknown';
         if (!byProduct.has(pid)) byProduct.set(pid, []);
         byProduct.get(pid).push(entry);
@@ -581,6 +669,7 @@ export function mapSupplierHistoryToTimelineEntries(list, currentQtyOnHand, prod
             );
         })
         .filter((e) => e && isMeaningfulStockMovementEntry(e));
-    rows.sort((a, b) => String(b.at).localeCompare(String(a.at)));
-    return fillSupplierTimelineRunningQty(rows, currentQtyOnHand, productUom);
+    const collapsed = collapseInPlaceDocumentTimelineEntries(rows);
+    collapsed.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return fillSupplierTimelineRunningQty(collapsed, currentQtyOnHand, productUom);
 }

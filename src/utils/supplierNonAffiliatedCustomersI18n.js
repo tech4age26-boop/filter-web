@@ -9,8 +9,9 @@ export const SNAC_I18N = {
 
         'page.title': 'Non-affiliated customers / workshops',
         'page.sub':
-            'Manually track parties outside Filter: running balance from your ledger lines, with dated transaction history.',
+            'Customers and workshops outside Filter. Click a row to open the full AR statement — sales invoices, receipts, and payments.',
 
+        'btn.statement': 'Statement',
         'btn.add': 'Add Non-Affiliated Customer',
         'btn.cancel': 'Cancel',
         'btn.close': 'Close',
@@ -37,6 +38,7 @@ export const SNAC_I18N = {
 
         'loading': 'Loading…',
         'empty': 'No customers yet — use "Add Non-Affiliated Customer".',
+        'hint.fromCoa': 'From Chart of Accounts (1110)',
         'aria.actions': 'Actions for {name}',
         'fallback.customer': 'customer',
 
@@ -46,6 +48,9 @@ export const SNAC_I18N = {
         'err.update': 'Update failed',
         'err.remove': 'Remove failed',
         'err.ledger': 'Ledger save failed',
+        'err.openLedger': 'Could not open the AR statement',
+        'err.ledgerAccount': 'Non-affiliated receivables account was not found in the chart of accounts.',
+        'row.openStatement': 'Open AR statement',
 
         'confirm.deactivate':
             'Deactivate this party? They disappear from your list until re-added.',
@@ -93,8 +98,9 @@ export const SNAC_I18N = {
 
         'page.title': 'عملاء / ورش غير تابعة',
         'page.sub':
-            'تتبّع يدويًا أطرافًا خارج Filter: رصيد جارٍ من بنود دفتر الأستاذ، مع سجل معاملات مؤرّخ.',
+            'عملاء وورش خارج Filter. انقر صفًا لفتح كشف الذمم الكامل — فواتير المبيعات والإيصالات والمدفوعات.',
 
+        'btn.statement': 'كشف الحساب',
         'btn.add': 'إضافة عميل غير تابع',
         'btn.cancel': 'إلغاء',
         'btn.close': 'إغلاق',
@@ -121,6 +127,7 @@ export const SNAC_I18N = {
 
         'loading': 'جارٍ التحميل…',
         'empty': 'لا عملاء بعد — استخدم «إضافة عميل غير تابع».',
+        'hint.fromCoa': 'من دليل الحسابات (1110)',
         'aria.actions': 'إجراءات لـ {name}',
         'fallback.customer': 'عميل',
 
@@ -130,6 +137,9 @@ export const SNAC_I18N = {
         'err.update': 'فشل التحديث',
         'err.remove': 'فشل الإزالة',
         'err.ledger': 'فشل حفظ دفتر الأستاذ',
+        'err.openLedger': 'تعذّر فتح كشف الذمم',
+        'err.ledgerAccount': 'حساب ذمم العملاء غير التابعين غير موجود في دليل الحسابات.',
+        'row.openStatement': 'فتح كشف الذمم',
 
         'confirm.deactivate':
             'إلغاء تفعيل هذا الطرف؟ سيختفي من قائمتك حتى تُعاد إضافته.',

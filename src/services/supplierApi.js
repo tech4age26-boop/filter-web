@@ -166,6 +166,47 @@ export const createSupplierLocation = (body) =>
 export const getSupplierInventoryStockBalances = (params = {}) =>
     apiFetch(withQuery('/supplier/inventory/stock-balances', params));
 
+/** Paginate stock-balances until exhausted so inventory tabs are not capped at 15. */
+export async function fetchAllSupplierStockBalances({
+    pageSize = 2000,
+    historyLimit = 2000,
+    search,
+    isLowCriticalOnly,
+} = {}) {
+    const items = [];
+    let offset = 0;
+    let total = 0;
+    let transactionHistory = [];
+    let first = true;
+    const limit = Math.min(Math.max(Number(pageSize) || 2000, 1), 2000);
+    while (true) {
+        const res = await getSupplierInventoryStockBalances({
+            limit,
+            offset,
+            historyLimit: first ? historyLimit : 1,
+            ...(search ? { search } : {}),
+            ...(isLowCriticalOnly ? { isLowCriticalOnly: true } : {}),
+        });
+        const batch = Array.isArray(res?.items) ? res.items : [];
+        if (first) {
+            transactionHistory = Array.isArray(res?.transactionHistory)
+                ? res.transactionHistory
+                : [];
+            total = Number(res?.total ?? 0) || 0;
+            first = false;
+        }
+        items.push(...batch);
+        if (batch.length < limit) break;
+        offset += limit;
+        if (total && items.length >= total) break;
+    }
+    return {
+        items,
+        total: total || items.length,
+        transactionHistory,
+    };
+}
+
 export const getSupplierProductInventoryTimeline = (productId, params = {}) =>
     apiFetch(
         withQuery(
@@ -328,6 +369,20 @@ export const getSupplierSuperSupplierPurchase = (id) =>
     apiFetch(`/supplier/super-supplier-purchases/${encodeURIComponent(String(id))}`);
 export const updateSupplierSuperSupplierPurchase = (id, body) =>
     apiFetch(`/supplier/super-supplier-purchases/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+export const listSupplierSuperSupplierDebitNotes = (params = {}) =>
+    apiFetch(withQuery('/supplier/super-supplier-debit-notes', params));
+export const createSupplierSuperSupplierDebitNote = (body) =>
+    apiFetch('/supplier/super-supplier-debit-notes', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+export const getSupplierSuperSupplierDebitNote = (id) =>
+    apiFetch(`/supplier/super-supplier-debit-notes/${encodeURIComponent(String(id))}`);
+export const updateSupplierSuperSupplierDebitNote = (id, body) =>
+    apiFetch(`/supplier/super-supplier-debit-notes/${encodeURIComponent(String(id))}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
     });

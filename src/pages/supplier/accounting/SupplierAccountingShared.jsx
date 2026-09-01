@@ -200,6 +200,30 @@ export const dangerBtnStyle = {
     cursor: 'pointer',
 };
 
+/** COA posting / combo rule: missing status is treated as active. */
+export function isSupplierAccountActive(account) {
+    return String(account?.status || 'active').toLowerCase() !== 'inactive';
+}
+
+export function filterActiveAccounts(accounts) {
+    return (accounts || []).filter(isSupplierAccountActive);
+}
+
+export function activeLeafAccounts(accounts) {
+    return filterActiveAccounts(accounts).filter((a) => !a.hasChildren);
+}
+
+/** Hide hardcoded invoice account labels whose COA code has been inactivated. */
+export function filterAccountLabelOptionsByCoa(fallbackOptions, accounts) {
+    const byCode = new Map(
+        (accounts || []).map((a) => [String(a.code || '').trim(), a]),
+    );
+    return (fallbackOptions || []).filter((opt) => {
+        const hit = byCode.get(String(opt.code || '').trim());
+        return !hit || isSupplierAccountActive(hit);
+    });
+}
+
 /** Simple paginator. */
 export function Pager({ total, limit, offset, onChange, locale = 'en' }) {
     const totalNum = Number(total || 0);

@@ -9,15 +9,16 @@ export const SAW_I18N = {
 
         'page.title': 'Affiliated Filter workshops',
         'page.sub':
-            'Pin specific branches (or a whole workshop when it has no branches). Use Deactivate to soft-hide a row without losing history; Activate to show it again. Balance and logs still reflect real AR.',
+            'Pin specific branches (or a whole workshop when it has no branches). Use Deactivate to soft-hide a row without losing history; Activate to show it again. Click a row to open the full AR statement.',
         'page.sub.deactivate': 'Deactivate',
         'page.sub.activate': 'Activate',
         'page.sub2':
-            'The same balance is posted to Accounting → Chart of Accounts → AR Affiliated. Open a transaction log row, then use Chart of Accounts (ledger) to see matching GL lines (incl. sales invoices), or go to COA and filter the ledger by party type workshop and the workshop id.',
-        'page.sub2.coa': 'Accounting → Chart of Accounts → AR Affiliated',
-        'page.sub2.ledger': 'Chart of Accounts (ledger)',
+            'The statement is the same AR Affiliated ledger as Accounting → Chart of Accounts: sales invoices, receipts, and payments for that workshop or branch.',
+        'page.sub2.coa': 'Accounting → Chart of Accounts',
+        'page.sub2.ledger': 'AR statement',
         'page.sub2.workshop': 'workshop',
 
+        'btn.statement': 'Statement',
         'btn.add': 'Add workshops / branches',
         'btn.cancel': 'Cancel',
         'btn.close': 'Close',
@@ -55,6 +56,9 @@ export const SAW_I18N = {
         'err.status': 'Could not update status',
         'err.tx': 'Failed to load transactions',
         'err.filter': 'Failed to filter',
+        'err.ledger': 'Could not open the AR statement',
+        'err.ledgerAccount': 'Affiliated receivables account was not found in the chart of accounts.',
+        'row.openStatement': 'Open AR statement',
 
         'picker.title': 'Add workshops / branches',
         'picker.hint':
@@ -105,15 +109,16 @@ export const SAW_I18N = {
 
         'page.title': 'ورش Filter التابعة',
         'page.sub':
-            'ثبّت فروعًا محددة (أو ورشة كاملة عندما لا تحتوي على فروع). استخدم إلغاء التفعيل لإخفاء صف دون فقدان السجل؛ والتفعيل لإظهاره مجددًا. الرصيد والسجلات ما زالت تعكس الذمم المدينة الفعلية.',
+            'ثبّت فروعًا محددة (أو ورشة كاملة عندما لا تحتوي على فروع). استخدم إلغاء التفعيل لإخفاء صف دون فقدان السجل؛ والتفعيل لإظهاره مجددًا. انقر صفًا لفتح كشف الذمم الكامل.',
         'page.sub.deactivate': 'إلغاء التفعيل',
         'page.sub.activate': 'تفعيل',
         'page.sub2':
-            'يُرحَّل نفس الرصيد إلى المحاسبة ← دليل الحسابات ← ذمم تابعة. افتح صف سجل معاملات، ثم استخدم دليل الحسابات (دفتر الأستاذ) لرؤية قيود الأستاذ المطابقة (بما فيها فواتير المبيعات)، أو اذهب إلى الدليل وصفِّ حسب نوع الطرف ورشة ومعرّف الورشة.',
-        'page.sub2.coa': 'المحاسبة ← دليل الحسابات ← ذمم تابعة',
-        'page.sub2.ledger': 'دليل الحسابات (دفتر الأستاذ)',
+            'الكشف هو نفس دفتر ذمم الورش التابعة في المحاسبة ← دليل الحسابات: فواتير المبيعات والإيصالات والمدفوعات لتلك الورشة أو الفرع.',
+        'page.sub2.coa': 'المحاسبة ← دليل الحسابات',
+        'page.sub2.ledger': 'كشف الذمم',
         'page.sub2.workshop': 'ورشة',
 
+        'btn.statement': 'كشف الحساب',
         'btn.add': 'إضافة ورش / فروع',
         'btn.cancel': 'إلغاء',
         'btn.close': 'إغلاق',
@@ -151,6 +156,9 @@ export const SAW_I18N = {
         'err.status': 'تعذّر تحديث الحالة',
         'err.tx': 'فشل تحميل المعاملات',
         'err.filter': 'فشلت التصفية',
+        'err.ledger': 'تعذّر فتح كشف الذمم',
+        'err.ledgerAccount': 'حساب ذمم الورش التابعة غير موجود في دليل الحسابات.',
+        'row.openStatement': 'فتح كشف الذمم',
 
         'picker.title': 'إضافة ورش / فروع',
         'picker.hint':

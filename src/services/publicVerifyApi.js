@@ -41,6 +41,9 @@ export function publicReceiveWorkshopPurchaseInvoiceWithPassword(id, password, o
         Object.keys(opts.receivedQtyByInvoiceItemId).length > 0
             ? { receivedQtyByInvoiceItemId: opts.receivedQtyByInvoiceItemId }
             : {}),
+        ...(opts.receiverLogin && String(opts.receiverLogin).trim() !== ''
+            ? { receiverLogin: String(opts.receiverLogin).trim() }
+            : {}),
     };
     return apiFetch(
         `/public/workshop-purchase-invoices/${encodeURIComponent(String(id))}/receive-with-password`,
@@ -90,6 +93,9 @@ export function publicReceiveSupplierSalesInvoiceWithPassword(id, password, opts
         ...(opts.receivedQtyByInvoiceItemId &&
         Object.keys(opts.receivedQtyByInvoiceItemId).length > 0
             ? { receivedQtyByInvoiceItemId: opts.receivedQtyByInvoiceItemId }
+            : {}),
+        ...(opts.receiverLogin && String(opts.receiverLogin).trim() !== ''
+            ? { receiverLogin: String(opts.receiverLogin).trim() }
             : {}),
     };
     return apiFetch(

@@ -29,6 +29,7 @@ export default function ProfessionalLedgerStatementDocument({
     error = '',
     accountCode = '',
     accountName = '',
+    partyLabel = '',
     accountType = '',
     companyName = '',
     periodFrom = '—',
@@ -54,6 +55,7 @@ export default function ProfessionalLedgerStatementDocument({
     expenseCategoryColumnLabel = 'Account category',
     closingBalanceKpiLabel = 'Closing Balance',
     filterOptions = null,
+    hidePartyFilter = false,
     partyFilterKey = '',
     onPartyFilterKeyChange,
     offsetAccountFilterId = '',
@@ -105,10 +107,10 @@ export default function ProfessionalLedgerStatementDocument({
         [walletUsers],
     );
     const colSpan = showPettyCashExpenseColumns
-        ? 8
+        ? 9
         : showCashLedgerColumns
-            ? 7
-            : 5;
+            ? 8
+            : 6;
 
     const totalPages = Math.max(1, Math.ceil((rows?.length || 0) / LEDGER_ROWS_PER_PAGE));
 
@@ -157,7 +159,7 @@ export default function ProfessionalLedgerStatementDocument({
                         onChange={(e) => onDateToChange?.(e.target.value)}
                     />
                 </div>
-                {parties.length > 0 ? (
+                {parties.length > 0 && !hidePartyFilter ? (
                     <div className="pls-filter-field">
                         <label htmlFor="pls-party">Party</label>
                         <select
@@ -394,6 +396,7 @@ export default function ProfessionalLedgerStatementDocument({
                         {accountLine}
                         {accountType ? ` · ${accountType}` : ''}
                     </p>
+                    {partyLabel ? <p className="pls-doc-party">{partyLabel}</p> : null}
                     <p className="pls-doc-period">
                         From {periodFrom} &nbsp; To {periodTo}
                     </p>
@@ -418,6 +421,7 @@ export default function ProfessionalLedgerStatementDocument({
                                     </>
                                 ) : null}
                                 <th>Description</th>
+                                <th style={{ width: 140 }}>Reference</th>
                                 <th className="pls-col-amount" style={{ width: 110 }}>
                                     Debit
                                 </th>
@@ -447,6 +451,7 @@ export default function ProfessionalLedgerStatementDocument({
                                         </>
                                     ) : null}
                                     <td>Opening balance</td>
+                                    <td>—</td>
                                     <td className="pls-col-amount">—</td>
                                     <td className="pls-col-amount">—</td>
                                     <td className="pls-col-amount">
@@ -498,6 +503,9 @@ export default function ProfessionalLedgerStatementDocument({
                                             </>
                                         ) : null}
                                         <td>{r.description || '—'}</td>
+                                        <td style={{ whiteSpace: 'nowrap' }}>
+                                            {r.reference || '—'}
+                                        </td>
                                         <td className="pls-col-amount">
                                             {r.debit > 0 ? fmtMoneySar(r.debit) : ''}
                                         </td>

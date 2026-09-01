@@ -814,26 +814,26 @@ export default function WorkshopApprovals({
                 const preview = await apiFetch(
                     `/workshop-staff/supplier-sales-invoices/${encodeURIComponent(String(sid))}/approval-preview`,
                 );
-                const init = {};
-                (preview.newProducts || []).forEach((p) => {
-                    init[String(p.productId)] = '0';
-                });
-                setSiCriticalStock(init);
+                    const init = {};
+                    (preview.newProducts || []).forEach((p) => {
+                        init[String(p.productId)] = '0';
+                    });
+                    setSiCriticalStock(init);
                 setSiReceivedQty({});
-                setSiApproveModal({ row, preview });
+                    setSiApproveModal({ row, preview });
             } catch (error) {
                 setLoadError(error.message || t('err.approveSupplierInvoice'));
             } finally {
                 setActionLoadingId(null);
             }
-            return;
-        }
+                    return;
+                }
         if (isAdminWalletFundRow(row)) {
             if (row.status !== 'pending') return;
             setFundApproveError('');
             setFundApproveModal(row);
-            return;
-        }
+                    return;
+                }
         if (isAdminWalletExpenseRow(row)) {
             if (row.status !== 'pending') return;
             setFundApproveError('');
@@ -1848,7 +1848,7 @@ export default function WorkshopApprovals({
                     }}
                     onConfirm={submitAdminWalletFundApprove}
                 />
-            ) : null}
+                            ) : null}
 
             {expenseApproveModal ? (
                 <AdminWalletWorkshopApproveModal

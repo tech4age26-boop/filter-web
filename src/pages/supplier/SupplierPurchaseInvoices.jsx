@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Plus,
     Calendar,
@@ -42,15 +43,8 @@ import {
 } from '../../services/supplierAccountingApi';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import { spiT } from '../../utils/supplierPurchaseInvoicesI18n';
-
-const ACCOUNT_OPTIONS = [
-    { code: '5100', name: 'Cost of Goods Sold' },
-    { code: '6100', name: 'Rent Expense' },
-    { code: '6200', name: 'Utilities Expense' },
-    { code: '6300', name: 'Salaries & Wages' },
-    { code: '1410', name: 'Inventory Asset' },
-    { code: '4100', name: 'Sales Revenue' },
-];
+import { navigateToSupplierCustomerLedger } from './openSupplierCustomerLedger';
+import { activeLeafAccounts } from './accounting/SupplierAccountingShared';
 
 const TAXES = [
     { id: 1, name: 'VAT 15%', percent: 15, code: 'VAT 15%', rate: 0.15 },
@@ -67,6 +61,42 @@ import {
 
 function roundMoney2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function accountOptionLabel(opt) {
+    if (!opt) return '';
+    return `${opt.code} - ${opt.name}`;
+}
+
+function mapActiveLeafAccountOptions(accounts) {
+    const leaves = activeLeafAccounts(accounts)
+        .map((a) => ({
+            code: String(a.code || '').trim(),
+            name: String(a.name || '').trim() || String(a.code || '').trim(),
+            seedKey: a.seedKey ?? null,
+        }))
+        .filter((a) => a.code);
+    leaves.sort((a, b) =>
+        a.code.localeCompare(b.code, undefined, { numeric: true }),
+    );
+    return leaves;
+}
+
+function accountLabelByCode(options, code, fallback) {
+    const hit = (Array.isArray(options) ? options : []).find(
+        (a) => String(a.code) === String(code),
+    );
+    return hit ? accountOptionLabel(hit) : fallback;
+}
+
+function defaultPurchaseInvoiceAccountLabel(options) {
+    const list = Array.isArray(options) ? options : [];
+    const hit =
+        list.find((a) => String(a.code) === '1410') ||
+        list.find((a) => String(a.seedKey || '').toUpperCase() === 'INVENTORY') ||
+        list.find((a) => /inventory/i.test(String(a.name || ''))) ||
+        list[0];
+    return hit ? accountOptionLabel(hit) : '1410 - Inventory Asset';
 }
 
 /** Same VAT / discount semantics as Supplier Sales Invoice (Warehouse → Workshop). */
@@ -458,9 +488,6 @@ function scorePurchaseSearchItem(item, q) {
     return 0;
 }
 
-const SEARCH_QUICK_PICK_PI = 12;
-const SEARCH_MAX_RESULTS_PI = 40;
-
 /** Hydrated when navigating from Stock Inventory → Adjust via Purchase */
 const PI_PRESET_FROM_STOCK_FLAG = 'supplier_pi_open_from_stock';
 const PI_PRESET_STOCK_LINE = 'supplier_pi_preset_stock_line';
@@ -521,8 +548,10 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         'en';
     const t = useCallback((key, vars) => spiT(locale, key, vars), [locale]);
     const money = useCallback((amount) => t('money.sar', { amount }), [t]);
+    const navigate = useNavigate();
 
     const [modalOpen, setModalOpen] = useState(false);
+    const [invoiceCoaAccounts, setInvoiceCoaAccounts] = useState([]);
     const [showLineNum, setShowLineNum] = useState(false);
     const [showDesc, setShowDesc] = useState(false);
     const [showDiscount, setShowDiscount] = useState(false);
@@ -602,10 +631,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
     const [auditItems, setAuditItems] = useState([]);
     const [auditLoading, setAuditLoading] = useState(false);
 
-    const [ssLedgerOpen, setSsLedgerOpen] = useState(false);
-    const [ssLedgerLoading, setSsLedgerLoading] = useState(false);
-    const [ssLedgerError, setSsLedgerError] = useState('');
-    const [ssLedgerData, setSsLedgerData] = useState(null);
+    const [openingLedger, setOpeningLedger] = useState(false);
 
     const [ssProductsOpen, setSsProductsOpen] = useState(false);
     const [ssProductsLoading, setSsProductsLoading] = useState(false);
@@ -634,6 +660,29 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
     useEffect(() => {
         loadSuperSuppliers();
     }, [loadSuperSuppliers]);
+
+    useEffect(() => {
+        let cancelled = false;
+        getSupplierAccounts()
+            .then((res) => {
+                if (!cancelled) setInvoiceCoaAccounts(unwrapSupplierAccountingList(res));
+            })
+            .catch(() => {
+                if (!cancelled) setInvoiceCoaAccounts([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const invoiceAccountOptions = useMemo(
+        () => mapActiveLeafAccountOptions(invoiceCoaAccounts),
+        [invoiceCoaAccounts],
+    );
+    const defaultAccountLabel = useMemo(
+        () => defaultPurchaseInvoiceAccountLabel(invoiceAccountOptions),
+        [invoiceAccountOptions],
+    );
 
     useEffect(() => {
         if (!addSsOpen) return undefined;
@@ -701,27 +750,24 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
     );
 
     const openSuperSupplierLedger = async (superSupplierId, supplierName = '') => {
-        setSsLedgerOpen(true);
-        setSsLedgerLoading(true);
-        setSsLedgerError('');
-        setSsLedgerData({ supplier: { name: supplierName || t('fallback.superSupplier') } });
+        if (!superSupplierId || openingLedger) return;
+        setSsListError('');
+        setOpeningLedger(true);
         try {
-            const res = await getSuperSupplierApLedger(String(superSupplierId));
-            const root = res?.data && typeof res.data === 'object' ? res.data : res;
-            setSsLedgerData(root);
+            await getSuperSupplierApLedger(String(superSupplierId)).catch(() => {});
+            await navigateToSupplierCustomerLedger(navigate, {
+                seedKey: 'AP_SUPER_SUPPLIER',
+                from: 'purchase_invoices',
+                partyType: 'super_supplier',
+                partyId: String(superSupplierId),
+                partyLabel: supplierName || t('fallback.superSupplier'),
+                missingAccountMessage: t('err.ledgerAccount'),
+            });
         } catch (e) {
-            setSsLedgerError(e?.message || t('err.loadLedger'));
-            setSsLedgerData(null);
+            setSsListError(e?.message || t('err.openLedger'));
         } finally {
-            setSsLedgerLoading(false);
+            setOpeningLedger(false);
         }
-    };
-
-    const closeSuperSupplierLedger = () => {
-        setSsLedgerOpen(false);
-        setSsLedgerError('');
-        setSsLedgerData(null);
-        void loadSuperSuppliers();
     };
 
     const loadSuperSupplierProducts = useCallback(
@@ -1119,13 +1165,11 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         const items = catalogForSearch;
         const q = query.trim().toLowerCase();
         if (!q) {
-            return [...items]
-                .sort((a, b) =>
-                    String(a.name || '').localeCompare(String(b.name || ''), undefined, {
-                        sensitivity: 'base',
-                    }),
-                )
-                .slice(0, SEARCH_QUICK_PICK_PI);
+            return [...items].sort((a, b) =>
+                String(a.name || '').localeCompare(String(b.name || ''), undefined, {
+                    sensitivity: 'base',
+                }),
+            );
         }
         return items
             .map((item) => ({ item, score: scorePurchaseSearchItem(item, q) }))
@@ -1135,7 +1179,6 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                     b.score - a.score ||
                     String(a.item.name || '').localeCompare(String(b.item.name || '')),
             )
-            .slice(0, SEARCH_MAX_RESULTS_PI)
             .map((x) => x.item);
     };
 
@@ -1339,8 +1382,16 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                     masterProductId: masterId || undefined,
                     account:
                         catItem.type === 'Stock'
-                            ? '1410 - Inventory Asset'
-                            : '5100 - Cost of Goods Sold',
+                            ? accountLabelByCode(
+                                  invoiceAccountOptions,
+                                  '1410',
+                                  '1410 - Inventory Asset',
+                              )
+                            : accountLabelByCode(
+                                  invoiceAccountOptions,
+                                  '5100',
+                                  '5100 - Cost of Goods Sold',
+                              ),
                     uom: whUom,
                     warehouseUnit: whUom,
                     workshopUnitCatalog:
@@ -1493,7 +1544,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
             item: '',
             sku: '',
             supplierProductId: undefined,
-            account: '1410 - Inventory Asset',
+            account: defaultAccountLabel,
             description: '',
             uom: 'pcs',
             warehouseUnit: null,
@@ -1583,7 +1634,17 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
             supplierProductId: masterId || undefined,
             masterProductId: masterId || undefined,
             account:
-                item.type === 'Stock' ? '1410 - Inventory Asset' : '5100 - Cost of Goods Sold',
+                item.type === 'Stock'
+                    ? accountLabelByCode(
+                          invoiceAccountOptions,
+                          '1410',
+                          '1410 - Inventory Asset',
+                      )
+                    : accountLabelByCode(
+                          invoiceAccountOptions,
+                          '5100',
+                          '5100 - Cost of Goods Sold',
+                      ),
             description: '',
             uom: whUom,
             warehouseUnit: whUom,
@@ -1804,7 +1865,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                 String(it.supplierProductId).trim() !== ''
                                     ? String(it.supplierProductId).trim()
                                     : undefined,
-                            account: '1410 - Inventory Asset',
+                            account: defaultAccountLabel,
                             description: String(it.lineDescription ?? '').trim(),
                             uom: it.unit || 'pcs',
                             warehouseUnit: it.unit || null,
@@ -2239,13 +2300,22 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                             filteredSuperSuppliers.map((ss) => {
                                 const apStatus = ss.apStatus ?? 'paid';
                                 return (
-                                    <tr key={String(ss.id)} className="table-row">
+                                    <tr
+                                        key={String(ss.id)}
+                                        className="table-row ws-inv-row-clickable"
+                                        style={{ cursor: 'pointer' }}
+                                        title={t('title.openLedger')}
+                                        onClick={() =>
+                                            openSuperSupplierLedger(String(ss.id), ss.name)
+                                        }
+                                    >
                                     <td className="table-cell">
                                             <button
                                                 type="button"
-                                                onClick={() =>
-                                                    openSuperSupplierLedger(String(ss.id), ss.name)
-                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openSuperSupplierLedger(String(ss.id), ss.name);
+                                                }}
                                                 style={{
                                                     display: 'block',
                                                     background: 'none',
@@ -2299,9 +2369,11 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                                 type="button"
                                                 className="btn-pi-cancel"
                                                 style={{ padding: '6px 12px', fontSize: '0.8125rem' }}
-                                                onClick={() =>
-                                                    openSuperSupplierLedger(String(ss.id), ss.name)
-                                                }
+                                                disabled={openingLedger}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openSuperSupplierLedger(String(ss.id), ss.name);
+                                                }}
                                             >
                                                 <BookOpen size={14} /> {t('btn.ledger')}
                                             </button>
@@ -2705,152 +2777,6 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                     </Modal>
                 )}
 
-                {ssLedgerOpen && (
-                    <Modal
-                        title={
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <BookOpen size={20} />{' '}
-                                {t('modal.ledger', {
-                                    name: ssLedgerData?.supplier?.name || t('fallback.superSupplier'),
-                                })}
-                            </span>
-                        }
-                        onClose={closeSuperSupplierLedger}
-                        width="960px"
-                        footer={
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    width: '100%',
-                                    flexWrap: 'wrap',
-                                    gap: 8,
-                                }}
-                            >
-                                <span style={{ fontSize: '0.9375rem', fontWeight: 700 }}>
-                                    {t('ledger.currentAp')}{' '}
-                                    {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable, money)}
-                                </span>
-                            <button
-                                type="button"
-                                className="btn-portal-outline"
-                                    onClick={closeSuperSupplierLedger}
-                            >
-                                Close
-                            </button>
-                            </div>
-                        }
-                    >
-                        {ssLedgerLoading ? (
-                            <ShimmerTextBlock lines={8} />
-                        ) : ssLedgerError ? (
-                            <p style={{ margin: 0, color: '#B91C1C', fontSize: '0.875rem' }}>{ssLedgerError}</p>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                                    <div
-                                        style={{
-                                            background: '#F1F5F9',
-                                            padding: '10px 14px',
-                                            borderRadius: 10,
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        {t('ledger.account')}{' '}
-                                        <strong>
-                                            [{ssLedgerData?.account?.code}] {ssLedgerData?.account?.name}
-                                        </strong>
-                                    </div>
-                                    <div
-                                        style={{
-                                            background: '#FEF3C7',
-                                            padding: '10px 14px',
-                                            borderRadius: 10,
-                                            fontSize: '0.8125rem',
-                                        }}
-                                    >
-                                        {t('ledger.currentBalance')}{' '}
-                                        <strong>
-                                            {formatAccountsPayableDisplay(ssLedgerData?.accountsPayable, money)}
-                                        </strong>
-                                    </div>
-                                    <span
-                                        className="status-badge"
-                                        style={{
-                                            ...apStatusBadgeStyle(ssLedgerData?.apStatus ?? 'paid'),
-                                            fontWeight: 700,
-                                            textTransform: 'none',
-                                            alignSelf: 'center',
-                                        }}
-                                    >
-                                        {apStatusLabel(ssLedgerData?.apStatus ?? 'paid', t)}
-                                    </span>
-                                </div>
-                                <div style={{ maxHeight: 460, overflow: 'auto' }}>
-                                    <table className="ws-table" style={{ width: '100%', fontSize: '0.8125rem' }}>
-                                        <thead>
-                                            <tr>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.date')}</th>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.entryNo')}</th>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.description')}</th>
-                                                <th style={{ textAlign: 'left', padding: 8 }}>{t('th.reference')}</th>
-                                                <th style={{ textAlign: 'right', padding: 8 }}>{t('th.debit')}</th>
-                                                <th style={{ textAlign: 'right', padding: 8 }}>{t('th.credit')}</th>
-                                                <th style={{ textAlign: 'right', padding: 8 }}>{t('th.balance')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {(ssLedgerData?.lines || []).length === 0 ? (
-                                                <tr>
-                                                    <td
-                                                        colSpan={7}
-                                                        style={{ padding: 16, color: 'var(--color-text-muted)' }}
-                                                    >
-                                                        {t('empty.noJournal')}
-                                                    </td>
-                                                </tr>
-                                            ) : (
-                                                (ssLedgerData?.lines || []).map((ln, idx) => (
-                                                    <tr key={`${ln.entryNumber}-${ln.date}-${idx}`}>
-                                                        <td style={{ padding: 8, whiteSpace: 'nowrap', verticalAlign: 'top' }}>
-                                                            {ln.date || '—'}
-                                                        </td>
-                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.entryNumber || '—'}</td>
-                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.description || '—'}</td>
-                                                        <td style={{ padding: 8, verticalAlign: 'top' }}>{ln.reference || '—'}</td>
-                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
-                                                            {Number(ln.debit) > 0
-                                                                ? money(fmtApMoney(ln.debit))
-                                                                : t('emdash')}
-                                                        </td>
-                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top' }}>
-                                                            {Number(ln.credit) > 0
-                                                                ? money(fmtApMoney(ln.credit))
-                                                                : t('emdash')}
-                                                        </td>
-                                                        <td style={{ padding: 8, textAlign: 'right', verticalAlign: 'top', fontWeight: 700 }}>
-                                                            {formatAccountsPayableDisplay(ln.runningBalance, money)}
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                {ssLedgerData?.total > (ssLedgerData?.lines?.length || 0) ? (
-                                    <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                        {t('ledger.showing', {
-                                            shown: ssLedgerData.lines.length,
-                                            total: ssLedgerData.total,
-                                        })}
-                                    </p>
-                                ) : null}
-                            </div>
-                        )}
-                    </Modal>
-                )}
-
                 {ssProductsOpen && (
                     <Modal
                         title={
@@ -3102,7 +3028,13 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                 <span className="pi-breadcrumb">
                                     Purchase Invoices ›{' '}
                                     <span className="pi-b-active">
-                                        {sspPurchaseModalMode === 'edit' ? 'Edit' : 'New'}
+                                        {sspPurchaseModalMode === 'edit'
+                                            ? t('form.editDoc', {
+                                                  no: editingSspPurchaseId
+                                                      ? `SSP-${editingSspPurchaseId}`
+                                                      : '',
+                                              })
+                                            : t('form.new')}
                                     </span>
                                 </span>
                                 <div className="pi-title-main">
@@ -3182,6 +3114,23 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                 {createError}
                             </p>
                         ) : null}
+                        {sspPurchaseModalMode === 'edit' && editingSspPurchaseId ? (
+                            <p
+                                style={{
+                                    margin: '0 0 12px 0',
+                                    padding: 10,
+                                    background: '#FEFCE8',
+                                    borderRadius: 8,
+                                    color: '#854D0E',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: 600,
+                                }}
+                            >
+                                {t('form.editSameDocHint', {
+                                    no: `SSP-${editingSspPurchaseId}`,
+                                })}
+                            </p>
+                        ) : null}
                         {sspPurchaseEditLoading ? (
                             <div style={{ padding: '12px 0 24px' }}>
                                 <ShimmerTextBlock lines={5} />
@@ -3235,7 +3184,6 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                     placeholder="Vendor inv #"
                                     value={refNo}
                                     onChange={setRefNo}
-                                    readOnly={sspPurchaseModalMode === 'edit'}
                                     autoGenerate={refAutoGenerate}
                                     onAutoGenerateChange={setRefAutoGenerate}
                                     fetchNextReference={getNextSupplierPurchaseInvoiceReference}
@@ -3246,7 +3194,6 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                 <label>{t('label.superSupplierReq')}</label>
                                 <select
                                     value={superSupplierId}
-                                    disabled={sspPurchaseModalMode === 'edit'}
                                     onChange={(e) => setSuperSupplierId(e.target.value)}
                                     style={{
                                         width: '100%',
@@ -3564,11 +3511,21 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                                                     handleLineFieldTab(e, line.id, 'account', idx)
                                                 }
                                             >
-                                                {ACCOUNT_OPTIONS.map((opt) => (
+                                                {invoiceAccountOptions.map((opt) => (
                                                     <option key={opt.code} value={`${opt.code} - ${opt.name}`}>
                                                         {opt.code} - {opt.name}
                                                     </option>
                                                 ))}
+                                                {line.account &&
+                                                !invoiceAccountOptions.some(
+                                                    (opt) =>
+                                                        `${opt.code} - ${opt.name}` ===
+                                                        line.account,
+                                                ) ? (
+                                                    <option value={line.account}>
+                                                        {line.account}
+                                                    </option>
+                                                ) : null}
                                             </select>
                                         </div>
                                         {showDesc && (

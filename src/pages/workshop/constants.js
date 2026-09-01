@@ -2,18 +2,23 @@ import {
     LayoutDashboard, Users, Layers, Package, ShoppingCart, ClipboardCheck,
     Truck, BarChart3, Building2, CheckCircle, CheckCircle2, PlayCircle,
     Store, Shield, Globe, Landmark, Banknote, Monitor, TicketPercent, Briefcase,
-    Archive, Lock, Wallet, RotateCcw, Smartphone, MessageCircle, ScrollText,
+    Archive, Lock, Wallet, RotateCcw, Smartphone, MessageCircle, ScrollText, Sparkles,
+    FileText,
 } from 'lucide-react';
 import { STAFF_APP_NAV_ITEMS } from './staff-app/constants';
 
 export const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'workshop.dashboard.view' },
+    // Leaves the workshop portal entirely; see externalPath handling in WorkshopLayout.
+    { id: 'filter-connect', label: 'FILTER CONNECT', icon: Sparkles, externalPath: '/connect' },
     { id: 'my-wallet', label: 'My Wallet', icon: Wallet, walletRequired: true },
     { id: 'platform-chat', label: 'Chat', icon: MessageCircle, permission: 'workshop.platform-chat.view' },
     { id: 'departments', label: 'View Inventory and Departments', icon: Layers, permission: 'workshop.departments.view' },
     { id: 'catalog-new', label: 'Master Catalog', icon: Package, permission: 'workshop.catalog.view' },
     { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },
     { id: 'purchases', label: 'Purchase Invoices', icon: ShoppingCart, permission: 'workshop.purchases.view' },
+    { id: 'purchase-quotes', label: 'Purchase Quotes', icon: FileText, permission: 'workshop.purchases.view' },
+    { id: 'purchase-orders', label: 'Purchase Orders', icon: ClipboardCheck, permission: 'workshop.purchases.view' },
     { id: 'purchase-returns', label: 'Debit Notes', icon: RotateCcw, permission: 'workshop.purchases.view' },
     { id: 'sales-returns', label: 'Sales Returns', icon: RotateCcw, permission: 'workshop.sales-returns.view' },
     { id: 'discounts', label: 'Discounts', icon: TicketPercent, permission: 'workshop.reports.view' },

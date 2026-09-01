@@ -225,9 +225,9 @@ function WorkshopEmployees({
                 ? LOCKER_JOB_ROLES
                 : editingIsCashier
                     ? ['cashier', ...PORTAL_STAFF_JOB_ROLES]
-                    : ROLE_OPTIONS.includes(editingRoleKey)
-                        ? [editingRoleKey]
-                        : [form.role];
+            : ROLE_OPTIONS.includes(editingRoleKey)
+                ? [editingRoleKey]
+                : [form.role];
     const roleHintKey = editingIsCashier
         ? 'form.roleHintCashierConvert'
         : editingIsPortalStaffGroup
@@ -751,21 +751,21 @@ function WorkshopEmployees({
                         );
                         forcePortalAfterConvert = 'cashier';
                     } else {
-                        // Pass the NEW role so department fields aren't stripped when
+                    // Pass the NEW role so department fields aren't stripped when
                         // switching TO team_leader, and send staffRole / lockerRole so
                         // the job role can change within the same portal group
                         // (manager/supervisor/team_leader or locker_supervisor/collector).
-                        const patch = buildPortalStaffPatchPayload(body, form.role);
+                    const patch = buildPortalStaffPatchPayload(body, form.role);
                         if (isLockerPortalRole(nextRole)) {
                             patch.lockerRole =
                                 nextRole === 'locker_collector' ? 'collector' : 'supervisor';
                             delete patch.staffRole;
                         } else {
-                            patch.staffRole = form.role;
+                    patch.staffRole = form.role;
                             delete patch.lockerRole;
                         }
-                        const portalUserId = String(editing.userId ?? editing.id);
-                        await updateWorkshopPortalStaff(portalUserId, patch);
+                    const portalUserId = String(editing.userId ?? editing.id);
+                    await updateWorkshopPortalStaff(portalUserId, patch);
                         permissionUserId = portalUserId;
                     }
                 } else {
@@ -806,8 +806,8 @@ function WorkshopEmployees({
                                 '',
                         );
                         forcePortalAfterConvert = 'workshop';
-                    } else {
-                        await updateWorkshopCashier(editing.id, body);
+                } else {
+                    await updateWorkshopCashier(editing.id, body);
                     }
                 }
 
@@ -986,13 +986,13 @@ function WorkshopEmployees({
                 className="ws-employee-form-screen"
                 footer={(
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', width: '100%' }}>
-                        <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)} disabled={saving}>
+                                <button type="button" className="btn-secondary" onClick={() => setModalOpen(false)} disabled={saving}>
                             {t('btn.cancel')}
-                        </button>
-                        <button type="button" className="btn-submit" onClick={handleSave} disabled={saving}>
+                                </button>
+                                <button type="button" className="btn-submit" onClick={handleSave} disabled={saving}>
                             {saving ? t('btn.saving') : t('btn.save')}
-                        </button>
-                    </div>
+                                </button>
+                            </div>
                 )}
             >
                 <div className="ws-section ws-employee-form">
@@ -1372,7 +1372,7 @@ function WorkshopEmployees({
                 size="full"
             >
                 <WorkshopRolesPanel
-                    roles={workshopRoles}
+                        roles={workshopRoles}
                     t={t}
                     canCreate={canCreateRoles}
                     canDelete={canDeleteRoles}

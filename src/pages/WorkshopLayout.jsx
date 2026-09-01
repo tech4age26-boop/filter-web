@@ -18,6 +18,8 @@ import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
 import WorkshopPurchases from './workshop/WorkshopPurchases';
 import WorkshopSalesReturns from './workshop/WorkshopSalesReturns';
 import WorkshopPurchaseReturns from './workshop/WorkshopPurchaseReturns';
+import WorkshopPurchaseQuotesPage from './workshop/WorkshopPurchaseQuotesPage';
+import WorkshopPurchaseOrdersPage from './workshop/WorkshopPurchaseOrdersPage';
 import WorkshopDiscounts from './workshop/WorkshopDiscounts';
 import WorkshopSuppliers from './workshop/WorkshopSuppliers';
 import WorkshopReports from './workshop/WorkshopReports';
@@ -205,7 +207,8 @@ export default function WorkshopLayout() {
 
     /** Resolve first visible tab id (top-level OR sub-item). Used for auto-snap. */
     const firstVisibleTabId = (() => {
-        const first = visibleNavItems[0];
+        // Shortcuts out of the portal are not tabs, so they can never be the snap target.
+        const first = visibleNavItems.find((item) => !item.externalPath);
         if (!first) return null;
         if (first.subItems?.length) return first.subItems[0].id;
         return first.id;
@@ -273,6 +276,14 @@ export default function WorkshopLayout() {
 
     const handleTabChange = (tabId, state = null) => {
         setIsMobileMenuOpen(false);
+
+        // Some items lead out of the workshop portal altogether, so there is no tab to activate.
+        const externalPath = NAV_ITEMS.find((item) => item.id === tabId)?.externalPath;
+        if (externalPath) {
+            navigate(externalPath);
+            return;
+        }
+
         setActiveTab(tabId);
         setTabState(state);
         
@@ -587,6 +598,22 @@ export default function WorkshopLayout() {
                     />
                 );
             case 'sales-returns': return <WorkshopSalesReturns selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
+            case 'purchase-quotes':
+                return (
+                    <WorkshopPurchaseQuotesPage
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        locale={locale}
+                    />
+                );
+            case 'purchase-orders':
+                return (
+                    <WorkshopPurchaseOrdersPage
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        locale={locale}
+                    />
+                );
             case 'purchase-returns': return <WorkshopPurchaseReturns selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'discounts': return <WorkshopDiscounts selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'suppliers':   return <WorkshopSuppliers selectedBranchId={selectedBranch} branches={activeBranches} onTabChange={handleTabChange} locale={locale} />;
@@ -669,10 +696,13 @@ export default function WorkshopLayout() {
 
     const navLabelFor = useCallback((id, fallback) => {
         if (id === 'dashboard') return lt('nav.dashboard');
+        if (id === 'filter-connect') return lt('nav.filterConnect');
         if (id === 'departments') return lt('nav.departments');
         if (id === 'catalog-new') return lt('nav.catalog');
         if (id === 'inventory') return lt('nav.inventory');
         if (id === 'purchases') return lt('nav.purchases');
+        if (id === 'purchase-quotes') return lt('nav.purchaseQuotes');
+        if (id === 'purchase-orders') return lt('nav.purchaseOrders');
         if (id === 'purchase-returns') return lt('nav.purchaseReturns');
         if (id === 'sales-returns') return lt('nav.salesReturns');
         if (id === 'discounts') return lt('nav.discounts');

@@ -406,7 +406,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
     );
 
     const clearLedgerResults = useCallback(() => {
-        setLedger(null);
+            setLedger(null);
         setCorpCustomerLines(null);
         setCorpLedgerRaw(null);
         setCorpOpeningBalance(0);
@@ -517,7 +517,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                         setCorpLedgerRaw(corpRes);
                         setCorpCustomerLines(mapCorporateArLinesToGl(corpRes));
                         setCorpOpeningBalance(Number(corpRes?.summary?.openingBalance ?? 0) || 0);
-                    } catch (e) {
+        } catch (e) {
                         setCorpCustomerLines([]);
                         setCorpLedgerRaw(null);
                         setCorpOpeningBalance(0);
@@ -1175,8 +1175,8 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                         maxInitial={100}
                         maxFiltered={200}
                         menuMinWidth={360}
-                    />
-                </div>
+                        />
+                    </div>
 
                 {showCorpPartyFilter ? (
                     <div>
@@ -1205,11 +1205,11 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                             maxFiltered={200}
                             menuMinWidth={340}
                         />
-                    </div>
+                </div>
                 ) : null}
 
                 {showApPartyFilter ? (
-                    <div>
+                <div>
                         <label className="form-label">{t('ledger.ap.party')}</label>
                         <SearchableEntityCombobox
                             options={apPartyOptions}
@@ -1235,7 +1235,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                             maxFiltered={200}
                             menuMinWidth={340}
                         />
-                    </div>
+                </div>
                 ) : null}
 
                 <div>
@@ -1437,7 +1437,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                     );
                                     const loadingThis = entryLoadingKey === String(l.id || entryNo);
                                     return (
-                                        <tr key={l.id}>
+                            <tr key={l.id}>
                                             <td className="table-cell">
                                                 {l.date ? new Date(l.date).toLocaleDateString() : 'ΓÇö'}
                                             </td>
@@ -1466,14 +1466,14 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                             {showVehicleCol ? (
                                                 <td className="table-cell">{l.vehicleNo || 'ΓÇö'}</td>
                                             ) : null}
-                                            <td className="table-cell" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <td className="table-cell" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {l.lineDescription || l.journalDescription || 'ΓÇö'}
-                                            </td>
+                                </td>
                                             <td className="table-cell">{l.source ?? 'ΓÇö'}</td>
                                             <td className="table-cell" style={{ textAlign: 'right' }}>{l.debit ? `SAR ${fmt(l.debit)}` : 'ΓÇö'}</td>
                                             <td className="table-cell" style={{ textAlign: 'right' }}>{l.credit ? `SAR ${fmt(l.credit)}` : 'ΓÇö'}</td>
-                                            <td className="table-cell" style={{ textAlign: 'right', fontWeight: 600 }}>SAR {fmt(l.runningBalance)}</td>
-                                        </tr>
+                                <td className="table-cell" style={{ textAlign: 'right', fontWeight: 600 }}>SAR {fmt(l.runningBalance)}</td>
+                            </tr>
                                     );
                                 })}
                             </>

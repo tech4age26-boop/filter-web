@@ -45,8 +45,21 @@ export default function SupplierAccountLedgerPage({ locale: localeProp }) {
     const [data, setData] = useState(null);
     const loadSeqRef = useRef(0);
 
-    const [dateFrom, setDateFrom] = useState(startOfMonthISO);
-    const [dateTo, setDateTo] = useState(todayISO);
+    const openedFromPartyList = useMemo(() => {
+        const from = (searchParams.get('from') || '').trim();
+        return (
+            from === 'affiliated_workshops' ||
+            from === 'nonaffiliated_customers' ||
+            from === 'purchase_invoices'
+        );
+    }, [searchParams]);
+
+    const [dateFrom, setDateFrom] = useState(() =>
+        openedFromPartyList ? '' : startOfMonthISO(),
+    );
+    const [dateTo, setDateTo] = useState(() =>
+        openedFromPartyList ? '' : todayISO(),
+    );
     const [partyFilterKey, setPartyFilterKey] = useState(() =>
         derivePartyFilterKey({
             partyType: searchParams.get('partyType') || '',
@@ -181,10 +194,32 @@ export default function SupplierAccountLedgerPage({ locale: localeProp }) {
         }
     }
 
+    const fromPage = (searchParams.get('from') || '').trim();
+    const urlPartyLabel = (searchParams.get('partyLabel') || '').trim();
+    const partyLocked =
+        fromPage === 'affiliated_workshops' ||
+        fromPage === 'nonaffiliated_customers' ||
+        fromPage === 'purchase_invoices';
+
+    useEffect(() => {
+        setPartyFilterKey(
+            derivePartyFilterKey({
+                partyType: searchParams.get('partyType') || '',
+                partyId: searchParams.get('partyId') || '',
+                externalPartyId: searchParams.get('externalPartyId') || '',
+            }),
+        );
+    }, [searchParams]);
+
     function clearRange() {
-        setDateFrom(startOfMonthISO());
-        setDateTo(todayISO());
-        setPartyFilterKey('');
+        if (partyLocked) {
+            setDateFrom('');
+            setDateTo('');
+        } else {
+            setDateFrom(startOfMonthISO());
+            setDateTo(todayISO());
+            setPartyFilterKey('');
+        }
         setOffsetAccountFilterId('');
     }
 
@@ -192,16 +227,54 @@ export default function SupplierAccountLedgerPage({ locale: localeProp }) {
     const normalDebit = accountNormalDebit(accountType);
     const filterOptions = data?.filterOptions ?? { parties: [], offsetAccounts: [] };
     const em = t('emdash');
+    const partyLabel = data?.header?.partyLabel || urlPartyLabel || '';
+
+    const backHref =
+        fromPage === 'affiliated_workshops'
+            ? '/supplier/affiliated_workshops'
+            : fromPage === 'nonaffiliated_customers'
+              ? '/supplier/nonaffiliated_customers'
+              : fromPage === 'purchase_invoices'
+                ? '/supplier/purchase_invoices'
+                : '/supplier/accounting/coa';
+    const backLabel =
+        fromPage === 'affiliated_workshops'
+            ? t('ledger.back.affiliated')
+            : fromPage === 'nonaffiliated_customers'
+              ? t('ledger.back.nonaffiliated')
+              : fromPage === 'purchase_invoices'
+                ? t('ledger.back.purchases')
+                : t('ledger.back');
+
+    const accountInactive =
+        String(account?.status || data?.header?.status || 'active').toLowerCase() ===
+        'inactive';
 
     return (
         <div className="accounting-page module-container">
+            {accountInactive ? (
+                <div
+                    style={{
+                        margin: '0 0 12px',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        background: '#FEF2F2',
+                        color: '#991B1B',
+                        fontSize: 13,
+                        fontWeight: 600,
+                    }}
+                >
+                    {t('ledger.inactiveHint')}
+                </div>
+            ) : null}
             <ProfessionalLedgerStatementDocument
-                onBack={() => navigate('/supplier/accounting/coa')}
-                backLabel={t('ledger.back')}
+                onBack={() => navigate(backHref)}
+                backLabel={backLabel}
                 loading={loading}
                 error={err}
                 accountCode={data?.header?.accountCode || account?.code || ''}
                 accountName={data?.header?.accountName || account?.name || ''}
+                partyLabel={partyLabel}
                 accountType={accountType}
                 companyName={data?.header?.companyName}
                 periodFrom={data?.header?.from || dateFrom || em}
@@ -223,6 +296,7 @@ export default function SupplierAccountLedgerPage({ locale: localeProp }) {
                 counterpartyColumnLabel={t('ledger.counterpartyCol')}
                 offsetAccountColumnLabel={t('ledger.offsetCol')}
                 filterOptions={filterOptions}
+                hidePartyFilter={partyLocked}
                 partyFilterKey={partyFilterKey}
                 onPartyFilterKeyChange={setPartyFilterKey}
                 offsetAccountFilterId={offsetAccountFilterId}

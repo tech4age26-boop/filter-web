@@ -17,7 +17,7 @@ import RowActionsMenu from '../../components/RowActionsMenu';
 import { useColumnSort, SortableTh } from '../../components/TableSort';
 import {
     fetchAllSupplierProducts,
-    getSupplierInventoryStockBalances,
+    fetchAllSupplierStockBalances,
     getSupplierProductInventoryTimeline,
     setSupplierStock,
     updateSupplierProduct,
@@ -77,6 +77,93 @@ function fmtDelta(d) {
 const PI_PRESET_FROM_STOCK_FLAG = 'supplier_pi_open_from_stock';
 const PI_PRESET_STOCK_LINE = 'supplier_pi_preset_stock_line';
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 25;
+
+function sliceClientPage(rows, page, pageSize) {
+    const list = Array.isArray(rows) ? rows : [];
+    const total = list.length;
+    const size = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+    const pages = Math.max(1, Math.ceil(total / size) || 1);
+    const safePage = Math.min(Math.max(1, Number(page) || 1), pages);
+    const start = (safePage - 1) * size;
+    return {
+        rows: list.slice(start, start + size),
+        page: safePage,
+        pages,
+        from: total === 0 ? 0 : start + 1,
+        to: Math.min(start + size, total),
+        total,
+    };
+}
+
+function StockTablePager({ t, page, pageSize, total, onPageChange, onPageSizeChange }) {
+    const size = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+    const pages = Math.max(1, Math.ceil((Number(total) || 0) / size) || 1);
+    const safePage = Math.min(Math.max(1, Number(page) || 1), pages);
+    const from = !total ? 0 : (safePage - 1) * size + 1;
+    const to = Math.min(safePage * size, Number(total) || 0);
+    return (
+        <div
+            style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                marginTop: 14,
+            }}
+        >
+            <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                {t('pager.range', { from, to, total: Number(total) || 0 })}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                <label
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: '0.8125rem',
+                        color: 'var(--color-text-muted)',
+                    }}
+                >
+                    {t('pager.rows')}
+                    <select
+                        className="pi-row-input"
+                        value={size}
+                        onChange={(e) =>
+                            onPageSizeChange(Number(e.target.value) || DEFAULT_PAGE_SIZE)
+                        }
+                        style={{ width: 'auto', minWidth: 72, padding: '6px 8px' }}
+                    >
+                        {PAGE_SIZE_OPTIONS.map((n) => (
+                            <option key={n} value={n}>
+                                {n}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <button
+                    type="button"
+                    className="btn-portal-outline"
+                    disabled={safePage <= 1}
+                    onClick={() => onPageChange(safePage - 1)}
+                >
+                    {t('btn.prev')}
+                </button>
+                <button
+                    type="button"
+                    className="btn-portal-outline"
+                    disabled={safePage >= pages}
+                    onClick={() => onPageChange(safePage + 1)}
+                >
+                    {t('btn.next')}
+                </button>
+            </div>
+        </div>
+    );
+}
+
 const exportToolbarBtnStyle = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -100,9 +187,8 @@ export default function SupplierStockInventory({ locale: localeProp }) {
     const navigate = useNavigate();
     const [stock, setStock] = useState([]);
     const [stockTotal, setStockTotal] = useState(0);
-    const [stockPage, setStockPage] = useState(1);
-    const STOCK_PAGE_SIZE = 15;
     const [movementHistory, setMovementHistory] = useState([]);
+    const [productMovementEntries, setProductMovementEntries] = useState(null);
     const [warehouseQtyByProductId, setWarehouseQtyByProductId] = useState({});
     const [productUomByProductId, setProductUomByProductId] = useState({});
     const [movementProductId, setMovementProductId] = useState(null);
@@ -114,6 +200,10 @@ export default function SupplierStockInventory({ locale: localeProp }) {
     const [activeTab, setActiveTab] = useState('inventory');
     const [search, setSearch] = useState('');
     const [criticalOnly, setCriticalOnly] = useState(false);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [inventoryPage, setInventoryPage] = useState(1);
+    const [itemsPage, setItemsPage] = useState(1);
+    const [movementsPage, setMovementsPage] = useState(1);
 
     const [inventoryItems, setInventoryItems] = useState([]);
     const [itemsLoading, setItemsLoading] = useState(false);
@@ -137,22 +227,98 @@ export default function SupplierStockInventory({ locale: localeProp }) {
     const [salesPriceEditProduct, setSalesPriceEditProduct] = useState(null);
     const [criticalLevelEditProduct, setCriticalLevelEditProduct] = useState(null);
 
-    // `stock` is already server-filtered by `search` (name or SKU). Keep a light client filter
-    // as a safety net (e.g. if backend returns broader results).
     const filteredList = useMemo(() => {
-        const list = stock || [];
+        let list = stock || [];
+        if (criticalOnly) {
+            list = list.filter((s) => {
+                if (s.stockStatus === 'low' || s.stockStatus === 'critical') return true;
+                const crit = s.criticalLevel ?? 0;
+                const reorder = s.reorder;
+                if (s.qty <= crit) return true;
+                if (reorder != null && s.qty <= reorder) return true;
+                return false;
+            });
+        }
         if (!search.trim()) return list;
-        const q = search.toLowerCase().trim();
-        return list.filter(
-            (s) =>
-                (s.name || '').toLowerCase().includes(q) ||
-                (s.sku || '').toLowerCase().includes(q),
-        );
-    }, [stock, search]);
+        return list.filter((s) => stockRowMatchesSearch(s, search));
+    }, [stock, search, criticalOnly]);
 
-    /** 3-state column sorting for the two inventory tables. */
+    /** 3-state column sorting for the inventory / items / movements tables. */
     const stockSort = useColumnSort();
     const itemsSort = useColumnSort();
+    const movementsSort = useColumnSort();
+
+    const changePageSize = useCallback((nextSize) => {
+        setPageSize(nextSize);
+        setInventoryPage(1);
+        setItemsPage(1);
+        setMovementsPage(1);
+    }, []);
+
+    const filteredItemsList = useMemo(() => {
+        return (inventoryItems || [])
+            .filter((p) => {
+                const q = search.trim().toLowerCase();
+                if (!q) return true;
+                return (
+                    String(p?.name || p?.productName || '')
+                        .toLowerCase()
+                        .includes(q) || String(p?.sku || '').toLowerCase().includes(q)
+                );
+            })
+            .filter((p) => {
+                if (!criticalOnly) return true;
+                const pid = String(p?.id);
+                const wh = Number(warehouseQtyByProductId[pid] ?? 0);
+                const crit = Number(p?.criticalStockAlert ?? 0);
+                return crit > 0 && wh <= crit;
+            });
+    }, [inventoryItems, search, criticalOnly, warehouseQtyByProductId]);
+
+    const sortedStockList = useMemo(
+        () =>
+            stockSort.sortRows(filteredList, {
+                product: (s) => s.name,
+                sku: (s) => s.sku,
+                unit: (s) => s.warehouseUnit || s.unit,
+                stockQty: (s) => Number(s.warehouseQty ?? s.qty ?? 0),
+                awaiting: (s) => Number(s.pendingWorkshopReceive ?? 0),
+                critical: (s) => Number(s.criticalLevel ?? 0),
+                reorder: (s) => Number(s.reorder ?? 0),
+                price: (s) => Number(s.price ?? 0),
+                salePrice: (s) => Number(s.salePrice ?? 0),
+                value: (s) => Number(warehouseStockLineValueSar(s) ?? 0),
+                status: (s) => (s.qty <= (s.criticalLevel ?? 0) ? 'critical' : 'ok'),
+            }),
+        [filteredList, stockSort],
+    );
+
+    const sortedItemsList = useMemo(
+        () =>
+            itemsSort.sortRows(filteredItemsList, {
+                product: (p) => p?.name || p?.productName || '',
+                sku: (p) => p?.sku || '',
+                qtyWh: (p) => Number(warehouseQtyByProductId[String(p?.id)] ?? 0),
+                qtyWs: (p) => {
+                    const pid = String(p?.id);
+                    const uom = productUomByProductId[pid] || {};
+                    const cf =
+                        Number(uom.conversionFactor || p?.conversionFactor || 1) || 1;
+                    return Number(warehouseQtyByProductId[pid] ?? 0) * cf;
+                },
+                critical: (p) => Number(p?.criticalStockAlert ?? 0),
+            }),
+        [filteredItemsList, itemsSort, warehouseQtyByProductId, productUomByProductId],
+    );
+
+    const inventoryPageSlice = useMemo(
+        () => sliceClientPage(sortedStockList, inventoryPage, pageSize),
+        [sortedStockList, inventoryPage, pageSize],
+    );
+    const itemsPageSlice = useMemo(
+        () => sliceClientPage(sortedItemsList, itemsPage, pageSize),
+        [sortedItemsList, itemsPage, pageSize],
+    );
 
     const movementProductOptions = useMemo(() => {
         const list = stock || [];
@@ -171,6 +337,9 @@ export default function SupplierStockInventory({ locale: localeProp }) {
     }, [stock, movementProductId]);
 
     const displayedMovementEntries = useMemo(() => {
+        if (movementProductId && productMovementEntries) {
+            return productMovementEntries;
+        }
         if (!movementHistory.length) return [];
         if (movementProductId) {
             const filtered = movementHistory.filter(
@@ -185,12 +354,56 @@ export default function SupplierStockInventory({ locale: localeProp }) {
             warehouseQtyByProductId,
             productUomByProductId,
         );
-    }, [movementHistory, warehouseQtyByProductId, productUomByProductId, movementProductId]);
+    }, [
+        movementHistory,
+        warehouseQtyByProductId,
+        productUomByProductId,
+        movementProductId,
+        productMovementEntries,
+    ]);
+
+    const sortedMovementEntries = useMemo(
+        () =>
+            movementsSort.sortRows(displayedMovementEntries, {
+                when: (e) => new Date(e.at).getTime() || 0,
+                product: (e) => e.productLabel || '',
+                fromWh: (e) => Number(e.previousQty ?? 0),
+                toWh: (e) => Number(e.newQty ?? 0),
+                deltaWh: (e) => Number(e.delta ?? 0),
+                wsEquiv: (e) => Number(e.deltaWorkshop ?? e.previousQtyWorkshop ?? 0),
+                reason: (e) => e.reason || '',
+                sourceRef: (e) => formatSupplierTimelineSourceRef(e) || '',
+                by: (e) => e.adjustedBy?.name || '',
+            }),
+        [displayedMovementEntries, movementsSort],
+    );
+
+    const movementsPageSlice = useMemo(
+        () => sliceClientPage(sortedMovementEntries, movementsPage, pageSize),
+        [sortedMovementEntries, movementsPage, pageSize],
+    );
 
     const movementFinalBalance = useMemo(() => {
         if (!movementProductId) return null;
         return warehouseQtyByProductId[String(movementProductId)] ?? 0;
     }, [movementProductId, warehouseQtyByProductId]);
+
+    useEffect(() => {
+        setInventoryPage(1);
+        setItemsPage(1);
+    }, [search, criticalOnly]);
+
+    useEffect(() => {
+        setInventoryPage(1);
+    }, [stockSort.sortKey, stockSort.sortDir]);
+
+    useEffect(() => {
+        setItemsPage(1);
+    }, [itemsSort.sortKey, itemsSort.sortDir]);
+
+    useEffect(() => {
+        setMovementsPage(1);
+    }, [movementsSort.sortKey, movementsSort.sortDir, movementProductId]);
 
     const selectMovementProduct = useCallback((product) => {
         if (!product?.id) return;
@@ -279,18 +492,16 @@ export default function SupplierStockInventory({ locale: localeProp }) {
         }
         setApiError('');
         try {
-            const res = await getSupplierInventoryStockBalances({
-                limit: STOCK_PAGE_SIZE,
-                offset: (stockPage - 1) * STOCK_PAGE_SIZE,
-                historyLimit: 50,
-                search: search.trim() ? search.trim() : undefined,
-                ...(criticalOnly ? { isLowCriticalOnly: true } : {}),
+            const res = await fetchAllSupplierStockBalances({
+                pageSize: 2000,
+                historyLimit: 2000,
             });
             const items = Array.isArray(res?.items)
                 ? res.items.map((item) => ({
                       id: item.productId,
                       sku: item.sku || '-',
                       name: item.productName,
+                      stockStatus: item.status || null,
                       unit: item.workshopUnit || 'pcs',
                       warehouseUnit: item.warehouseUnit || 'Box',
                       conversionFactor: Number(item.conversionFactor) || 1,
@@ -364,20 +575,41 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                 setLoading(false);
             }
         }
-    }, [search, criticalOnly, stockPage]);
+    }, [t]);
 
     useEffect(() => {
-        // Reset pagination when search or critical filter changes
-        setStockPage(1);
-    }, [search, criticalOnly]);
-
-    useEffect(() => {
-        // Debounce search to avoid spamming the API while typing.
-        const t = setTimeout(() => {
         loadStock();
-        }, 250);
-        return () => clearTimeout(t);
-    }, [loadStock, search]);
+    }, [loadStock]);
+
+    useEffect(() => {
+        if (activeTab !== 'movements' || !movementProductId) {
+            setProductMovementEntries(null);
+            return undefined;
+        }
+        let cancelled = false;
+        const pid = String(movementProductId);
+        getSupplierProductInventoryTimeline(pid, { historyLimit: 2000 })
+            .then((res) => {
+                if (cancelled) return;
+                const hist = Array.isArray(res?.transactionHistory)
+                    ? res.transactionHistory
+                    : [];
+                const currentQty =
+                    res?.currentBalanceWarehouse ??
+                    warehouseQtyByProductId[pid] ??
+                    0;
+                const uom = productUomByProductId[pid] || {};
+                setProductMovementEntries(
+                    mapSupplierHistoryToTimelineEntries(hist, currentQty, uom),
+                );
+            })
+            .catch(() => {
+                if (!cancelled) setProductMovementEntries(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, movementProductId, warehouseQtyByProductId, productUomByProductId]);
 
     const loadItems = useCallback(async () => {
         setItemsLoading(true);
@@ -405,7 +637,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
         setTimelineError('');
         try {
             const res = await getSupplierProductInventoryTimeline(productId, {
-                historyLimit: 50,
+                historyLimit: 2000,
             });
             const hist = Array.isArray(res?.transactionHistory) ? res.transactionHistory : [];
             const currentQty =
@@ -727,45 +959,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(() => {
-                                        const itemsRows = (inventoryItems || [])
-                                        .filter((p) => {
-                                            const q = search.trim().toLowerCase();
-                                            if (!q) return true;
-                                            return (
-                                                String(p?.name || p?.productName || '')
-                                                    .toLowerCase()
-                                                    .includes(q) ||
-                                                String(p?.sku || '').toLowerCase().includes(q)
-                                            );
-                                        })
-                                        .filter((p) => {
-                                            if (!criticalOnly) return true;
-                                            const pid = String(p?.id);
-                                            const wh = Number(warehouseQtyByProductId[pid] ?? 0);
-                                            const crit = Number(p?.criticalStockAlert ?? 0);
-                                            return crit > 0 && wh <= crit;
-                                        });
-                                        return itemsSort
-                                            .sortRows(itemsRows, {
-                                                product: (p) => p?.name || p?.productName || '',
-                                                sku: (p) => p?.sku || '',
-                                                qtyWh: (p) =>
-                                                    Number(warehouseQtyByProductId[String(p?.id)] ?? 0),
-                                                qtyWs: (p) => {
-                                                    const pid = String(p?.id);
-                                                    const uom = productUomByProductId[pid] || {};
-                                                    const cf =
-                                                        Number(
-                                                            uom.conversionFactor ||
-                                                                p?.conversionFactor ||
-                                                                1,
-                                                        ) || 1;
-                                                    return Number(warehouseQtyByProductId[pid] ?? 0) * cf;
-                                                },
-                                                critical: (p) => Number(p?.criticalStockAlert ?? 0),
-                                            })
-                                            .map((p) => {
+                                    {itemsPageSlice.rows.map((p) => {
                                             const pid = String(p?.id);
                                             const uom = productUomByProductId[pid] || {};
                                             const cf =
@@ -831,10 +1025,17 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                                     </td>
                                                 </tr>
                                             );
-                                        });
-                                    })()}
+                                        })}
                                 </tbody>
                             </table>
+                            <StockTablePager
+                                t={t}
+                                page={itemsPageSlice.page}
+                                pageSize={pageSize}
+                                total={itemsPageSlice.total}
+                                onPageChange={setItemsPage}
+                                onPageSizeChange={changePageSize}
+                            />
                         </div>
                     )}
                 </div>
@@ -926,7 +1127,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                             : t('export.xlsx')
                                     }
                                     onClick={() => {
-                                        exportStockInventoryExcel(filteredList, 'supplier-stock-inventory');
+                                        exportStockInventoryExcel(sortedStockList, 'supplier-stock-inventory');
                                     }}
                                     style={{
                                         ...exportToolbarBtnStyle,
@@ -946,7 +1147,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                             : t('export.pdf')
                                     }
                                     onClick={() => {
-                                        exportStockInventoryPdf(filteredList, 'supplier-stock-inventory');
+                                        exportStockInventoryPdf(sortedStockList, 'supplier-stock-inventory');
                                     }}
                                     style={{
                                         ...exportToolbarBtnStyle,
@@ -998,22 +1199,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {stockSort
-                                            .sortRows(filteredList, {
-                                                product: (s) => s.name,
-                                                sku: (s) => s.sku,
-                                                unit: (s) => s.warehouseUnit || s.unit,
-                                                stockQty: (s) => Number(s.warehouseQty ?? s.qty ?? 0),
-                                                awaiting: (s) => Number(s.pendingWorkshopReceive ?? 0),
-                                                critical: (s) => Number(s.criticalLevel ?? 0),
-                                                reorder: (s) => Number(s.reorder ?? 0),
-                                                price: (s) => Number(s.price ?? 0),
-                                                salePrice: (s) => Number(s.salePrice ?? 0),
-                                                value: (s) => Number(warehouseStockLineValueSar(s) ?? 0),
-                                                status: (s) =>
-                                                    s.qty <= (s.criticalLevel ?? 0) ? 'critical' : 'ok',
-                                            })
-                                            .map((s) => {
+                                        {inventoryPageSlice.rows.map((s) => {
                                             const value = warehouseStockLineValueSar(s);
                                             const isCritical = s.qty <= (s.criticalLevel ?? 0);
                                             return (
@@ -1245,41 +1431,14 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                     onClose={() => setAccountingHistoryProduct(null)}
                                 />
                             ) : null}
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: 10,
-                                    marginTop: 14,
-                                }}
-                            >
-                                <div style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                                    {t('page.showing', { page: stockPage, shown: stock.length, total: totalSKUs })}
-                                </div>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button
-                                        type="button"
-                                        className="btn-portal-outline"
-                                        onClick={() => setStockPage((p) => Math.max(1, p - 1))}
-                                        disabled={stockPage <= 1}
-                                    >
-                                        {t('btn.prev')}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn-portal-outline"
-                                        onClick={() =>
-                                            setStockPage((p) =>
-                                                p * STOCK_PAGE_SIZE >= (totalSKUs || 0) ? p : p + 1,
-                                            )
-                                        }
-                                        disabled={stockPage * STOCK_PAGE_SIZE >= (totalSKUs || 0)}
-                                    >
-                                        {t('btn.next')}
-                                    </button>
-                                </div>
-                            </div>
+                            <StockTablePager
+                                t={t}
+                                page={inventoryPageSlice.page}
+                                pageSize={pageSize}
+                                total={inventoryPageSlice.total}
+                                onPageChange={setInventoryPage}
+                                onPageSizeChange={changePageSize}
+                            />
                             {filteredList.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: 40 }}>
                                     <Package
@@ -1567,7 +1726,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                         }
                                         onClick={() => {
                                     exportMovementsExcel(
-                                        displayedMovementEntries,
+                                        sortedMovementEntries,
                                         movementProductId
                                             ? `stock-movements-${String(selectedMovementProduct?.name || movementProductId).replace(/\s+/g, '-')}`
                                             : 'supplier-stock-movements',
@@ -1594,7 +1753,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                         }
                                         onClick={() => {
                                     exportMovementsPdf(
-                                        displayedMovementEntries,
+                                        sortedMovementEntries,
                                         movementProductId
                                             ? `stock-movements-${String(selectedMovementProduct?.name || movementProductId).replace(/\s+/g, '-')}`
                                             : 'supplier-stock-movements',
@@ -1616,19 +1775,21 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                             <table className="ws-table">
                                         <thead>
                                     <tr>
-                                        <th>{t('th.when')}</th>
-                                        {!movementProductId ? <th>{t('th.product')}</th> : null}
-                                        <th>{t('th.fromWh')}</th>
-                                        <th>{t('th.toWh')}</th>
-                                        <th>{t('th.deltaWh')}</th>
-                                        <th>{t('th.wsEquiv')}</th>
-                                        <th>{t('th.reason')}</th>
-                                        <th>{t('th.sourceRef')}</th>
-                                        <th>{t('th.by')}</th>
+                                        <SortableTh label={t('th.when')} columnKey="when" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        {!movementProductId ? (
+                                            <SortableTh label={t('th.product')} columnKey="product" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        ) : null}
+                                        <SortableTh label={t('th.fromWh')} columnKey="fromWh" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        <SortableTh label={t('th.toWh')} columnKey="toWh" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        <SortableTh label={t('th.deltaWh')} columnKey="deltaWh" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        <SortableTh label={t('th.wsEquiv')} columnKey="wsEquiv" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        <SortableTh label={t('th.reason')} columnKey="reason" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        <SortableTh label={t('th.sourceRef')} columnKey="sourceRef" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
+                                        <SortableTh label={t('th.by')} columnKey="by" sortKey={movementsSort.sortKey} sortDir={movementsSort.sortDir} onSort={movementsSort.toggleSort} />
                                             </tr>
                                         </thead>
                                         <tbody>
-                                    {displayedMovementEntries.map((e) => (
+                                    {movementsPageSlice.rows.map((e) => (
                                         <tr key={e.id}>
                                             <td style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
                                                         {new Date(e.at).toLocaleString()}
@@ -1687,6 +1848,14 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                         </tbody>
                                     </table>
                                 </div>
+                        <StockTablePager
+                            t={t}
+                            page={movementsPageSlice.page}
+                            pageSize={pageSize}
+                            total={movementsPageSlice.total}
+                            onPageChange={setMovementsPage}
+                            onPageSizeChange={changePageSize}
+                        />
                         {displayedMovementEntries.length === 0 && (
                             <div style={{ textAlign: 'center', padding: 48 }}>
                                 <TrendingUp

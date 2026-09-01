@@ -75,7 +75,7 @@ export default function AccountLedgerStatement({
 }) {
     const parties = filterOptions?.parties ?? [];
     const offsetAccounts = filterOptions?.offsetAccounts ?? [];
-    const colSpan = showCashLedgerColumns ? 7 : 5;
+    const colSpan = showCashLedgerColumns ? 8 : 6;
     return (
         <>
             {error ? (
@@ -292,6 +292,7 @@ export default function AccountLedgerStatement({
                                 </>
                             ) : null}
                             <th>Description</th>
+                            <th style={{ width: 140 }}>Reference</th>
                             <th style={{ width: 120, textAlign: 'right' }}>Debit</th>
                             <th style={{ width: 120, textAlign: 'right' }}>Credit</th>
                             <th style={{ width: 130, textAlign: 'right' }}>Balance</th>
@@ -307,6 +308,7 @@ export default function AccountLedgerStatement({
                                 </>
                             ) : null}
                             <td>Opening balance</td>
+                            <td>—</td>
                             <td style={{ textAlign: 'right' }}>—</td>
                             <td style={{ textAlign: 'right' }}>—</td>
                             <td style={{ textAlign: 'right' }}>{money(openingBalance)}</td>
@@ -344,6 +346,9 @@ export default function AccountLedgerStatement({
                                         </>
                                     ) : null}
                                     <td>{r.description || '—'}</td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                        {r.reference || '—'}
+                                    </td>
                                     <td style={{ textAlign: 'right' }}>
                                         {r.debit > 0 ? money(r.debit) : ''}
                                     </td>
@@ -370,6 +375,7 @@ export default function AccountLedgerStatement({
                                     </>
                                 ) : null}
                                 <td>Closing summary</td>
+                                <td />
                                 <td style={{ textAlign: 'right' }}>{money(totals.totalDebit)}</td>
                                 <td style={{ textAlign: 'right' }}>{money(totals.totalCredit)}</td>
                                 <td style={{ textAlign: 'right' }}>{money(totals.closingBalance)}</td>

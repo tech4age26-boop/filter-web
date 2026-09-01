@@ -6,8 +6,8 @@ import {
     Layout, Settings, BarChart3, Users, ArrowUp, ArrowDown
 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import {
-    ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
+import { 
+    ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
     CartesianGrid, Tooltip, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
@@ -32,12 +32,12 @@ const EMPTY_TIER_FORM = {
     name: '',
     icon: '🎁',
     color: '#fbbf24',
-    minSales: 0,
+        minSales: 0,
     maxSales: 0,
-    discount: 0,
-    status: 'active',
-    priority: false,
-    eligiblePromotions: true,
+        discount: 0,
+        status: 'active',
+        priority: false,
+        eligiblePromotions: true,
     benefits: [],
     description: '',
     rate: 1,
@@ -193,13 +193,13 @@ export default function TierManagementPage() {
         if (!payload.name.trim()) { flash('error', t('flash.tierNameRequired')); return; }
         setBusy(true);
         try {
-            if (editingTier) {
+        if (editingTier) {
                 await marketingUpdateLoyaltyTier(editingTier.id, payload);
-            } else {
+        } else {
                 await marketingCreateLoyaltyTier(payload);
-            }
+        }
             await Promise.all([loadTiers(), loadReports()]);
-            setEditModalOpen(false);
+        setEditModalOpen(false);
             flash('success', editingTier ? t('flash.tierUpdated') : t('flash.tierCreated'));
         } catch (err) {
             flash('error', err?.message || t('flash.tierSaveFailed'));
@@ -288,10 +288,10 @@ export default function TierManagementPage() {
         };
         if (type === 'earn') {
             payload.rate = Number(formState.rate) || 1;
-        } else {
+            } else {
             payload.threshold = Number(formState.threshold) || 0;
             payload.value = Number(formState.value) || 0;
-        }
+            }
         if (!payload.name.trim()) { flash('error', t('flash.ruleNameRequired')); return; }
         setBusy(true);
         try {
@@ -366,13 +366,13 @@ export default function TierManagementPage() {
         if (!payload.name.trim()) { flash('error', t('flash.ruleNameRequired')); return; }
         setBusy(true);
         try {
-            if (editingRule) {
+        if (editingRule) {
                 await marketingUpdateLoyaltyRule(editingRule.id, payload);
-            } else {
+        } else {
                 await marketingCreateLoyaltyRule(payload);
-            }
+        }
             await Promise.all([loadRules(), loadReports()]);
-            setRuleModalOpen(false);
+        setRuleModalOpen(false);
             flash('success', editingRule ? t('flash.ruleUpdated') : t('flash.ruleCreated'));
         } catch (err) {
             flash('error', err?.message || t('flash.ruleSaveFailed'));
@@ -445,7 +445,7 @@ export default function TierManagementPage() {
     const tierNameById = (id) => tiers.find((row) => String(row.id) === String(id))?.name || id || t('common.emDash');
 
     if (editModalOpen || earnModalOpen || redemptModalOpen || ruleModalOpen) {
-        return (
+    return (
             <>
                 {editModalOpen && (
                     <AdminModalAsScreen title={editingTier ? t('modal.editTier') : t('modal.createTier')} onClose={() => setEditModalOpen(false)} className="tier-form-modal">
@@ -456,7 +456,7 @@ export default function TierManagementPage() {
                                     <div className="form-group flex-2">
                                         <label>{t('modal.tierName')}</label>
                                         <input type="text" placeholder={t('modal.tierNamePlaceholder')} value={formState.name} onChange={(e) => setFormState({ ...formState, name: e.target.value })} />
-                                    </div>
+                </div>
                                     <div className="form-group flex-1">
                                         <label>{t('modal.icon')}</label>
                                         <input type="text" value={formState.icon} onChange={(e) => setFormState({ ...formState, icon: e.target.value })} />
@@ -826,8 +826,8 @@ export default function TierManagementPage() {
                                                 </button>
                                                 <label className="toggle-switch small" onClick={(e) => e.stopPropagation()}>
                                                     <input type="checkbox" checked={tier.status === 'active'} onChange={(e) => handleToggleTier(tier, e.target.checked)} />
-                                                    <span className="tier-toggle-handle"></span>
-                                                </label>
+                                                     <span className="tier-toggle-handle"></span>
+                                                 </label>
                                                 <button className="action-btn delete-btn" onClick={(e) => { e.stopPropagation(); handleDeleteTier(tier); }}>
                                                     <Trash2 size={18} />
                                                 </button>
@@ -895,8 +895,8 @@ export default function TierManagementPage() {
                                             <div className="rule-actions">
                                                 <label className="toggle-switch small" onClick={(e) => e.stopPropagation()}>
                                                     <input type="checkbox" checked={rule.status === 'active'} onChange={(e) => toggleRuleStatus(rule, e.target.checked ? 'active' : 'paused')} />
-                                                    <span className="tier-toggle-handle"></span>
-                                                </label>
+                                                     <span className="tier-toggle-handle"></span>
+                                                 </label>
                                                 <button className="rule-icon-btn" onClick={() => openEditEarnRule(rule)}><Pencil size={16} /></button>
                                                 <button className="rule-icon-btn delete" onClick={() => deleteRule(rule.id)}><Trash2 size={16} /></button>
                                             </div>
@@ -930,8 +930,8 @@ export default function TierManagementPage() {
                                             <div className="rule-actions">
                                                 <label className="toggle-switch small" onClick={(e) => e.stopPropagation()}>
                                                     <input type="checkbox" checked={rule.status === 'active'} onChange={(e) => toggleRuleStatus(rule, e.target.checked ? 'active' : 'paused')} />
-                                                    <span className="tier-toggle-handle"></span>
-                                                </label>
+                                                     <span className="tier-toggle-handle"></span>
+                                                 </label>
                                                 <button className="rule-icon-btn" onClick={() => openEditRedemptRule(rule)}><Pencil size={16} /></button>
                                                 <button className="rule-icon-btn delete" onClick={() => deleteRule(rule.id)}><Trash2 size={16} /></button>
                                             </div>
@@ -974,7 +974,7 @@ export default function TierManagementPage() {
                                                 <td>{fmt(acc.totalPoints)}</td>
                                                 <td>{sar(acc.monthSpend)}</td>
                                                 <td className="text-slate-400">{fmtDate(acc.lastVisit)}</td>
-                                            </tr>
+                                        </tr>
                                         ))}
                                     </tbody>
                                 </table>
@@ -1006,58 +1006,58 @@ export default function TierManagementPage() {
                                 const act = rule.action || {};
                                 return (
                                     <motion.div key={rule.id} className="rule-builder-card" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }}>
-                                        <div className="rule-card-header">
-                                            <div className="rule-meta">
-                                                <span className="rule-id">#{idx + 1}</span>
+                                    <div className="rule-card-header">
+                                        <div className="rule-meta">
+                                            <span className="rule-id">#{idx + 1}</span>
                                                 <div className={`rule-type-badge ${rule.type}`}>
-                                                    {rule.type === 'tier_assign' && <ShieldCheck size={12} />}
-                                                    {rule.type === 'earn' && <Zap size={12} />}
-                                                    {rule.type === 'redeem' && <Award size={12} />}
+                                                {rule.type === 'tier_assign' && <ShieldCheck size={12} />}
+                                                {rule.type === 'earn' && <Zap size={12} />}
+                                                {rule.type === 'redeem' && <Award size={12} />}
                                                     <span>{typeLabel(rule.type)}</span>
-                                                </div>
-                                                <h3 className="rule-display-name">{rule.name}</h3>
-                                                <span className={`status-pill ${rule.status}`}>{statusLabel(rule.status)}</span>
                                             </div>
-                                            <div className="rule-actions-top">
-                                                <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
+                                            <h3 className="rule-display-name">{rule.name}</h3>
+                                                <span className={`status-pill ${rule.status}`}>{statusLabel(rule.status)}</span>
+                                        </div>
+                                        <div className="rule-actions-top">
+                                            <label className="toggle-v3 small" onClick={(e) => e.stopPropagation()}>
                                                     <input type="checkbox" checked={rule.status === 'active'} onChange={(e) => toggleRuleStatus(rule, e.target.checked ? 'active' : 'paused')} />
-                                                    <span className="toggle-v3-track"></span>
-                                                </label>
+                                                <span className="toggle-v3-track"></span>
+                                            </label>
                                                 <button className="icon-btn-ghost" onClick={() => openEditRule(rule)}><Pencil size={16} /></button>
                                                 <button className="icon-btn-ghost delete" onClick={() => deleteRule(rule.id)}><Trash2 size={16} /></button>
-                                            </div>
                                         </div>
+                                    </div>
 
-                                        <div className="rule-logic-display">
-                                            <div className="logic-part if">
+                                    <div className="rule-logic-display">
+                                        <div className="logic-part if">
                                                 <span className="logic-label">{t('rules.if')}</span>
-                                                <div className="logic-box">
+                                            <div className="logic-box">
                                                     <span className="field">{fieldLabel(cond.field)}</span>
                                                     <span className="operator">{cond.operator || ''}</span>
-                                                    <span className="value">
+                                                <span className="value">
                                                         {cond.operator === 'between'
                                                             ? `${fmt(cond.value)} — ${fmt(cond.maxValue)}`
                                                             : fmt(cond.value)}
-                                                    </span>
-                                                </div>
+                                                </span>
                                             </div>
+                                        </div>
                                             <div className="logic-arrow"><ArrowUp size={20} style={{ transform: 'rotate(90deg)' }} /></div>
-                                            <div className="logic-part then">
+                                        <div className="logic-part then">
                                                 <span className="logic-label">{t('rules.then')}</span>
-                                                <div className="logic-box">
+                                            <div className="logic-box">
                                                     <span className="action-type">{actionLabel(act.type)}</span>
-                                                    <span className="operator">=</span>
-                                                    <span className="result">
+                                                <span className="operator">=</span>
+                                                <span className="result">
                                                         {act.tierId ? (<span className="tier-tag">{tierNameById(act.tierId)}</span>) : fmt(act.value)}
-                                                    </span>
-                                                </div>
+                                                </span>
                                             </div>
+                                        </div>
                                             {rule.type === 'earn' && (<div className="rule-value-pill reward">{t('rules.ptPerSar', { value: act.value })}</div>)}
                                             {rule.type === 'redeem' && (<div className="rule-value-pill cost">{t('rules.ptsToSar', { points: act.pointsCost, value: act.value })}</div>)}
-                                        </div>
+                                    </div>
 
-                                        <p className="rule-card-desc">{rule.description}</p>
-                                    </motion.div>
+                                    <p className="rule-card-desc">{rule.description}</p>
+                                </motion.div>
                                 );
                             })}
                         </div>
@@ -1086,15 +1086,15 @@ export default function TierManagementPage() {
                                     {tierDist.every((d) => !d.value) ? (
                                         <div className="empty-state" style={{ padding: 32, textAlign: 'center' }}>{t('reports.noTierAssignments')}</div>
                                     ) : (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
                                                 <Pie data={tierDist} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
                                                     {tierDist.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                                                </Pie>
+                                            </Pie>
                                                 <Tooltip contentStyle={{ background: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }} itemStyle={{ color: '#fff' }} />
                                                 <Legend verticalAlign="bottom" height={36} />
-                                            </PieChart>
-                                        </ResponsiveContainer>
+                                        </PieChart>
+                                    </ResponsiveContainer>
                                     )}
                                 </div>
                             </div>

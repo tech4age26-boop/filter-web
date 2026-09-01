@@ -220,7 +220,7 @@ export const PromoCodes = () => {
           </div>
         ) : (
           <div className="mkp-card-list mk-code-card-list">
-            {filteredCodes.map((item) => (
+                {filteredCodes.map((item) => (
               <div
                 key={item.id}
                 className={`mkp-card ${isPromoCodeLiveOnPos(item) ? 'mkp-card-live' : ''}`}
@@ -256,11 +256,11 @@ export const PromoCodes = () => {
                   </div>
 
                   <div className="mkp-card-badges">
-                    <span
+                      <span
                       className={`mk-code-status-badge status-${String(item.status)
-                        .toLowerCase()
-                        .replace(/\s+/g, '-')}`}
-                    >
+                          .toLowerCase()
+                          .replace(/\s+/g, '-')}`}
+                      >
                       {promoStatusLabel(locale, item.status)}
                     </span>
                   </div>
@@ -304,11 +304,11 @@ export const PromoCodes = () => {
                     </span>
                     <span className="mkp-card-activation-hint">
                       {activationToggleHint(item, locale)}
-                    </span>
+                      </span>
                   </div>
 
-                  <button
-                    type="button"
+                        <button
+                          type="button"
                     className={`mkp-card-activation-toggle ${
                       item.isActive ? 'on' : 'off'
                     } ${!canTogglePromoCodeActivation(item) ? 'disabled' : ''}`}
@@ -352,19 +352,19 @@ export const PromoCodes = () => {
                   <button type="button" onClick={() => handleCopy(item.code)}>
                     <Copy size={14} />
                     {t('btn.copy')}
-                  </button>
+                        </button>
 
-                  <button
-                    type="button"
+                        <button
+                          type="button"
                     className="danger"
-                    onClick={() => handleDelete(item.id)}
-                  >
+                          onClick={() => handleDelete(item.id)}
+                        >
                     <Trash2 size={14} />
                     {t('btn.delete')}
-                  </button>
-                </div>
+                        </button>
+                      </div>
               </div>
-            ))}
+                ))}
           </div>
         )}
       </div>

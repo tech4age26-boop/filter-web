@@ -22,6 +22,7 @@ import SupplierVatReport from './accounting/SupplierVatReport';
 import SupplierTransactionHub from './accounting/SupplierTransactionHub';
 import SupplierJournalLogs from './accounting/SupplierJournalLogs';
 import SupplierAccountingReports from './accounting/SupplierAccountingReports';
+import SupplierJournalEntriesPage from './accounting/SupplierJournalEntriesPage';
 import {
     getSupplierChartOfAccounts,
     listSupplierCashBankLedger,
@@ -921,6 +922,7 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab, lo
             logs_payments: 'logs-payments',
             logs_receipts: 'logs-receipts',
             logs_journals: 'logs-journals',
+            journals: 'journal-entries-v2',
             vat: 'vat',
             reports_tb: 'reports-tb',
             reports_pl: 'reports-pl',
@@ -949,6 +951,7 @@ export default function SupplierAccountingPage({ activeSubTab: propActiveTab, lo
             {activeSub === 'logs-payments' && <SupplierJournalLogs initialTab="payments" locale={locale} />}
             {activeSub === 'logs-receipts' && <SupplierJournalLogs initialTab="receipts" locale={locale} />}
             {activeSub === 'logs-journals' && <SupplierJournalLogs initialTab="journals" locale={locale} />}
+            {activeSub === 'journal-entries-v2' && <SupplierJournalEntriesPage locale={locale} />}
             {activeSub === 'vat' && <SupplierVatReport locale={locale} />}
             {activeSub === 'reports-tb' && <SupplierAccountingReports initialTab="tb" locale={locale} />}
             {activeSub === 'reports-pl' && <SupplierAccountingReports initialTab="pl" locale={locale} />}

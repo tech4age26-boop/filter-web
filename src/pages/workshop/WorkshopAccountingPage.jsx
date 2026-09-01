@@ -32,7 +32,7 @@ function resolveActiveSub(paramsSubTab, activeTab) {
         // legacy bookmark: Payroll Run → Advances (Salary tab)
         payroll: 'advances',
     };
-    return {
+        return {
         activeSub: mapping[raw] || raw,
         openSalaryTab: raw === 'payroll',
     };
@@ -55,7 +55,9 @@ export default function WorkshopAccountingPage({
 
     return (
         <div className="accounting-page module-container">
-            {activeSub === 'chart-of-accounts' && <WorkshopCOAPage locale={locale} />}
+            {activeSub === 'chart-of-accounts' && (
+                <WorkshopCOAPage locale={locale} selectedBranchId={selectedBranchId} />
+            )}
             {activeSub === 'period-closings' && <WorkshopPeriodClosingsPage locale={locale} />}
             {activeSub === 'cash-bank' && <WorkshopCashBankPage branches={branches} locale={locale} />}
             {activeSub === 'payments' && (

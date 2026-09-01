@@ -138,3 +138,33 @@
 .ws-filter-combobox.sf-entity-combobox-anchor {
     min-width: 220px;
 }
+
+.acct-table-combobox.sf-entity-combobox-anchor {
+    min-width: 0;
+    width: 100%;
+}
+
+.acct-table-combobox .pi-search-box {
+    min-height: 36px;
+    padding: 0 8px;
+    border-radius: 8px;
+    border-color: #cbd5e1;
+}
+
+.acct-table-combobox .pi-search-box svg {
+    width: 14px;
+    height: 14px;
+}
+
+.acct-table-combobox .pi-search-box input {
+    font-size: 13px;
+    padding: 6px 0;
+}
+
+.acct-combo-type.acct-table-combobox.sf-entity-combobox-anchor {
+    min-width: 168px;
+}
+
+.acct-filter-combobox.acct-table-combobox.sf-entity-combobox-anchor {
+    min-width: 180px;
+}

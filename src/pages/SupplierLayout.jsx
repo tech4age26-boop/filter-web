@@ -19,6 +19,7 @@ import SupplierEmployeesPage from './supplier/supplier_employees';
 import SupplierSalesInvoices from './supplier/SupplierSalesInvoices';
 import SupplierAffiliatedSalesReturns from './supplier/SupplierAffiliatedSalesReturns';
 import SupplierPurchaseInvoices from './supplier/SupplierPurchaseInvoices';
+import SupplierPurchaseDebitNotes from './supplier/SupplierPurchaseDebitNotes';
 import SupplierWorkshopPurchaseInvoices from './supplier/SupplierWorkshopPurchaseInvoices';
 import SupplierAffiliatedWorkshops from './supplier/SupplierAffiliatedWorkshops';
 import SupplierNonAffiliatedCustomers from './supplier/SupplierNonAffiliatedCustomers';
@@ -26,6 +27,11 @@ import SupplierCashBank from './supplier/SupplierCashBank';
 import SupplierExpenses from './supplier/SupplierExpenses';
 import SupplierAccountingPage from './supplier/SupplierAccountingPage';
 import SupplierAccountLedgerPage from './supplier/accounting/SupplierAccountLedgerPage';
+import SupplierBankCashAccounts from './supplier/accounting/SupplierBankCashAccounts';
+import SupplierReceiptsPage from './supplier/accounting/SupplierReceiptsPage';
+import SupplierPaymentsPage from './supplier/accounting/SupplierPaymentsPage';
+import SupplierSalesQuotesPage from './supplier/accounting/SupplierSalesQuotesPage';
+import SupplierJournalVoucherPage from './supplier/accounting/SupplierJournalVoucherPage';
 import SupplierStorageFacility from './supplier/storage-facility/SupplierStorageFacility';
 import SupplierStaffAppPage from './supplier/SupplierStaffAppPage';
 import SupplierPlatformChatPage from './supplier/SupplierPlatformChatPage';
@@ -212,6 +218,10 @@ export default function SupplierLayout() {
             return <SupplierAccountLedgerPage locale={locale} />;
         }
 
+        if (/^\/supplier\/accounting\/journals\/[^/]+/.test(location.pathname)) {
+            return <SupplierJournalVoucherPage locale={locale} />;
+        }
+
         if (activeTab.startsWith('accounting_')) {
             return <SupplierAccountingPage activeSubTab={activeTab} locale={locale} />;
         }
@@ -233,10 +243,18 @@ export default function SupplierLayout() {
                 return <SupplierEmployeesPage locale={locale} />;
             case 'staff_app':
                 return <SupplierStaffAppPage locale={locale} />;
+            case 'sales_quotes':
+                return <SupplierSalesQuotesPage locale={locale} />;
             case 'sales_invoices':
                 return <SupplierSalesInvoices locale={locale} />;
             case 'sales_returns':
                 return <SupplierAffiliatedSalesReturns locale={locale} />;
+            case 'cash_accounts':
+                return <SupplierBankCashAccounts locale={locale} />;
+            case 'receipts':
+                return <SupplierReceiptsPage locale={locale} />;
+            case 'payments':
+                return <SupplierPaymentsPage locale={locale} />;
             case 'affiliated_workshops':
                 return <SupplierAffiliatedWorkshops locale={locale} />;
             case 'nonaffiliated_customers':
@@ -245,6 +263,8 @@ export default function SupplierLayout() {
                 return <SupplierWorkshopPurchaseInvoices locale={locale} />;
             case 'purchase_invoices':
                 return <SupplierPurchaseInvoices locale={locale} />;
+            case 'debit_notes':
+                return <SupplierPurchaseDebitNotes locale={locale} />;
             case 'storage_facility':
                 return <SupplierStorageFacility locale={locale} />;
             case 'cash_bank':

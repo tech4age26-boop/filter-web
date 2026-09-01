@@ -96,12 +96,14 @@ export function exportSupplierLedgerPdf({
         'Opening balance',
         '',
         '',
+        '',
         fmtMoney(openingBalance),
     ]);
     rows.forEach((r) => {
         body.push([
             r.date,
             r.description || '',
+            r.reference || '',
             r.debit > 0 ? fmtMoney(r.debit) : '',
             r.credit > 0 ? fmtMoney(r.credit) : '',
             fmtMoney(r.runningBalance),
@@ -110,6 +112,7 @@ export function exportSupplierLedgerPdf({
     body.push([
         '',
         'Totals',
+        '',
         fmtMoney(totals?.totalDebit),
         fmtMoney(totals?.totalCredit),
         fmtMoney(totals?.closingBalance),
@@ -117,17 +120,18 @@ export function exportSupplierLedgerPdf({
 
     autoTable(doc, {
         startY: cursorY,
-        head: [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
+        head: [['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance']],
         body,
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 5 },
         headStyles: { fillColor: [241, 245, 249], textColor: 30 },
         columnStyles: {
-            0: { cellWidth: 70 },
+            0: { cellWidth: 64 },
             1: { cellWidth: 'auto' },
-            2: { cellWidth: 75, halign: 'right' },
-            3: { cellWidth: 75, halign: 'right' },
-            4: { cellWidth: 85, halign: 'right' },
+            2: { cellWidth: 78 },
+            3: { cellWidth: 68, halign: 'right' },
+            4: { cellWidth: 68, halign: 'right' },
+            5: { cellWidth: 78, halign: 'right' },
         },
         didParseCell(data) {
             const last = data.row.index === body.length - 1;
@@ -176,11 +180,12 @@ export function exportSupplierLedgerExcel({
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
         ['Currency', header?.currencyCode || 'SAR'],
         [],
-        ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
-        ['—', 'Opening balance', '', '', Number(openingBalance ?? 0)],
+        ['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance'],
+        ['—', 'Opening balance', '', '', '', Number(openingBalance ?? 0)],
         ...rows.map((r) => [
             r.date,
             r.description || '',
+            r.reference || '',
             r.debit > 0 ? Number(r.debit) : '',
             r.credit > 0 ? Number(r.credit) : '',
             Number(r.runningBalance ?? 0),
@@ -188,13 +193,21 @@ export function exportSupplierLedgerExcel({
         [
             '',
             'Totals',
+            '',
             Number(totals?.totalDebit ?? 0),
             Number(totals?.totalCredit ?? 0),
             Number(totals?.closingBalance ?? 0),
         ],
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 14 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+    ws['!cols'] = [
+        { wch: 14 },
+        { wch: 42 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 16 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     XLSX.writeFile(wb, `${buildFileBase({ header })}.xlsx`);
@@ -253,10 +266,11 @@ export function exportCustomerLedgerPdf({
     cursorY += lines.length * 14 + 8;
 
     const body = [
-        ['—', 'Opening balance', '', '', fmtMoney(openingBalance)],
+        ['—', 'Opening balance', '', '', '', fmtMoney(openingBalance)],
         ...rows.map((r) => [
             r.date,
             r.description || '',
+            r.reference || '',
             r.debit > 0 ? fmtMoney(r.debit) : '',
             r.credit > 0 ? fmtMoney(r.credit) : '',
             fmtMoney(r.runningBalance),
@@ -264,6 +278,7 @@ export function exportCustomerLedgerPdf({
         [
             '',
             'Totals',
+            '',
             fmtMoney(totals?.totalDebit),
             fmtMoney(totals?.totalCredit),
             fmtMoney(totals?.closingBalance),
@@ -272,17 +287,18 @@ export function exportCustomerLedgerPdf({
 
     autoTable(doc, {
         startY: cursorY,
-        head: [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
+        head: [['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance']],
         body,
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 5 },
         headStyles: { fillColor: [241, 245, 249], textColor: 30 },
         columnStyles: {
-            0: { cellWidth: 70 },
+            0: { cellWidth: 64 },
             1: { cellWidth: 'auto' },
-            2: { cellWidth: 75, halign: 'right' },
-            3: { cellWidth: 75, halign: 'right' },
-            4: { cellWidth: 85, halign: 'right' },
+            2: { cellWidth: 78 },
+            3: { cellWidth: 68, halign: 'right' },
+            4: { cellWidth: 68, halign: 'right' },
+            5: { cellWidth: 78, halign: 'right' },
         },
         didParseCell(data) {
             const last = data.row.index === body.length - 1;
@@ -319,11 +335,12 @@ export function exportCustomerLedgerExcel({ header, openingBalance, rows, totals
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
         ['Currency', header?.currencyCode || 'SAR'],
         [],
-        ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
-        ['—', 'Opening balance', '', '', Number(openingBalance ?? 0)],
+        ['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance'],
+        ['—', 'Opening balance', '', '', '', Number(openingBalance ?? 0)],
         ...rows.map((r) => [
             r.date,
             r.description || '',
+            r.reference || '',
             r.debit > 0 ? Number(r.debit) : '',
             r.credit > 0 ? Number(r.credit) : '',
             Number(r.runningBalance ?? 0),
@@ -331,13 +348,21 @@ export function exportCustomerLedgerExcel({ header, openingBalance, rows, totals
         [
             '',
             'Totals',
+            '',
             Number(totals?.totalDebit ?? 0),
             Number(totals?.totalCredit ?? 0),
             Number(totals?.closingBalance ?? 0),
         ],
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 14 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+    ws['!cols'] = [
+        { wch: 14 },
+        { wch: 42 },
+        { wch: 18 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 16 },
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     XLSX.writeFile(wb, `${buildCustomerFileBase({ header })}.xlsx`);
@@ -413,10 +438,10 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
     const hasPettyCols = colMode === 'pettyCash';
     const body = [
         hasPettyCols
-            ? ['—', 'Opening balance', '', '', '', '', fmtMoney(openingBalance)]
+            ? ['—', 'Opening balance', '', '', '', '', '', fmtMoney(openingBalance)]
             : hasCashCols
-              ? ['—', 'Opening balance', '', '', '', '', fmtMoney(openingBalance)]
-              : ['—', 'Opening balance', '', '', fmtMoney(openingBalance)],
+              ? ['—', 'Opening balance', '', '', '', '', '', fmtMoney(openingBalance)]
+              : ['—', 'Opening balance', '', '', '', fmtMoney(openingBalance)],
         ...rows.map((r) =>
             hasPettyCols
                 ? [
@@ -424,6 +449,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                       r.walletUserLabel || '',
                       r.expenseCategoryLabel || '',
                       r.description || '',
+                      r.reference || '',
                       r.debit > 0 ? fmtMoney(r.debit) : '',
                       r.credit > 0 ? fmtMoney(r.credit) : '',
                       fmtMoney(r.runningBalance),
@@ -434,6 +460,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                         r.counterpartyLabel || '',
                         r.offsetAccountLabel || '',
                         r.description || '',
+                        r.reference || '',
                         r.debit > 0 ? fmtMoney(r.debit) : '',
                         r.credit > 0 ? fmtMoney(r.credit) : '',
                         fmtMoney(r.runningBalance),
@@ -441,6 +468,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                   : [
                         r.date,
                         r.description || '',
+                        r.reference || '',
                         r.debit > 0 ? fmtMoney(r.debit) : '',
                         r.credit > 0 ? fmtMoney(r.credit) : '',
                         fmtMoney(r.runningBalance),
@@ -452,6 +480,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                   '',
                   '',
                   'Totals',
+                  '',
                   fmtMoney(totals?.totalDebit),
                   fmtMoney(totals?.totalCredit),
                   fmtMoney(totals?.closingBalance),
@@ -462,6 +491,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                     '',
                     '',
                     'Totals',
+                    '',
                     fmtMoney(totals?.totalDebit),
                     fmtMoney(totals?.totalCredit),
                     fmtMoney(totals?.closingBalance),
@@ -469,6 +499,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
               : [
                     '',
                     'Totals',
+                    '',
                     fmtMoney(totals?.totalDebit),
                     fmtMoney(totals?.totalCredit),
                     fmtMoney(totals?.closingBalance),
@@ -484,6 +515,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                       'Wallet user / employee',
                       'Expense category',
                       'Description',
+                      'Reference',
                       'Debit',
                       'Credit',
                       'Balance',
@@ -496,32 +528,35 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                         'Paid to / Received from',
                         'Expense / AR account',
                         'Description',
+                        'Reference',
                         'Debit',
                         'Credit',
                         'Balance',
                     ],
                 ]
-              : [['Date', 'Description', 'Debit', 'Credit', 'Balance']],
+              : [['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance']],
         body,
         margin: { left: margin, right: margin },
-        styles: { fontSize: 9, cellPadding: 5 },
+        styles: { fontSize: 8, cellPadding: 4 },
         headStyles: { fillColor: [241, 245, 249], textColor: 30 },
         columnStyles: hasPettyCols || hasCashCols
             ? {
-                  0: { cellWidth: 58 },
-                  1: { cellWidth: 82 },
-                  2: { cellWidth: 82 },
+                  0: { cellWidth: 52 },
+                  1: { cellWidth: 70 },
+                  2: { cellWidth: 70 },
                   3: { cellWidth: 'auto' },
-                  4: { cellWidth: 58, halign: 'right' },
-                  5: { cellWidth: 58, halign: 'right' },
-                  6: { cellWidth: 68, halign: 'right' },
+                  4: { cellWidth: 68 },
+                  5: { cellWidth: 52, halign: 'right' },
+                  6: { cellWidth: 52, halign: 'right' },
+                  7: { cellWidth: 62, halign: 'right' },
               }
             : {
-                  0: { cellWidth: 70 },
+                  0: { cellWidth: 64 },
                   1: { cellWidth: 'auto' },
-                  2: { cellWidth: 75, halign: 'left' },
-                  3: { cellWidth: 75, halign: 'left' },
-                  4: { cellWidth: 85, halign: 'left' },
+                  2: { cellWidth: 78 },
+                  3: { cellWidth: 68, halign: 'right' },
+                  4: { cellWidth: 68, halign: 'right' },
+                  5: { cellWidth: 78, halign: 'right' },
               },
         didParseCell(data) {
             const last = data.row.index === body.length - 1;
@@ -572,16 +607,18 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                       'Wallet user / employee',
                       'Expense category',
                       'Description',
+                      'Reference',
                       'Debit',
                       'Credit',
                       'Balance',
                   ],
-                  ['—', 'Opening balance', '', '', '', '', Number(openingBalance ?? 0)],
+                  ['—', 'Opening balance', '', '', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
                       r.date,
                       r.walletUserLabel || '',
                       r.expenseCategoryLabel || '',
                       r.description || '',
+                      r.reference || '',
                       r.debit > 0 ? Number(r.debit) : '',
                       r.credit > 0 ? Number(r.credit) : '',
                       Number(r.runningBalance ?? 0),
@@ -591,6 +628,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                       '',
                       '',
                       'Totals',
+                      '',
                       Number(totals?.totalDebit ?? 0),
                       Number(totals?.totalCredit ?? 0),
                       Number(totals?.closingBalance ?? 0),
@@ -603,16 +641,18 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                       'Paid to / Received from',
                       'Expense / AR account',
                       'Description',
+                      'Reference',
                       'Debit',
                       'Credit',
                       'Balance',
                   ],
-                  ['—', 'Opening balance', '', '', '', '', Number(openingBalance ?? 0)],
+                  ['—', 'Opening balance', '', '', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
                       r.date,
                       r.counterpartyLabel || '',
                       r.offsetAccountLabel || '',
                       r.description || '',
+                      r.reference || '',
                       r.debit > 0 ? Number(r.debit) : '',
                       r.credit > 0 ? Number(r.credit) : '',
                       Number(r.runningBalance ?? 0),
@@ -622,17 +662,19 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                       '',
                       '',
                       'Totals',
+                      '',
                       Number(totals?.totalDebit ?? 0),
                       Number(totals?.totalCredit ?? 0),
                       Number(totals?.closingBalance ?? 0),
                   ],
               ]
             : [
-                  ['Date', 'Description', 'Debit', 'Credit', 'Balance'],
-                  ['—', 'Opening balance', '', '', Number(openingBalance ?? 0)],
+                  ['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance'],
+                  ['—', 'Opening balance', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
                       r.date,
                       r.description || '',
+                      r.reference || '',
                       r.debit > 0 ? Number(r.debit) : '',
                       r.credit > 0 ? Number(r.credit) : '',
                       Number(r.runningBalance ?? 0),
@@ -640,6 +682,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   [
                       '',
                       'Totals',
+                      '',
                       Number(totals?.totalDebit ?? 0),
                       Number(totals?.totalCredit ?? 0),
                       Number(totals?.closingBalance ?? 0),
@@ -650,14 +693,22 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
     ws['!cols'] = hasPettyCols || hasCashCols
         ? [
               { wch: 14 },
-              { wch: 28 },
-              { wch: 24 },
-              { wch: 40 },
+              { wch: 26 },
+              { wch: 22 },
+              { wch: 36 },
+              { wch: 16 },
               { wch: 12 },
               { wch: 12 },
               { wch: 14 },
           ]
-        : [{ wch: 14 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 16 }];
+        : [
+              { wch: 14 },
+              { wch: 42 },
+              { wch: 18 },
+              { wch: 14 },
+              { wch: 14 },
+              { wch: 16 },
+          ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
     XLSX.writeFile(wb, `${buildAccountFileBase({ header })}.xlsx`);

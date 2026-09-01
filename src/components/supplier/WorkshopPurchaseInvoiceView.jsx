@@ -486,6 +486,37 @@ function pick(inv, ...keys) {
     return null;
 }
 
+function looksLikeInvoiceBoilerplateSubject(value) {
+    const s = String(value || '').trim();
+    if (!s) return true;
+    return /^(purchase\s*invoice|tax\s*invoice|sales\s*invoice|invoice|فاتورة(\s*مشتريات)?|فاتورة\s*ضريبية)$/i.test(
+        s,
+    );
+}
+
+function debitNoteSubjectText(inv) {
+    const raw = String(pick(inv, 'description', 'title') ?? '').trim();
+    if (raw && !looksLikeInvoiceBoilerplateSubject(raw)) return raw;
+    const against =
+        pick(inv, 'purchaseInvoiceNo', 'purchase_invoice_no', 'purchaseReferenceNo') ?? '';
+    if (against) return `Purchase return against ${against}`;
+    return 'Purchase return — goods returned to vendor';
+}
+
+function lineVatForDisplay(line, docFallback) {
+    const v = lineVatAmount(line);
+    if (v != null && Number.isFinite(v) && Math.abs(v) >= 1e-9) return round2(v);
+    const ex = lineTotalExVatOnly(line);
+    const pct = lineVatPct(line);
+    if (pct != null && Number.isFinite(pct)) return round2(ex * (pct / 100));
+    const docVat = Number(docFallback?.totalVat ?? 0);
+    const docSub = Number(docFallback?.subtotalEx ?? 0);
+    if (docVat > 1e-6 && docSub > 1e-6 && ex > 0) {
+        return round2(docVat * (ex / docSub));
+    }
+    return round2(0);
+}
+
 function lineEnglishName(line) {
     const nested = line?.product && typeof line.product === 'object' ? line.product : null;
     const candidates = [
@@ -530,7 +561,7 @@ function lineDesc(line) {
 }
 
 function lineQty(line) {
-    const q = line?.qty ?? line?.quantity;
+    const q = line?.billedQty ?? line?.billed_qty ?? line?.qty ?? line?.quantity;
     if (q == null || q === '') return '—';
     const n = Number(q);
     return Number.isFinite(n) ? String(n) : String(q);
@@ -538,6 +569,8 @@ function lineQty(line) {
 
 function lineUom(line) {
     const candidates = [
+        line?.billedUom,
+        line?.billed_uom,
         line?.uom,
         line?.unit,
         line?.warehouseUnit,
@@ -558,6 +591,13 @@ function lineWorkshopConversionNote(line) {
     if (wsQty == null || wsUnit == null || String(wsUnit).trim() === '') return '';
     const n = Number(wsQty);
     if (!Number.isFinite(n) || n <= 0) return '';
+    const billed = Number(line?.billedQty ?? line?.billed_qty ?? line?.qty ?? line?.quantity);
+    const billedUom = String(
+        line?.billedUom ?? line?.billed_uom ?? line?.uom ?? line?.unit ?? '',
+    ).trim();
+    const sameUnit =
+        billedUom !== '' && billedUom.toLowerCase() === String(wsUnit).trim().toLowerCase();
+    if (Number.isFinite(billed) && sameUnit && Math.abs(n - billed) < 0.0005) return '';
     return `= ${n} ${String(wsUnit).trim()} at workshop`;
 }
 
@@ -588,20 +628,12 @@ function lineTotalExVatOnly(line) {
     return round2(q * unit);
 }
 
-function lineVatForDisplay(line) {
-    const v = lineVatAmount(line);
-    if (v != null && Number.isFinite(v) && Math.abs(v) >= 1e-9) return round2(v);
-    const ex = lineTotalExVatOnly(line);
-    const pct = lineVatPct(line);
-    if (pct != null && Number.isFinite(pct)) return round2(ex * (pct / 100));
-    return round2(0);
-}
-
 function statusBadgeClass(s) {
     const x = String(s || '').toLowerCase();
     if (x === 'rejected') return 'wpi-view__badge wpi-view__badge--rejected';
     if (x === 'pending') return 'wpi-view__badge wpi-view__badge--pending';
     if (x === 'delivered' || x === 'approved') return 'wpi-view__badge wpi-view__badge--approved';
+    if (x === 'edited') return 'wpi-view__badge wpi-view__badge--edited';
     if (x === 'processing' || x === 'ready_to_dispatch' || x === 'on_the_way') {
         return 'wpi-view__badge wpi-view__badge--pending';
     }
@@ -668,18 +700,40 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
 ) {
     const inv = detail && typeof detail === 'object' ? detail : {};
     const row = listRow && typeof listRow === 'object' ? listRow : {};
-    const isSuperSupplier = variant === 'super_supplier';
+    const isSspDebitNote = variant === 'ssp_debit_note';
+    const isSuperSupplier = variant === 'super_supplier' || isSspDebitNote;
     const isSupplierSales = variant === 'supplier_sales';
+    const isSalesQuote = variant === 'supplier_sales_quote';
     const isWorkshopReceive = variant === 'workshop_receive';
-    const isStockReceiveLayout = isSupplierSales || isWorkshopReceive;
+    const isStockReceiveLayout = isSupplierSales || isWorkshopReceive || isSalesQuote;
 
     const invoiceNo =
-        pick(inv, 'invoiceNumber', 'invoice_number', 'invoiceNo', 'reference') ??
+        pick(
+            inv,
+            'invoiceNumber',
+            'invoice_number',
+            'invoiceNo',
+            'debitNoteNo',
+            'debit_note_no',
+            'reference',
+        ) ??
         row.invoice_number ??
         row.invoiceNo ??
+        row.debitNoteNo ??
         '—';
 
     const status = String(pick(inv, 'status', 'state') ?? row.status ?? '—').toLowerCase();
+    const lastEditedAt =
+        pick(inv, 'lastEditedAt', 'last_edited_at') ?? row.lastEditedAt ?? null;
+    const lastEditedByName =
+        pick(inv, 'lastEditedByName', 'last_edited_by_name') ??
+        row.lastEditedByName ??
+        null;
+    const lastEditedWhen = (() => {
+        if (!lastEditedAt) return '';
+        const d = new Date(lastEditedAt);
+        return Number.isNaN(d.getTime()) ? String(lastEditedAt) : d.toLocaleString();
+    })();
 
     const issueDate = (
         pick(
@@ -759,6 +813,14 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
 
     const description = pick(inv, 'description', 'title') ?? '';
     const notes = pick(inv, 'notes', 'internalNotes', 'internal_notes') ?? row.notes ?? '';
+    const debitNoteSubject = isSspDebitNote ? debitNoteSubjectText(inv) : '';
+    const originalPurchaseRef =
+        pick(inv, 'purchaseInvoiceNo', 'purchase_invoice_no', 'purchaseReferenceNo', 'purchase_reference_no') ??
+        '';
+    const vendorRefDisplay = isSspDebitNote
+        ? originalPurchaseRef ||
+          (vendorRef && String(vendorRef).trim() !== String(invoiceNo).trim() ? vendorRef : '')
+        : vendorRef;
 
     /** Supplier “internal notes” for print: hide system line we append on create (due date is already in the header). */
     const notesForPolicy = (() => {
@@ -898,14 +960,16 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
         const internalId = pick(inv, 'id') ?? row.id;
         if (internalId == null || String(internalId).trim() === '') return '';
         if (typeof window === 'undefined') return '';
+        if (isSspDebitNote) return '';
         if (isSuperSupplier) {
             return `${window.location.origin}/verify/ssp/${encodeURIComponent(String(internalId))}`;
         }
+        if (isSalesQuote) return '';
         if (isSupplierSales) {
             return `${window.location.origin}/verify/sinv/${encodeURIComponent(String(internalId))}`;
         }
         return `${window.location.origin}/verify/wpi/${encodeURIComponent(String(internalId))}`;
-    }, [inv, row.id, isSuperSupplier, isSupplierSales]);
+    }, [inv, row.id, isSuperSupplier, isSspDebitNote, isSupplierSales, isSalesQuote]);
 
     const [verifyQrDataUrl, setVerifyQrDataUrl] = useState('');
     const [zatcaQrDataUrl, setZatcaQrDataUrl] = useState('');
@@ -1077,11 +1141,19 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
     const downloadPdfFile = useCallback(async () => {
         const pdf = await buildInvoicePdf();
         const safe = String(invoiceNo).replace(/[^\w.-]+/g, '_').replace(/^_|_$/g, '').slice(0, 96) || 'invoice';
-        const filename = `${isSuperSupplier ? 'Filter-SSP' : isSupplierSales ? 'Filter-SINV' : isWorkshopReceive ? 'Filter-WPI-Recv' : 'Filter-WPI'}-${safe}.pdf`;
+        const filename = `${isSspDebitNote ? 'Filter-DN' : isSuperSupplier ? 'Filter-SSP' : isSalesQuote ? 'Filter-SQ' : isSupplierSales ? 'Filter-SINV' : isWorkshopReceive ? 'Filter-WPI-Recv' : 'Filter-WPI'}-${safe}.pdf`;
         pdf.save(filename);
-    }, [buildInvoicePdf, invoiceNo, isSuperSupplier, isSupplierSales, isWorkshopReceive]);
+    }, [buildInvoicePdf, invoiceNo, isSspDebitNote, isSuperSupplier, isSupplierSales, isSalesQuote, isWorkshopReceive]);
 
-    useImperativeHandle(imperativeRef, () => ({ downloadPdf: downloadPdfFile }), [downloadPdfFile]);
+    const printSheet = useCallback(() => {
+        window.print();
+    }, []);
+
+    useImperativeHandle(
+        imperativeRef,
+        () => ({ downloadPdf: downloadPdfFile, print: printSheet }),
+        [downloadPdfFile, printSheet],
+    );
 
     const handleDownloadPdf = useCallback(async () => {
         setPdfBusy(true);
@@ -1115,6 +1187,12 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                     {pdfBusy ? 'Preparing…' : 'Download PDF'}
                 </button>
                 <span className={statusBadgeClass(status)}>{fmtStatusLabel(status)}</span>
+                {isSuperSupplier && lastEditedWhen ? (
+                    <span className="wpi-view__edited-meta">
+                        {lastEditedWhen}
+                        {lastEditedByName ? ` · ${lastEditedByName}` : ''}
+                    </span>
+                ) : null}
                 {pdfError ? (
                     <p className="wpi-view__pdf-error" role="alert">
                         {pdfError}
@@ -1174,9 +1252,19 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
 
                     <div className="wpi-view__title-ribbon">
                         <span className="wpi-view__title-ribbon-ar" dir="rtl">
-                            فاتورة ضريبية
+                            {isSspDebitNote
+                                ? 'إشعار مدين'
+                                : isSalesQuote
+                                  ? 'عرض سعر'
+                                  : 'فاتورة ضريبية'}
                         </span>
-                        <span className="wpi-view__title-ribbon-en">Tax invoice</span>
+                        <span className="wpi-view__title-ribbon-en">
+                            {isSspDebitNote
+                                ? 'Debit note'
+                                : isSalesQuote
+                                  ? 'Sales quote'
+                                  : 'Tax invoice'}
+                        </span>
                     </div>
 
                     <div className="wpi-view__meta-split">
@@ -1222,17 +1310,39 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                         </div>
 
                         <div className="wpi-view__panel">
-                            <h3 className="wpi-view__panel-title">Invoice details · تفاصيل الفاتورة</h3>
+                            <h3 className="wpi-view__panel-title">
+                                {isSspDebitNote
+                                    ? 'Debit note details · تفاصيل إشعار المدين'
+                                    : isSalesQuote
+                                      ? 'Quote details · تفاصيل العرض'
+                                      : 'Invoice details · تفاصيل الفاتورة'}
+                            </h3>
                             <div className="wpi-view__details-grid">
                                 <div className="wpi-view__field">
-                                    <span className="wpi-view__field-label">Invoice no.</span>
+                                    <span className="wpi-view__field-label">
+                                        {isSspDebitNote
+                                            ? 'Debit note no.'
+                                            : isSalesQuote
+                                              ? 'Quote no.'
+                                              : 'Invoice no.'}
+                                    </span>
                                     <div className="wpi-view__field-value" style={{ fontWeight: 800 }}>
                                         {invoiceNo}
                                     </div>
                                 </div>
                                 <div className="wpi-view__field">
-                                    <span className="wpi-view__field-label">Due date</span>
-                                    <div className="wpi-view__field-value">{dueDateDisplay || '—'}</div>
+                                    <span className="wpi-view__field-label">
+                                        {isSspDebitNote
+                                            ? 'Applies to'
+                                            : isSalesQuote
+                                              ? 'Valid until'
+                                              : 'Due date'}
+                                    </span>
+                                    <div className="wpi-view__field-value">
+                                        {isSspDebitNote
+                                            ? originalPurchaseRef || 'Original purchase (unlinked)'
+                                            : dueDateDisplay || '—'}
+                                    </div>
                                 </div>
                             </div>
                             <div className="wpi-view__details-grid">
@@ -1241,8 +1351,14 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                     <div className="wpi-view__field-value">{invoiceDateDisplay}</div>
                                 </div>
                                 <div className="wpi-view__field">
-                                    <span className="wpi-view__field-label">Vendor reference</span>
-                                    <div className="wpi-view__field-value">{vendorRef || '—'}</div>
+                                    <span className="wpi-view__field-label">
+                                        {isSspDebitNote ? 'Original purchase' : 'Vendor reference'}
+                                    </span>
+                                    <div className="wpi-view__field-value">
+                                        {isSspDebitNote
+                                            ? vendorRefDisplay || '—'
+                                            : vendorRef || '—'}
+                                    </div>
                                 </div>
                             </div>
                             <div className="wpi-view__details-grid">
@@ -1251,10 +1367,26 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                     <div className="wpi-view__field-value">{issueDate || '—'}</div>
                                 </div>
                                 <div className="wpi-view__field">
-                                    <span className="wpi-view__field-label">Payment</span>
+                                    <span className="wpi-view__field-label">
+                                        {isSspDebitNote ? 'Document status' : 'Payment'}
+                                    </span>
                                     <div className="wpi-view__field-value">{paymentLabel}</div>
                                 </div>
                             </div>
+                            {isSuperSupplier && lastEditedWhen ? (
+                                <div className="wpi-view__details-grid">
+                                    <div className="wpi-view__field">
+                                        <span className="wpi-view__field-label">Last edited</span>
+                                        <div className="wpi-view__field-value">{lastEditedWhen}</div>
+                                    </div>
+                                    <div className="wpi-view__field">
+                                        <span className="wpi-view__field-label">Edited by</span>
+                                        <div className="wpi-view__field-value">
+                                            {lastEditedByName || '—'}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                             {isSupplierSales ? (
                                 <div className="wpi-view__details-grid">
                                     <div className="wpi-view__field">
@@ -1280,16 +1412,17 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                         </div>
                     </div>
 
-                    {(description || notes) ? (
+                    {(isSspDebitNote || description || notes) ? (
                         <div className="wpi-view__memo-inline">
-                            {description ? (
+                            {isSspDebitNote || description ? (
                                 <span>
-                                    <strong>Subject:</strong> {description}{' '}
+                                    <strong>Subject:</strong>{' '}
+                                    {isSspDebitNote ? debitNoteSubject : description}{' '}
                                 </span>
                             ) : null}
                             {notes ? (
                                 <span>
-                                    {description ? (
+                                    {isSspDebitNote || description ? (
                                         <>
                                             {' '}
                                             <strong>Notes:</strong>{' '}
@@ -1320,9 +1453,9 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                         </span>
                                     </th>
                                     <th className="wpi-view__th-num" style={{ minWidth: 88 }}>
-                                        Quantity
+                                        {isSspDebitNote ? 'Qty returned' : 'Quantity'}
                                         <span className="wpi-view__th-sub" dir="rtl">
-                                            الكمية
+                                            {isSspDebitNote ? 'الكمية المعادة' : 'الكمية'}
                                         </span>
                                     </th>
                                     {isStockReceiveLayout ? (
@@ -1360,7 +1493,7 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             colSpan={lineTableColCount}
                                             className="wpi-view__table-empty"
                                         >
-                                            No line items
+                                            No {isSspDebitNote ? 'returned items' : 'line items'}
                                         </td>
                                     </tr>
                                 ) : (
@@ -1433,7 +1566,15 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                             <td className="wpi-view__td-num">
                                                 {money(lineTotalExVatOnly(line), currency)}
                                             </td>
-                                            <td className="wpi-view__td-num">{money(lineVatForDisplay(line), currency)}</td>
+                                            <td className="wpi-view__td-num">
+                                                {money(
+                                                    lineVatForDisplay(line, {
+                                                        totalVat,
+                                                        subtotalEx,
+                                                    }),
+                                                    currency,
+                                                )}
+                                            </td>
                                         </tr>
                                     ))
                                 )}
@@ -1443,7 +1584,26 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
 
                     <div className="wpi-view__bottom-grid">
                         <div className="wpi-view__policy">
-                            {notesForPolicy ? (
+                            {isSspDebitNote ? (
+                                <>
+                                    <strong>Debit note · إشعار مدين</strong>
+                                    This debit note records goods returned to the vendor. It reduces the amount
+                                    payable to the vendor (accounts payable) by the amount credited below, reverses
+                                    the related VAT input, and takes the quantities out of warehouse stock. It is
+                                    not a request for payment and does not replace the original purchase invoice.
+                                    <div className="wpi-view__policy-ar" dir="rtl">
+                                        يسجّل هذا الإشعار المدين بضاعة مُعادة إلى المورّد. يخفض المبلغ المستحق
+                                        للمورّد (الذمم الدائنة) بالمبلغ المضاف أدناه، ويعكس ضريبة المدخلات المتعلقة
+                                        بها، ويخرج الكميات من المستودع. ليس مطالبة بالسداد ولا يحل محل فاتورة
+                                        المشتريات الأصلية.
+                                    </div>
+                                    {notesForPolicy ? (
+                                        <div className="wpi-view__policy-notes" dir="auto" style={{ marginTop: 8 }}>
+                                            {notesForPolicy}
+                                        </div>
+                                    ) : null}
+                                </>
+                            ) : notesForPolicy ? (
                                 <>
                                     <strong>Notes · ملاحظات</strong>
                                     <div className="wpi-view__policy-notes" dir="auto">
@@ -1467,7 +1627,15 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                         <div className="wpi-view__sum-box">
                             <div className="wpi-view__sum-row">
                                 <span className="wpi-view__sum-row-label">
-                                    Total <span dir="rtl">(الإجمالي)</span>
+                                    {isSspDebitNote ? (
+                                        <>
+                                            Goods returned <span dir="rtl">(قيمة البضاعة المعادة)</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            Total <span dir="rtl">(الإجمالي)</span>
+                                        </>
+                                    )}
                                 </span>
                                 <span className="wpi-view__sum-row-val">{money(subtotalEx, currency)}</span>
                             </div>
@@ -1492,21 +1660,45 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             ) : null}
                             <div className="wpi-view__sum-row">
                                 <span className="wpi-view__sum-row-label">
-                                    VAT <span dir="rtl">(الضريبة)</span>
+                                    {isSspDebitNote ? (
+                                        <>
+                                            VAT input reversed <span dir="rtl">(عكس ضريبة المدخلات)</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            VAT <span dir="rtl">(الضريبة)</span>
+                                        </>
+                                    )}
                                 </span>
                                 <span className="wpi-view__sum-row-val">{money(totalVat, currency)}</span>
                             </div>
                             <div className="wpi-view__sum-row wpi-view__sum-row--net">
                                 <span className="wpi-view__sum-row-label">
-                                    Net total <span dir="rtl">(الصافي)</span>
+                                    {isSspDebitNote ? (
+                                        <>
+                                            Amount credited <span dir="rtl">(المبلغ المضاف لحساب المورّد)</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            Net total <span dir="rtl">(الصافي)</span>
+                                        </>
+                                    )}
                                 </span>
                                 <span className="wpi-view__sum-row-val">{money(grand, currency)}</span>
                             </div>
-                            <div className="wpi-view__sum-words">ريال سعودي لا غير · Saudi riyals only</div>
+                            {isSspDebitNote ? (
+                                <div className="wpi-view__sum-words">
+                                    Credited to vendor accounts payable · يُضاف للذمم الدائنة — لا يُطلب سداد على هذا المستند
+                                </div>
+                            ) : (
+                                <div className="wpi-view__sum-words">ريال سعودي لا غير · Saudi riyals only</div>
+                            )}
                         </div>
                     </div>
 
-                    {(paid > 0 || balance > 0 || (isSupplierSales && returnsTotal > 0)) && (
+                    {!isSalesQuote &&
+                        !isSspDebitNote &&
+                        (paid > 0 || balance > 0 || (isSupplierSales && returnsTotal > 0)) && (
                         <div className="wpi-view__panel" style={{ marginBottom: 12 }}>
                             {isSupplierSales && returnsTotal > 0 ? (
                                 <div className="wpi-view__sum-row" style={{ border: 'none', padding: '4px 0' }}>
@@ -1560,15 +1752,23 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                     <div className="wpi-view__closing-row">
                         <div className="wpi-view__signatures">
                             <div className="wpi-view__sig">
-                                <div className="wpi-view__sig-line">Salesman: _________________________________</div>
+                                <div className="wpi-view__sig-line">
+                                    {isSspDebitNote
+                                        ? 'Issued by: _________________________________'
+                                        : 'Salesman: _________________________________'}
+                                </div>
                                 <div className="wpi-view__sig-ar" dir="rtl">
-                                    اسم مندوب المبيعات
+                                    {isSspDebitNote ? 'صادر عن المشتري' : 'اسم مندوب المبيعات'}
                                 </div>
                             </div>
                             <div className="wpi-view__sig">
-                                <div className="wpi-view__sig-line">Received by: _________________________________</div>
+                                <div className="wpi-view__sig-line">
+                                    {isSspDebitNote
+                                        ? 'Vendor acknowledgement: _________________________________'
+                                        : 'Received by: _________________________________'}
+                                </div>
                                 <div className="wpi-view__sig-ar" dir="rtl">
-                                    المستلم
+                                    {isSspDebitNote ? 'إقرار المورّد' : 'المستلم'}
                                 </div>
                             </div>
                         </div>
@@ -1594,12 +1794,16 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                                 </div>
                                 <p>
                                     {supplierVat
-                                        ? 'QR will appear when invoice totals are available.'
+                                        ? isSspDebitNote
+                                            ? 'QR will appear when debit note totals are available.'
+                                            : 'QR will appear when invoice totals are available.'
                                         : 'VAT registration number required for ZATCA QR.'}
                                 </p>
                                 <p dir="rtl" style={{ marginTop: 6 }}>
                                     {supplierVat
-                                        ? 'سيظهر الرمز عند توفر بيانات الفاتورة.'
+                                        ? isSspDebitNote
+                                            ? 'سيظهر الرمز عند توفر بيانات إشعار المدين.'
+                                            : 'سيظهر الرمز عند توفر بيانات الفاتورة.'
                                         : 'يلزم الرقم الضريبي لإظهار رمز هيئة الزكاة والضريبة والجمارك.'}
                                 </p>
                             </div>
@@ -1613,20 +1817,38 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                         <div className="wpi-view__corp-footer-contact">
                             <strong>
                                 Filter —{' '}
-                                {isSuperSupplier
+                                {isSspDebitNote
+                                    ? 'super supplier debit note'
+                                    : isSuperSupplier
                                     ? 'super supplier purchase invoice'
-                                    : isSupplierSales
-                                      ? 'sales invoice (accounts receivable)'
-                                      : isWorkshopReceive
-                                        ? 'workshop purchase invoice (receive stock)'
-                                        : 'workshop purchase invoice'}
+                                    : isSalesQuote
+                                      ? 'sales quote'
+                                      : isSupplierSales
+                                        ? 'sales invoice (accounts receivable)'
+                                        : isWorkshopReceive
+                                          ? 'workshop purchase invoice (receive stock)'
+                                          : 'workshop purchase invoice'}
                             </strong>
                             <br />
-                            {isSuperSupplier ? (
+                            {isSspDebitNote ? (
+                                <>
+                                    Purchase return recorded through Filter supplier portal. This debit note
+                                    reduces accounts payable and takes stock out of the warehouse.
+                                    <br />
+                                    إشعار مدين عبر بوابة فِلتر — يخفض الذمم الدائنة ويخرج المخزون من المستودع.
+                                </>
+                            ) : isSuperSupplier ? (
                                 <>
                                     Purchase recorded through Filter supplier portal · scan header QR to verify.
                                     <br />
                                     الإصدار الإلكتروني عبر منصّة فِلتر — امسح الرمز في أعلى الفاتورة للتحقق.
+                                </>
+                            ) : isSalesQuote ? (
+                                <>
+                                    Sales quote issued through Filter supplier portal. This document does not
+                                    post to the ledger or move stock.
+                                    <br />
+                                    عرض سعر عبر بوابة فِلتر — لا يُرحَّل إلى الدفتر ولا يحرّك المخزون.
                                 </>
                             ) : isSupplierSales || isWorkshopReceive ? (
                                 <>
@@ -1653,7 +1875,19 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             )}
                         </div>
                         <div className="wpi-view__corp-footer-contact-ar">
-                            {isSupplierSales || isWorkshopReceive ? (
+                            {isSspDebitNote ? (
+                                <>
+                                    إشعار مدين إلكتروني بين المورد والمورّد الرئيسي في منصّة فِلتر — يخفض الذمم الدائنة ويخرج المخزون من المستودع.
+                                    <br />
+                                    للاستفسارات يُرجى التواصل عبر بوابة المورد.
+                                </>
+                            ) : isSalesQuote ? (
+                                <>
+                                    مستند عرض سعر إلكتروني بين المورد والعميل في منصّة فِلتر.
+                                    <br />
+                                    للاستفسارات يُرجى التواصل عبر بوابة المورد.
+                                </>
+                            ) : isSupplierSales || isWorkshopReceive ? (
                                 <>
                                     {isWorkshopReceive ? (
                                         <>
