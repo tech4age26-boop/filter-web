@@ -21,6 +21,7 @@ export default function AddReferral() {
   const [form, setForm] = useState({
     customerName: '',
     mobile: '',
+    vehiclePlate: '',
     serviceType: 'Individual',
     city: '',
     notes: '',
@@ -38,6 +39,7 @@ export default function AddReferral() {
       await referrerCreateSubmission({
         customerName: form.customerName.trim(),
         mobile: form.mobile.trim(),
+        vehiclePlate: form.vehiclePlate.trim() || undefined,
         serviceType: form.serviceType,
         city: form.city.trim() || undefined,
         notes: form.notes.trim() || undefined,
@@ -137,6 +139,21 @@ export default function AddReferral() {
                 disabled={submitting || codeBlocked}
                 required
               />
+            </div>
+
+            <div className="rf-form-group">
+              <label className="rf-label">Vehicle Plate</label>
+              <input
+                className="rf-input"
+                placeholder="e.g. 1234 ABJ"
+                value={form.vehiclePlate}
+                onChange={set('vehiclePlate')}
+                disabled={submitting || codeBlocked}
+              />
+              <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                The plate identifies this referral. Arabic or Latin both work — they
+                are matched to the same car.
+              </p>
             </div>
 
             <div className="rf-form-group">

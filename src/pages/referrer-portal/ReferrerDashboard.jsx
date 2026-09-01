@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, CreditCard, ChevronRight, TrendingUp, Wallet, Clock, CheckCircle, Users,
@@ -6,7 +6,6 @@ import {
 import {
   CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
 } from 'recharts';
-import PayoutModal from '../../components/PayoutModal';
 import {
   referrerGetMe,
   referrerGetMyCommissions,
@@ -47,7 +46,6 @@ function buildTrend(commissions) {
 
 export default function ReferrerDashboard() {
   const navigate = useNavigate();
-  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
 
   const meReq = useReferrerData(referrerGetMe, []);
   const commReq = useReferrerData(() => referrerGetMyCommissions('all'), []);
@@ -80,13 +78,6 @@ export default function ReferrerDashboard() {
 
   return (
     <div className="rf-dashboard">
-      <PayoutModal
-        isOpen={isPayoutModalOpen}
-        onClose={() => setIsPayoutModalOpen(false)}
-        balance={formatSar(stats?.available)}
-        available={stats?.available}
-        onSubmitted={() => meReq.reload()}
-      />
 
       <header className="rf-header">
         <div className="rf-welcome">
@@ -130,7 +121,12 @@ export default function ReferrerDashboard() {
               <Plus size={18} />
               Add Referral
             </button>
-            <button className="rf-btn-outline" onClick={() => setIsPayoutModalOpen(true)}>
+            {/* Requesting a payout lives on the wallet, next to the balance and
+                the request history, rather than in a dialog over the dashboard. */}
+            <button
+              className="rf-btn-outline"
+              onClick={() => navigate('/referrer-portal/wallet')}
+            >
               <CreditCard size={18} />
               Request Payout
             </button>

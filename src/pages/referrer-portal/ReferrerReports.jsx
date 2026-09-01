@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Users, Target, TrendingUp, DollarSign } from 'lucide-react';
+import { Users, Target, TrendingUp, DollarSign, Car } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -7,10 +7,12 @@ import {
 import {
   referrerGetMe,
   referrerGetMyCommissions,
+  referrerGetMyRedemptions,
   formatSar,
+  formatDate,
 } from '../../services/referrerPortalApi';
 import useReferrerData from './useReferrerData';
-import { EmptyState, ReferrerState } from './ReferrerStates';
+import { ReferrerState } from './ReferrerStates';
 
 const STATUS_COLOR = {
   paid: '#10b981',
@@ -64,9 +66,15 @@ function buildBreakdown(commissions) {
 export default function ReferrerReports() {
   const meReq = useReferrerData(referrerGetMe, []);
   const commReq = useReferrerData(() => referrerGetMyCommissions('all'), []);
+  const redReq = useReferrerData(referrerGetMyRedemptions, []);
 
   const stats = meReq.data?.stats;
   const commissions = useMemo(() => commReq.data?.commissions ?? [], [commReq.data]);
+  const redemptions = useMemo(() => redReq.data?.redemptions ?? [], [redReq.data]);
+  const uniquePlates = useMemo(
+    () => new Set(redemptions.map((r) => r.plate)).size,
+    [redemptions],
+  );
 
   const monthly = useMemo(() => buildMonthly(commissions), [commissions]);
   const breakdown = useMemo(() => buildBreakdown(commissions), [commissions]);
@@ -101,10 +109,26 @@ export default function ReferrerReports() {
       icon: DollarSign,
       color: '#f59e0b',
     },
+    {
+      label: 'Code Uses',
+      value: String(redemptions.length),
+      icon: Target,
+      color: '#0ea5e9',
+    },
+    {
+      label: 'Vehicles Reached',
+      value: String(uniquePlates),
+      icon: Car,
+      color: '#8b5cf6',
+    },
   ];
 
   // A React element is always truthy, so gate on the state itself.
-  const showPlaceholder = meReq.loading || commReq.loading || meReq.error || commReq.error || meReq.notLinked;
+  // Only genuine load failures suppress the report. A referrer with no activity
+  // still gets a report — one that legitimately reads zero — rather than a blank
+  // screen, which is indistinguishable from something being broken.
+  const showPlaceholder =
+    meReq.loading || commReq.loading || meReq.error || commReq.error || meReq.notLinked;
   const placeholder = (
     <ReferrerState
       loading={meReq.loading || commReq.loading}
@@ -131,7 +155,7 @@ export default function ReferrerReports() {
         <>
           <div
             className="rf-stats-grid"
-            style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '2.5rem' }}
+            style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: '2.5rem' }}
           >
             {statCards.map((stat) => (
               <div key={stat.label} className="rf-stat-card">
@@ -151,12 +175,16 @@ export default function ReferrerReports() {
             ))}
           </div>
 
-          {commissions.length === 0 ? (
-            <div className="rf-card">
-              <EmptyState message="No commission data to report yet." />
+          {commissions.length === 0 && (
+            <div className="rf-card" style={{ marginBottom: '1.5rem', padding: '0.9rem 1.2rem' }}>
+              <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--color-text-muted)' }}>
+                No commissions recorded yet, so the figures below read zero. They will
+                fill in as your code is used.
+              </p>
             </div>
-          ) : (
-            <div className="rf-split-grid">
+          )}
+
+          <div className="rf-split-grid">
               <div className="rf-card">
                 <div className="rf-card-header">
                   <h3 className="rf-card-title">Monthly Earnings</h3>
@@ -211,6 +239,51 @@ export default function ReferrerReports() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
+              </div>
+          </div>
+
+          {/* Which vehicles actually used the code — only meaningful once there
+              are redemptions, so it appears rather than showing an empty table. */}
+          {redemptions.length > 0 && (
+            <div className="rf-card" style={{ marginTop: '2rem' }}>
+              <div className="rf-card-header">
+                <h3 className="rf-card-title">Code Usage by Vehicle</h3>
+              </div>
+              <div className="rf-table-container">
+                <table className="rf-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Vehicle</th>
+                      <th style={{ textAlign: 'right' }}>Customer Spend</th>
+                      <th style={{ textAlign: 'right' }}>You Earned</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {redemptions.map((r) => (
+                      <tr key={r.id}>
+                        <td style={{ color: 'var(--color-text-faint)' }}>{formatDate(r.createdAt)}</td>
+                        <td style={{ fontWeight: 600 }}>{r.plate}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {r.amount === null ? '—' : formatSar(r.amount)}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                          {r.commissionAmount === null ? '—' : formatSar(r.commissionAmount)}
+                        </td>
+                        <td>
+                          {r.commissionStatus ? (
+                            <span className={`rf-badge rf-badge-${r.commissionStatus}`}>
+                              {r.commissionStatus}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

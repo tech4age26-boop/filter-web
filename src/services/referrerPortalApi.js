@@ -42,6 +42,34 @@ export const referrerCreatePayoutRequest = (amount, notes) =>
     body: JSON.stringify({ amount, notes }),
   });
 
+export const referrerGetMyRedemptions = () => apiFetch('/referrer/me/redemptions');
+
+export const referrerGetSubmissionRedemptions = (id) =>
+  apiFetch(`/referrer/me/submissions/${id}/redemptions`);
+
+export const referrerUpdateSubmission = (id, body) =>
+  apiFetch(`/referrer/me/submissions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const referrerCancelSubmission = (id) =>
+  apiFetch(`/referrer/me/submissions/${id}/cancel`, { method: 'POST', body: '{}' });
+
+export const referrerRegenerateOwnCode = () =>
+  apiFetch('/referrer/me/regenerate-code', { method: 'POST', body: '{}' });
+
+export const referrerGetNotifications = (unreadOnly) =>
+  apiFetch(
+    unreadOnly ? '/referrer/me/notifications?unreadOnly=true' : '/referrer/me/notifications',
+  );
+
+export const referrerMarkNotificationRead = (id) =>
+  apiFetch(`/referrer/me/notifications/${id}/read`, { method: 'PATCH', body: '{}' });
+
+export const referrerMarkAllNotificationsRead = () =>
+  apiFetch('/referrer/me/notifications/read-all', { method: 'PATCH', body: '{}' });
+
 /** Format a number as SAR for display, e.g. 9600 -> "9,600.00". */
 export function formatSar(value) {
   const n = Number(value ?? 0);
