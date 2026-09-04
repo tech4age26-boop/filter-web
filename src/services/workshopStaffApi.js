@@ -473,6 +473,21 @@ export const updateWorkshopPortalStaff = (id, body) =>
 export const updateWorkshopTechnician = (id, body) =>
     apiFetch(`/workshop-staff/technicians/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+export const listCompensationRevisions = ({ recordId, recordType, workshopId } = {}) =>
+    apiFetch(`/workshop-staff/compensation/revisions${qs({ recordId, recordType, workshopId })}`);
+
+export const previewCompensationRevision = ({ recordId, recordType, workshopId, body } = {}) =>
+    apiFetch(`/workshop-staff/compensation/preview${qs({ recordId, recordType, workshopId })}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const applyCompensationRevision = ({ recordId, recordType, workshopId, body } = {}) =>
+    apiFetch(`/workshop-staff/compensation/apply${qs({ recordId, recordType, workshopId })}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
 /**
  * Patch a cashier / non-technician staff row.
  * Canonical: PATCH /workshop-staff/cashier/:id — plural PATCH /workshop-staff/cashiers/:id is an alias (same handler).

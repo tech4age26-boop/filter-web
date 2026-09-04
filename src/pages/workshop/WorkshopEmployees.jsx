@@ -33,6 +33,7 @@ import {
     buildPortalStaffPatchPayload,
 } from '../../services/workshopStaffApi';
 import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
+import CompensationRevisionPanel from '../../components/compensation/CompensationRevisionPanel';
 
 const isTechnicianRole = (r) => r === 'technician';
 
@@ -1309,6 +1310,33 @@ function WorkshopEmployees({
                                         </select>
                                     </div>
                                 </div>
+                                {editing && (
+                                    <CompensationRevisionPanel
+                                        locale={locale}
+                                        api="workshop"
+                                        recordId={String(editing.id)}
+                                        recordType={
+                                            editing._source === 'technician' ||
+                                            editing.recordType === 'employee' ||
+                                            isTechnicianRole(editing.role)
+                                                ? 'employee'
+                                                : isPortalEmployeeRow(editing)
+                                                  ? 'portal_user'
+                                                  : 'cashier'
+                                        }
+                                        workshopId={workshopId}
+                                        basicSalary={form.basic_salary}
+                                        commissionPercent={form.commission_percent}
+                                        onApplied={(res) => {
+                                            if (res?.newBasicSalary != null) {
+                                                set('basic_salary', res.newBasicSalary);
+                                            }
+                                            if (res?.newCommissionPercent != null) {
+                                                set('commission_percent', res.newCommissionPercent);
+                                            }
+                                        }}
+                                    />
+                                )}
                             </div>
 
                             <div className="ws-employee-form__section">

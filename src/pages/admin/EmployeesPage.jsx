@@ -30,6 +30,7 @@ import {
 } from '../../services/superAdminApi';
 import { parseEmployeesRoute, employeesRoutes, EMPLOYEES_BASE } from '../../utils/employeesRoutes';
 import { empT, EMP_ROLE_TAB_KEYS } from '../../utils/employeesI18n';
+import CompensationRevisionPanel from '../../components/compensation/CompensationRevisionPanel';
 
 const EMPTY_FORM = {
     name: '',
@@ -41,6 +42,7 @@ const EMPTY_FORM = {
     branchId: '',
     technicianType: 'workshop',
     commissionPercent: '0',
+    basicSalary: '',
     isActive: true,
 };
 
@@ -93,6 +95,7 @@ function normalizeEmployee(u, roleHint) {
                 ? `${u.commissionPercent}%`
                 : '—',
         commissionPercent: u.commissionPercent != null ? String(u.commissionPercent) : '0',
+        basicSalary: u.basicSalary != null ? String(u.basicSalary) : '',
         status: u.isActive === false ? 'inactive' : 'active',
         isActive: u.isActive !== false,
     };
@@ -109,6 +112,7 @@ function employeeToForm(emp) {
         branchId: emp.branchId || '',
         technicianType: emp.technicianType || 'workshop',
         commissionPercent: emp.commissionPercent || '0',
+        basicSalary: emp.basicSalary || '',
         isActive: emp.isActive !== false,
     };
 }
@@ -124,7 +128,16 @@ function SelectField({ value, onChange, disabled, children, className = '' }) {
     );
 }
 
-function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions = [], branchOptions = [], t }) {
+function EmployeeFormFields({
+    values,
+    onChange,
+    isEdit = false,
+    workshopOptions = [],
+    branchOptions = [],
+    t,
+    locale = 'en',
+    recordId,
+}) {
     const set = (field) => (e) => onChange(field, e.target.value);
     const isTechnician = values.role === 'technician';
 
@@ -228,6 +241,17 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                             </SelectField>
                         </div>
                         <div className="form-group">
+                            <label className="form-label">{t('label.basicSalary')}</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="form-input-field"
+                                value={values.basicSalary}
+                                onChange={set('basicSalary')}
+                            />
+                        </div>
+                        <div className="form-group">
                             <label className="form-label">{t('label.commission')}</label>
                             <input
                                 type="number"
@@ -249,6 +273,22 @@ function EmployeeFormFields({ values, onChange, isEdit = false, workshopOptions 
                             </SelectField>
                         </div>
                     </div>
+                    {isEdit && recordId ? (
+                        <CompensationRevisionPanel
+                            locale={locale}
+                            api="admin"
+                            recordId={String(recordId)}
+                            recordType="employee"
+                            basicSalary={values.basicSalary}
+                            commissionPercent={values.commissionPercent}
+                            onApplied={(res) => {
+                                if (res?.newBasicSalary != null) onChange('basicSalary', String(res.newBasicSalary));
+                                if (res?.newCommissionPercent != null) {
+                                    onChange('commissionPercent', String(res.newCommissionPercent));
+                                }
+                            }}
+                        />
+                    ) : null}
                 </section>
             ) : (
                 <section className="employees-form-section">
@@ -755,6 +795,8 @@ export default function EmployeesPage() {
                             workshopOptions={approvedWorkshopOptions}
                             branchOptions={formBranchOptions}
                             t={t}
+                            locale={locale}
+                            recordId={editMeta.id}
                         />
                     </>
                 )}
