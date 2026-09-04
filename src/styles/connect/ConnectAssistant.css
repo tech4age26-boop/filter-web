@@ -48,6 +48,176 @@
     padding: 1px 6px;
 }
 
+.cx-history-toggle {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--cx-line);
+    background: #fff;
+    color: var(--cx-ink);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.cx-history-toggle em {
+    font-style: normal;
+    font-size: 10px;
+    background: #111418;
+    color: #fff;
+    border-radius: 999px;
+    min-width: 16px;
+    padding: 0 5px;
+    line-height: 16px;
+    text-align: center;
+}
+
+.cx-workspace {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    position: relative;
+}
+
+.cx-history {
+    width: 248px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #fff;
+    border-right: 1px solid var(--cx-line);
+}
+
+.cx-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px 6px;
+}
+
+.cx-history-head strong {
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.cx-history-close {
+    display: none;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border: none;
+    background: transparent;
+    color: var(--cx-muted);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.cx-history-new {
+    margin: 4px 10px 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--cx-line);
+    background: #fff;
+    color: var(--cx-ink);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    font-weight: 550;
+    cursor: pointer;
+}
+
+.cx-history-new:hover:not(:disabled) {
+    background: #fafafa;
+}
+
+.cx-history-new:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.cx-history-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 8px 16px;
+}
+
+.cx-history-empty {
+    margin: 12px 6px 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--cx-muted);
+}
+
+.cx-history-group + .cx-history-group {
+    margin-top: 12px;
+}
+
+.cx-history-label {
+    margin: 0 8px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--cx-muted);
+    letter-spacing: 0.02em;
+}
+
+.cx-history-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    border: none;
+    background: transparent;
+    color: var(--cx-ink);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    text-align: start;
+    cursor: pointer;
+}
+
+.cx-history-item span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cx-history-item:hover:not(:disabled) {
+    background: #f4f5f6;
+}
+
+.cx-history-item.is-active {
+    background: #fff8d6;
+}
+
+.cx-history-item:disabled {
+    cursor: default;
+}
+
+.cx-history-scrim {
+    display: none;
+}
+
+.cx-main {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.cx-restored {
+    margin: 0;
+    font-size: 12px;
+    color: var(--cx-muted);
+}
+
 /* ------------------------------------------------------------------ thread */
 
 .cx-scroll {
@@ -84,6 +254,11 @@
     background: #fff8e1;
     border: 1px solid #ffe082;
     color: #6b5200;
+}
+
+.cx-banner a {
+    color: inherit;
+    font-weight: 650;
 }
 
 .cx-banner--error {
@@ -551,6 +726,40 @@ h4.cx-heading {
 
 /* ------------------------------------------------------------------ mobile */
 
+@media (max-width: 900px) {
+    .cx-history-toggle {
+        display: inline-flex;
+    }
+
+    .cx-history {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        z-index: 20;
+        transform: translateX(-105%);
+        transition: transform 0.2s ease;
+        box-shadow: 8px 0 24px rgba(17, 20, 24, 0.12);
+    }
+
+    .cx-history.is-open {
+        transform: translateX(0);
+    }
+
+    .cx-history-close {
+        display: grid;
+    }
+
+    .cx-history-scrim {
+        display: block;
+        position: absolute;
+        inset: 0;
+        border: none;
+        background: rgba(17, 20, 24, 0.35);
+        z-index: 15;
+        cursor: pointer;
+    }
+}
+
 @media (max-width: 640px) {
     .cx-suggestions {
         grid-template-columns: 1fr;
@@ -562,5 +771,10 @@ h4.cx-heading {
 
     .cx-user-bubble {
         max-width: 88%;
+    }
+
+    .cx-page-head {
+        padding: 10px 14px;
+        flex-wrap: wrap;
     }
 }

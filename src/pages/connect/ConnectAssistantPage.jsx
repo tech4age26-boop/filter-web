@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useOutletContext } from 'react-router-dom';
-import { ArrowUp, Database, Loader2, Mic, Paperclip, Sparkles, Square, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Link, useLocation, useOutletContext } from 'react-router-dom';
+import { ArrowUp, Database, History, Loader2, MessageSquarePlus, Mic, Paperclip, Sparkles, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import {
     analyseConnectAttachment,
     askStream,
     cancelConnectAction,
     confirmConnectAction,
     connectScopeParams,
+    getAssistantHistory,
     getAssistantStatus,
     ingestConnectKb,
+    listAssistantSessions,
+    resumeAssistantSession,
     sendConnectFeedback,
+    startNewAssistantSession,
     transcribeAudio,
 } from '../../services/connectApi';
 import ConnectMarkdown from './ConnectMarkdown';
@@ -58,6 +62,81 @@ const SUGGESTIONS = [
 let messageSeq = 0;
 const nextId = () => `m${Date.now()}_${messageSeq++}`;
 
+function unwrapHistory(res) {
+    if (!res || typeof res !== 'object') return { sessionId: null, title: null, messages: [] };
+    const messages = Array.isArray(res.messages)
+        ? res.messages
+        : Array.isArray(res.data?.messages)
+          ? res.data.messages
+          : [];
+    return {
+        sessionId: res.sessionId ?? res.data?.sessionId ?? null,
+        title: res.title ?? res.data?.title ?? null,
+        messages,
+    };
+}
+
+function unwrapSessions(res) {
+    if (!res || typeof res !== 'object') return { sessions: [], activeSessionId: null };
+    const sessions = Array.isArray(res.sessions)
+        ? res.sessions
+        : Array.isArray(res.data?.sessions)
+          ? res.data.sessions
+          : [];
+    return {
+        sessions,
+        activeSessionId: res.activeSessionId ?? res.data?.activeSessionId ?? null,
+    };
+}
+
+function startOfLocalDay(value) {
+    const d = value instanceof Date ? value : new Date(value);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function sessionGroupLabel(iso) {
+    const day = startOfLocalDay(iso || Date.now());
+    const today = startOfLocalDay(new Date());
+    const diff = today - day;
+    if (diff === 0) return 'Today';
+    if (diff === 86_400_000) return 'Yesterday';
+    if (diff > 0 && diff < 7 * 86_400_000) return 'This week';
+    return 'Older';
+}
+
+function groupSessions(sessions) {
+    const order = ['Today', 'Yesterday', 'This week', 'Older'];
+    const map = new Map(order.map((key) => [key, []]));
+    for (const session of sessions || []) {
+        const key = sessionGroupLabel(session.lastMessageAt || session.createdAt);
+        map.get(key).push(session);
+    }
+    return order
+        .filter((key) => map.get(key).length > 0)
+        .map((key) => ({ label: key, items: map.get(key) }));
+}
+
+function previewTitle(text) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!t) return 'New chat';
+    return t.length > 72 ? `${t.slice(0, 69).trimEnd()}…` : t;
+}
+
+function hydrateThread(rows) {
+    return (rows || []).map((m) => ({
+        id: m.id || nextId(),
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content || '',
+        tools: Array.isArray(m.tools) ? m.tools : [],
+        sources: Array.isArray(m.sources) ? m.sources : [],
+        usage: m.usage ?? null,
+        followups: m.followups ?? null,
+        proposed: Array.isArray(m.proposed) ? m.proposed : [],
+        sessionId: m.sessionId ?? null,
+        restored: true,
+    }));
+}
+
 export default function ConnectAssistantPage() {
     const location = useLocation();
     const { branchId, workshopId, scope } = useOutletContext() ?? {};
@@ -67,6 +146,11 @@ export default function ConnectAssistantPage() {
     const [streaming, setStreaming] = useState(false);
     const [status, setStatus] = useState(null);
     const [statusError, setStatusError] = useState('');
+    const [historyReady, setHistoryReady] = useState(false);
+    const [sessions, setSessions] = useState([]);
+    const [activeSessionId, setActiveSessionId] = useState(null);
+    const [historyPanelOpen, setHistoryPanelOpen] = useState(false);
+    const [openingSessionId, setOpeningSessionId] = useState(null);
 
     const [draftTranscript, setDraftTranscript] = useState('');
     const [recording, setRecording] = useState(false);
@@ -100,6 +184,49 @@ export default function ConnectAssistantPage() {
         };
     }, [scopeParams]);
 
+    const refreshSessions = useCallback(async () => {
+        try {
+            const res = await listAssistantSessions(scopeParams);
+            const { sessions: rows, activeSessionId: active } = unwrapSessions(res);
+            setSessions(rows);
+            if (active) setActiveSessionId(active);
+        } catch {
+            // History list is optional — the open thread still works.
+        }
+    }, [scopeParams]);
+
+    useEffect(() => {
+        let cancelled = false;
+        setHistoryReady(false);
+        setMessages([]);
+        setActiveSessionId(null);
+        Promise.all([
+            getAssistantHistory(scopeParams).catch(() => null),
+            listAssistantSessions(scopeParams).catch(() => null),
+        ])
+            .then(([hist, list]) => {
+                if (cancelled) return;
+                if (hist) {
+                    const { sessionId, messages: rows } = unwrapHistory(hist);
+                    if (sessionId) setActiveSessionId(sessionId);
+                    if (rows.length > 0) {
+                        setMessages((prev) => (prev.length > 0 ? prev : hydrateThread(rows)));
+                    }
+                }
+                if (list) {
+                    const { sessions: rows, activeSessionId: active } = unwrapSessions(list);
+                    setSessions(rows);
+                    if (active) setActiveSessionId(active);
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setHistoryReady(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [scopeParams]);
+
     useEffect(() => {
         const el = scrollRef.current;
         if (el) el.scrollTop = el.scrollHeight;
@@ -125,7 +252,7 @@ export default function ConnectAssistantPage() {
 
             const history = messagesRef.current
                 .filter((m) => m.content && !m.error)
-                .slice(-10)
+                .slice(-20)
                 .map((m) => ({ role: m.role, content: m.content }));
 
             setMessages((prev) => [
@@ -193,6 +320,8 @@ export default function ConnectAssistantPage() {
                                 followups: event.followups ?? null,
                                 sessionId: event.sessionId ?? null,
                             });
+                            if (event.sessionId) setActiveSessionId(event.sessionId);
+                            refreshSessions();
                             break;
                         case 'error':
                             patchLast((last) => ({ ...last, error: event.message }));
@@ -210,17 +339,18 @@ export default function ConnectAssistantPage() {
                 setStreaming(false);
             }
         },
-        [input, streaming, scopeParams, patchLast],
+        [input, streaming, scopeParams, patchLast, refreshSessions],
     );
 
     // A starter clicked on the command center arrives as navigation state.
     useEffect(() => {
+        if (!historyReady) return;
         const seeded = location.state?.question;
         if (seeded && !seededRef.current) {
             seededRef.current = true;
             handleSend(seeded);
         }
-    }, [location.state, handleSend]);
+    }, [historyReady, location.state, handleSend]);
 
     const handleStop = () => {
         abortRef.current?.abort();
@@ -228,6 +358,63 @@ export default function ConnectAssistantPage() {
         setStreaming(false);
         if (mediaRef.current) {
             mediaRef.current.getTracks?.().forEach((t) => t.stop());
+        }
+    };
+
+    const handleNewChat = async () => {
+        handleStop();
+        const firstUser = messagesRef.current.find((m) => m.role === 'user' && m.content);
+        const sid = activeSessionId;
+        if (sid && firstUser) {
+            setSessions((prev) => {
+                if (prev.some((s) => String(s.id) === String(sid))) {
+                    return prev.map((s) =>
+                        String(s.id) === String(sid)
+                            ? { ...s, status: 'closed', title: s.title || previewTitle(firstUser.content) }
+                            : s,
+                    );
+                }
+                return [
+                    {
+                        id: sid,
+                        title: previewTitle(firstUser.content),
+                        status: 'closed',
+                        lastMessageAt: new Date().toISOString(),
+                        createdAt: new Date().toISOString(),
+                    },
+                    ...prev,
+                ];
+            });
+        }
+        setMessages([]);
+        setActiveSessionId(null);
+        setHistoryPanelOpen(false);
+        try {
+            await startNewAssistantSession(scopeParams);
+            await refreshSessions();
+        } catch {
+            // Still clear the thread so the user can start fresh.
+        }
+    };
+
+    const handleOpenSession = async (id) => {
+        if (!id || streaming) return;
+        if (String(id) === String(activeSessionId) && messagesRef.current.length > 0) {
+            setHistoryPanelOpen(false);
+            return;
+        }
+        setOpeningSessionId(id);
+        try {
+            const res = await resumeAssistantSession(id, scopeParams);
+            const { sessionId, messages: rows } = unwrapHistory(res);
+            setActiveSessionId(sessionId || id);
+            setMessages(hydrateThread(rows));
+            setHistoryPanelOpen(false);
+            await refreshSessions();
+        } catch (err) {
+            setStatusError(err?.message || 'Could not open that chat.');
+        } finally {
+            setOpeningSessionId(null);
         }
     };
 
@@ -342,10 +529,21 @@ export default function ConnectAssistantPage() {
           : branches.length === 1
             ? branches[0].name
             : 'the branches you can see';
+    const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
     return (
         <div className="cx-page">
             <div className="cx-page-head">
+                <button
+                    type="button"
+                    className="cx-history-toggle"
+                    onClick={() => setHistoryPanelOpen((open) => !open)}
+                    aria-label="Chat history"
+                >
+                    <History size={15} />
+                    History
+                    {sessions.length > 0 && <em>{sessions.length}</em>}
+                </button>
                 <span className="cx-page-title">
                     <Sparkles size={15} />
                     AI Assistant
@@ -353,19 +551,104 @@ export default function ConnectAssistantPage() {
                 {status?.model && <span className="cx-model">{status.model}</span>}
             </div>
 
+            <div className="cx-workspace">
+                {historyPanelOpen && (
+                    <button
+                        type="button"
+                        className="cx-history-scrim"
+                        aria-label="Close history"
+                        onClick={() => setHistoryPanelOpen(false)}
+                    />
+                )}
+                <aside className={`cx-history ${historyPanelOpen ? 'is-open' : ''}`}>
+                    <div className="cx-history-head">
+                        <strong>Chats</strong>
+                        <button
+                            type="button"
+                            className="cx-history-close"
+                            onClick={() => setHistoryPanelOpen(false)}
+                            aria-label="Close history"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+                    <button
+                        type="button"
+                        className="cx-history-new"
+                        onClick={handleNewChat}
+                        disabled={streaming}
+                    >
+                        <MessageSquarePlus size={14} />
+                        New chat
+                    </button>
+                    <div className="cx-history-list">
+                        {sessionGroups.length === 0 && (
+                            <p className="cx-history-empty">
+                                Your chats will show up here. Click New chat to start another one
+                                without losing this list.
+                            </p>
+                        )}
+                        {sessionGroups.map((group) => (
+                            <div key={group.label} className="cx-history-group">
+                                <p className="cx-history-label">{group.label}</p>
+                                {group.items.map((session) => {
+                                    const selected =
+                                        String(session.id) === String(activeSessionId) &&
+                                        messages.length > 0;
+                                    const opening = String(openingSessionId) === String(session.id);
+                                    return (
+                                        <button
+                                            key={session.id}
+                                            type="button"
+                                            className={`cx-history-item${selected ? ' is-active' : ''}`}
+                                            disabled={streaming || opening}
+                                            onClick={() => handleOpenSession(session.id)}
+                                            title={session.title}
+                                        >
+                                            {opening ? (
+                                                <Loader2 size={13} className="cx-spin" />
+                                            ) : null}
+                                            <span>{session.title || 'Chat'}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                </aside>
+
+            <div className="cx-main">
             <div className="cx-scroll" ref={scrollRef}>
                 <div className="cx-thread">
                     {statusError && <div className="cx-banner cx-banner--error">{statusError}</div>}
 
                     {notConfigured && (
                         <div className="cx-banner cx-banner--warn">
-                            <strong>No AI provider configured.</strong> Add <code>OPENAI_API_KEY</code>{' '}
-                            or <code>ANTHROPIC_API_KEY</code> to <code>filter_backend/.env</code> and
-                            restart the backend. Everything else on this page already works.
+                            <strong>No AI provider configured.</strong>{' '}
+                            {status?.isPlatformAdmin ? (
+                                <>
+                                    Open <Link to="/connect/settings">AI settings → API integrations</Link> to
+                                    add a key. Connect uses it immediately — no restart.
+                                </>
+                            ) : (
+                                <>
+                                    Ask Super Admin to add a key under Filter Connect → AI settings → API
+                                    integrations.
+                                </>
+                            )}
                         </div>
                     )}
 
-                    {messages.length === 0 && (
+                    {!historyReady && messages.length === 0 && (
+                        <div className="cx-empty">
+                            <div className="cx-empty-icon">
+                                <Loader2 size={28} className="cx-spin" />
+                            </div>
+                            <p>Loading your last conversation…</p>
+                        </div>
+                    )}
+
+                    {historyReady && messages.length === 0 && (
                         <div className="cx-empty">
                             <div className="cx-empty-icon">
                                 <Sparkles size={28} />
@@ -387,6 +670,10 @@ export default function ConnectAssistantPage() {
                                 ))}
                             </div>
                         </div>
+                    )}
+
+                    {messages.some((m) => m.restored) && (
+                        <p className="cx-restored">Continuing where you left off.</p>
                     )}
 
                     {messages.map((m, index) =>
@@ -654,6 +941,8 @@ export default function ConnectAssistantPage() {
                     Numbers come from FILTER POS. Writes need a confirmation card. Expense auto-approve
                     is 0 SAR. Voice is transcribed for you to edit before send.
                 </p>
+            </div>
+            </div>
             </div>
         </div>
     );

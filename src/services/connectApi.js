@@ -30,6 +30,28 @@ export function getAssistantStatus(params = {}) {
     return apiFetch(`/connect/assistant/status${qs(params)}`);
 }
 
+export function getAssistantHistory(params = {}) {
+    return apiFetch(`/connect/assistant/history${qs(params)}`);
+}
+
+export function startNewAssistantSession(params = {}) {
+    return apiFetch(`/connect/assistant/session/new${qs(params)}`, { method: 'POST' });
+}
+
+export function listAssistantSessions(params = {}) {
+    return apiFetch(`/connect/assistant/sessions${qs(params)}`);
+}
+
+export function getAssistantSession(sessionId, params = {}) {
+    return apiFetch(`/connect/assistant/sessions/${encodeURIComponent(sessionId)}${qs(params)}`);
+}
+
+export function resumeAssistantSession(sessionId, params = {}) {
+    return apiFetch(`/connect/assistant/sessions/${encodeURIComponent(sessionId)}/resume${qs(params)}`, {
+        method: 'POST',
+    });
+}
+
 /** Build scope query params shared by home, status and assistant. */
 export function connectScopeParams({ workshopId, branchId } = {}) {
     const params = {};
@@ -107,6 +129,30 @@ export function patchConnectAiConfig(body, params = {}) {
     return apiFetch(`/connect/ai/config${qs(params)}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
+    });
+}
+
+export function listConnectAiProviders() {
+    return apiFetch('/connect/ai/providers');
+}
+
+export function createConnectAiProvider(body) {
+    return apiFetch('/connect/ai/providers', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+}
+
+export function patchConnectAiProvider(id, body) {
+    return apiFetch(`/connect/ai/providers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+}
+
+export function deleteConnectAiProvider(id) {
+    return apiFetch(`/connect/ai/providers/${id}`, {
+        method: 'DELETE',
     });
 }
 

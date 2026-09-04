@@ -3,10 +3,10 @@ import { notifyUserActivity } from '../utils/sessionIdle';
 // Production url
 // export const BASE_URL = "https://api.filtercarservices.com";
 //staging url (production default when VITE_API_BASE_URL is unset)
- export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+// export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 // development url
 
-// export const BASE_URL = 'http://localhost:3000';
+export const BASE_URL = 'http://localhost:3000';
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
@@ -102,6 +102,14 @@ function getErrorMessage(errorBody, status, statusText, method, path) {
 
   if (typeof errorBody?.error === "string" && errorBody.error.trim()) {
     return errorBody.error.trim();
+  }
+
+  if (typeof errorBody === "string" && errorBody.trim()) {
+    const plain = errorBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (/cannot (get|post|put|patch|delete)/i.test(plain) || status === 404) {
+      return `This API is not on the server the app is calling (${BASE_URL}). For local Connect, use localhost:3000 — the production Railway API does not have this route yet.`;
+    }
+    if (plain.length < 280) return plain;
   }
 
   return `Request failed: ${status} ${statusText} (${method} ${path})`;

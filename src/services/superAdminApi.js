@@ -311,6 +311,21 @@ export const createTechnician = (body) =>
 export const updateTechnician = (id, body) =>
     apiFetch(`/super-admin/technicians/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+export const listTechnicianCompensationRevisions = (id) =>
+    apiFetch(`/super-admin/technicians/${id}/compensation/revisions`);
+
+export const previewTechnicianCompensation = (id, body) =>
+    apiFetch(`/super-admin/technicians/${id}/compensation/preview`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const applyTechnicianCompensation = (id, body) =>
+    apiFetch(`/super-admin/technicians/${id}/compensation/apply`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 
 export const getSuppliers = ({ workshopId, limit, offset } = {}) =>
