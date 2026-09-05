@@ -145,20 +145,47 @@ export const postWorkshopEmployees = (body = {}, options = {}) =>
         headers: options.headers,
     });
 
+/** Cashiers / portal users / technicians share numeric ids across tables. */
+export function resolveWorkshopStaffRecordType(row) {
+    const explicit = String(row?.recordType || row?.record_type || '').trim().toLowerCase();
+    if (explicit === 'employee' || explicit === 'cashier' || explicit === 'portal_user') {
+        return explicit;
+    }
+    const fromKey = String(row?.staffKey || row?.staff_key || '');
+    const keyType = fromKey.includes(':') ? fromKey.slice(0, fromKey.indexOf(':')).toLowerCase() : '';
+    if (keyType === 'employee' || keyType === 'cashier' || keyType === 'portal_user') {
+        return keyType;
+    }
+    const et = String(row?.employeeType || row?.employee_type || '').toLowerCase();
+    if (et === 'cashier') return 'cashier';
+    if (et === 'portal_user' || et === 'portal-staff') return 'portal_user';
+    return 'employee';
+}
+
+export function workshopStaffRoleLabel(row) {
+    const type = resolveWorkshopStaffRecordType(row);
+    const et = String(row?.employeeType || row?.employee_type || '').toLowerCase();
+    if (type === 'cashier' || et === 'cashier') return 'Cashier';
+    if (type === 'portal_user') return 'Staff';
+    if (et === 'technician') return 'Technician';
+    return 'Employee';
+}
+
 /** Stable select value — ids overlap across employees, cashiers, and portal users. */
 export function workshopStaffSelectValue(row) {
     if (!row) return '';
-    const type = row.recordType || 'employee';
+    const type = resolveWorkshopStaffRecordType(row);
     return `${type}:${String(row.id ?? '')}`;
 }
 
 /** Parse `workshopStaffSelectValue` back to record type + bare id. */
 export function parseWorkshopStaffSelectValue(value) {
-    if (!value) return { recordType: 'employee', id: '', compositeKey: '' };
+    if (!value) return { recordType: '', id: '', compositeKey: '' };
     const s = String(value);
     const idx = s.indexOf(':');
     if (idx <= 0) {
-        return { recordType: 'employee', id: s, compositeKey: `employee:${s}` };
+        // Bare numeric ids are ambiguous (cashier 4 ≠ employee 4). Never default to employee.
+        return { recordType: '', id: s, compositeKey: s };
     }
     return {
         recordType: s.slice(0, idx),

@@ -17,6 +17,8 @@ import {
 
     unwrapWorkshopEmployeesList,
 
+    workshopStaffRoleLabel,
+
     workshopStaffSelectValue,
 
 } from '../../../services/workshopStaffApi';
@@ -426,10 +428,7 @@ export default function WorkshopEmployeeLedgerTab({
                 .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
                 .map((e) => {
                     const selectKey = workshopStaffSelectValue(e);
-                    const typeLabel =
-                        e.recordType && e.recordType !== 'employee'
-                            ? String(e.recordType).replace(/_/g, ' ')
-                            : 'Employee';
+                    const typeLabel = workshopStaffRoleLabel(e);
                     const branchName = e.branch?.name || '';
                     return {
                         id: selectKey,

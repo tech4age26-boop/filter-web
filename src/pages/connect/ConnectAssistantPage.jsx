@@ -40,7 +40,7 @@ const TOOL_LABELS = {
     catalog_search: 'Searching the catalog',
     product_match: 'Matching supplier name to catalog',
     purchase_invoices: 'Reading purchase invoices',
-    employee_compensation: 'Reading salaries and commissions',
+    employee_compensation: 'Reading salaries, advances and net pay',
     propose_task: 'Drafting a task',
     propose_followup: 'Drafting a follow-up',
     propose_target: 'Drafting a target',
@@ -57,6 +57,7 @@ const SUGGESTIONS = [
     'Compare revenue by branch for last month',
     'What is the catalog match for Shell helix ultra 5W30?',
     'Show technician fixed salaries and commission %',
+    'Build this month\'s salary sheet with advances due, deductions and net pay',
 ];
 
 let messageSeq = 0;

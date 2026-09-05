@@ -11,6 +11,7 @@ import {
     indexWorkshopStaffBySelectValue,
     parseWorkshopStaffSelectValue,
     unwrapWorkshopEmployeesList,
+    workshopStaffRoleLabel,
     workshopStaffSelectValue,
 } from '../../../services/workshopStaffApi';
 import {
@@ -56,14 +57,23 @@ const listBasicSalary = (emp) => {
 /** Resolve employee id/type from row state (select key is source of truth for the dropdown). */
 const resolveRowEmployee = (row) => {
     const parsed = parseWorkshopStaffSelectValue(row.employeeSelectKey);
+    const fromSelect = String(row.employeeSelectKey || '').includes(':');
     return {
-        employeeRecordId: String(row.employeeRecordId || parsed.id || '').trim(),
-        recordType: row.recordType || parsed.recordType || 'employee',
+        employeeRecordId: String((fromSelect ? parsed.id : row.employeeRecordId) || parsed.id || '').trim(),
+        recordType: fromSelect ? parsed.recordType : (parsed.recordType || row.recordType || ''),
     };
 };
 
-const employeeBulkKey = (recordType, employeeRecordId) =>
-    `${recordType || 'employee'}:${String(employeeRecordId)}`;
+const isNonTechnicianStaff = (recordType, employeeType) => {
+    if (recordType === 'cashier' || recordType === 'portal_user') return true;
+    const et = String(employeeType || '').trim().toLowerCase();
+    return Boolean(et) && et !== 'technician';
+};
+
+const employeeBulkKey = (recordType, employeeRecordId) => {
+    const type = String(recordType || '').trim();
+    return type ? `${type}:${String(employeeRecordId)}` : '';
+};
 
 const defaultPeriod = () => {
     const d = new Date();
@@ -74,7 +84,7 @@ const emptyRow = () => ({
     key: `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     employeeSelectKey: '',
     employeeRecordId: '',
-    recordType: 'employee',
+    recordType: '',
     userId: '',
     employeeName: '',
     basicSalary: '',
@@ -218,7 +228,7 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
     }, [loadRecentPayments]);
 
     const loadPreview = async (idx, { id, recordType }) => {
-        if (!id || !period) return;
+        if (!id || !recordType || !period) return;
         const seq = (previewSeqRef.current[idx] ?? 0) + 1;
         previewSeqRef.current[idx] = seq;
         setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, previewLoading: true } : r)));
@@ -245,8 +255,18 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         return r.basicSalary || listBasicSalary(staffBySelectKey[r.employeeSelectKey]) || '';
                     })(),
                     advanceDue: Number(preview.advanceDue ?? 0),
-                    commissionPayable: Number(preview.commissionPayable ?? 0),
-                    commissionLineIds: [...(preview.commissionLineIds ?? [])],
+                    commissionPayable: isNonTechnicianStaff(
+                        preview.recordType || recordType,
+                        preview.employeeType || staffBySelectKey[r.employeeSelectKey]?.employeeType,
+                    )
+                        ? 0
+                        : Number(preview.commissionPayable ?? 0),
+                    commissionLineIds: isNonTechnicianStaff(
+                        preview.recordType || recordType,
+                        preview.employeeType || staffBySelectKey[r.employeeSelectKey]?.employeeType,
+                    )
+                        ? []
+                        : [...(preview.commissionLineIds ?? [])],
                     advanceDeduction: String(
                         preview.suggestedAdvanceDeduction ?? preview.advanceDue ?? 0,
                     ),
@@ -284,15 +304,15 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
             penalties: '0',
             penaltyNotes: '',
         });
-        if (parsed.id) {
-            loadPreview(idx, parsed);
+        if (parsed.id && parsed.recordType) {
+            loadPreview(idx, { id: parsed.id, recordType: parsed.recordType });
         }
     };
 
     useEffect(() => {
         rows.forEach((r, idx) => {
             const { employeeRecordId, recordType } = resolveRowEmployee(r);
-            if (employeeRecordId && r.previewLoaded) {
+            if (employeeRecordId && recordType && r.previewLoaded) {
                 loadPreview(idx, { id: employeeRecordId, recordType });
             }
         });
@@ -340,6 +360,12 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
             return;
         }
 
+        const missingType = prepared.find((r) => !r.recordType);
+        if (missingType) {
+            setError(`Re-select ${missingType.employeeName || 'the employee'} from the list. Staff ids overlap across technicians, cashiers, and portal users.`);
+            return;
+        }
+
         const seen = new Set();
         for (const r of prepared) {
             const key = employeeBulkKey(r.recordType, r.employeeRecordId);
@@ -367,7 +393,7 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
 
         const payloadRows = prepared.map((r) => ({
             employeeRecordId: String(r.employeeRecordId),
-            recordType: r.recordType || 'employee',
+            recordType: r.recordType || undefined,
             userId: r.userId ? String(r.userId) : undefined,
             employeeName: r.employeeName,
             basicSalary: Number(r.basicSalary || 0),
@@ -462,27 +488,42 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         background: '#fff',
                     }}
                 >
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                        <div>
-                            <label className="form-label">Employee / Technician *</label>
-                            <select
-                                className="form-input-field"
-                                value={r.employeeSelectKey}
-                                onChange={(e) => handleEmployeeChange(idx, e.target.value)}
-                            >
-                                <option value="">Select…</option>
-                                {sortedEmployees.map((e) => {
-                                    const selectKey = workshopStaffSelectValue(e);
-                                    return (
-                                    <option key={selectKey} value={selectKey}>
-                                        {e.name}{e.branch?.name ? ` (${e.branch.name})` : ''}
-                                    </option>
-                                    );
-                                })}
-                            </select>
-                        </div>
+                    <div style={{ minWidth: 0, marginBottom: r.employeeSelectKey ? 12 : 0 }}>
+                        <label className="form-label">Employee / Technician *</label>
+                        <select
+                            className="form-input-field"
+                            value={r.employeeSelectKey}
+                            title={
+                                r.employeeName
+                                    ? `${r.employeeName} — ${workshopStaffRoleLabel(staffBySelectKey[r.employeeSelectKey] || { recordType: r.recordType })}`
+                                    : undefined
+                            }
+                            onChange={(e) => handleEmployeeChange(idx, e.target.value)}
+                            style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                            <option value="">Select…</option>
+                            {sortedEmployees.map((e) => {
+                                const selectKey = workshopStaffSelectValue(e);
+                                const role = workshopStaffRoleLabel(e);
+                                const branch = e.branch?.name ? ` · ${e.branch.name}` : '';
+                                return (
+                                <option key={selectKey} value={selectKey}>
+                                    {e.name} — {role}{branch}
+                                </option>
+                                );
+                            })}
+                        </select>
                         {r.employeeSelectKey ? (
-                            <>
+                            <p className="form-help-text" style={{ margin: '6px 0 0', fontSize: 12 }}>
+                                {workshopStaffRoleLabel(staffBySelectKey[r.employeeSelectKey] || { recordType: r.recordType })}
+                                {staffBySelectKey[r.employeeSelectKey]?.branch?.name
+                                    ? ` · ${staffBySelectKey[r.employeeSelectKey].branch.name}`
+                                    : ''}
+                            </p>
+                        ) : null}
+                    </div>
+                    {r.employeeSelectKey ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
                                 <div>
                                     <label className="form-label">Basic salary (SAR)</label>
                                     <input
@@ -572,9 +613,8 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                                         placeholder="Internal note for this payout"
                                     />
                                 </div>
-                            </>
-                        ) : null}
                     </div>
+                        ) : null}
                     {rows.length > 1 ? (
                         <div style={{ marginTop: 10, textAlign: 'right' }}>
                             <button type="button" className="btn-edit-zone" onClick={() => removeRow(idx)}>

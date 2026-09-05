@@ -31,6 +31,7 @@ import {
     indexWorkshopStaffBySelectValue,
     parseWorkshopStaffSelectValue,
     unwrapWorkshopEmployeesList,
+    workshopStaffRoleLabel,
     workshopStaffSelectValue,
 } from '../../../services/workshopStaffApi';
 import { accT } from '../../../utils/accountingI18n';
@@ -66,7 +67,7 @@ const makeAdvanceRow = () => ({
     id: Date.now() + Math.random(),
     employeeSelectKey: '',
     employeeRecordId: '',
-    recordType: 'employee',
+    recordType: '',
     userId: '',
     employeeName: '',
     amount: '',
@@ -132,7 +133,7 @@ export default function WorkshopAdvances({
     const [advanceForm, setAdvanceForm] = useState({
         employeeSelectKey: '',
         employeeRecordId: '',
-        recordType: 'employee',
+        recordType: '',
         userId: '',
         employeeName: '',
         amount: '',
@@ -293,7 +294,7 @@ export default function WorkshopAdvances({
             setAdvanceForm({
                 employeeSelectKey: '',
                 employeeRecordId: '',
-                recordType: 'employee',
+                recordType: '',
                 userId: '',
                 employeeName: '',
                 amount: '',
@@ -650,7 +651,7 @@ export default function WorkshopAdvances({
                                             const selectKey = workshopStaffSelectValue(e);
                                             return (
                                             <option key={selectKey} value={selectKey} disabled={!e.userId && !e.canReceiveAdvance}>
-                                                {e.name}{e.branch?.name ? ` (${e.branch.name})` : ''}
+                                                {e.name} — {workshopStaffRoleLabel(e)}{e.branch?.name ? ` (${e.branch.name})` : ''}
                                             </option>
                                             );
                                         })}
@@ -736,7 +737,7 @@ export default function WorkshopAdvances({
                                                     const selectKey = workshopStaffSelectValue(e);
                                                     return (
                                                     <option key={selectKey} value={selectKey} disabled={!e.userId && !e.canReceiveAdvance}>
-                                                        {e.name}
+                                                        {e.name} — {workshopStaffRoleLabel(e)}
                                                     </option>
                                                     );
                                                 })}
