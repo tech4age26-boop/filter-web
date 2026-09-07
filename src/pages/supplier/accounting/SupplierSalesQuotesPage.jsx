@@ -35,8 +35,6 @@ import {
 } from './SupplierAccountingShared';
 import { extractArray, unwrapPayload } from './SupplierManagerAccountingShared';
 
-const SEARCH_QUICK_PICK = 15;
-const SEARCH_MAX_RESULTS = 50;
 const CATALOG_STOCK_BALANCES_LIMIT = 2000;
 const CATALOG_REMOTE_SEARCH_MIN_CHARS = 2;
 const CATALOG_REMOTE_SEARCH_DEBOUNCE_MS = 280;
@@ -361,8 +359,8 @@ export default function SupplierSalesQuotesPage({ locale = 'en' }) {
                 }),
             );
             const q = String(query || '').trim().toLowerCase();
-            if (!q) return items.slice(0, SEARCH_QUICK_PICK);
-            return items.filter((i) => matchesCatalogSearchQuery(i, q)).slice(0, SEARCH_MAX_RESULTS);
+            if (!q) return items;
+            return items.filter((i) => matchesCatalogSearchQuery(i, q));
         },
         [catalogPool],
     );
@@ -418,7 +416,7 @@ export default function SupplierSalesQuotesPage({ locale = 'en' }) {
         const timer = setTimeout(async () => {
             try {
                 const stockRes = await getSupplierInventoryStockBalances({
-                    limit: SEARCH_MAX_RESULTS,
+                    limit: CATALOG_STOCK_BALANCES_LIMIT,
                     search: q,
                 });
                 if (cancelled) return;

@@ -15,8 +15,8 @@ export default function MultiSelectSearchCombo({
     emptyHint = 'No matching products',
     disabled = false,
     menuMinWidth = 320,
-    maxInitial = 200,
-    maxFiltered = 400,
+    maxInitial = 0,
+    maxFiltered = 0,
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -36,13 +36,22 @@ export default function MultiSelectSearchCombo({
     const q = String(query || '').trim().toLowerCase();
     const filtered = useMemo(() => {
         const rows = options || [];
-        if (!q) return rows.slice(0, Math.max(1, maxInitial));
-        return rows
-            .filter((o) => {
-                const hay = `${o.label || ''} ${o.searchText || ''} ${o.id || ''}`.toLowerCase();
-                return hay.includes(q);
-            })
-            .slice(0, Math.max(1, maxFiltered));
+        const cap = (list, max) => {
+            const n = Number(max);
+            if (!Number.isFinite(n) || n <= 0) return list;
+            return list.slice(0, n);
+        };
+        if (!q) return cap(rows, maxInitial);
+        const tokens = q.split(/\s+/).filter(Boolean);
+        return cap(
+            rows.filter((o) => {
+                const hay = `${o.label || ''} ${o.searchText || ''} ${o.id || ''} ${o.value || ''}`
+                    .toLowerCase()
+                    .replace(/[-_]/g, '');
+                return tokens.every((token) => hay.includes(token.replace(/[-_]/g, '')));
+            }),
+            maxFiltered,
+        );
     }, [options, q, maxInitial, maxFiltered]);
 
     const updateMenu = useCallback(() => {

@@ -67,22 +67,32 @@ export function scoreEntitySearchMatch(option, rawQuery) {
     return -1;
 }
 
+/** 0 / negative / non-finite = no combo cap (table pagination is separate). */
+export function capComboList(list, max) {
+    const rows = Array.isArray(list) ? list : [];
+    const n = Number(max);
+    if (!Number.isFinite(n) || n <= 0) return rows;
+    return rows.slice(0, n);
+}
+
 /** Filter + rank options for combobox search. */
-export function filterSearchOptions(options, rawQuery, { maxInitial = 100, maxFiltered = 200 } = {}) {
+export function filterSearchOptions(options, rawQuery, { maxInitial = 0, maxFiltered = 0 } = {}) {
     const list = Array.isArray(options) ? options : [];
     const query = normalizeEntitySearchText(rawQuery);
-    if (!query) return list.slice(0, maxInitial);
+    if (!query) return capComboList(list, maxInitial);
 
-    return list
-        .map((option) => ({ option, score: scoreEntitySearchMatch(option, query) }))
-        .filter((row) => row.score >= 0)
-        .sort(
-            (a, b) =>
-                b.score - a.score ||
-                String(a.option.label || '').localeCompare(String(b.option.label || '')),
-        )
-        .slice(0, maxFiltered)
-        .map((row) => row.option);
+    return capComboList(
+        list
+            .map((option) => ({ option, score: scoreEntitySearchMatch(option, query) }))
+            .filter((row) => row.score >= 0)
+            .sort(
+                (a, b) =>
+                    b.score - a.score ||
+                    String(a.option.label || '').localeCompare(String(b.option.label || '')),
+            )
+            .map((row) => row.option),
+        maxFiltered,
+    );
 }
 
 export function countSearchMatches(options, rawQuery) {

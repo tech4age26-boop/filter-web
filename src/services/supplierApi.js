@@ -132,7 +132,13 @@ export const listSupplierMasterCatalogProducts = ({ branchId, signal } = {}) =>
     apiFetch(withQuery('/supplier/products/master-catalog', { branchId }), { signal });
 
 /** Server search for PI/SI item combo — master catalog + supplier stock SKUs. */
-export const searchSupplierInvoicePickerProducts = ({ q, limit = 80, signal } = {}) =>
+export const COMBO_SEARCH_LIMIT = 10000;
+
+export const searchSupplierInvoicePickerProducts = ({
+    q,
+    limit = COMBO_SEARCH_LIMIT,
+    signal,
+} = {}) =>
     apiFetch(withQuery('/supplier/products/invoice-picker-search', { q, limit }), { signal });
 export const createSupplierProductRequest = (body) =>
     apiFetch('/supplier/product-requests', {
