@@ -14,6 +14,14 @@ import {
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { spiT } from '../../utils/supplierPurchaseInvoicesI18n';
+import { SortableTh, useColumnSort } from '../../components/TableSort';
+
+function sspInvoiceSeries(row) {
+    const fromNo = String(row?.invoiceNo ?? '').match(/(\d+)\s*$/);
+    if (fromNo) return Number(fromNo[1]);
+    const n = Number(row?.id);
+    return Number.isFinite(n) ? n : 0;
+}
 
 function unwrapProducts(res) {
     if (!res || typeof res !== 'object') return [];
@@ -89,6 +97,19 @@ export default function SupplierSuperSupplierPurchasesPanel({
 
     const [saving, setSaving] = useState(false);
     const [composerErr, setComposerErr] = useState('');
+    const { sortKey, sortDir, toggleSort, sortRows } = useColumnSort({
+        key: 'invoiceNo',
+        dir: 'desc',
+    });
+    const sortedRows = useMemo(
+        () =>
+            sortRows(rows, {
+                invoiceNo: (r) => sspInvoiceSeries(r),
+                purchaseDate: (r) =>
+                    `${String(r.purchaseDate || '').slice(0, 10)}\t${String(sspInvoiceSeries(r)).padStart(12, '0')}`,
+            }),
+        [rows, sortRows],
+    );
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -386,10 +407,22 @@ export default function SupplierSuperSupplierPurchasesPanel({
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>{t('sspPanel.th.invoiceNo')}</th>
+                            <SortableTh
+                                label={t('sspPanel.th.invoiceNo')}
+                                columnKey="invoiceNo"
+                                sortKey={sortKey}
+                                sortDir={sortDir}
+                                onSort={toggleSort}
+                            />
                             <th>{t('sspPanel.th.vendor')}</th>
                             <th>{t('sspPanel.th.vendorRef')}</th>
-                            <th>{t('sspPanel.th.issueDate')}</th>
+                            <SortableTh
+                                label={t('sspPanel.th.purchaseDate')}
+                                columnKey="purchaseDate"
+                                sortKey={sortKey}
+                                sortDir={sortDir}
+                                onSort={toggleSort}
+                            />
                             <th>{t('th.product')}</th>
                             <th>{t('sspPanel.th.qtyUnit')}</th>
                             <th>{t('th.unitPrice')}</th>
@@ -418,7 +451,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                                 </td>
                             </tr>
                         ) : (
-                            rows.map((r) => {
+                            sortedRows.map((r) => {
                                 const metaSummary = purchaseMetaSummary(r.purchaseFormMeta, t);
                                 return (
                                 <tr
@@ -681,7 +714,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
                             </div>
                             <div className="pi-header-grid">
                                 <div className="pi-field">
-                                    <label>{t('sspPanel.label.issueDateReq')}</label>
+                                    <label>{t('sspPanel.label.purchaseDateReq')}</label>
                                     <input
                                         type="date"
                                         value={composer.purchaseDate}

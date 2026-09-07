@@ -27,8 +27,10 @@ import {
     createSupplierInvoice,
     deleteSupplierInvoice,
     getSupplierInvoice,
+    fetchAllSupplierStockBalances,
     getSupplierInventoryStockBalances,
     getSupplierSalesInvoiceCustomerBranches,
+    searchSupplierInvoicePickerProducts,
     listSupplierInvoices,
     listSupplierInvoiceReturns,
     createSupplierInvoiceReturn,
@@ -173,6 +175,10 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
         supplierLegalName: inv.supplierName,
         supplierName: inv.supplierName,
         supplierVatNumber: inv.supplierVatNumber,
+        workshopVatNumber: inv.workshopVatNumber,
+        createdAt: inv.createdAt ?? inv.displayDateTime ?? null,
+        workshopReviewedAt: inv.workshopReviewedAt ?? null,
+        displayDateTime: inv.displayDateTime ?? null,
         subtotalExVat: inv.subtotal,
         subtotal: inv.subtotal,
         vatAmount: inv.vatAmount,
@@ -647,6 +653,33 @@ function reconstructSalesInvoiceUnitPriceInput(it, amountsTaxInclusive, taxCode)
     const fixed = discRaw;
     const grossInclBeforeDisc = roundMoney2(netIncl + fixed);
     return String(roundMoney2(grossInclBeforeDisc / qty));
+}
+
+function normalizeInvoicePickerApiRow(raw, t) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (raw.productName || raw.currentBalanceWarehouse != null) {
+        return normalizeStockCatalogRow(raw, t);
+    }
+    const mid = String(raw.masterProductId || raw.id || '').trim();
+    const supplierId = raw.supplierProductId != null ? String(raw.supplierProductId).trim() : '';
+    if (!mid && !supplierId) return null;
+    const warehouseUnit = String(raw.warehouseUnit || raw.unitCode || raw.unit || 'pcs').trim() || 'pcs';
+    return {
+        id: supplierId || mid,
+        masterProductId: mid || null,
+        name: raw.name || t('fallback.product'),
+        sku: String(raw.sku || '').trim(),
+        price: Math.max(0, Number(raw.salePrice ?? raw.purchasePrice ?? 0) || 0),
+        unit: warehouseUnit,
+        warehouseUnit,
+        workshopUnit: String(raw.workshopUnit || 'pcs').trim() || 'pcs',
+        conversionFactor: Number(raw.conversionFactor) || 1,
+        warehouseStockQty: 0,
+        itemType: 'Product',
+        supplierStockProductId: supplierId || null,
+        catalogProductResolved: Boolean(supplierId),
+        stockHint: '',
+    };
 }
 
 function mergeInventoryLists(stockRows, fallback) {
@@ -2018,9 +2051,8 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     setEditingInvoiceStatus('pending_payment');
                 }
             } else {
-                const prefix = isDraftSave ? 'DRAFT' : 'WPI-SI';
                 let invoiceNo = (refNo && String(refNo).trim()) || '';
-                if (refAutoGenerate) {
+                if (refAutoGenerate || !invoiceNo) {
                     try {
                         const next = await getNextSupplierSalesInvoiceReference();
                         if (next) {
@@ -2035,8 +2067,6 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                             'Could not generate a unique invoice number. Try Auto-generate again.',
                         );
                     }
-                } else if (!invoiceNo) {
-                    invoiceNo = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
                 }
                 const res = await createSupplierInvoice({
                     invoiceNo,
@@ -2856,7 +2886,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             setListError('');
             try {
                 const [stockRes, branchesRes, invRes] = await Promise.all([
-                    getSupplierInventoryStockBalances({ limit: CATALOG_STOCK_BALANCES_LIMIT }),
+                    fetchAllSupplierStockBalances({ pageSize: CATALOG_STOCK_BALANCES_LIMIT }),
                     getSupplierSalesInvoiceCustomerBranches().catch((be) => {
                         console.error('Supplier customer-branches failed:', be);
                         return { __error: be, branches: [] };
@@ -3037,10 +3067,15 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     ? String(selectedCustomer.branchId)
                     : '';
                 if (bid) params.branchId = bid;
-                const stockRes = await getSupplierInventoryStockBalances(params);
+                const pickerRes = await searchSupplierInvoicePickerProducts({
+                    q,
+                    limit: 80,
+                });
                 if (cancelled) return;
-                const rows = Array.isArray(stockRes?.items)
-                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw, t))
+                const rows = Array.isArray(pickerRes?.products)
+                    ? pickerRes.products
+                          .map((raw) => normalizeInvoicePickerApiRow(raw, t))
+                          .filter(Boolean)
                     : [];
                 setCatalogSearchRemote(rows);
             } catch (err) {

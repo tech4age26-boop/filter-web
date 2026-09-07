@@ -60,6 +60,8 @@ export const SNAC_I18N = {
         'modal.displayName': 'Display name',
         'modal.phone': 'Phone',
         'modal.email': 'Email',
+        'modal.vatNumber': 'VAT number',
+        'modal.vatNumberPh': 'Customer VAT / tax ID',
         'modal.notes': 'Notes',
 
         'ledger.title': 'Customer Ledger — {name}',
@@ -149,6 +151,8 @@ export const SNAC_I18N = {
         'modal.displayName': 'اسم العرض',
         'modal.phone': 'الهاتف',
         'modal.email': 'البريد الإلكتروني',
+        'modal.vatNumber': 'الرقم الضريبي',
+        'modal.vatNumberPh': 'الرقم الضريبي للعميل',
         'modal.notes': 'ملاحظات',
 
         'ledger.title': 'دفتر العميل — {name}',

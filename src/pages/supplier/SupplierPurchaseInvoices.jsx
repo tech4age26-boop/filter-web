@@ -22,13 +22,16 @@ import AutoGrowTextarea from '../../components/AutoGrowTextarea';
 import InvoiceRefField from '../../components/invoices/InvoiceRefField';
 import { getNextSupplierPurchaseInvoiceReference } from '../../services/invoiceReferenceApi';
 import SupplierSuperSupplierPurchasesPanel from './SupplierSuperSupplierPurchasesPanel';
+import SupplierPurchasePriceReport from './SupplierPurchasePriceReport';
 import '../../styles/admin/AccountingPage.css';
 import {
     createSupplierSuperSupplierPurchase,
     getSuperSupplierApLedger,
     getSuperSupplierPurchaseProducts,
+    fetchAllSupplierStockBalances,
     getSupplierInventoryStockBalances,
     getSupplierSuperSupplierPurchase,
+    searchSupplierInvoicePickerProducts,
     listSupplierMasterCatalogProducts,
     listSupplierSuperSuppliers,
     createSupplierSuperSupplier,
@@ -492,7 +495,7 @@ function scorePurchaseSearchItem(item, q) {
 const PI_PRESET_FROM_STOCK_FLAG = 'supplier_pi_open_from_stock';
 const PI_PRESET_STOCK_LINE = 'supplier_pi_preset_stock_line';
 
-/** @typedef {'payables'|'super_suppliers'|'ssp_invoices'} ApTabId */
+/** @typedef {'payables'|'super_suppliers'|'ssp_invoices'|'price_report'} ApTabId */
 
 function fmtApMoney(value) {
     return Number(value ?? 0).toLocaleString(undefined, {
@@ -599,6 +602,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
     );
 
     const [catalogItems, setCatalogItems] = useState([]);
+    const [catalogSearchRemote, setCatalogSearchRemote] = useState([]);
     const [catalogLoading, setCatalogLoading] = useState(false);
 
     const [createSubmitting, setCreateSubmitting] = useState(false);
@@ -724,9 +728,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         [superSuppliers, editingSuperSupplierId],
     );
 
-    const ssOpeningLocked = Boolean(
-        editingSuperSupplier && Number(editingSuperSupplier.purchaseCount || 0) > 0,
-    );
+    const ssOpeningLocked = false;
 
     const filteredSuperSuppliers = useMemo(() => {
         const q = supplierSearch.trim().toLowerCase();
@@ -977,13 +979,9 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         if (!modalOpen) return undefined;
         let cancelled = false;
         setCatalogLoading(true);
-        const stockParams = { limit: 2000, offset: 0 };
-        if (superSupplierId) {
-            stockParams.superSupplierId = String(superSupplierId);
-        }
         Promise.all([
             listSupplierMasterCatalogProducts(),
-            getSupplierInventoryStockBalances(stockParams).catch(() => ({ items: [] })),
+            fetchAllSupplierStockBalances({ pageSize: 2000 }).catch(() => ({ items: [] })),
         ])
             .then(([masterRes, stockRes]) => {
                 if (cancelled) return;
@@ -1005,12 +1003,32 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                 }
                 const mapped = masters
                     .map((row) => {
-                        const base = mapMasterCatalogToPurchasePickerRow(row);
+                        const base = mapMasterCatalogToPurchasePickerRow(row, t);
                         if (!base) return null;
                         const stock = stockByMasterId.get(String(base.masterProductId));
                         return stock ? applyStockBalanceHintsToPickerRow(base, stock, t) : base;
                     })
                     .filter(Boolean);
+                const seen = new Set(
+                    mapped.map((r) => String(r.masterProductId || r.id || '').trim()).filter(Boolean),
+                );
+                for (const stock of stockRows) {
+                    const mid =
+                        stock?.masterProductId != null && String(stock.masterProductId).trim() !== ''
+                            ? String(stock.masterProductId).trim()
+                            : '';
+                    const pid =
+                        stock?.productId != null && String(stock.productId).trim() !== ''
+                            ? String(stock.productId).trim()
+                            : '';
+                    if ((mid && seen.has(mid)) || (pid && seen.has(pid))) continue;
+                    const extra = mapStockBalanceToPurchasePickerRow(stock, t);
+                    if (!extra) continue;
+                    const key = String(extra.masterProductId || extra.id || '').trim();
+                    if (!key || seen.has(key)) continue;
+                    mapped.push(extra);
+                    seen.add(key);
+                }
                 setCatalogItems(mapped);
                 // Keep open lines on Master Catalog warehouse UOM (never legacy liter/pcs drift).
                 setLineItems((prev) =>
@@ -1159,7 +1177,47 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         };
     }, [modalOpen, superSupplierId, amountsTaxInclusive]);
 
-    const catalogForSearch = catalogItems.length ? catalogItems : [];
+    useEffect(() => {
+        if (!modalOpen) {
+            setCatalogSearchRemote([]);
+            return undefined;
+        }
+        const q =
+            itemPickerLineId != null
+                ? String(itemPickerFilter || '').trim()
+                : String(searchQuery || '').trim();
+        if (q.length < 2) {
+            setCatalogSearchRemote([]);
+            return undefined;
+        }
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            try {
+                const res = await searchSupplierInvoicePickerProducts({ q, limit: 80 });
+                if (cancelled) return;
+                const rows = Array.isArray(res?.products) ? res.products : [];
+                setCatalogSearchRemote(
+                    rows.map((raw) => mapMasterCatalogToPurchasePickerRow(raw, t)).filter(Boolean),
+                );
+            } catch {
+                if (!cancelled) setCatalogSearchRemote([]);
+            }
+        }, 280);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [modalOpen, searchQuery, itemPickerFilter, itemPickerLineId, t]);
+
+    const catalogForSearch = useMemo(() => {
+        const map = new Map();
+        for (const row of [...catalogItems, ...catalogSearchRemote]) {
+            const key = String(row?.masterProductId || row?.id || '').trim();
+            if (!key || map.has(key)) continue;
+            map.set(key, row);
+        }
+        return Array.from(map.values());
+    }, [catalogItems, catalogSearchRemote]);
 
     const getSearchSuggestionsPi = (query) => {
         const items = catalogForSearch;
@@ -2181,6 +2239,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                     { id: 'payables', labelKey: 'tab.payables' },
                     { id: 'super_suppliers', labelKey: 'tab.super_suppliers' },
                     { id: 'ssp_invoices', labelKey: 'tab.ssp_invoices' },
+                    { id: 'price_report', labelKey: 'tab.priceReport' },
                 ].map((tab) => {
                     const active = apTab === tab.id;
                     return (
@@ -2567,6 +2626,20 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                     onConsumeCreateIntent={() => setCreateSspPurchaseForId(null)}
                     onPurchasesMutated={loadSuperSuppliers}
                     onEditPurchase={openSuperSupplierPurchaseForEdit}
+                />
+            </div>
+
+            <div
+                id="ap-panel-price_report"
+                role="tabpanel"
+                aria-labelledby="ap-tab-price_report"
+                hidden={apTab !== 'price_report'}
+                style={{ display: apTab === 'price_report' ? 'block' : 'none' }}
+            >
+                <SupplierPurchasePriceReport
+                    locale={locale}
+                    superSuppliers={superSuppliers}
+                    active={apTab === 'price_report'}
                 />
             </div>
             </>
@@ -3152,7 +3225,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
                         <div className="pi-form-container">
                             <div className="pi-header-grid">
                                 <div className="pi-field">
-                                    <label>Issue date</label>
+                                    <label>{t('label.purchaseDate')}</label>
                                     <div className="pi-input-with-icon">
                                         <input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
                                         <Calendar size={16} />
