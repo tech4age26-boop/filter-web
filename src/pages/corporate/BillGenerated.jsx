@@ -77,6 +77,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
     const [paySubmitting, setPaySubmitting] = useState(false);
     const [payError, setPayError] = useState('');
     const [pdfExporting, setPdfExporting] = useState(false);
+    const [billSnapshotView, setBillSnapshotView] = useState('adjusted');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -109,6 +110,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
             return;
         }
         setExpandedId(billId);
+        setBillSnapshotView('adjusted');
         setDetailLoading(true);
         try {
             const res = await apiFetch(`/corporate/billing/generated-bills/${encodeURIComponent(billId)}`);
@@ -241,8 +243,16 @@ export default function BillGenerated({ onWalletBalanceChange }) {
     };
 
     const activeBill = detail ?? bills.find((b) => b.id === expandedId);
-    const activeStatement = detail?.statement;
-    const activeLedger = detail?.ledgerStatement;
+    const originalBill = detail?.original && typeof detail.original === 'object'
+        ? detail.original
+        : null;
+    const showOriginalBill = billSnapshotView === 'original' && originalBill;
+    const activeStatement = showOriginalBill
+        ? { ...(detail?.statement || {}), ...(originalBill || {}), kpis: originalBill?.kpis || detail?.statement?.kpis }
+        : detail?.statement;
+    const activeLedger = showOriginalBill
+        ? (originalBill.ledgerStatement ?? detail?.ledgerStatement)
+        : detail?.ledgerStatement;
     const ledgerLines = activeLedger?.lines ?? [];
     const ledgerSum = activeLedger?.summary ?? activeBill?.kpis ?? {};
 
@@ -304,6 +314,11 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                     <div>
                                         <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>
                                             {bill.billNo}
+                                            {bill.hasManualEdits ? (
+                                                <span className="ws-badge ws-badge--yellow" style={{ marginLeft: 8 }}>
+                                                    Adjusted
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 4 }}>
                                             Period {fmtBillPeriod(bill)} · Due {bill.dueDate}
@@ -326,6 +341,33 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                             </div>
                                         ) : activeLedger?.lines?.length || activeStatement?.rows?.length ? (
                                             <>
+                                                {(detail?.hasManualEdits || originalBill) ? (
+                                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal-outline"
+                                                            style={{
+                                                                background: billSnapshotView === 'original' ? '#0f172a' : '#fff',
+                                                                color: billSnapshotView === 'original' ? '#fff' : '#0f172a',
+                                                            }}
+                                                            onClick={() => setBillSnapshotView('original')}
+                                                            disabled={!originalBill}
+                                                        >
+                                                            Original statement
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal-outline"
+                                                            style={{
+                                                                background: billSnapshotView === 'adjusted' ? '#0f172a' : '#fff',
+                                                                color: billSnapshotView === 'adjusted' ? '#fff' : '#0f172a',
+                                                            }}
+                                                            onClick={() => setBillSnapshotView('adjusted')}
+                                                        >
+                                                            Adjusted statement
+                                                        </button>
+                                                    </div>
+                                                ) : null}
                                                 <div
                                                     style={{
                                                         display: 'grid',

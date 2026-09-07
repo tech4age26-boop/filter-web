@@ -1193,7 +1193,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         let cancelled = false;
         const timer = setTimeout(async () => {
             try {
-                const res = await searchSupplierInvoicePickerProducts({ q, limit: 80 });
+                const res = await searchSupplierInvoicePickerProducts({ q });
                 if (cancelled) return;
                 const rows = Array.isArray(res?.products) ? res.products : [];
                 setCatalogSearchRemote(

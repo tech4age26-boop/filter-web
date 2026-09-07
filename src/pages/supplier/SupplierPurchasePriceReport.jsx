@@ -134,7 +134,7 @@ export default function SupplierPurchasePriceReport({
         const rows = (products || []).map((p) => ({
             id: p.key,
             label: p.label,
-            searchText: p.label,
+            searchText: [p.searchText, p.label, p.key].filter(Boolean).join(' '),
         }));
         const byId = new Map(rows.map((o) => [String(o.id), o]));
         for (const key of productKeys) {
@@ -293,8 +293,6 @@ export default function SupplierPurchasePriceReport({
                         onChange={setProductKeys}
                         placeholder={t('priceReport.productsPh')}
                         emptyHint={t('priceReport.noProducts')}
-                        maxInitial={1000}
-                        maxFiltered={1000}
                     />
                 </div>
                 <div className="price-report-field price-report-field--actions">

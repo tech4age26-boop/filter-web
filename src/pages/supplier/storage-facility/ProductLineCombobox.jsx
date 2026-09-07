@@ -27,14 +27,12 @@ export default function ProductLineCombobox({
     const options = useMemo(() => {
         const list = products.filter((p) => p.isActive !== false);
         const q = (searchText || '').trim().toLowerCase();
-        if (!q) return list.slice(0, 80);
-        return list
-            .filter(
-                (p) =>
-                    (p.name || '').toLowerCase().includes(q) ||
-                    (p.sku || '').toLowerCase().includes(q),
-            )
-            .slice(0, 80);
+        if (!q) return list;
+        return list.filter(
+            (p) =>
+                (p.name || '').toLowerCase().includes(q) ||
+                (p.sku || '').toLowerCase().includes(q),
+        );
     }, [products, searchText]);
 
     const updateMenuPosition = useCallback(() => {

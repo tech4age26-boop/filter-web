@@ -208,6 +208,7 @@ export default function CorporateBillingSection() {
     const [billDetailLoading, setBillDetailLoading] = useState(false);
     const [billPdfExporting, setBillPdfExporting] = useState(false);
     const [markPaidOpen, setMarkPaidOpen] = useState(false);
+    const [billSnapshotView, setBillSnapshotView] = useState('adjusted');
 
     const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
     const [invoiceModalData, setInvoiceModalData] = useState(null);
@@ -294,6 +295,7 @@ export default function CorporateBillingSection() {
             return;
         }
         setSelectedBillId(billId);
+        setBillSnapshotView('adjusted');
         setBillDetailLoading(true);
         try {
             const res = await getCorporateGeneratedBill(billId);
@@ -624,7 +626,13 @@ export default function CorporateBillingSection() {
         setSelectedBillIds(new Set(generatedBills.map((b) => String(b.id))));
     };
 
-    const billLedgerRaw = billDetail?.ledgerStatement;
+    const originalBill = billDetail?.original && typeof billDetail.original === 'object'
+        ? billDetail.original
+        : null;
+    const showOriginalBill = billSnapshotView === 'original' && originalBill;
+    const billLedgerRaw = showOriginalBill
+        ? (originalBill.ledgerStatement ?? billDetail?.ledgerStatement)
+        : billDetail?.ledgerStatement;
     const billLedger = useMemo(
         () => applyPostDiscountVatToLedgerStatement(billLedgerRaw),
         [billLedgerRaw],
@@ -1056,7 +1064,14 @@ export default function CorporateBillingSection() {
                                                     disabled={deletingBills}
                                                 />
                                             </td>
-                                            <td className="table-cell cell-main-text">{b.billNo}</td>
+                                            <td className="table-cell cell-main-text">
+                                                {b.billNo}
+                                                {b.hasManualEdits ? (
+                                                    <span className="ws-badge ws-badge--yellow" style={{ marginLeft: 8 }}>
+                                                        {t('bill.adjustedBadge')}
+                                                    </span>
+                                                ) : null}
+                                            </td>
                                             <td className="table-cell">{b.periodStartDate} — {b.periodEndDate}</td>
                                             <td className="table-cell">{b.dueDate}</td>
                                             <td className="table-cell">{billStatusLabel(b.status, t)}</td>
@@ -1114,6 +1129,28 @@ export default function CorporateBillingSection() {
                                         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>
                                             {billDetail.billNo}
                                         </h3>
+                                        {(billDetail.hasManualEdits || originalBill) ? (
+                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                <button
+                                                    type="button"
+                                                    className={`btn-portal-outline ${billSnapshotView === 'original' ? 'active' : ''}`}
+                                                    onClick={() => setBillSnapshotView('original')}
+                                                    disabled={!originalBill}
+                                                >
+                                                    {t('bill.viewOriginal')}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={`btn-portal-outline ${billSnapshotView === 'adjusted' ? 'active' : ''}`}
+                                                    onClick={() => setBillSnapshotView('adjusted')}
+                                                >
+                                                    {t('bill.viewAdjusted')}
+                                                </button>
+                                                <span style={{ fontSize: '0.75rem', color: '#64748b', alignSelf: 'center' }}>
+                                                    {showOriginalBill ? t('bill.originalHint') : t('bill.adjustedHint')}
+                                                </span>
+                                            </div>
+                                        ) : null}
                                         <span className="billing-due-date-banner" style={{ margin: 0 }}>
                                             {t('label.due')} <strong>{billDetail.dueDate}</strong>
                                         </span>

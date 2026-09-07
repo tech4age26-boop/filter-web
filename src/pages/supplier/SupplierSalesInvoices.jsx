@@ -3067,10 +3067,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     ? String(selectedCustomer.branchId)
                     : '';
                 if (bid) params.branchId = bid;
-                const pickerRes = await searchSupplierInvoicePickerProducts({
-                    q,
-                    limit: 80,
-                });
+                const pickerRes = await searchSupplierInvoicePickerProducts({ q });
                 if (cancelled) return;
                 const rows = Array.isArray(pickerRes?.products)
                     ? pickerRes.products
