@@ -96,6 +96,17 @@ export const postSupplierGeneralJournal = (body) =>
         body: JSON.stringify(body),
     });
 
+export const getSupplierHubNextReference = (kind) =>
+    apiFetch(withQuery(`${BASE}/hub/next-reference`, { kind }));
+
+export const checkSupplierHubReferenceExists = (reference, excludeJournalId) =>
+    apiFetch(
+        withQuery(`${BASE}/hub/reference-exists`, {
+            reference,
+            excludeJournalId,
+        }),
+    );
+
 // ---------------------------------------------------------------------------
 // Logs
 // ---------------------------------------------------------------------------
@@ -201,12 +212,24 @@ export const createSupplierReceiptRegister = (body) =>
         body: JSON.stringify(body),
     });
 
+export const updateSupplierReceiptRegister = (id, body) =>
+    apiFetch(`${BASE}/receipts/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
 export const listSupplierPaymentsRegister = (params = {}) =>
     apiFetch(withQuery(`${BASE}/payments`, { ...params, _t: Date.now() }));
 
 export const createSupplierPaymentRegister = (body) =>
     apiFetch(`${BASE}/payments`, {
         method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const updateSupplierPaymentRegister = (id, body) =>
+    apiFetch(`${BASE}/payments/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
         body: JSON.stringify(body),
     });
 

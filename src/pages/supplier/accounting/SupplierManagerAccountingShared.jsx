@@ -1,5 +1,9 @@
 import { unwrapSupplierAccountingList } from '../../../services/supplierAccountingApi';
 import { coaNetBalance, money } from './SupplierAccountingShared';
+import {
+    againstAccountsForPicker,
+    findSupplierControlAccount,
+} from './supplierControlAccounts';
 
 export function unwrapPayload(res) {
     if (!res || typeof res !== 'object') return res;
@@ -66,21 +70,17 @@ export function findAccountByCode(accounts, code) {
 }
 
 export function findArAccountId(accounts, kind) {
-    const leaves = (accounts || []).filter((a) => !a.hasChildren && !a.isCashEquivalent);
-    const code = kind === 'external' ? '1110' : '1100';
-    const byCode = findAccountByCode(leaves, code);
-    if (byCode?.id) return String(byCode.id);
-    const needle = kind === 'external' ? /non-affiliated.*receivable/i : /affiliated.*receivable/i;
-    const byName = leaves.find((a) => needle.test(String(a.name || '')));
-    return byName?.id ? String(byName.id) : '';
+    const seed = kind === 'external' ? 'AR_NON_AFFILIATED' : 'AR_AFFILIATED';
+    const hit = findSupplierControlAccount(againstAccountsForPicker(accounts), seed);
+    return hit?.id ? String(hit.id) : '';
 }
 
 export function findApAccountId(accounts) {
-    const leaves = (accounts || []).filter((a) => !a.hasChildren && !a.isCashEquivalent);
-    const byCode = findAccountByCode(leaves, '2000');
-    if (byCode?.id) return String(byCode.id);
-    const byName = leaves.find((a) => /payable.*super/i.test(String(a.name || '')));
-    return byName?.id ? String(byName.id) : '';
+    const hit = findSupplierControlAccount(
+        againstAccountsForPicker(accounts),
+        'AP_SUPER_SUPPLIER',
+    );
+    return hit?.id ? String(hit.id) : '';
 }
 
 export function partyFromPaidBy(paidBy, payeeValue) {

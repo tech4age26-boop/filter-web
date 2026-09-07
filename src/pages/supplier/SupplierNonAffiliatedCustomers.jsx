@@ -48,6 +48,7 @@ export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
         displayName: '',
         phone: '',
         email: '',
+        vatNumber: '',
         notes: '',
     });
 
@@ -109,10 +110,11 @@ export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
                 displayName: partyForm.displayName.trim(),
                 phone: partyForm.phone.trim() || undefined,
                 email: partyForm.email.trim() || undefined,
+                vatNumber: partyForm.vatNumber.trim() || undefined,
                 notes: partyForm.notes.trim() || undefined,
             });
             setAddOpen(false);
-            setPartyForm({ displayName: '', phone: '', email: '', notes: '' });
+            setPartyForm({ displayName: '', phone: '', email: '', vatNumber: '', notes: '' });
             await loadParties();
         } catch (errSubmit) {
             console.error(errSubmit);
@@ -131,6 +133,7 @@ export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
                 displayName: partyForm.displayName.trim(),
                 phone: partyForm.phone.trim() || undefined,
                 email: partyForm.email.trim() || undefined,
+                vatNumber: partyForm.vatNumber.trim() || undefined,
                 notes: partyForm.notes.trim() || undefined,
             });
             setEditParty(null);
@@ -161,6 +164,7 @@ export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
             displayName: row.displayName || '',
             phone: row.phone || '',
             email: row.email || '',
+            vatNumber: row.vatNumber || '',
             notes: row.notes || '',
         });
         setEditParty(row);
@@ -330,6 +334,18 @@ export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
                             />
                         </label>
                         <label className="ws-form-label-block">
+                            {t('modal.vatNumber')}
+                            <input
+                                className="ws-input-like"
+                                value={partyForm.vatNumber}
+                                onChange={(e) =>
+                                    setPartyForm((f) => ({ ...f, vatNumber: e.target.value }))
+                                }
+                                style={inputStyle}
+                                placeholder={t('modal.vatNumberPh')}
+                            />
+                        </label>
+                        <label className="ws-form-label-block">
                             {t('modal.notes')}
                             <textarea
                                 className="ws-input-like"
@@ -405,6 +421,18 @@ export default function SupplierNonAffiliatedCustomers({ locale: localeProp }) {
                                     setPartyForm((f) => ({ ...f, email: e.target.value }))
                                 }
                                 style={inputStyle}
+                            />
+                        </label>
+                        <label className="ws-form-label-block">
+                            {t('modal.vatNumber')}
+                            <input
+                                className="ws-input-like"
+                                value={partyForm.vatNumber}
+                                onChange={(e) =>
+                                    setPartyForm((f) => ({ ...f, vatNumber: e.target.value }))
+                                }
+                                style={inputStyle}
+                                placeholder={t('modal.vatNumberPh')}
                             />
                         </label>
                         <label className="ws-form-label-block">

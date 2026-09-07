@@ -1,9 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import {
+    checkSupplierHubReferenceExists,
     createSupplierPaymentRegister,
     createSupplierReceiptRegister,
+    getSupplierHubNextReference,
+    updateSupplierPaymentRegister,
+    updateSupplierReceiptRegister,
 } from '../../../services/supplierAccountingApi';
+import VoucherRefField from '../../../components/accounting/VoucherRefField';
+import {
+    affiliatedLabelCollides,
+    againstAccountsForPicker,
+    findSupplierControlAccount,
+} from './supplierControlAccounts';
 import {
     formatAffiliatedBranchCustomerLabel,
     formatAffiliatedWorkshopCustomerLabel,
@@ -99,25 +109,15 @@ function accountCodeOf(payType, payeeValue) {
 export function resolveAgainstAccountId(accounts, payType, payeeValue) {
     const code = accountCodeOf(payType, payeeValue);
     if (!code) return '';
-    const leaves = (accounts || []).filter((a) => !a.hasChildren && !a.isCashEquivalent);
-    const byCode = leaves.find((a) => String(a.code || '').trim() === code);
-    if (byCode?.id) return String(byCode.id);
     const seed =
         code === '2000'
             ? 'AP_SUPER_SUPPLIER'
             : code === '1110'
               ? 'AR_NON_AFFILIATED'
               : 'AR_AFFILIATED';
-    const bySeed = leaves.find((a) => a.seedKey === seed);
-    if (bySeed?.id) return String(bySeed.id);
-    const needle =
-        code === '2000'
-            ? /accounts payable|super supplier/i
-            : code === '1110'
-              ? /non-affiliated.*receivable/i
-              : /affiliated.*receivable/i;
-    const byName = leaves.find((a) => needle.test(String(a.name || '')));
-    return byName?.id ? String(byName.id) : '';
+    const usable = againstAccountsForPicker(accounts);
+    const hit = findSupplierControlAccount(usable, seed);
+    return hit?.id ? String(hit.id) : '';
 }
 
 function suggestAgainstPatch(row, accounts, payType, payeeValue) {
@@ -174,6 +174,8 @@ function buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOption
     if (!initialPrefill) {
         const today = todayISO();
         return {
+            journalId: '',
+            entryNumber: '',
             headerDate: today,
             headerRef: '',
             generalNote: '',
@@ -185,6 +187,8 @@ function buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOption
     if (prefillVariant !== variant) {
         const today = todayISO();
         return {
+            journalId: '',
+            entryNumber: '',
             headerDate: today,
             headerRef: '',
             generalNote: '',
@@ -194,6 +198,8 @@ function buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOption
     }
     const hdrDate = initialPrefill.headerDate || todayISO();
     return {
+        journalId: initialPrefill.journalId || initialPrefill.id || '',
+        entryNumber: initialPrefill.entryNumber || '',
         headerDate: hdrDate,
         headerRef: String(initialPrefill.headerRef ?? ''),
         generalNote: String(initialPrefill.generalNote ?? ''),
@@ -295,8 +301,10 @@ export function buildCustomerOptions(affiliatedRows, externalParties, t) {
             .map((r) => String(r.workshopId)),
     );
     const opts = [];
+    const affiliatedNames = [];
     for (const r of affiliatedRows) {
         if (r.scope === 'branch' && r.branchId) {
+            affiliatedNames.push(r.workshopName, r.branchName);
             opts.push({
                 value: `branch|${r.branchId}`,
                 label: formatAffiliatedBranchCustomerLabel(
@@ -309,6 +317,7 @@ export function buildCustomerOptions(affiliatedRows, externalParties, t) {
             r.workshopId &&
             !workshopsWithBranchPins.has(String(r.workshopId))
         ) {
+            affiliatedNames.push(r.workshopName);
             opts.push({
                 value: `workshop|${r.workshopId}`,
                 label: formatAffiliatedWorkshopCustomerLabel(r.workshopName),
@@ -318,12 +327,66 @@ export function buildCustomerOptions(affiliatedRows, externalParties, t) {
     for (const p of externalParties) {
         const id = p.id ?? p.externalPartyId;
         if (!id) continue;
+        const name = p.displayName || p.name || String(id);
+        if (affiliatedLabelCollides(name, affiliatedNames)) continue;
         opts.push({
             value: `external|${String(id)}`,
-            label: t('hub.nonAffiliated', { name: p.displayName || p.name || String(id) }),
+            label: t('hub.nonAffiliated', { name }),
         });
     }
     return opts;
+}
+
+export function journalToMoneyPrefill(journal, variant) {
+    if (!journal?.id) return null;
+    const lines = Array.isArray(journal.lines) ? journal.lines : [];
+    const cashLine = lines.find((l) => {
+        const debit = Number(l.debit || 0);
+        const credit = Number(l.credit || 0);
+        return variant === 'receipt' ? debit > 0 : credit > 0;
+    });
+    const against = lines.filter((l) => {
+        const debit = Number(l.debit || 0);
+        const credit = Number(l.credit || 0);
+        return variant === 'receipt' ? credit > 0 : debit > 0;
+    });
+    const payeeValueFromLine = (l) => {
+        if (l.externalPartyId) return `external|${l.externalPartyId}`;
+        if (l.partyType === 'branch' && l.partyId) return `branch|${l.partyId}`;
+        if (l.partyType === 'workshop' && l.partyId) return `workshop|${l.partyId}`;
+        if (l.partyType === 'super_supplier' && l.partyId) return String(l.partyId);
+        if (l.partyType === 'employee' && l.partyId) return String(l.partyId);
+        return '';
+    };
+    const payTypeFromLine = (l) => {
+        if (variant === 'payment') {
+            if (l.partyType === 'employee') return 'employee';
+            if (l.partyType === 'super_supplier') return 'super_supplier';
+            if (l.externalPartyId || l.partyType === 'branch' || l.partyType === 'workshop') {
+                return 'customer';
+            }
+            return 'others';
+        }
+        return 'customer';
+    };
+    return {
+        journalId: String(journal.id),
+        entryNumber: journal.entryNumber || '',
+        variant,
+        headerDate: String(journal.date || '').slice(0, 10),
+        headerRef: journal.reference || '',
+        generalNote: journal.description || '',
+        cashAccountId: cashLine?.accountId ? String(cashLine.accountId) : '',
+        lines: (against.length ? against : [{}]).map((l) => ({
+            lineDate: String(journal.date || '').slice(0, 10),
+            payType: payTypeFromLine(l),
+            payeeValue: payeeValueFromLine(l),
+            accountId: l.accountId ? String(l.accountId) : '',
+            amount: String(Number(variant === 'receipt' ? l.credit : l.debit) || ''),
+            lineReference: '',
+            notes: l.description || '',
+        })),
+    };
 }
 
 export function PaymentReceiptGrid({
@@ -349,15 +412,29 @@ export function PaymentReceiptGrid({
         [accounts],
     );
     const cashOptions = leafAccounts.filter((a) => a.isCashEquivalent);
-    const againstAccounts = leafAccounts.filter((a) => !a.isCashEquivalent);
+    const againstAccounts = useMemo(
+        () => againstAccountsForPicker(accounts),
+        [accounts],
+    );
 
     const prefillSeed = useMemo(
         () => buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOptions),
         [initialPrefill, variant, accounts, cashOptions],
     );
 
+    const [editingJournalId, setEditingJournalId] = useState(() => prefillSeed.journalId || '');
+    const [editingEntry, setEditingEntry] = useState(() => prefillSeed.entryNumber || '');
     const [headerDate, setHeaderDate] = useState(() => prefillSeed.headerDate);
     const [headerRef, setHeaderRef] = useState(() => prefillSeed.headerRef);
+    const [refAutoGenerate, setRefAutoGenerate] = useState(false);
+    const fetchNextHeaderRef = useCallback(async () => {
+        const res = await getSupplierHubNextReference(variant === 'payment' ? 'payment' : 'receipt');
+        return res?.reference || '';
+    }, [variant]);
+    const checkHeaderRefDuplicate = useCallback(async (reference, excludeJournalId) => {
+        const res = await checkSupplierHubReferenceExists(reference, excludeJournalId);
+        return Boolean(res?.exists);
+    }, []);
     const [generalNote, setGeneralNote] = useState(() => prefillSeed.generalNote);
     const [cashAccountId, setCashAccountId] = useState(() => prefillSeed.cashAccountId);
     const [lines, setLines] = useState(() => prefillSeed.lines);
@@ -380,12 +457,15 @@ export function PaymentReceiptGrid({
     useEffect(() => {
         if (!initialPrefill) return;
         const prefillKey =
+            initialPrefill.journalId ||
             initialPrefill.salesInvoiceId ||
             initialPrefill.headerRef ||
             JSON.stringify(initialPrefill.lines?.[0]?.payeeValue || '');
         if (prefillAppliedRef.current === prefillKey) return;
 
         const next = buildGridStateFromPrefill(initialPrefill, variant, accounts, cashOptions);
+        setEditingJournalId(next.journalId || '');
+        setEditingEntry(next.entryNumber || '');
         setHeaderDate(next.headerDate);
         setHeaderRef(next.headerRef);
         setGeneralNote(next.generalNote);
@@ -404,8 +484,9 @@ export function PaymentReceiptGrid({
     const accountById = useMemo(() => {
         const m = new Map();
         for (const a of leafAccounts) m.set(String(a.id), a);
+        for (const a of againstAccounts) m.set(String(a.id), a);
         return m;
-    }, [leafAccounts]);
+    }, [leafAccounts, againstAccounts]);
 
     const effectLines = useMemo(() => {
         const cash = accountById.get(String(cashAccountId));
@@ -501,39 +582,54 @@ export function PaymentReceiptGrid({
         setSaving(true);
         const posted = [];
         try {
-            for (let i = 0; i < clean.length; i++) {
-                const l = clean[i];
-                const party = partyPayloadFromRow(l);
-                const rowDate = l.lineDate || headerDate;
-                const lineBody = {
-                    accountId: l.accountId,
-                    amount: Number(l.amount),
-                    description:
-                        [l.payType === 'others' ? l.payeeValue?.trim() : '', l.notes?.trim()]
-                            .filter(Boolean)
-                            .join(' — ') || undefined,
-                    lineReference: l.lineReference?.trim() || undefined,
-                    allocatedInvoiceId: l.allocatedInvoiceId || undefined,
-                    allocatedPurchaseId: l.allocatedPurchaseId || undefined,
-                    ...party,
-                };
+            const toLineBody = (l) => ({
+                accountId: l.accountId,
+                amount: Number(l.amount),
+                description:
+                    [l.payType === 'others' ? l.payeeValue?.trim() : '', l.notes?.trim()]
+                        .filter(Boolean)
+                        .join(' — ') || undefined,
+                lineReference: l.lineReference?.trim() || undefined,
+                allocatedInvoiceId: l.allocatedInvoiceId || undefined,
+                allocatedPurchaseId: l.allocatedPurchaseId || undefined,
+                ...partyPayloadFromRow(l),
+            });
+            if (editingJournalId) {
                 const body = {
-                    date: rowDate,
+                    date: clean[0].lineDate || headerDate,
                     cashAccountId,
                     description: generalNote.trim() || undefined,
                     reference: headerRef.trim() || undefined,
-                    lines: [lineBody],
+                    lines: clean.map(toLineBody),
                 };
                 const res =
                     variant === 'payment'
-                        ? await createSupplierPaymentRegister(body)
-                        : await createSupplierReceiptRegister(body);
+                        ? await updateSupplierPaymentRegister(editingJournalId, body)
+                        : await updateSupplierReceiptRegister(editingJournalId, body);
                 posted.push(res);
+            } else {
+                for (const l of clean) {
+                    const body = {
+                        date: l.lineDate || headerDate,
+                        cashAccountId,
+                        description: generalNote.trim() || undefined,
+                        reference: headerRef.trim() || undefined,
+                        lines: [toLineBody(l)],
+                    };
+                    const res =
+                        variant === 'payment'
+                            ? await createSupplierPaymentRegister(body)
+                            : await createSupplierReceiptRegister(body);
+                    posted.push(res);
+                }
             }
             onPosted?.(posted);
+            setEditingJournalId('');
+            setEditingEntry('');
             setLines([emptyPayReceiptLine(headerDate, variant, accounts)]);
             setGeneralNote('');
             setHeaderRef('');
+            setRefAutoGenerate(false);
         } catch (ex) {
             setErr(ex?.message || tr('hub.err.save'));
         } finally {
@@ -550,6 +646,26 @@ export function PaymentReceiptGrid({
             <p style={{ margin: 0, fontSize: 12, color: '#64748B', lineHeight: 1.45 }}>
                 {variant === 'payment' ? tr('hub.hint.payment') : tr('hub.hint.receipt')}
             </p>
+            {editingJournalId ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', background: '#FEF3C7', borderRadius: 8, fontSize: 13 }}>
+                    <span>
+                        Editing {editingEntry || editingJournalId} — same document, accounts update in place.
+                    </span>
+                    <button
+                        type="button"
+                        style={outlineBtnStyle}
+                        onClick={() => {
+                            setEditingJournalId('');
+                            setEditingEntry('');
+                            setLines([emptyPayReceiptLine(headerDate, variant, accounts)]);
+                            setHeaderRef('');
+                            setGeneralNote('');
+                        }}
+                    >
+                        Cancel edit
+                    </button>
+                </div>
+            ) : null}
             <div
                 style={{
                     display: 'grid',
@@ -570,14 +686,20 @@ export function PaymentReceiptGrid({
                         required
                     />
                 </Field>
-                <Field label={tr('hub.field.ref')}>
-                    <input
-                        style={inputStyle}
-                        value={headerRef}
-                        onChange={(e) => setHeaderRef(e.target.value)}
-                        placeholder={tr('hub.field.refPh')}
-                    />
-                </Field>
+                <VoucherRefField
+                    label={tr('hub.field.ref')}
+                    placeholder={tr('hub.field.refPh')}
+                    autoGenerateLabel={tr('hub.field.autoRef')}
+                    generatingLabel={tr('hub.field.generating')}
+                    duplicateMessage={tr('hub.field.refDup')}
+                    value={headerRef}
+                    onChange={setHeaderRef}
+                    autoGenerate={refAutoGenerate}
+                    onAutoGenerateChange={setRefAutoGenerate}
+                    fetchNextReference={fetchNextHeaderRef}
+                    checkDuplicate={checkHeaderRefDuplicate}
+                    excludeJournalId={editingJournalId}
+                />
                 <Field label={tr('hub.field.note')}>
                     <input
                         style={inputStyle}
@@ -769,9 +891,11 @@ export function PaymentReceiptGrid({
                     <button type="submit" style={primaryBtnStyle} disabled={saving || validCount === 0}>
                         {saving
                             ? tr('hub.btn.saving')
-                            : variant === 'payment'
-                              ? tr('hub.btn.savePayments')
-                              : tr('hub.btn.saveReceipts')}
+                            : editingJournalId
+                              ? tr('hub.btn.update')
+                              : variant === 'payment'
+                                ? tr('hub.btn.savePayments')
+                                : tr('hub.btn.saveReceipts')}
                     </button>
                 </div>
             </div>
