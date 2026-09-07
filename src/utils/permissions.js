@@ -1,4 +1,8 @@
 import { NAV_ITEMS } from '../pages/workshop/constants';
+export {
+    FILTER_CONNECT_PERMISSION_CODES,
+    canAccessFilterConnect,
+} from './filterConnectAccess';
 
 /**
  * Pure helpers for the Roles & Permissions UI.

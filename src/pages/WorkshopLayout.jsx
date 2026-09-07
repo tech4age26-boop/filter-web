@@ -55,6 +55,7 @@ import {
 } from '../services/workshopStaffApi';
 import { useAuth } from '../context/AuthContext';
 import { firstVisibleWorkshopPath, workshopTabToPath } from '../utils/permissions';
+import { canAccessFilterConnect } from '../utils/filterConnectAccess';
 import { wsDashT } from '../utils/workshopDashboardI18n';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
@@ -79,7 +80,7 @@ function parseLedgerTabStateFromSearch(search) {
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, hasPermission, user } = useAuth();
+    const { logout, hasPermission, user, permissions } = useAuth();
     const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
 
     useEffect(() => {
@@ -144,11 +145,14 @@ export default function WorkshopLayout() {
                 if (item.walletRequired) {
                     return user?.walletEnabled ? item : null;
                 }
+                if (item.id === 'filter-connect') {
+                    return canAccessFilterConnect(user, permissions) ? item : null;
+                }
                 if (item.permission && !hasPermission(item.permission)) return null;
                 return item;
             })
             .filter(Boolean),
-        [hasPermission, user?.walletEnabled],
+        [hasPermission, permissions, user, user?.walletEnabled],
     );
 
     const handleLogout = async () => {
