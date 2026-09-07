@@ -205,12 +205,13 @@ const getNavLabel = (path, locale) => TRANSLATIONS[locale]?.nav[path] ?? TRANSLA
  *   Top-level item: `${path}.view`        e.g. dashboard.view
  *   Sub item:       `${parent}.${sub}.view` e.g. inventory.master-catalog.view
  *
- * Items not listed in the permissions tree (external portal shortcuts,
- * pages we haven't catalogued yet) return null and stay ungated.
+ * Items not listed in the permissions tree (pages we haven't catalogued yet)
+ * return null and stay ungated. FILTER CONNECT is catalogued and opt-in.
  */
 const PERMISSION_KEY_FOR = {
     // CONTROL
     dashboard: 'dashboard.view',
+    'filter-connect': 'filter-connect.view',
     approvals: 'approvals.view',
     'zone-management': 'zone-management.view',
     'tier-management': 'tier-management.view',
@@ -239,7 +240,7 @@ function permissionCodeFor(parentPath, subPath) {
     return PERMISSION_KEY_FOR[parentPath] ?? null;
 }
 
-const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
+const SidebarNavItem = ({ item, basePath, locale, hasPermission, canSeeConnect }) => {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();
     const { totalUnread } = usePlatformChatUnread();
@@ -260,8 +261,9 @@ const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
     });
     const hasSub = visibleSubItems.length > 0;
 
-    // For non-sub items, gate the whole item.
-    if (!item.subItems?.length && !item.externalPath) {
+    // For non-sub items (including FILTER CONNECT), gate the whole item.
+    if (!item.subItems?.length) {
+        if (item.path === 'filter-connect' && !canSeeConnect) return null;
         const code = permissionCodeFor(item.path);
         if (code && !hasPermission(code)) return null;
     }
@@ -346,11 +348,13 @@ const getPageTitle = (pathname, locale) => {
 
 import { useAuth } from '../context/AuthContext';
 import { AdminPageMetaProvider, useAdminPageMeta } from '../context/AdminPageMetaContext';
+import { canAccessFilterConnect } from '../utils/filterConnectAccess';
 
 function AdminLayoutShell() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { logout, user, hasPermission } = useAuth();
+    const { logout, user, hasPermission, permissions } = useAuth();
+    const canSeeConnect = canAccessFilterConnect(user, permissions);
     const { pageTitle: pageTitleOverride, clearPageTitle } = useAdminPageMeta();
     const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -444,7 +448,11 @@ function AdminLayoutShell() {
                         // Render section only if at least one visible item remains.
                         const visibleItems = sec.items.filter((item) => {
                             if (item.walletRequired && !user?.walletEnabled) return false;
-                            if (item.externalPath) return true; // portal shortcuts ungated
+                            if (item.path === 'filter-connect') return canSeeConnect;
+                            if (item.externalPath) {
+                                const shortcutCode = permissionCodeFor(item.path);
+                                return shortcutCode ? hasPermission(shortcutCode) : true;
+                            }
                             if (item.subItems?.length) {
                                 return item.subItems.some((sub) => {
                                     const code = permissionCodeFor(item.path, sub.path);
@@ -465,6 +473,7 @@ function AdminLayoutShell() {
                                         basePath="/admin"
                                         locale={locale}
                                         hasPermission={hasPermission}
+                                        canSeeConnect={canSeeConnect}
                                     />
                                 ))}
                             </div>

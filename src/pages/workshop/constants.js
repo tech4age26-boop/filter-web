@@ -10,7 +10,7 @@ import { STAFF_APP_NAV_ITEMS } from './staff-app/constants';
 export const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'workshop.dashboard.view' },
     // Leaves the workshop portal entirely; see externalPath handling in WorkshopLayout.
-    { id: 'filter-connect', label: 'FILTER CONNECT', icon: Sparkles, externalPath: '/connect' },
+    { id: 'filter-connect', label: 'FILTER CONNECT', icon: Sparkles, externalPath: '/connect', permission: 'workshop.filter-connect.view' },
     { id: 'my-wallet', label: 'My Wallet', icon: Wallet, walletRequired: true },
     { id: 'platform-chat', label: 'Chat', icon: MessageCircle, permission: 'workshop.platform-chat.view' },
     { id: 'departments', label: 'View Inventory and Departments', icon: Layers, permission: 'workshop.departments.view' },

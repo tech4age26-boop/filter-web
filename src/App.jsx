@@ -420,8 +420,8 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            {/* FILTER CONNECT — cross-portal command center. Open to any signed-in user;
-                data scope is enforced server-side from the session, not by this route. */}
+            {/* FILTER CONNECT — opt-in via filter-connect.view / workshop.filter-connect.view.
+                ConnectLayout redirects users who do not have that grant. */}
             <Route
               path="/connect"
               element={
