@@ -142,13 +142,14 @@ export default function WorkshopLayout() {
                     });
                     return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
                 }
-                if (item.walletRequired) {
-                    return user?.walletEnabled ? item : null;
-                }
                 if (item.id === 'filter-connect') {
                     return canAccessFilterConnect(user, permissions) ? item : null;
                 }
-                if (item.permission && !hasPermission(item.permission)) return null;
+                if (item.walletRequired) {
+                    return user?.walletEnabled ? item : null;
+                }
+                if (!item.permission) return null;
+                if (!hasPermission(item.permission)) return null;
                 return item;
             })
             .filter(Boolean),
