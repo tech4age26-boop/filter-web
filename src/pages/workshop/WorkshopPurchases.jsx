@@ -815,6 +815,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
     const [siReceivedQty, setSiReceivedQty] = useState({});
+    const [siReceiverName, setSiReceiverName] = useState('');
+    const [siAdminPassword, setSiAdminPassword] = useState('');
     const [siActionLoading, setSiActionLoading] = useState('');
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
     const [viewInvoiceError, setViewInvoiceError] = useState('');
@@ -1115,6 +1117,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 criticalStockByProductId[pid] = n;
             }
         }
+        if (!siReceiverName.trim()) {
+            setInvoicesError(waT(locale, 'siApprove.err.receiverName'));
+            return;
+        }
+        if (!siAdminPassword.trim()) {
+            setInvoicesError(waT(locale, 'siApprove.err.adminPassword'));
+            return;
+        }
         setSiActionLoading(`approve-${sid}`);
         setInvoicesError('');
         try {
@@ -1132,12 +1142,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             receiveLines,
                             siReceivedQty,
                         ),
+                        receiverName: siReceiverName.trim(),
+                        adminPassword: siAdminPassword,
                     }),
                 },
             );
             setSiApproveModal(null);
             setSiCriticalStock({});
             setSiReceivedQty({});
+            setSiReceiverName('');
+            setSiAdminPassword('');
             closeViewInvoiceModal();
             await loadPurchaseInvoices();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
@@ -1154,7 +1168,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         } finally {
             setSiActionLoading('');
         }
-    }, [siApproveModal, siCriticalStock, siReceivedQty, t, loadPurchaseInvoices, closeViewInvoiceModal]);
+    }, [siApproveModal, siCriticalStock, siReceivedQty, siReceiverName, siAdminPassword, t, locale, loadPurchaseInvoices, closeViewInvoiceModal]);
 
     const openViewInvoiceModal = useCallback(async (listRow) => {
         if (!listRow?.id) return;
@@ -3495,6 +3509,51 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 </table>
                             </div>
                         ) : null}
+                        <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
+                            <label style={{ display: 'block' }}>
+                                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
+                                    {at('siApprove.receiverName')}
+                                </span>
+                                <input
+                                    type="text"
+                                    autoComplete="name"
+                                    placeholder={at('siApprove.receiverNamePh')}
+                                    value={siReceiverName}
+                                    onChange={(e) => setSiReceiverName(e.target.value)}
+                                    disabled={Boolean(siActionLoading)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid #cbd5e1',
+                                    }}
+                                />
+                                <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#64748b' }}>
+                                    {at('siApprove.receiverNameHint')}
+                                </span>
+                            </label>
+                            <label style={{ display: 'block' }}>
+                                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
+                                    {at('siApprove.adminPassword')}
+                                </span>
+                                <input
+                                    type="password"
+                                    autoComplete="current-password"
+                                    value={siAdminPassword}
+                                    onChange={(e) => setSiAdminPassword(e.target.value)}
+                                    disabled={Boolean(siActionLoading)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid #cbd5e1',
+                                    }}
+                                />
+                                <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#64748b' }}>
+                                    {at('siApprove.adminPasswordHint')}
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </WorkshopSubScreen>

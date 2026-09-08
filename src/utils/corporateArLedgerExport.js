@@ -119,19 +119,28 @@ const LEDGER_COL_COUNT = LEDGER_COLUMNS.length;
 
 export function formatLedgerAdjustmentStatus(row) {
     const adj = row?.billAdjustment;
-    if (!adj || adj.status !== 'Adjusted') return '';
-    const pos = Number(adj.originalInclusiveVat ?? 0);
-    const now = Number(adj.adjustedInclusiveVat ?? 0);
-    const when = adj.adjustedAt ? new Date(adj.adjustedAt).toLocaleString() : '';
-    const by = adj.adjustedByName ? `By ${adj.adjustedByName}` : '';
-    return [
-        'Adjusted',
-        `POS SAR ${fmt(pos)} → bill SAR ${fmt(now)}`,
-        `POS original: SAR ${fmt(pos)}`,
-        `Now on bill: SAR ${fmt(now)}`,
-        when,
-        by,
-    ].filter(Boolean).join('\n');
+    if (adj?.status === 'Excluded') {
+        const pos = Number(adj.originalInclusiveVat ?? 0);
+        return ['Excluded', 'Removed from collection bill', `POS original: SAR ${fmt(pos)}`]
+            .filter(Boolean)
+            .join('\n');
+    }
+    if (adj?.status === 'Adjusted') {
+        const pos = Number(adj.originalInclusiveVat ?? 0);
+        const now = Number(adj.adjustedInclusiveVat ?? 0);
+        const when = adj.adjustedAt ? new Date(adj.adjustedAt).toLocaleString() : '';
+        const by = adj.adjustedByName ? `By ${adj.adjustedByName}` : '';
+        return [
+            'Adjusted',
+            `POS SAR ${fmt(pos)} → bill SAR ${fmt(now)}`,
+            `POS original: SAR ${fmt(pos)}`,
+            `Now on bill: SAR ${fmt(now)}`,
+            when,
+            by,
+        ].filter(Boolean).join('\n');
+    }
+    if (String(row?.type || '') === 'Invoice') return 'On bill\nPOS amount unchanged';
+    return '';
 }
 
 const KPI_COLUMNS = [

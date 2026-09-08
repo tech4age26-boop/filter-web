@@ -450,6 +450,8 @@ export default function WorkshopApprovals({
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
     const [siReceivedQty, setSiReceivedQty] = useState({});
+    const [siReceiverName, setSiReceiverName] = useState('');
+    const [siAdminPassword, setSiAdminPassword] = useState('');
     const [fundApproveModal, setFundApproveModal] = useState(null);
     const [expenseApproveModal, setExpenseApproveModal] = useState(null);
     const [fundApproveError, setFundApproveError] = useState('');
@@ -1052,6 +1054,14 @@ export default function WorkshopApprovals({
                 criticalStockByProductId[pid] = n;
             }
         }
+        if (!siReceiverName.trim()) {
+            setLoadError(t('siApprove.err.receiverName'));
+            return;
+        }
+        if (!siAdminPassword.trim()) {
+            setLoadError(t('siApprove.err.adminPassword'));
+            return;
+        }
         setActionLoadingId(`approve-si-${sid}`);
         setLoadError('');
         try {
@@ -1067,11 +1077,15 @@ export default function WorkshopApprovals({
                         receiveLines,
                         siReceivedQty,
                     ),
+                    receiverName: siReceiverName.trim(),
+                    adminPassword: siAdminPassword,
                 }),
             });
             setSiApproveModal(null);
             setSiCriticalStock({});
             setSiReceivedQty({});
+            setSiReceiverName('');
+            setSiAdminPassword('');
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
             window.dispatchEvent(
@@ -1371,6 +1385,51 @@ export default function WorkshopApprovals({
                                 </table>
                             </div>
                         ) : null}
+                        <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
+                            <label style={{ display: 'block' }}>
+                                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
+                                    {t('siApprove.receiverName')}
+                                </span>
+                                <input
+                                    type="text"
+                                    autoComplete="name"
+                                    placeholder={t('siApprove.receiverNamePh')}
+                                    value={siReceiverName}
+                                    onChange={(e) => setSiReceiverName(e.target.value)}
+                                    disabled={actionLoadingId !== null}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid #cbd5e1',
+                                    }}
+                                />
+                                <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#64748b' }}>
+                                    {t('siApprove.receiverNameHint')}
+                                </span>
+                            </label>
+                            <label style={{ display: 'block' }}>
+                                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
+                                    {t('siApprove.adminPassword')}
+                                </span>
+                                <input
+                                    type="password"
+                                    autoComplete="current-password"
+                                    value={siAdminPassword}
+                                    onChange={(e) => setSiAdminPassword(e.target.value)}
+                                    disabled={actionLoadingId !== null}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid #cbd5e1',
+                                    }}
+                                />
+                                <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#64748b' }}>
+                                    {t('siApprove.adminPasswordHint')}
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </WorkshopSubScreen>

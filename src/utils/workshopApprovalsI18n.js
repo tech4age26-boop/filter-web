@@ -115,6 +115,15 @@ export const WA_I18N = {
         'siApprove.th.branchStock': 'Branch stock +',
         'siApprove.th.receivedQty': 'Received qty',
         'siApprove.receivedAria': 'Received qty for {name}',
+        'siApprove.receiverName': 'Receiver name',
+        'siApprove.receiverNameHint':
+            'Type the name of the person who received the goods (does not need to be a login).',
+        'siApprove.receiverNamePh': 'e.g. Arzan',
+        'siApprove.adminPassword': 'Workshop admin password',
+        'siApprove.adminPasswordHint':
+            'Must be the workshop admin password, even if someone else is receiving.',
+        'siApprove.err.receiverName': 'Enter the receiver name.',
+        'siApprove.err.adminPassword': 'Enter the workshop admin password.',
         'unit.liter': 'Liter',
         'unit.box': 'Box',
 
@@ -289,6 +298,15 @@ export const WA_I18N = {
         'siApprove.th.branchStock': 'مخزون الفرع +',
         'siApprove.th.receivedQty': 'الكمية المستلمة',
         'siApprove.receivedAria': 'الكمية المستلمة لـ {name}',
+        'siApprove.receiverName': 'اسم المستلم',
+        'siApprove.receiverNameHint':
+            'اكتب اسم الشخص الذي استلم البضاعة (لا يلزم أن يكون حساب دخول).',
+        'siApprove.receiverNamePh': 'مثال: أرزان',
+        'siApprove.adminPassword': 'كلمة مرور مدير الورشة',
+        'siApprove.adminPasswordHint':
+            'يجب أن تكون كلمة مرور مدير الورشة حتى لو كان شخص آخر يستلم.',
+        'siApprove.err.receiverName': 'أدخل اسم المستلم.',
+        'siApprove.err.adminPassword': 'أدخل كلمة مرور مدير الورشة.',
         'unit.liter': 'لتر',
         'unit.box': 'صندوق',
 
