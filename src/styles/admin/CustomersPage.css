@@ -993,6 +993,23 @@
     color: #0C4A6E !important;
 }
 
+.billing-line-adjusted {
+    min-width: 148px;
+    max-width: 220px;
+}
+
+.billing-line-adjusted__meta {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 4px;
+    line-height: 1.35;
+}
+
+.billing-line-adjusted__amount {
+    font-weight: 700;
+    color: #c2410c;
+}
+
 /* ─── Action Buttons ─────────────────────────────────────────────────── */
 
 .btn-edit {

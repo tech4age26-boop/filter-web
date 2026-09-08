@@ -3,6 +3,12 @@ import * as XLSX from 'xlsx';
 import QRCode from 'qrcode';
 import filterBrandIcon from '../assets/images/filter-brand-icon.png';
 import { buildZatcaPhase1QrPayloadFromInvoice } from './zatcaQr';
+import {
+    collectionAmountDue,
+    money2,
+    splitInclusiveVatAmount,
+    storedInvoiceDisplayAmounts,
+} from './corporateBillInvoiceAmounts';
 
 const fmt = (v) =>
     Number(v ?? 0).toLocaleString(undefined, {
@@ -51,6 +57,26 @@ export function splitLatinAndArabic(text) {
     return { english: raw, arabic: '' };
 }
 
+/** Arabic on its own line, English on the next — never mixed on one line with VAT/Bill. */
+export function resolveBilingualCompanyLines(src) {
+    const mixed = splitLatinAndArabic(src?.companyName);
+    const arabic = String(src?.companyNameArabic || mixed.arabic || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    let english = String(src?.companyNameEnglish || mixed.english || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!english && src?.companyName) {
+        const stripped = String(src.companyName)
+            .replace(ARABIC_RE, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (stripped) english = stripped;
+    }
+    if (!english && !arabic) english = 'Corporate Customer';
+    return { english, arabic };
+}
+
 function formatPeriodLabel(dateFrom, dateTo) {
     if (!dateFrom && !dateTo) return 'All transactions';
     if (dateFrom && dateTo) return `${dateFrom}  —  ${dateTo}`;
@@ -76,6 +102,7 @@ export function formatLedgerTypeShort(type) {
 const LEDGER_COLUMNS = [
     { en: 'Date', ar: 'التاريخ' },
     { en: 'Inv No.', ar: 'رقم الفاتورة' },
+    { en: 'Status', ar: 'الحالة' },
     { en: 'Vehicle No.', ar: 'رقم المركبة' },
     { en: 'Products & Services', ar: 'المنتجات والخدمات' },
     { en: 'Type', ar: 'النوع' },
@@ -88,12 +115,32 @@ const LEDGER_COLUMNS = [
     { en: 'Balance', ar: 'الرصيد' },
 ];
 
+const LEDGER_COL_COUNT = LEDGER_COLUMNS.length;
+
+export function formatLedgerAdjustmentStatus(row) {
+    const adj = row?.billAdjustment;
+    if (!adj || adj.status !== 'Adjusted') return '';
+    const pos = Number(adj.originalInclusiveVat ?? 0);
+    const now = Number(adj.adjustedInclusiveVat ?? 0);
+    const when = adj.adjustedAt ? new Date(adj.adjustedAt).toLocaleString() : '';
+    const by = adj.adjustedByName ? `By ${adj.adjustedByName}` : '';
+    return [
+        'Adjusted',
+        `POS SAR ${fmt(pos)} → bill SAR ${fmt(now)}`,
+        `POS original: SAR ${fmt(pos)}`,
+        `Now on bill: SAR ${fmt(now)}`,
+        when,
+        by,
+    ].filter(Boolean).join('\n');
+}
+
 const KPI_COLUMNS = [
+    { en: 'Opening Balance', ar: 'الرصيد الافتتاحي' },
     { en: 'Total Invoices', ar: 'إجمالي الفواتير' },
     { en: 'Total Receipts', ar: 'إجمالي المقبوضات' },
     { en: 'Discounts', ar: 'الخصومات' },
     { en: 'Sales Returns', ar: 'مرتجعات المبيعات' },
-    { en: 'Closing Balance', ar: 'الرصيد الختامي' },
+    { en: 'Amount Due', ar: 'المبلغ المستحق' },
 ];
 
 const PDF_MARGIN = 20;
@@ -168,13 +215,24 @@ const PDF_STYLES = `
     display: inline;
   }
   .car-pdf-hdr__period { font-size: 9px; color: #64748b; margin-bottom: 8px; }
-  .car-pdf-hdr__customer-en { font-size: 11px; font-weight: 600; color: #0f172a; line-height: 1.35; }
+  .car-pdf-hdr__customer-en, .car-pdf-hdr__customer-ar {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.5;
+    margin: 0 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    unicode-bidi: isolate;
+  }
   .car-pdf-hdr__customer-ar {
     font-family: 'Noto Sans Arabic', sans-serif;
-    font-size: 11px; font-weight: 600; color: #0f172a;
-    direction: rtl; text-align: left; line-height: 1.4; margin-top: 4px;
+    direction: rtl;
+    text-align: left;
   }
-  .car-pdf-hdr__customer-tax { font-size: 9px; color: #475569; margin-top: 6px; }
+  .car-pdf-hdr__customer-tax { display: block; font-size: 9px; color: #475569; margin: 0 0 4px; unicode-bidi: isolate; }
   .car-pdf-hdr__generated { font-size: 8px; color: #94a3b8; margin-top: 3px; }
   .car-pdf-body { padding: 0 10px 8px; }
   .car-pdf-cont {
@@ -286,12 +344,13 @@ const PDF_STYLES = `
     font-weight: 700;
   }
   .car-pdf-table tr.row-close td { background: #FFF7ED; }
-  .car-pdf-table col.col-date { width: 8%; }
-  .car-pdf-table col.col-inv { width: 8%; }
-  .car-pdf-table col.col-veh { width: 7%; }
-  .car-pdf-table col.col-prod { width: 21%; }
+  .car-pdf-table col.col-date { width: 7%; }
+  .car-pdf-table col.col-inv { width: 7%; }
+  .car-pdf-table col.col-status { width: 10%; }
+  .car-pdf-table col.col-veh { width: 6%; }
+  .car-pdf-table col.col-prod { width: 16%; }
   .car-pdf-table col.col-type { width: 4%; }
-  .car-pdf-table col.col-num { width: 7.57%; }
+  .car-pdf-table col.col-num { width: 7.14%; }
 `;
 
 function bilingualCell(en, ar) {
@@ -300,9 +359,8 @@ function bilingualCell(en, ar) {
 }
 
 function buildHeaderHtml(header) {
-    const { english, arabic } = splitLatinAndArabic(header?.companyName);
-    const companyNameEnglish = header?.companyNameEnglish || english || 'Corporate Customer';
-    const companyNameArabic = header?.companyNameArabic || arabic;
+    const { english: companyNameEnglish, arabic: companyNameArabic } =
+        resolveBilingualCompanyLines(header);
     const sellerEn = header?.sellerNameEn || 'Filter Car Services';
     const sellerAr = header?.sellerNameAr || 'فلتر لخدمات السيارات';
     const sellerTax = header?.sellerTaxId || '311120967500003';
@@ -336,8 +394,8 @@ function buildHeaderHtml(header) {
   </div>
   ${accountLabel ? `<div class="car-pdf-hdr__period">${escapeHtml(accountLabel)}</div>` : ''}
   <div class="car-pdf-hdr__period">Period: ${escapeHtml(period)}</div>
-  <div class="car-pdf-hdr__customer-en">${escapeHtml(companyNameEnglish)}</div>
   ${companyNameArabic ? `<div class="car-pdf-hdr__customer-ar">${escapeHtml(companyNameArabic)}</div>` : ''}
+  ${companyNameEnglish ? `<div class="car-pdf-hdr__customer-en">${escapeHtml(companyNameEnglish)}</div>` : ''}
   <div class="car-pdf-hdr__customer-tax">VAT No.: ${escapeHtml(vat)}</div>
   ${phone ? `<div class="car-pdf-hdr__customer-tax">Phone: ${escapeHtml(phone)}</div>` : ''}
   ${contact ? `<div class="car-pdf-hdr__customer-tax">Contact: ${escapeHtml(contact)}</div>` : ''}
@@ -352,7 +410,7 @@ function buildTableHeadHtml() {
     ).join('');
     const colgroup = `
 <colgroup>
-  <col class="col-date" /><col class="col-inv" /><col class="col-veh" /><col class="col-prod" />
+  <col class="col-date" /><col class="col-inv" /><col class="col-status" /><col class="col-veh" /><col class="col-prod" />
   <col class="col-type" /><col class="col-num" /><col class="col-num" /><col class="col-num" />
   <col class="col-num" /><col class="col-num" /><col class="col-num" /><col class="col-num" />
 </colgroup>`;
@@ -362,9 +420,14 @@ function buildTableHeadHtml() {
 function buildDataRowHtml(r) {
     const prodEn = r.productsServicesEn ?? r.productsServices ?? '—';
     const prodAr = r.productsServicesAr ?? '';
+    const statusText = formatLedgerAdjustmentStatus(r);
+    const statusHtml = statusText
+        ? escapeHtml(statusText).replace(/\n/g, '<br/>')
+        : '—';
     return `<tr>
   <td class="col-text">${escapeHtml(r.date)}</td>
   <td class="col-text">${escapeHtml(r.invoiceNo)}</td>
+  <td class="col-text">${statusHtml}</td>
   <td class="col-text">${escapeHtml(r.vehicleNo)}</td>
   <td class="col-prod">${bilingualCell(prodEn, prodAr)}</td>
   <td class="col-text">${escapeHtml(formatLedgerTypeShort(r.type))}</td>
@@ -381,6 +444,7 @@ function buildDataRowHtml(r) {
 function buildKpiHtml(summary) {
     const sum = summary ?? {};
     const kpiValues = [
+        `SAR ${fmt(sum.openingBalance)}`,
         `SAR ${fmt(sum.totalInvoiceAmount)}`,
         `SAR ${fmt(sum.totalReceipts)}`,
         `SAR ${fmt(sum.totalDiscounts)}`,
@@ -402,10 +466,10 @@ function buildLedgerPageHtml(summary, chunkRows, opts) {
     const { colHead, colgroup } = buildTableHeadHtml();
 
     const openingRow = showOpening
-        ? `<tr class="row-open"><td colspan="11"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`
+        ? `<tr class="row-open"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`
         : '';
     const closingRow = showClosing
-        ? `<tr class="row-close"><td colspan="11"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`
+        ? `<tr class="row-close"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`
         : '';
     const dataRows = chunkRows.map(buildDataRowHtml).join('');
 
@@ -562,6 +626,53 @@ function buildMonthlyBillDescriptionAr(start, end) {
     return `فاتورة غيار زيت وغسيل سيارات للفترة من ${formatPeriodPhraseStartAr(start)} حتى ${formatPeriodPhraseEndAr(end)}`;
 }
 
+function calendarYmdSlice(raw) {
+    if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+        const y = raw.getUTCFullYear();
+        const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(raw.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+    const s = String(raw ?? '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+}
+
+/** Prefer bill dates; if start > end (UTC slice / inverted snapshot), use statement or invoice span. */
+function resolveBillPeriodYmd(bill, statement, invoiceLines = []) {
+    let from =
+        calendarYmdSlice(bill?.periodStartDate) ||
+        calendarYmdSlice(statement?.period?.startDate) ||
+        '';
+    let to =
+        calendarYmdSlice(bill?.periodEndDate) ||
+        calendarYmdSlice(statement?.period?.endDate) ||
+        '';
+    if (from && to && from > to) {
+        const stmtFrom = calendarYmdSlice(statement?.period?.startDate);
+        const stmtTo = calendarYmdSlice(statement?.period?.endDate);
+        if (stmtFrom && stmtTo && stmtFrom <= stmtTo) {
+            from = stmtFrom;
+            to = stmtTo;
+        } else {
+            const dates = (invoiceLines ?? [])
+                .map((l) => calendarYmdSlice(l?.date))
+                .filter(Boolean)
+                .sort();
+            if (dates.length) {
+                from = dates[0];
+                to = dates[dates.length - 1];
+            } else {
+                const swap = from;
+                from = to;
+                to = swap;
+            }
+        }
+    }
+    return { from, to };
+}
+
 /** Split selected bill period into calendar-month chunks (UTC dates). */
 function splitPeriodIntoMonthChunks(startStr, endStr) {
     const start = parseIsoDate(startStr);
@@ -596,38 +707,15 @@ function splitPeriodIntoMonthChunks(startStr, endStr) {
 
 /**
  * Amounts for monthly bill PDF rows / detail invoice lines.
- * Excl shown is the taxable base after discount; VAT = 15% of that; Incl = Excl + VAT.
- * Ledger often keeps original (pre-discount) VAT on the invoice while Excl is already
- * total−vat (post-discount) — recalculate so VAT matches the Excl column.
+ * Inclusive VAT is the frozen POS / bill collection amount — never excl × 1.15.
+ * Rewriting Incl from Excl used to drop Discounts × 15% (e.g. 16.00 → 2.40).
  */
 export function normalizeInvoiceAmounts(line) {
-    let excl = Number(line.invoiceExclVat ?? 0);
-    const disc = Number(line.salesDiscounts ?? 0);
-    let incl = Number(line.invoiceInclusiveVat ?? line.invoiceAmount ?? 0);
-    const vatStored = Number(line.vat15 ?? 0);
-
-    if (incl > 0 && excl <= 0) {
-        excl = incl / 1.15;
-    }
-
-    // Modal / override style: excl is before discount when excl − disc + vat ≈ incl.
-    if (
-        disc > 0.005 &&
-        Math.abs(excl - disc + vatStored - incl) <= 0.05 &&
-        Math.abs(excl + vatStored - incl) > 0.05
-    ) {
-        excl = excl - disc;
-    }
-
-    excl = Math.max(0, Number(excl.toFixed(2)));
-    const vat = Number((excl * 0.15).toFixed(2));
-    incl = Number((excl + vat).toFixed(2));
-    return { excl, vat, incl };
+    return storedInvoiceDisplayAmounts(line);
 }
 
 /**
- * Apply the same post-discount Excl/VAT/Incl math to statement detail rows and
- * rebuild running balances so the bottom of the bill PDF matches the monthly page.
+ * Rebuild running balances from frozen Inclusive VAT (same numbers as KPI / Place 1).
  */
 export function normalizeLedgerDetailLinesForBillPdf(lines, openingBalance = 0) {
     let running = Number(Number(openingBalance ?? 0).toFixed(2));
@@ -660,8 +748,8 @@ export function normalizeLedgerDetailLinesForBillPdf(lines, openingBalance = 0) 
 }
 
 /**
- * UI + PDF: rewrite ledger VAT/Incl after discount and sync summary invoices/closing.
- * Discounts column stays informational (already reflected in Excl / VAT / Incl).
+ * Keep frozen Inclusive VAT on statement lines and sync closing =
+ * opening + invoices − receipts − returns. Discounts stay informational.
  */
 export function applyPostDiscountVatToLedgerStatement(ledger) {
     if (!ledger || typeof ledger !== 'object') return ledger;
@@ -677,14 +765,12 @@ export function applyPostDiscountVatToLedgerStatement(ledger) {
     const totalSalesReturns = Number(
         ledger.summary?.totalSalesReturns ?? ledger.summary?.totalSalesReturn ?? 0,
     );
-    const closingBalance = Number(
-        (
-            opening +
-            totalInvoiceAmount -
-            totalReceipts -
-            totalSalesReturns
-        ).toFixed(2),
-    );
+    const closingBalance = collectionAmountDue({
+        opening,
+        invoices: totalInvoiceAmount,
+        receipts: totalReceipts,
+        returns: totalSalesReturns,
+    });
     return {
         ...ledger,
         lines,
@@ -699,20 +785,54 @@ export function applyPostDiscountVatToLedgerStatement(ledger) {
     };
 }
 
+function frozenInvoiceInclusive(ledgerStatement, statement, bill) {
+    return money2(
+        ledgerStatement?.summary?.totalInvoiceAmount ??
+            bill?.kpis?.totalInvoiceAmount ??
+            statement?.kpis?.totalInvoiceAmount ??
+            0,
+    );
+}
+
+/** Keep monthly Incl VAT locked to the same frozen invoice total as the yellow KPI. */
+function reconcileMonthlyRowsToFrozenInvoices(rows, frozenInvoiceIncl) {
+    const frozen = money2(frozenInvoiceIncl);
+    if (!rows?.length || Math.abs(frozen) < 0.005) return rows;
+    const sum = money2(rows.reduce((s, r) => s + Number(r.invoiceInclusiveVat ?? 0), 0));
+    const gap = money2(frozen - sum);
+    if (Math.abs(gap) < 0.005) return rows;
+    const idx = rows.reduce((best, r, i, arr) => {
+        const cur = Math.abs(Number(r.invoiceInclusiveVat ?? 0));
+        const bestVal = Math.abs(Number(arr[best].invoiceInclusiveVat ?? 0));
+        return cur >= bestVal ? i : best;
+    }, 0);
+    const next = rows.map((r) => ({ ...r }));
+    const incl = money2(Number(next[idx].invoiceInclusiveVat ?? 0) + gap);
+    const split = storedInvoiceDisplayAmounts({
+        invoiceInclusiveVat: incl,
+        invoiceExclVat: 0,
+        vat15: 0,
+    });
+    next[idx] = {
+        ...next[idx],
+        invoiceExclVat: split.excl,
+        vat15: split.vat,
+        invoiceInclusiveVat: incl,
+    };
+    return next;
+}
+
 /**
  * Summarized bill rows — one line per calendar month (or partial month) in the bill period.
- * Amounts = sum of invoice Excl VAT / VAT / Incl VAT from detailed ledger for that sub-period.
+ * Amounts = frozen stored Inclusive VAT (same as Place 1 Total invoices).
  */
 function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
     const invoiceLines = getLedgerInvoiceLines(ledgerStatement, statement);
-    const dateFrom =
-        bill?.periodStartDate?.slice?.(0, 10) ||
-        statement?.period?.startDate?.slice?.(0, 10) ||
-        '';
-    const dateTo =
-        bill?.periodEndDate?.slice?.(0, 10) ||
-        statement?.period?.endDate?.slice?.(0, 10) ||
-        '';
+    const { from: dateFrom, to: dateTo } = resolveBillPeriodYmd(
+        bill,
+        statement,
+        invoiceLines,
+    );
 
     const genDate = parseIsoDate(bill?.createdAt) || new Date();
     const dateLabel = formatBillGeneratedDateLabel(genDate);
@@ -721,7 +841,7 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
     if (!chunks.length) {
         const { excl, vat, incl } = invoiceLines.reduce(
             (acc, line) => {
-                const a = normalizeInvoiceAmounts(line);
+                const a = storedInvoiceDisplayAmounts(line);
                 acc.excl += a.excl;
                 acc.vat += a.vat;
                 acc.incl += a.incl;
@@ -731,16 +851,19 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
         );
         const start = parseIsoDate(dateFrom) || genDate;
         const end = parseIsoDate(dateTo) || genDate;
-        return [
-            {
-                date: dateLabel,
-                descriptionEn: buildMonthlyBillDescriptionEn(start, end),
-                descriptionAr: buildMonthlyBillDescriptionAr(start, end),
-                invoiceExclVat: Number(excl.toFixed(2)),
-                vat15: Number(vat.toFixed(2)),
-                invoiceInclusiveVat: Number(incl.toFixed(2)),
-            },
-        ];
+        return reconcileMonthlyRowsToFrozenInvoices(
+            [
+                {
+                    date: dateLabel,
+                    descriptionEn: buildMonthlyBillDescriptionEn(start, end),
+                    descriptionAr: buildMonthlyBillDescriptionAr(start, end),
+                    invoiceExclVat: Number(excl.toFixed(2)),
+                    vat15: Number(vat.toFixed(2)),
+                    invoiceInclusiveVat: Number(incl.toFixed(2)),
+                },
+            ],
+            frozenInvoiceInclusive(ledgerStatement, statement, bill),
+        );
     }
 
     const rows = chunks.map((chunk) => {
@@ -752,7 +875,7 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
             const lineDate = parseIsoDate(line.date);
             if (!lineDate) continue;
             if (lineDate < chunk.start || lineDate > chunk.end) continue;
-            const a = normalizeInvoiceAmounts(line);
+            const a = storedInvoiceDisplayAmounts(line);
             excl += a.excl;
             vat += a.vat;
             incl += a.incl;
@@ -770,7 +893,10 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
 
     // Drop empty month slices (e.g. timezone-shifted stray day with 0.00).
     const withAmount = rows.filter((r) => Math.abs(Number(r.invoiceInclusiveVat ?? 0)) > 0.005);
-    return withAmount.length > 0 ? withAmount : rows;
+    return reconcileMonthlyRowsToFrozenInvoices(
+        withAmount.length > 0 ? withAmount : rows,
+        frozenInvoiceInclusive(ledgerStatement, statement, bill),
+    );
 }
 
 function computeSummaryTotals(summaryRows, statement, bill) {
@@ -794,16 +920,6 @@ function computeSummaryTotals(summaryRows, statement, bill) {
     };
 }
 
-/** Split an inclusive amount into Excl / VAT 15% / Incl (VAT = remainder so Incl stays exact). */
-function splitInclusiveVatAmount(inclRaw) {
-    const incl = Number(Number(inclRaw ?? 0).toFixed(2));
-    if (Math.abs(incl) < 0.005) return { excl: 0, vat: 0, incl: 0 };
-    const sign = incl < 0 ? -1 : 1;
-    const abs = Math.abs(incl);
-    const excl = Number((abs / 1.15).toFixed(2));
-    const vat = Number((abs - excl).toFixed(2));
-    return { excl: excl * sign, vat: vat * sign, incl: incl };
-}
 
 /**
  * Monthly invoice body rows: service month lines + sales-return / receipt deductions
@@ -1096,7 +1212,7 @@ async function measureTableHeadHeight(contentWidth) {
 async function measureOpeningRowHeight(summary, contentWidth) {
     const sum = summary ?? {};
     const { colgroup } = buildTableHeadHtml();
-    const row = `<tr class="row-open"><td colspan="11"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`;
+    const row = `<tr class="row-open"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`;
     const html = `<div class="car-pdf-body"><table class="car-pdf-table">${colgroup}<tbody>${row}</tbody></table></div>`;
     return measureHtmlHeight(html, contentWidth);
 }
@@ -1104,7 +1220,7 @@ async function measureOpeningRowHeight(summary, contentWidth) {
 async function measureClosingRowHeight(summary, contentWidth) {
     const sum = summary ?? {};
     const { colgroup } = buildTableHeadHtml();
-    const row = `<tr class="row-close"><td colspan="11"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`;
+    const row = `<tr class="row-close"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`;
     const html = `<div class="car-pdf-body"><table class="car-pdf-table">${colgroup}<tbody>${row}</tbody></table></div>`;
     return measureHtmlHeight(html, contentWidth);
 }
@@ -1290,12 +1406,38 @@ const MONTHLY_INVOICE_STYLES = `
     border-bottom: 2.5px solid #FCC247;
     margin-bottom: 12px;
   }
-  .car-mi-hdr__customer-en { font-size: 11px; font-weight: 600; color: #0f172a; line-height: 1.35; }
+  .car-mi-hdr__buyer {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: calc(100% - 168px);
+  }
+  .car-mi-hdr__customer-en,
+  .car-mi-hdr__customer-ar {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.5;
+    margin: 0 0 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    unicode-bidi: isolate;
+  }
   .car-mi-hdr__customer-ar {
     font-family: 'Noto Sans Arabic', sans-serif;
-    font-size: 11px; font-weight: 600; direction: rtl; text-align: left; margin-top: 4px;
+    direction: rtl;
+    text-align: left;
   }
-  .car-mi-hdr__meta { font-size: 9px; color: #64748b; margin-top: 6px; line-height: 1.45; }
+  .car-mi-hdr__meta {
+    display: block;
+    font-size: 9px;
+    color: #64748b;
+    margin: 0 0 4px;
+    line-height: 1.45;
+    unicode-bidi: isolate;
+    clear: both;
+  }
   .car-mi-hdr__seller { flex: 0 0 auto; text-align: right; min-width: 140px; }
   .car-mi-hdr__logo { width: 48px; height: 48px; object-fit: contain; display: block; margin-left: auto; margin-bottom: 4px; }
   .car-mi-hdr__seller-en { font-size: 12px; font-weight: 700; color: #111827; }
@@ -1318,7 +1460,14 @@ const MONTHLY_INVOICE_STYLES = `
     font-size: 10px;
     color: #c2410c;
     font-weight: 700;
-    margin-bottom: 10px;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+  .car-mi-due-math {
+    font-size: 8px;
+    color: #92400e;
+    font-weight: 600;
+    margin-bottom: 8px;
     text-align: center;
   }
   .car-mi-kpi-wrap { margin: 0 0 12px; padding: 0 4px; }
@@ -1383,9 +1532,7 @@ async function buildMonthlyInvoiceQrDataUrl(opts) {
 
 function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSummary, qrDataUrl }) {
     const corp = statement?.corporateAccount ?? {};
-    const { english, arabic } = splitLatinAndArabic(corp.companyName);
-    const companyEn = english || corp.companyName || 'Corporate Customer';
-    const companyAr = arabic || corp.companyNameArabic || '';
+    const { english: companyEn, arabic: companyAr } = resolveBilingualCompanyLines(corp);
     const sellerEn = 'Filter Car Services';
     const sellerAr = 'فلتر لخدمات السيارات';
     const sellerTax = '311120967500003';
@@ -1432,11 +1579,11 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
     return `
 <style>${MONTHLY_INVOICE_STYLES}</style>
 <div class="car-mi-hdr">
-  <div>
+  <div class="car-mi-hdr__buyer">
     <div class="car-mi-hdr__meta">Period: ${escapeHtml(period)}</div>
-    <div class="car-mi-hdr__customer-en">${escapeHtml(companyEn)}</div>
     ${companyAr ? `<div class="car-mi-hdr__customer-ar">${escapeHtml(companyAr)}</div>` : ''}
-    <div class="car-mi-hdr__meta">Tax No.: ${escapeHtml(vat)}</div>
+    ${companyEn ? `<div class="car-mi-hdr__customer-en">${escapeHtml(companyEn)}</div>` : ''}
+    <div class="car-mi-hdr__meta">VAT No.: ${escapeHtml(vat)}</div>
     <div class="car-mi-hdr__meta">Bill No.: ${escapeHtml(bill?.billNo || '—')}</div>
   </div>
   <div class="car-mi-hdr__seller">
@@ -1454,6 +1601,7 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
   <div class="car-mi-title-ar">فاتورة الخدمات والمنتجات الشهرية</div>
 </div>
 <div class="car-mi-due">Due date: ${escapeHtml(dueDate)} · Amount due: SAR ${fmt(balanceDue)}</div>
+<div class="car-mi-due-math">Opening SAR ${fmt(kpiSummary?.openingBalance)} + invoices − receipts − returns = amount due</div>
 ${kpiHtml}
 <table class="car-mi-table">
   <thead>
@@ -1485,6 +1633,7 @@ export async function exportCorporateGeneratedBillPdf({
     statement,
     ledgerStatement,
     fetchLedger,
+    snapshotKind,
 }) {
     const stmt = statement ?? {};
     const ledger = await resolveLedgerForBillExport({
@@ -1520,24 +1669,19 @@ export async function exportCorporateGeneratedBillPdf({
     const totals = computeSummaryTotals(summaryRows, stmt, bill);
     const kpiSummary = buildBillKpiSummary(ledger, stmt, bill, totals);
 
-    // Monthly invoice Excl/VAT/Incl are recalculated post-discount — keep KPIs & due in sync.
-    kpiSummary.totalInvoiceAmount = totals.totalIncl;
-    kpiSummary.closingBalance = Number(
-        (
-            Number(kpiSummary.openingBalance ?? 0) +
-            totals.totalIncl -
-            Number(kpiSummary.totalReceipts ?? 0) -
-            Number(kpiSummary.totalSalesReturns ?? 0)
-        ).toFixed(2),
-    );
+    kpiSummary.closingBalance = collectionAmountDue({
+        opening: kpiSummary.openingBalance,
+        invoices: kpiSummary.totalInvoiceAmount,
+        receipts: kpiSummary.totalReceipts,
+        returns: kpiSummary.totalSalesReturns,
+    });
     totals.balanceDue = kpiSummary.closingBalance;
 
-    // Net VAT for ZATCA QR = invoices − sales returns (− receipts), same as table Total.
+    // Table Total = invoices − sales returns − receipts (same frozen Incl as KPI).
     const monthlyTableRows = buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill);
     const netTableTotals = computeSummaryTotals(monthlyTableRows, stmt, bill);
     totals.totalExcl = netTableTotals.totalExcl;
     totals.totalVat = netTableTotals.totalVat;
-    // Keep gross invoice total for KPI "Total Invoices"; net is only for table/QR.
     totals.netIncl = netTableTotals.totalIncl;
 
     const qrDataUrl = await buildMonthlyInvoiceQrDataUrl({
@@ -1555,6 +1699,7 @@ export async function exportCorporateGeneratedBillPdf({
         totals,
         kpiSummary,
         qrDataUrl,
+        snapshotKind,
     });
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
@@ -1566,8 +1711,6 @@ export async function exportCorporateGeneratedBillPdf({
 
         const rawDetailLines = ledger?.lines ?? [];
         if (rawDetailLines.length > 0) {
-            // Same post-discount VAT as the monthly invoice page (raw ledger still uses
-            // stored pre-discount vatAmount on many invoices).
             const opening = Number(
                 kpiSummary.openingBalance ?? ledger?.summary?.openingBalance ?? 0,
             );
@@ -1650,10 +1793,11 @@ export function exportCorporateArLedgerExcel({ header, summary, lines }) {
         ['Closing Balance', Number(sum.closingBalance ?? 0)],
         [],
         LEDGER_COLUMNS.map((c) => `${c.en} / ${c.ar}`),
-        ['—', '—', '—', 'Opening balance / الرصيد الافتتاحي', '—', '', '', '', '', '', '', Number(sum.openingBalance ?? 0)],
+        ['—', '—', '—', '—', 'Opening balance / الرصيد الافتتاحي', '—', '', '', '', '', '', '', Number(sum.openingBalance ?? 0)],
         ...(lines ?? []).map((r) => [
             r.date,
             r.invoiceNo,
+            formatLedgerAdjustmentStatus(r) || '—',
             r.vehicleNo,
             productsExcelCell(r),
             formatLedgerTypeShort(r.type),
@@ -1665,12 +1809,12 @@ export function exportCorporateArLedgerExcel({ header, summary, lines }) {
             r.receipts != null ? Number(r.receipts) : '',
             Number(r.runningBalance ?? 0),
         ]),
-        ['—', '—', '—', 'Closing balance / الرصيد الختامي', '—', '', '', '', '', '', '', Number(sum.closingBalance ?? 0)],
+        ['—', '—', '—', '—', 'Closing balance / الرصيد الختامي', '—', '', '', '', '', '', '', Number(sum.closingBalance ?? 0)],
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [
-        { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 40 }, { wch: 12 },
+        { wch: 12 }, { wch: 14 }, { wch: 28 }, { wch: 12 }, { wch: 40 }, { wch: 12 },
         { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
     ];
     const wb = XLSX.utils.book_new();
