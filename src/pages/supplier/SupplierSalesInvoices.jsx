@@ -815,12 +815,17 @@ const lastSaleMeta =
 
         /** Aggregate warehouse bucket qty (supplier stock units before workshop conversion). */
         warehouseStockQty: Number(item.currentBalanceWarehouse ?? 0),
+        pendingWorkshopReceiveWarehouse: Number(
+            item.pendingWorkshopReceiveWarehouse ?? 0,
+        ),
+        pendingWorkshopReceiveWorkshop: Number(
+            item.pendingWorkshopReceiveWorkshop ?? 0,
+        ),
         conversionFactor,
 
-        stockQtyWorkshop:
-            Number.isFinite(stockQtyWorkshop) && stockQtyWorkshop >= 0
-                ? stockQtyWorkshop
-                : null,
+        stockQtyWorkshop: Number.isFinite(stockQtyWorkshop)
+            ? stockQtyWorkshop
+            : null,
 
     lastPrice: displaySalePrice,
     lastSaleMeta,
@@ -865,7 +870,8 @@ function maxSellableQtyWorkshopForLine(line, lines, inventoryItems) {
     if (!inv || inv.stockQtyWorkshop == null || !Number.isFinite(inv.stockQtyWorkshop)) {
         return null;
     }
-    const cap = Number(inv.stockQtyWorkshop);
+    const reserved = Number(inv.pendingWorkshopReceiveWorkshop ?? 0);
+    const cap = Math.max(0, Number(inv.stockQtyWorkshop) - reserved);
     const key = salesLineStockKey(line);
     if (!key) return null;
     let otherSum = 0;
@@ -893,7 +899,8 @@ function maxSellableQtyWarehouseForLine(line, lines, inventoryItems) {
     if (!inv || !Number.isFinite(Number(inv.warehouseStockQty))) {
         return null;
     }
-    const cap = Number(inv.warehouseStockQty);
+    const reserved = Number(inv.pendingWorkshopReceiveWarehouse ?? 0);
+    const cap = Math.max(0, Number(inv.warehouseStockQty) - reserved);
     const key = salesLineStockKey(line);
     if (!key) return null;
     let otherSum = 0;
@@ -919,14 +926,17 @@ function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItem
     const out = [];
     for (let i = 0; i < lineItems.length; i++) {
         const row = lineItems[i];
-        const maxCap = maxSellableQtyForLine(row, lineItems, inventoryItems);
-        if (maxCap == null || !Number.isFinite(maxCap)) continue;
-        const qNum = normalizedLines[i]?.qty ?? 0;
-        if (qNum <= maxCap + 1e-6) continue;
         const productId = String(
-            row.supplierProductId ?? row.supplierStockProductId ?? '',
+            row.supplierStockProductId ?? row.supplierProductId ?? '',
         ).trim();
         if (!productId) continue;
+        const maxCap = maxSellableQtyForLine(row, lineItems, inventoryItems);
+        const qNum = normalizedLines[i]?.qty ?? 0;
+        const short =
+            maxCap == null ||
+            !Number.isFinite(maxCap) ||
+            qNum > maxCap + 1e-6;
+        if (!short) continue;
         out.push({
             productId,
             name:
@@ -934,7 +944,7 @@ function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItem
                 row.item ||
                 t('fallback.product'),
             requestedQty: qNum,
-            availableQty: maxCap,
+            availableQty: Number.isFinite(maxCap) ? maxCap : 0,
             unit: normalizedLines[i]?.unit || row.uom || 'pcs',
         });
     }
@@ -1946,15 +1956,20 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             normalizedLines,
             inventoryItems,
         ).map((row) => row.productId);
+        const allLineProductIds = lineItems
+            .map((row) =>
+                String(row.supplierStockProductId ?? row.supplierProductId ?? '').trim(),
+            )
+            .filter(Boolean);
         const quoteLineIds = invoiceFromQuoteRef.current
             ? lineItems
                   .map((row) =>
-                      String(row.supplierProductId ?? row.supplierStockProductId ?? '').trim(),
+                      String(row.supplierStockProductId ?? row.supplierProductId ?? '').trim(),
                   )
                   .filter(Boolean)
             : [];
         const allowInsufficientStockProductIds = !isDraftSave
-            ? [...new Set([...insufficientIds, ...quoteLineIds])]
+            ? [...new Set([...allLineProductIds, ...insufficientIds, ...quoteLineIds])]
             : [];
         setSavingAction(isDraftSave ? 'draft' : 'issue');
         const due =

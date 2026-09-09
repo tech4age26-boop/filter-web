@@ -83,12 +83,12 @@ export default function PublicWpiVerifyPage() {
     const handleReceiveSubmit = async (e) => {
         e?.preventDefault?.();
         if (receiveSubmitting) return;
-        if (!receivePassword.trim()) {
-            setReceiveError('Enter the workshop or branch password.');
+        if (!receiveLogin.trim()) {
+            setReceiveError('Enter the receiver name (the person who physically received the stock).');
             return;
         }
-        if (!receiveLogin.trim()) {
-            setReceiveError('Enter the receiving user name or email (the person who received the stock).');
+        if (!receivePassword.trim()) {
+            setReceiveError('Enter the workshop admin password.');
             return;
         }
         setReceiveSubmitting(true);
@@ -116,7 +116,7 @@ export default function PublicWpiVerifyPage() {
                     data?.lines,
                     receiveQtyByItemId,
                 ),
-                receiverLogin: receiveLogin,
+                receiverName: receiveLogin,
             });
             setReceiveResult(res);
             setReceiveOpen(false);
@@ -884,13 +884,13 @@ export default function PublicWpiVerifyPage() {
                                 marginBottom: 6,
                             }}
                         >
-                            Receiving user (name or email)
+                            Receiver name
                         </label>
                         <input
                             id="public-wpi-receive-login"
                             type="text"
                             autoComplete="username"
-                            placeholder="e.g. Naif"
+                            placeholder="e.g. Arzan"
                             value={receiveLogin}
                             onChange={(e) => setReceiveLogin(e.target.value)}
                             disabled={receiveSubmitting}
@@ -915,7 +915,7 @@ export default function PublicWpiVerifyPage() {
                                 marginBottom: 6,
                             }}
                         >
-                            Workshop / branch password
+                            Workshop admin password
                         </label>
                         <input
                             id="public-wpi-receive-password"
@@ -969,7 +969,11 @@ export default function PublicWpiVerifyPage() {
                             </button>
                             <button
                                 type="submit"
-                                disabled={receiveSubmitting || !receivePassword.trim()}
+                                disabled={
+                                    receiveSubmitting ||
+                                    !receivePassword.trim() ||
+                                    !receiveLogin.trim()
+                                }
                                 style={{
                                     padding: '10px 14px',
                                     borderRadius: 10,
@@ -978,10 +982,17 @@ export default function PublicWpiVerifyPage() {
                                     color: '#fff',
                                     fontWeight: 700,
                                     cursor:
-                                        receiveSubmitting || !receivePassword.trim()
+                                        receiveSubmitting ||
+                                        !receivePassword.trim() ||
+                                        !receiveLogin.trim()
                                             ? 'not-allowed'
                                             : 'pointer',
-                                    opacity: receiveSubmitting || !receivePassword.trim() ? 0.7 : 1,
+                                    opacity:
+                                        receiveSubmitting ||
+                                        !receivePassword.trim() ||
+                                        !receiveLogin.trim()
+                                            ? 0.7
+                                            : 1,
                                 }}
                             >
                                 {receiveSubmitting ? 'Authenticating…' : 'Confirm & receive'}

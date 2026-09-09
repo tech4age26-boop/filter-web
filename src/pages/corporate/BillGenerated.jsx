@@ -351,7 +351,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                             </div>
                                         ) : activeLedger?.lines?.length || activeStatement?.rows?.length ? (
                                             <>
-                                                {(detail?.hasManualEdits || originalBill) ? (
+                                                {(detail || originalBill || activeLedger) ? (
                                                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
                                                         <button
                                                             type="button"
@@ -378,7 +378,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                         </button>
                                                     </div>
                                                 ) : null}
-                                                {(detail?.hasManualEdits || originalBill) ? (
+                                                {(detail || originalBill || activeLedger) ? (
                                                     <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 13, color: '#92400e' }}>
                                                         <strong>Pay this: {num(detail?.kpis?.balance ?? bill.kpis?.balance)}</strong>
                                                         {(detail?.posOriginalDue != null || originalBill?.kpis?.balance != null) ? (
@@ -387,9 +387,11 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                             </div>
                                                         ) : null}
                                                         <div style={{ marginTop: 4, color: '#78716c', fontSize: 12 }}>
-                                                            {showOriginalBill
-                                                                ? 'Viewing cashier POS proof. Amount to pay stays the adjusted bill.'
-                                                                : 'Viewing the adjusted bill to pay.'}
+                                                            {detail?.hasManualEdits
+                                                                ? (showOriginalBill
+                                                                    ? 'Viewing cashier POS proof. Amount to pay stays the adjusted bill.'
+                                                                    : 'Viewing the adjusted bill to pay.')
+                                                                : 'POS original and Adjusted are the same on this bill. Cashier invoices were not changed.'}
                                                         </div>
                                                     </div>
                                                 ) : null}
@@ -457,7 +459,15 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                                         <td>{row.date}</td>
                                                                         <td>{row.invoiceNo}</td>
                                                                         <td>
-                                                                            {row.billAdjustment?.status === 'Adjusted' ? (
+                                                                            {row.billAdjustment?.status === 'Excluded' ? (
+                                                                                <div>
+                                                                                    <span className="ws-badge ws-badge--red">Excluded</span>
+                                                                                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.35 }}>
+                                                                                        <div>Removed from collection bill</div>
+                                                                                        <div>POS original: SAR {fmtBillingMoney(row.billAdjustment.originalInclusiveVat)}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : row.billAdjustment?.status === 'Adjusted' ? (
                                                                                 <div>
                                                                                     <span className="ws-badge ws-badge--yellow">Adjusted</span>
                                                                                     <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.35 }}>
@@ -472,6 +482,13 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                                                         {row.billAdjustment.adjustedByName ? (
                                                                                             <div>By {row.billAdjustment.adjustedByName}</div>
                                                                                         ) : null}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : row.type === 'Invoice' ? (
+                                                                                <div>
+                                                                                    <span className="ws-badge ws-badge--gray">On bill</span>
+                                                                                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                                                                                        POS amount unchanged
                                                                                     </div>
                                                                                 </div>
                                                                             ) : '—'}

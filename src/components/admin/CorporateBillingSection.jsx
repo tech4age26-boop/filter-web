@@ -55,31 +55,56 @@ function fmtCell(v, t) {
 
 const LEDGER_COL_COUNT = 13;
 
-function InvoiceAdjustmentStatus({ adj, t, isAr }) {
-    if (!adj || adj.status !== 'Adjusted') return '—';
-    const pos = Number(adj.originalInclusiveVat ?? 0);
-    const now = Number(adj.adjustedInclusiveVat ?? 0);
-    const when = adj.adjustedAt
-        ? new Date(adj.adjustedAt).toLocaleString(isAr ? 'ar-SA' : undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-        })
-        : '';
-    return (
-        <div className="billing-line-adjusted">
-            <span className="ws-badge ws-badge--yellow">{t('line.adjusted')}</span>
-            <div className="billing-line-adjusted__meta">
-                <div className="billing-line-adjusted__amount">
-                    {t('line.posToBill', { pos: fmt(pos), now: fmt(now) })}
+function InvoiceAdjustmentStatus({ adj, t, isAr, rowType }) {
+    if (adj?.status === 'Excluded') {
+        const pos = Number(adj.originalInclusiveVat ?? 0);
+        return (
+            <div className="billing-line-adjusted">
+                <span className="ws-badge ws-badge--red">{t('line.excluded')}</span>
+                <div className="billing-line-adjusted__meta">
+                    <div>{t('line.excludedHint')}</div>
+                    <div>{t('line.posOriginal', { amount: fmt(pos) })}</div>
+                    {adj.adjustedByName ? <div>{t('line.adjustedBy', { name: adj.adjustedByName })}</div> : null}
                 </div>
-                <div>{t('line.posOriginal', { amount: fmt(pos) })}</div>
-                <div>{t('line.nowOnBill', { amount: fmt(now) })}</div>
-                <div>{t('line.posProof')}</div>
-                {when ? <div>{when}</div> : null}
-                {adj.adjustedByName ? <div>{t('line.adjustedBy', { name: adj.adjustedByName })}</div> : null}
             </div>
-        </div>
-    );
+        );
+    }
+    if (adj?.status === 'Adjusted') {
+        const pos = Number(adj.originalInclusiveVat ?? 0);
+        const now = Number(adj.adjustedInclusiveVat ?? 0);
+        const when = adj.adjustedAt
+            ? new Date(adj.adjustedAt).toLocaleString(isAr ? 'ar-SA' : undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+            })
+            : '';
+        return (
+            <div className="billing-line-adjusted">
+                <span className="ws-badge ws-badge--yellow">{t('line.adjusted')}</span>
+                <div className="billing-line-adjusted__meta">
+                    <div className="billing-line-adjusted__amount">
+                        {t('line.posToBill', { pos: fmt(pos), now: fmt(now) })}
+                    </div>
+                    <div>{t('line.posOriginal', { amount: fmt(pos) })}</div>
+                    <div>{t('line.nowOnBill', { amount: fmt(now) })}</div>
+                    <div>{t('line.posProof')}</div>
+                    {when ? <div>{when}</div> : null}
+                    {adj.adjustedByName ? <div>{t('line.adjustedBy', { name: adj.adjustedByName })}</div> : null}
+                </div>
+            </div>
+        );
+    }
+    if (String(rowType || '') === 'Invoice') {
+        return (
+            <div className="billing-line-adjusted">
+                <span className="ws-badge ws-badge--gray">{t('line.onBill')}</span>
+                <div className="billing-line-adjusted__meta">
+                    <div>{t('line.posUnchanged')}</div>
+                </div>
+            </div>
+        );
+    }
+    return '—';
 }
 
 /** Calendar YYYY-MM-DD only — never local→UTC (that shifts the day, e.g. Jul 1 KSA → Jun 30). */
@@ -1176,25 +1201,28 @@ export default function CorporateBillingSection() {
                                         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>
                                             {billDetail.billNo}
                                         </h3>
-                                        {(billDetail.hasManualEdits || originalBill) ? (
-                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                                                <button
-                                                    type="button"
-                                                    className={`btn-portal-outline ${billSnapshotView === 'original' ? 'active' : ''}`}
-                                                    onClick={() => setBillSnapshotView('original')}
-                                                    disabled={!originalBill}
-                                                >
-                                                    {t('bill.viewOriginal')}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className={`btn-portal-outline ${billSnapshotView === 'adjusted' ? 'active' : ''}`}
-                                                    onClick={() => setBillSnapshotView('adjusted')}
-                                                >
-                                                    {t('bill.viewAdjusted')}
-                                                </button>
-                                            </div>
-                                        ) : null}
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <button
+                                                type="button"
+                                                className={`btn-portal-outline ${billSnapshotView === 'original' ? 'active' : ''}`}
+                                                onClick={() => setBillSnapshotView('original')}
+                                                disabled={!originalBill}
+                                            >
+                                                {t('bill.viewOriginal')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`btn-portal-outline ${billSnapshotView === 'adjusted' ? 'active' : ''}`}
+                                                onClick={() => setBillSnapshotView('adjusted')}
+                                            >
+                                                {t('bill.viewAdjusted')}
+                                            </button>
+                                            {billDetail.hasManualEdits ? (
+                                                <span className="ws-badge ws-badge--yellow">{t('bill.adjustedBadge')}</span>
+                                            ) : (
+                                                <span className="ws-badge">{t('bill.matchesPosBadge')}</span>
+                                            )}
+                                        </div>
                                         <span className="billing-due-date-banner" style={{ margin: 0 }}>
                                             {t('label.due')} <strong>{billDetail.dueDate}</strong>
                                         </span>
@@ -1207,17 +1235,15 @@ export default function CorporateBillingSection() {
                                             <FileText size={16} style={{ marginRight: 6 }} />
                                             {billPdfExporting ? t('btn.generating') : t('btn.downloadBillPdf')}
                                         </button>
-                                        {originalBill ? (
-                                            <button
-                                                type="button"
-                                                className="btn-portal-outline"
-                                                disabled={billPdfExporting}
-                                                onClick={() => handleExportBillPdf('original')}
-                                            >
-                                                <FileText size={16} style={{ marginRight: 6 }} />
-                                                {t('btn.downloadOriginalPdf')}
-                                            </button>
-                                        ) : null}
+                                        <button
+                                            type="button"
+                                            className="btn-portal-outline"
+                                            disabled={billPdfExporting || !originalBill}
+                                            onClick={() => handleExportBillPdf('original')}
+                                        >
+                                            <FileText size={16} style={{ marginRight: 6 }} />
+                                            {t('btn.downloadOriginalPdf')}
+                                        </button>
                                         {billDetail.status !== 'paid'
                                         && billDetail.status !== 'awaiting_approval'
                                         && billDetail.status !== 'pending_deletion'
@@ -1247,28 +1273,30 @@ export default function CorporateBillingSection() {
                                         ) : null}
                                     </div>
 
-                                    {(billDetail.hasManualEdits || originalBill) ? (
-                                        <div className="billing-snapshot-banner">
-                                            <div className="billing-snapshot-banner__dues">
-                                                <strong>{t('bill.collectionDue', { amount: fmt(collectionDueBalance) })}</strong>
-                                                {Number.isFinite(posOriginalDue) ? (
-                                                    <span>{t('bill.posDue', { amount: fmt(posOriginalDue) })}</span>
-                                                ) : null}
-                                            </div>
-                                            <p className="billing-snapshot-banner__hint">
-                                                {showOriginalBill
+                                    <div className="billing-snapshot-banner">
+                                        <div className="billing-snapshot-banner__dues">
+                                            <strong>{t('bill.collectionDue', { amount: fmt(collectionDueBalance) })}</strong>
+                                            {Number.isFinite(posOriginalDue) ? (
+                                                <span>{t('bill.posDue', { amount: fmt(posOriginalDue) })}</span>
+                                            ) : null}
+                                        </div>
+                                        <p className="billing-snapshot-banner__hint">
+                                            {billDetail.hasManualEdits
+                                                ? (showOriginalBill
                                                     ? t('bill.nowViewingOriginal', { due: fmt(collectionDueBalance) })
                                                     : t('bill.nowViewingAdjusted', {
                                                         original: Number.isFinite(posOriginalDue)
                                                             ? fmt(posOriginalDue)
                                                             : '—',
-                                                    })}
-                                            </p>
-                                            <p className="billing-snapshot-banner__hint">
-                                                {showOriginalBill ? t('bill.originalHint') : t('bill.adjustedHint')}
-                                            </p>
-                                        </div>
-                                    ) : null}
+                                                    }))
+                                                : t('bill.sameAsPos')}
+                                        </p>
+                                        <p className="billing-snapshot-banner__hint">
+                                            {billDetail.hasManualEdits
+                                                ? (showOriginalBill ? t('bill.originalHint') : t('bill.adjustedHint'))
+                                                : t('bill.sameAsPosHint')}
+                                        </p>
+                                    </div>
 
                                     <div className="cash-bank-stats cash-bank-register-kpis billing-stats">
                                         {billKpis.map(([labelKey, val]) => (
@@ -1327,7 +1355,7 @@ export default function CorporateBillingSection() {
                                                                 />
                                                             </td>
                                                             <td>
-                                                                <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} />
+                                                                <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} rowType={row.type} />
                                                             </td>
                                                             <td>{row.vehicleNo}</td>
                                                             <td style={{ maxWidth: 240 }}>
@@ -1496,7 +1524,7 @@ export default function CorporateBillingSection() {
                                                 />
                                             </td>
                                             <td>
-                                                <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} />
+                                                <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} rowType={row.type} />
                                             </td>
                                             <td>{row.vehicleNo}</td>
                                             <td style={{ maxWidth: 240 }}>

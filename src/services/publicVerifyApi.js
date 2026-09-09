@@ -41,9 +41,11 @@ export function publicReceiveWorkshopPurchaseInvoiceWithPassword(id, password, o
         Object.keys(opts.receivedQtyByInvoiceItemId).length > 0
             ? { receivedQtyByInvoiceItemId: opts.receivedQtyByInvoiceItemId }
             : {}),
-        ...(opts.receiverLogin && String(opts.receiverLogin).trim() !== ''
-            ? { receiverLogin: String(opts.receiverLogin).trim() }
-            : {}),
+        ...(opts.receiverName && String(opts.receiverName).trim() !== ''
+            ? { receiverName: String(opts.receiverName).trim() }
+            : opts.receiverLogin && String(opts.receiverLogin).trim() !== ''
+              ? { receiverName: String(opts.receiverLogin).trim() }
+              : {}),
     };
     return apiFetch(
         `/public/workshop-purchase-invoices/${encodeURIComponent(String(id))}/receive-with-password`,
@@ -71,9 +73,8 @@ export function getPublicSupplierSalesInvoiceReceivePreview(id) {
 }
 
 /**
- * Public QR receive flow: workshop scans the invoice QR, types either the
- * branch login password OR the workshop owner/admin password. On success the
- * backend marks the invoice received and applies branch inventory. Idempotent.
+ * Public QR receive: typed receiver name + workshop admin password.
+ * Stock is recorded against the typed name on both supplier and workshop timelines.
  * @param {string} id
  * @param {string} password
  * @param {{ criticalStockByProductId?: Record<string, number>, receivedQtyByInvoiceItemId?: Record<string, number> }} [opts]
@@ -94,9 +95,11 @@ export function publicReceiveSupplierSalesInvoiceWithPassword(id, password, opts
         Object.keys(opts.receivedQtyByInvoiceItemId).length > 0
             ? { receivedQtyByInvoiceItemId: opts.receivedQtyByInvoiceItemId }
             : {}),
-        ...(opts.receiverLogin && String(opts.receiverLogin).trim() !== ''
-            ? { receiverLogin: String(opts.receiverLogin).trim() }
-            : {}),
+        ...(opts.receiverName && String(opts.receiverName).trim() !== ''
+            ? { receiverName: String(opts.receiverName).trim() }
+            : opts.receiverLogin && String(opts.receiverLogin).trim() !== ''
+              ? { receiverName: String(opts.receiverLogin).trim() }
+              : {}),
     };
     return apiFetch(
         `/public/supplier-sales-invoices/${encodeURIComponent(String(id))}/receive-with-password`,
