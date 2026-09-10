@@ -266,6 +266,10 @@
     letter-spacing: -0.03em;
 }
 
+.my-wallet-balance-amount--negative {
+    color: #fecaca;
+}
+
 .my-wallet-balance-currency {
     display: block;
     margin-top: 6px;
