@@ -372,6 +372,10 @@
     letter-spacing: -0.03em;
 }
 
+.admin-wallets-balance-amount--negative {
+    color: #fecaca;
+}
+
 .admin-wallets-balance-foot {
     display: flex;
     align-items: center;
@@ -652,7 +656,8 @@
 }
 
 .admin-wallets-btn-approve,
-.admin-wallets-btn-reject {
+.admin-wallets-btn-reject,
+.admin-wallets-btn-edit {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -684,8 +689,19 @@
     background: #fee2e2;
 }
 
+.admin-wallets-btn-edit {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.admin-wallets-btn-edit:hover:not(:disabled) {
+    background: #dbeafe;
+}
+
 .admin-wallets-btn-approve:disabled,
-.admin-wallets-btn-reject:disabled {
+.admin-wallets-btn-reject:disabled,
+.admin-wallets-btn-edit:disabled {
     opacity: 0.55;
     cursor: not-allowed;
 }

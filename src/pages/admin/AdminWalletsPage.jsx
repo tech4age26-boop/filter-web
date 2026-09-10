@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
     Wallet, Search, Loader2, User, Mail, Shield, ChevronLeft, Users, Banknote,
-    Check, X, MessageCircle, Receipt, ArrowLeftRight, HandCoins,
+    Check, X, MessageCircle, Receipt, ArrowLeftRight, HandCoins, Pencil, Trash2,
 } from 'lucide-react';
 import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +11,8 @@ import {
     getRequesterWalletBalance,
     listAdminWalletTransactions,
     listAdminWallets,
+    editAdminWalletTransaction,
+    deleteAdminWalletTransaction,
 } from '../../services/adminWalletApi';
 import { approve as approveApproval, reject as rejectApproval } from '../../services/approvalsApi';
 import {
@@ -27,6 +29,15 @@ function formatSar(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0.00';
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function runningBalanceCell(value, emptyLabel) {
+    if (value == null || value === '') {
+        return { text: emptyLabel, negative: false };
+    }
+    const n = Number(value);
+    if (!Number.isFinite(n)) return { text: emptyLabel, negative: false };
+    return { text: `SAR ${formatSar(n)}`, negative: n < 0 };
 }
 
 function initials(name) {
@@ -77,7 +88,32 @@ function parseExpenseDescription(description) {
     };
 }
 
-function ExpensesTable({ rows, loading, t }) {
+function TxActionButtons({ row, busy, onEdit, onDelete, t }) {
+    return (
+        <div className="admin-wallets-fr-actions">
+            <button
+                type="button"
+                className="admin-wallets-btn-edit"
+                disabled={busy}
+                onClick={() => onEdit(row)}
+            >
+                <Pencil size={13} />
+                {t('btn.edit')}
+            </button>
+            <button
+                type="button"
+                className="admin-wallets-btn-reject"
+                disabled={busy}
+                onClick={() => onDelete(row)}
+            >
+                <Trash2 size={13} />
+                {t('btn.delete')}
+            </button>
+        </div>
+    );
+}
+
+function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDelete }) {
     if (loading) {
         return (
             <div className="admin-wallets-loading">
@@ -103,12 +139,17 @@ function ExpensesTable({ rows, loading, t }) {
                         <th>{t('th.vendor')}</th>
                         <th>{t('th.proof')}</th>
                         <th>{t('th.amount')}</th>
+                        <th>{t('th.from')}</th>
+                        <th>{t('th.to')}</th>
+                        {canMutate ? <th style={{ textAlign: 'right' }}>{t('th.actions')}</th> : null}
                     </tr>
                 </thead>
                 <tbody>
                     {rows.map((row) => {
                         const parsed = parseExpenseDescription(row.description);
                         const amount = Number(row.amount ?? 0);
+                        const from = runningBalanceCell(row.previousBalance, t('empty.emDash'));
+                        const to = runningBalanceCell(row.newBalance, t('empty.emDash'));
                         return (
                             <tr key={row.id}>
                                 <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
@@ -121,6 +162,23 @@ function ExpensesTable({ rows, loading, t }) {
                                 <td className="admin-wallets-tx-amount--debit">
                                     − SAR {formatSar(Math.abs(amount))}
                                 </td>
+                                <td className={from.negative ? 'admin-wallets-tx-amount--debit' : undefined}>
+                                    {from.text}
+                                </td>
+                                <td className={to.negative ? 'admin-wallets-tx-amount--debit' : undefined}>
+                                    {to.text}
+                                </td>
+                                {canMutate ? (
+                                    <td>
+                                        <TxActionButtons
+                                            row={row}
+                                            busy={actionBusyId === row.id}
+                                            onEdit={onEdit}
+                                            onDelete={onDelete}
+                                            t={t}
+                                        />
+                                    </td>
+                                ) : null}
                             </tr>
                         );
                     })}
@@ -130,7 +188,7 @@ function ExpensesTable({ rows, loading, t }) {
     );
 }
 
-function TransactionTable({ rows, loading, t }) {
+function TransactionTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDelete }) {
     if (loading) {
         return (
             <div className="admin-wallets-loading">
@@ -155,6 +213,9 @@ function TransactionTable({ rows, loading, t }) {
                         <th>{t('th.description')}</th>
                         <th>{t('th.type')}</th>
                         <th>{t('th.amount')}</th>
+                        <th>{t('th.from')}</th>
+                        <th>{t('th.to')}</th>
+                        {canMutate ? <th style={{ textAlign: 'right' }}>{t('th.actions')}</th> : null}
                     </tr>
                 </thead>
                 <tbody>
@@ -167,6 +228,8 @@ function TransactionTable({ rows, loading, t }) {
                             : typeRaw === 'debit'
                                 ? t('type.debit')
                                 : (row.type || (isCredit ? t('type.credit') : t('type.debit')));
+                        const from = runningBalanceCell(row.previousBalance, t('empty.emDash'));
+                        const to = runningBalanceCell(row.newBalance, t('empty.emDash'));
                         return (
                             <tr key={row.id}>
                                 <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
@@ -182,6 +245,23 @@ function TransactionTable({ rows, loading, t }) {
                                 <td className={isCredit ? 'admin-wallets-tx-amount--credit' : 'admin-wallets-tx-amount--debit'}>
                                     {isCredit ? '+' : '−'} SAR {formatSar(Math.abs(amount))}
                                 </td>
+                                <td className={from.negative ? 'admin-wallets-tx-amount--debit' : undefined}>
+                                    {from.text}
+                                </td>
+                                <td className={to.negative ? 'admin-wallets-tx-amount--debit' : undefined}>
+                                    {to.text}
+                                </td>
+                                {canMutate ? (
+                                    <td>
+                                        <TxActionButtons
+                                            row={row}
+                                            busy={actionBusyId === row.id}
+                                            onEdit={onEdit}
+                                            onDelete={onDelete}
+                                            t={t}
+                                        />
+                                    </td>
+                                ) : null}
                             </tr>
                         );
                     })}
@@ -565,6 +645,105 @@ function RejectFundModal({ request, busy, onCancel, onConfirm, error, t }) {
     );
 }
 
+function EditTxModal({ row, busy, onCancel, onConfirm, error, t }) {
+    const [amount, setAmount] = useState(String(Number(row?.amount ?? 0)));
+    const [description, setDescription] = useState(coerceWalletFieldText(row?.description) || '');
+
+    return (
+        <AdminModalAsScreen
+            title={t('tx.editTitle')}
+            onClose={busy ? undefined : onCancel}
+            footer={(
+                <div className="admin-wallets-fr-actions">
+                    <button type="button" className="admin-wallets-btn-reject" disabled={busy} onClick={onCancel}>
+                        {t('btn.cancel')}
+                    </button>
+                    <button
+                        type="button"
+                        className="admin-wallets-btn-approve"
+                        disabled={busy || !(Number(amount) > 0)}
+                        onClick={() => onConfirm({
+                            amount: Number(amount),
+                            description: description.trim() || undefined,
+                        })}
+                    >
+                        {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
+                        {t('btn.saveChanges')}
+                    </button>
+                </div>
+            )}
+        >
+            {error ? (
+                <div className="admin-wallets-alert" role="alert" style={{ marginTop: 0 }}>
+                    {error}
+                </div>
+            ) : null}
+            <p className="admin-wallets-modal-lead">{t('tx.editLead')}</p>
+            <p className="admin-wallets-modal-lead" style={{ marginTop: -6 }}>
+                {row?.referenceId || t('empty.emDash')}
+            </p>
+            <label className="admin-wallets-modal-label" htmlFor="aw-tx-amount">
+                {t('tx.amount')}
+            </label>
+            <input
+                id="aw-tx-amount"
+                className="admin-wallets-modal-select"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={busy}
+            />
+            <label className="admin-wallets-modal-label" htmlFor="aw-tx-desc" style={{ marginTop: 14 }}>
+                {t('tx.description')}
+            </label>
+            <textarea
+                id="aw-tx-desc"
+                className="admin-wallets-modal-textarea"
+                rows={3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                disabled={busy}
+            />
+        </AdminModalAsScreen>
+    );
+}
+
+function DeleteTxModal({ row, busy, onCancel, onConfirm, error, t }) {
+    return (
+        <AdminModalAsScreen
+            title={t('tx.deleteTitle')}
+            onClose={busy ? undefined : onCancel}
+            footer={(
+                <div className="admin-wallets-fr-actions">
+                    <button type="button" className="admin-wallets-btn-edit" disabled={busy} onClick={onCancel}>
+                        {t('btn.cancel')}
+                    </button>
+                    <button
+                        type="button"
+                        className="admin-wallets-btn-reject"
+                        disabled={busy}
+                        onClick={onConfirm}
+                    >
+                        {busy ? <Loader2 size={14} className="spin" /> : <Trash2 size={16} />}
+                        {t('tx.confirmDelete')}
+                    </button>
+                </div>
+            )}
+        >
+            {error ? (
+                <div className="admin-wallets-alert" role="alert" style={{ marginTop: 0 }}>
+                    {error}
+                </div>
+            ) : null}
+            <p className="admin-wallets-modal-lead">
+                {t('tx.deleteLead', { ref: row?.referenceId || t('empty.emDash') })}
+            </p>
+        </AdminModalAsScreen>
+    );
+}
+
 export default function AdminWalletsPage() {
     const navigate = useNavigate();
     const outletCtx = useOutletContext() || {};
@@ -582,6 +761,7 @@ export default function AdminWalletsPage() {
     const canViewBudget = hasPermission('budget-wallets.view');
     const canCreateBudget = hasPermission('budget-wallets.create');
     const canEditBudget = hasPermission('budget-wallets.edit');
+    const canMutateTx = user?.userType === 'platform_admin' && (!user?.role || user.role?.isSystem);
 
     const [view, setView] = useState('wallets');
 
@@ -601,6 +781,8 @@ export default function AdminWalletsPage() {
 
     const [approveTarget, setApproveTarget] = useState(null);
     const [rejectTarget, setRejectTarget] = useState(null);
+    const [editTxTarget, setEditTxTarget] = useState(null);
+    const [deleteTxTarget, setDeleteTxTarget] = useState(null);
     const [actionBusyId, setActionBusyId] = useState(null);
     const [actionError, setActionError] = useState('');
     const [detailTab, setDetailTab] = useState(TAB_FUND);
@@ -738,6 +920,38 @@ export default function AdminWalletsPage() {
         }
     };
 
+    const handleEditTxConfirm = async (body) => {
+        if (!editTxTarget || !selectedId) return;
+        setActionBusyId(editTxTarget.id);
+        setActionError('');
+        try {
+            await editAdminWalletTransaction(selectedId, editTxTarget.id, body);
+            setEditTxTarget(null);
+            await loadDetail(selectedId);
+            await loadList();
+        } catch (err) {
+            setActionError(err?.message || t('err.editTx'));
+        } finally {
+            setActionBusyId(null);
+        }
+    };
+
+    const handleDeleteTxConfirm = async () => {
+        if (!deleteTxTarget || !selectedId) return;
+        setActionBusyId(deleteTxTarget.id);
+        setActionError('');
+        try {
+            await deleteAdminWalletTransaction(selectedId, deleteTxTarget.id);
+            setDeleteTxTarget(null);
+            await loadDetail(selectedId);
+            await loadList();
+        } catch (err) {
+            setActionError(err?.message || t('err.deleteTx'));
+        } finally {
+            setActionBusyId(null);
+        }
+    };
+
     const selectedFromList = items.find((i) => String(i.id) === String(selectedId));
 
     const stats = useMemo(() => {
@@ -761,6 +975,8 @@ export default function AdminWalletsPage() {
         setDetailTab(TAB_FUND);
         setApproveTarget(null);
         setRejectTarget(null);
+        setEditTxTarget(null);
+        setDeleteTxTarget(null);
         setActionError('');
     };
 
@@ -805,6 +1021,38 @@ export default function AdminWalletsPage() {
                     setActionError('');
                 }}
                 onConfirm={handleRejectConfirm}
+            />
+        );
+    }
+
+    if (editTxTarget) {
+        return (
+            <EditTxModal
+                row={editTxTarget}
+                busy={actionBusyId === editTxTarget.id}
+                error={actionError}
+                t={t}
+                onCancel={() => {
+                    setEditTxTarget(null);
+                    setActionError('');
+                }}
+                onConfirm={handleEditTxConfirm}
+            />
+        );
+    }
+
+    if (deleteTxTarget) {
+        return (
+            <DeleteTxModal
+                row={deleteTxTarget}
+                busy={actionBusyId === deleteTxTarget.id}
+                error={actionError}
+                t={t}
+                onCancel={() => {
+                    setDeleteTxTarget(null);
+                    setActionError('');
+                }}
+                onConfirm={handleDeleteTxConfirm}
             />
         );
     }
@@ -1002,7 +1250,7 @@ export default function AdminWalletsPage() {
 
                                         <div className="admin-wallets-balance-card">
                                             <p className="admin-wallets-balance-label">{t('detail.balanceLabel')}</p>
-                                            <p className="admin-wallets-balance-amount">
+                                            <p className={`admin-wallets-balance-amount${Number(balance) < 0 ? ' admin-wallets-balance-amount--negative' : ''}`}>
                                                 SAR {formatSar(balance)}
                                             </p>
                                             <div className="admin-wallets-balance-foot">
@@ -1079,6 +1327,10 @@ export default function AdminWalletsPage() {
                                                     rows={expenseRecords}
                                                     loading={txLoading}
                                                     t={t}
+                                                    canMutate={canMutateTx}
+                                                    actionBusyId={actionBusyId}
+                                                    onEdit={setEditTxTarget}
+                                                    onDelete={setDeleteTxTarget}
                                                 />
                                             )}
                                             {detailTab === TAB_TRANSACTIONS && (
@@ -1086,6 +1338,10 @@ export default function AdminWalletsPage() {
                                                     rows={transactions}
                                                     loading={txLoading}
                                                     t={t}
+                                                    canMutate={canMutateTx}
+                                                    actionBusyId={actionBusyId}
+                                                    onEdit={setEditTxTarget}
+                                                    onDelete={setDeleteTxTarget}
                                                 />
                                             )}
                                         </div>

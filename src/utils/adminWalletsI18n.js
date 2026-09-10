@@ -62,6 +62,8 @@ const AW_I18N = {
         'th.remaining': 'Remaining',
         'th.paymentAccount': 'Payment account',
         'th.runningBalance': 'Running balance',
+        'th.from': 'From',
+        'th.to': 'To',
 
         'empty.expenses': 'No expense records for this admin yet.',
         'empty.transactions': 'No transactions yet for this wallet.',
@@ -85,7 +87,19 @@ const AW_I18N = {
         'btn.newAccount': 'New account',
         'btn.refresh': 'Refresh',
         'btn.edit': 'Edit',
+        'btn.delete': 'Delete',
         'btn.close': 'Close',
+        'tx.editTitle': 'Edit transaction',
+        'tx.deleteTitle': 'Delete transaction',
+        'tx.editLead':
+            'Update this transaction on the same document. A new journal will not be created.',
+        'tx.deleteLead':
+            'Delete {ref}? The journal entry and document number will be removed, and wallet running balance will be reversed.',
+        'tx.amount': 'Amount (SAR)',
+        'tx.description': 'Description',
+        'tx.confirmDelete': 'Delete document',
+        'err.editTx': 'Failed to update transaction',
+        'err.deleteTx': 'Failed to delete transaction',
 
         'approve.title': 'Approve fund request',
         'approve.confirmFund': 'Approve & fund wallet',
@@ -200,7 +214,7 @@ const AW_I18N = {
         'acct.walletOk':
             'Wallet balance is sufficient — expense will be deducted from the requester wallet.',
         'acct.walletShort':
-            'Wallet balance is insufficient — select a payment account below to pay from cash / bank / locker.',
+            'Wallet will go to SAR {amount}. Approve anyway — later top-ups increase this running balance.',
         'acct.payFrom': 'Pay from account',
         'acct.loadingAccounts': 'Loading accounts…',
         'acct.searchPay': 'Search Bank / Cash / Locker…',
@@ -279,6 +293,8 @@ const AW_I18N = {
         'th.remaining': 'المتبقي',
         'th.paymentAccount': 'حساب الدفع',
         'th.runningBalance': 'الرصيد الجاري',
+        'th.from': 'من',
+        'th.to': 'إلى',
 
         'empty.expenses': 'لا توجد سجلات مصروفات لهذا المسؤول بعد.',
         'empty.transactions': 'لا توجد معاملات لهذه المحفظة بعد.',
@@ -302,7 +318,19 @@ const AW_I18N = {
         'btn.newAccount': 'حساب جديد',
         'btn.refresh': 'تحديث',
         'btn.edit': 'تعديل',
+        'btn.delete': 'حذف',
         'btn.close': 'إغلاق',
+        'tx.editTitle': 'تعديل المعاملة',
+        'tx.deleteTitle': 'حذف المعاملة',
+        'tx.editLead':
+            'حدِّث هذه المعاملة على نفس المستند. لن يُنشأ قيد يومية جديد.',
+        'tx.deleteLead':
+            'حذف {ref}؟ سيُحذف قيد اليومية ورقم المستند، ويُعكس الرصيد الجاري للمحفظة.',
+        'tx.amount': 'المبلغ (ر.س)',
+        'tx.description': 'الوصف',
+        'tx.confirmDelete': 'حذف المستند',
+        'err.editTx': 'فشل تحديث المعاملة',
+        'err.deleteTx': 'فشل حذف المعاملة',
 
         'approve.title': 'الموافقة على طلب التمويل',
         'approve.confirmFund': 'موافقة وتمويل المحفظة',
@@ -417,7 +445,7 @@ const AW_I18N = {
         'acct.walletOk':
             'رصيد المحفظة كافٍ — سيُخصم المصروف من محفظة مقدّم الطلب.',
         'acct.walletShort':
-            'رصيد المحفظة غير كافٍ — اختر حساب دفع أدناه للدفع من نقد / بنك / خزانة.',
+            'سيصبح رصيد المحفظة {amount} ر.س. وافق على أي حال — التعبئة لاحقاً تزيد هذا الرصيد الجاري.',
         'acct.payFrom': 'الدفع من الحساب',
         'acct.loadingAccounts': 'جاري تحميل الحسابات…',
         'acct.searchPay': 'ابحث بنك / نقد / خزانة…',
