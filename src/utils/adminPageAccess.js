@@ -85,6 +85,11 @@ export function canVisitAdminPath(pathname, { user, hasPermission }) {
     if (!a) return hasPermission('dashboard.view');
     if (a === 'my-wallet') return Boolean(user?.walletEnabled);
 
+    // Approvals list + per-request screens (/admin/approvals/:entityType/:id?action=…)
+    // share approvals.view. Per-type approve/reject is enforced on the page/API,
+    // not by inventing nested codes like approvals.admin_wallet_expense_request.view.
+    if (a === 'approvals') return hasPermission('approvals.view');
+
     if (a === 'marketing') return hasPermission('marketing.view');
     if (a === 'staff-app') return hasPermission('workshop.staff-app.overview.view');
     if (a === 'softpos-settlement') return hasPermission('softpos-settlement.view');
