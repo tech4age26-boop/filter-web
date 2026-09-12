@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     BookOpen,
@@ -13,11 +13,11 @@ import {
     RefreshCw,
     Search,
     Trash2,
-    X,
     Building2,
+    Scale,
+    TrendingUp,
 } from 'lucide-react';
 import {
-    createAccount,
     deleteAccount,
     getAccounts,
     getAccountsBranches,
@@ -25,16 +25,34 @@ import {
     getBalanceSheet,
     getPLReport,
     getTrialBalance,
-    updateAccount,
 } from '../../services/accountsApi';
 import { runWorkshopPeriodClose } from '../../services/workshopAccountingApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import {
+    buildWorkshopCoaAccountCreateUrl,
+    buildWorkshopCoaAccountEditUrl,
     buildWorkshopCoaNavigationUrl,
     isWorkshopCoaLedgerClickable,
     isWorkshopPettyCashCoaControlAccount,
     WORKSHOP_COA_CONTROL_BADGES,
 } from '../../pages/workshop/workshopCoaAccountRouting';
+import {
+    BALANCE_SHEET_TYPES,
+    COA_STATEMENT_PARTS,
+    INCOME_STATEMENT_TYPES,
+    closingColumnsFromSigned,
+    countGroupedAccounts,
+    defaultTypeForStatementPart,
+    filterTypeGroupsByChip,
+    netProfitFromClosingBalances,
+    partitionCoaTypeGroups,
+    sumSignedClosingBalances,
+} from '../../pages/workshop/workshopCoaStatementSplit';
+import {
+    vatBasisForCoaAccount,
+    vatBasisHintKey,
+    vatBasisI18nKey,
+} from '../../pages/workshop/workshopCoaVatBasis';
 import {
     loadSaAccountingDateRange,
     startOfMonthISO,
@@ -89,29 +107,12 @@ const typeGroups = [
     { key: 'EXPENSE', color: '#f59e0b' },
 ];
 
-const selectTypes = [
-    { value: '', typeKey: 'all' },
-    { value: 'ASSET', typeKey: 'ASSET' },
-    { value: 'LIABILITY', typeKey: 'LIABILITY' },
-    { value: 'EQUITY', typeKey: 'EQUITY' },
-    { value: 'INCOME', typeKey: 'INCOME' },
-    { value: 'EXPENSE', typeKey: 'EXPENSE' },
-];
-
 const COA_TABS = [
     { id: 'Chart of Accounts', labelKey: 'tab.coa' },
     { id: 'Trial Balance', labelKey: 'tab.tb' },
     { id: 'P&L', labelKey: 'coa.tab.plShort' },
     { id: 'Balance Sheet', labelKey: 'tab.bs' },
 ];
-
-const subtypeByType = {
-    ASSET: ['CURRENT', 'FIXED', 'OTHER'],
-    LIABILITY: ['CURRENT', 'LONG_TERM', 'OTHER'],
-    EQUITY: ['OWNERS_EQUITY', 'RETAINED_EARNINGS', 'OTHER_EQUITY'],
-    INCOME: ['OPERATING_REVENUE', 'OTHER_INCOME'],
-    EXPENSE: ['COST_OF_GOODS_SOLD', 'OPERATING_EXPENSE', 'OTHER_EXPENSE'],
-};
 
 function normalizeAccount(raw) {
     return {
@@ -127,6 +128,8 @@ function normalizeAccount(raw) {
         isAutoSeed: Boolean(raw.isAutoSeed || raw.isAutoLinked),
         closingDebit: Number(raw.closingDebit || 0),
         closingCredit: Number(raw.closingCredit || 0),
+        hasChildren: Boolean(raw.hasChildren || raw.isHeading),
+        isHeading: Boolean(raw.isHeading || raw.hasChildren),
     };
 }
 
@@ -145,11 +148,6 @@ function toLabel(value = '', t) {
         .split('_')
         .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
         .join(' ');
-}
-
-function getNormalBalance(type, t) {
-    if (type === 'ASSET' || type === 'EXPENSE') return t('coa.normal.debit');
-    return t('coa.normal.credit');
 }
 
 function getErrorMessage(error, t) {
@@ -194,17 +192,6 @@ function collectExpandableIds(nodes = [], acc = []) {
     return acc;
 }
 
-const baseForm = {
-    name: '',
-    code: '',
-    type: 'ASSET',
-    subType: 'CURRENT',
-    parentId: '',
-    branchId: '',
-    description: '',
-    status: 'active',
-};
-
 const reportCard = {
     border: `1px solid ${palette.border}`,
     borderRadius: 10,
@@ -224,6 +211,18 @@ function formatFinalBalance(acc, t) {
     return { text: t('money.dash'), color: palette.textSecondary };
 }
 
+function CoaVatBasisBadge({ account, t }) {
+    const basis = vatBasisForCoaAccount(account);
+    return (
+        <span
+            className={`coa-vat-badge coa-vat-badge--${basis}`}
+            title={t(vatBasisHintKey(basis))}
+        >
+            {t(vatBasisI18nKey(basis))}
+        </span>
+    );
+}
+
 const fmtDateLabel = (d) => {
     if (!d) return '-';
     const x = new Date(d);
@@ -235,8 +234,8 @@ const fmtDateLabel = (d) => {
  * Workshop-scoped Chart of Accounts view backed by the real `/accounts` API.
  *
  * Branches dropdown filters the COA list and the report endpoints. Branch field
- * on the New Account modal lets a branch-specific account live alongside shared
- * ones (cash registers, branch bank accounts, etc.).
+ * New Account opens a full-page form. Branch tagging lets a branch-specific
+ * account live alongside shared ones (cash registers, branch bank accounts).
  */
 function plBranchFromLayout(selectedBranchId) {
     if (selectedBranchId == null || selectedBranchId === '' || selectedBranchId === 'all') return '';
@@ -264,15 +263,23 @@ export default function WorkshopCOAView({
     const [reloadTick, setReloadTick] = useState(0);
 
     const [search, setSearch] = useState('');
-    const [selectedType, setSelectedType] = useState('');
-    const [selectedBranch, setSelectedBranch] = useState('');
-
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingId, setEditingId] = useState('');
-    const [form, setForm] = useState(baseForm);
-    const [submitLoading, setSubmitLoading] = useState(false);
-    const [submitError, setSubmitError] = useState('');
-    const [parentSearch, setParentSearch] = useState('');
+    const initialCoaRange = (() => {
+        const shared = loadWorkshopAdminDatetimeRange();
+        if (shared?.dateFrom && shared?.dateTo) return shared;
+        const r = defaultRiyadhReportRangeDatetimeLocal();
+        return { dateFrom: r.start, dateTo: r.end };
+    })();
+    const initialCoaBranch = plBranchFromLayout(selectedBranchId);
+    const [draftBranch, setDraftBranch] = useState(initialCoaBranch);
+    const [draftDateFrom, setDraftDateFrom] = useState(initialCoaRange.dateFrom);
+    const [draftDateTo, setDraftDateTo] = useState(initialCoaRange.dateTo);
+    const [appliedBranch, setAppliedBranch] = useState(initialCoaBranch);
+    const [appliedDateFrom, setAppliedDateFrom] = useState(initialCoaRange.dateFrom);
+    const [appliedDateTo, setAppliedDateTo] = useState(initialCoaRange.dateTo);
+    const [coaRangeError, setCoaRangeError] = useState('');
+    const [coaPart, setCoaPart] = useState(COA_STATEMENT_PARTS.BOTH);
+    const [bsTypeFilter, setBsTypeFilter] = useState('');
+    const [plTypeFilter, setPlTypeFilter] = useState('');
 
     const [pendingDeleteId, setPendingDeleteId] = useState('');
     const [deleteLoadingId, setDeleteLoadingId] = useState('');
@@ -308,6 +315,7 @@ export default function WorkshopCOAView({
     const [plData, setPlData] = useState(null);
     const [plLoading, setPlLoading] = useState(false);
     const [plRangeError, setPlRangeError] = useState('');
+    const plFetchGen = useRef(0);
 
     const [bsFilters, setBsFilters] = useState({
         asOf: new Date().toISOString().slice(0, 10),
@@ -324,11 +332,11 @@ export default function WorkshopCOAView({
                 buildWorkshopCoaNavigationUrl(acc, {
                     dateFrom: storedRange.dateFrom || startOfMonthISO(),
                     dateTo: storedRange.dateTo || todayISO(),
-                    branchId: selectedBranch || acc.branchId || '',
+                    branchId: appliedBranch || acc.branchId || '',
                 }),
             );
         },
-        [navigate, selectedBranch],
+        [navigate, appliedBranch],
     );
 
     /** P&L line → account ledger for the same period / branch (proof of the total). */
@@ -336,8 +344,8 @@ export default function WorkshopCOAView({
         (row, accountType) => {
             if (!row?.id) return;
             const shared = loadWorkshopAdminDatetimeRange();
-            const rangeFrom = plFilters.dateFrom || shared?.dateFrom || '';
-            const rangeTo = plFilters.dateTo || shared?.dateTo || '';
+            const rangeFrom = appliedDateFrom || plFilters.dateFrom || shared?.dateFrom || '';
+            const rangeTo = appliedDateTo || plFilters.dateTo || shared?.dateTo || '';
             let dateFrom = rangeFrom;
             let dateTo = rangeTo;
             let startDate;
@@ -372,12 +380,12 @@ export default function WorkshopCOAView({
                         startDate,
                         endDate,
                         proof: 'pl',
-                        branchId: plFilters.branchId || '',
+                        branchId: appliedBranch || plFilters.branchId || '',
                     },
                 ),
             );
         },
-        [navigate, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId],
+        [navigate, appliedDateFrom, appliedDateTo, appliedBranch, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId],
     );
 
     const openSalesReturnsProof = useCallback(() => {
@@ -408,15 +416,55 @@ export default function WorkshopCOAView({
     }, []);
 
     useEffect(() => {
+        const next = plBranchFromLayout(selectedBranchId);
+        setDraftBranch((prev) => (prev === next ? prev : next));
+    }, [selectedBranchId]);
+
+    const applyCoaFilters = useCallback(() => {
+        if (!draftDateFrom || !draftDateTo) {
+            setCoaRangeError(t('coa.err.rangeRequired'));
+            return;
+        }
+        try {
+            workshopAdminRangeQueryParams(draftDateFrom, draftDateTo);
+        } catch (err) {
+            setCoaRangeError(err?.message || t('coa.err.range'));
+            return;
+        }
+        setCoaRangeError('');
+        saveWorkshopAdminDatetimeRange({
+            dateFrom: draftDateFrom,
+            dateTo: draftDateTo,
+        });
+        setAppliedDateFrom(draftDateFrom);
+        setAppliedDateTo(draftDateTo);
+        setAppliedBranch(draftBranch);
+        setPlFilters({
+            dateFrom: draftDateFrom,
+            dateTo: draftDateTo,
+            branchId: draftBranch,
+        });
+        setReloadTick((x) => x + 1);
+    }, [draftDateFrom, draftDateTo, draftBranch, t]);
+
+    useEffect(() => {
         let cancelled = false;
         const load = async () => {
             setLoading(true);
             setError('');
             try {
                 const params = { _t: Date.now() };
-                if (selectedType) params.type = selectedType;
-                if (selectedBranch) params.branchId = selectedBranch;
-                const treeParams = selectedBranch ? { branchId: selectedBranch } : {};
+                if (appliedBranch) params.branchId = appliedBranch;
+                if (appliedDateFrom && appliedDateTo) {
+                    try {
+                        const rangeParams = workshopAdminRangeQueryParams(appliedDateFrom, appliedDateTo);
+                        params.dateFrom = rangeParams.dateFrom;
+                        params.dateTo = rangeParams.dateTo;
+                    } catch (rangeErr) {
+                        if (!cancelled) setCoaRangeError(rangeErr?.message || t('coa.err.range'));
+                    }
+                }
+                const treeParams = appliedBranch ? { branchId: appliedBranch } : {};
                 const [flatRaw, treeRaw] = await Promise.all([
                     getAccounts(params),
                     getAccountsTree(treeParams),
@@ -436,11 +484,11 @@ export default function WorkshopCOAView({
                 if (!cancelled) setLoading(false);
             }
         };
-        load();
+        void load();
         return () => {
             cancelled = true;
         };
-    }, [reloadTick, selectedType, selectedBranch, t]);
+    }, [reloadTick, appliedBranch, appliedDateFrom, appliedDateTo, t]);
 
     const accountById = useMemo(() => {
         const map = new Map();
@@ -496,6 +544,18 @@ export default function WorkshopCOAView({
         return map;
     }, [visibleTreeRows, accountById]);
 
+    const statementTypeGroups = useMemo(() => partitionCoaTypeGroups(typeGroups), []);
+    const bsGroupsVisible = useMemo(
+        () => filterTypeGroupsByChip(statementTypeGroups.balanceSheet, bsTypeFilter),
+        [statementTypeGroups, bsTypeFilter],
+    );
+    const plGroupsVisible = useMemo(
+        () => filterTypeGroupsByChip(statementTypeGroups.incomeStatement, plTypeFilter),
+        [statementTypeGroups, plTypeFilter],
+    );
+    const bsAccountCount = countGroupedAccounts(grouped, BALANCE_SHEET_TYPES);
+    const plAccountCount = countGroupedAccounts(grouped, INCOME_STATEMENT_TYPES);
+
     const toggleExpanded = useCallback((id, e) => {
         e?.stopPropagation?.();
         e?.preventDefault?.();
@@ -516,97 +576,32 @@ export default function WorkshopCOAView({
         setExpandedIds(new Set());
     }, []);
 
-    const totalsByType = useMemo(() => {
-        const result = { ASSET: 0, LIABILITY: 0, EQUITY: 0, INCOME: 0, EXPENSE: 0 };
-        accounts.forEach((acc) => {
-            const opening = Number(acc.openingBalance || 0);
-            if (result[acc.type] !== undefined && Number.isFinite(opening)) {
-                result[acc.type] += opening;
-            }
-        });
-        return result;
-    }, [accounts]);
+    const kpiTotals = useMemo(() => ({
+        ASSET: sumSignedClosingBalances(accounts, 'ASSET'),
+        LIABILITY: sumSignedClosingBalances(accounts, 'LIABILITY'),
+        EQUITY: sumSignedClosingBalances(accounts, 'EQUITY'),
+        INCOME: sumSignedClosingBalances(accounts, 'INCOME'),
+        EXPENSE: sumSignedClosingBalances(accounts, 'EXPENSE'),
+        netProfit: netProfitFromClosingBalances(accounts),
+    }), [accounts]);
 
-    const parentOptions = useMemo(() => {
-        const q = parentSearch.trim().toLowerCase();
-        return accounts
-            .filter((acc) => !editingId || String(acc.id) !== String(editingId))
-            .filter((acc) =>
-                q ? `${acc.code} ${acc.name}`.toLowerCase().includes(q) : true,
-            );
-    }, [accounts, editingId, parentSearch]);
+    const formatKpiAmount = (type, signed) => {
+        const cols = closingColumnsFromSigned(type, signed);
+        return formatFinalBalance({ closingDebit: cols.closingDebit, closingCredit: cols.closingCredit }, t);
+    };
 
-    const subtypeOptions = subtypeByType[form.type] || [];
-
-    const openCreate = () => {
-        setEditingId('');
-        setForm({ ...baseForm, branchId: selectedBranch || '' });
-        setParentSearch('');
-        setSubmitError('');
-        setIsModalOpen(true);
+    const openCreate = (defaultType = 'ASSET') => {
+        const type = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'].includes(defaultType)
+            ? defaultType
+            : 'ASSET';
+        const statement = INCOME_STATEMENT_TYPES.includes(type) ? 'pl' : 'bs';
+        const branchId = appliedBranch || (selectedBranchId !== 'all' ? selectedBranchId : '');
+        navigate(buildWorkshopCoaAccountCreateUrl({ type, statement, branchId }));
     };
 
     const openEdit = (acc) => {
-        setEditingId(String(acc.id));
-        setForm({
-            name: acc.name || '',
-            code: acc.code || '',
-            type: acc.type || 'ASSET',
-            subType: acc.subType || subtypeByType[acc.type]?.[0] || 'CURRENT',
-            parentId: acc.parentId || '',
-            branchId: acc.branchId || '',
-            description: acc.description || '',
-            status: acc.status || 'active',
-        });
-        setParentSearch('');
-        setSubmitError('');
-        setIsModalOpen(true);
-    };
-
-    const closeModal = () => {
-        if (submitLoading) return;
-        setIsModalOpen(false);
-        setSubmitError('');
-    };
-
-    const onTypeChange = (type) => {
-        setForm((prev) => ({
-            ...prev,
-            type,
-            subType: subtypeByType[type]?.[0] || '',
-        }));
-    };
-
-    const onSubmit = async () => {
-        if (!form.name.trim() || !form.code.trim() || !form.type || !form.subType) {
-            setSubmitError(t('coa.err.required'));
-            return;
-        }
-        setSubmitLoading(true);
-        setSubmitError('');
-        try {
-            const payload = {
-                name: form.name.trim(),
-                code: form.code.trim(),
-                type: form.type,
-                subType: form.subType,
-                parentId: form.parentId || undefined,
-                branchId: form.branchId || undefined,
-                description: form.description?.trim() || undefined,
-                status: form.status || undefined,
-            };
-            if (editingId) {
-                await updateAccount(editingId, payload);
-            } else {
-                await createAccount(payload);
-            }
-            setIsModalOpen(false);
-            setReloadTick((x) => x + 1);
-        } catch (err) {
-            setSubmitError(getErrorMessage(err, t));
-        } finally {
-            setSubmitLoading(false);
-        }
+        if (!acc?.id) return;
+        navigate(buildWorkshopCoaAccountEditUrl(acc.id));
     };
 
     const onConfirmDelete = async (id) => {
@@ -645,13 +640,18 @@ export default function WorkshopCOAView({
     };
 
     const loadPL = async (overrideFilters) => {
-        // Guard: `<button onClick={loadPL}>` passes a MouseEvent as the first arg.
+        // Guard: leftover `<button onClick={loadPL}>` would pass a MouseEvent.
         const filters =
             overrideFilters
             && typeof overrideFilters === 'object'
             && ('dateFrom' in overrideFilters || 'dateTo' in overrideFilters)
                 ? overrideFilters
-                : plFilters;
+                : {
+                    dateFrom: appliedDateFrom,
+                    dateTo: appliedDateTo,
+                    branchId: appliedBranch,
+                };
+        const gen = ++plFetchGen.current;
         setPlLoading(true);
         setPlRangeError('');
         try {
@@ -666,12 +666,14 @@ export default function WorkshopCOAView({
                 ...rangeParams,
                 branchId: filters.branchId || undefined,
             });
+            if (gen !== plFetchGen.current) return;
             setPlData(res || null);
         } catch (err) {
+            if (gen !== plFetchGen.current) return;
             setPlRangeError(err?.message || t('coa.err.generic'));
             setPlData(null);
         } finally {
-            setPlLoading(false);
+            if (gen === plFetchGen.current) setPlLoading(false);
         }
     };
 
@@ -694,43 +696,21 @@ export default function WorkshopCOAView({
             loadBalanceSheet();
             return;
         }
-        if (activeTab !== 'P&L') return;
-
-        const layoutBranch = plBranchFromLayout(selectedBranchId);
-        const shared = loadWorkshopAdminDatetimeRange();
-        if (shared?.dateFrom && shared?.dateTo) {
-            const next = {
-                ...plFilters,
-                dateFrom: shared.dateFrom,
-                dateTo: shared.dateTo,
-                branchId: layoutBranch,
-            };
-            if (
-                next.dateFrom !== plFilters.dateFrom
-                || next.dateTo !== plFilters.dateTo
-                || next.branchId !== plFilters.branchId
-            ) {
-                setPlFilters(next);
-            }
-            loadPL(next);
-            return;
-        }
-        const withBranch = { ...plFilters, branchId: layoutBranch };
-        if (withBranch.branchId !== plFilters.branchId) setPlFilters(withBranch);
-        loadPL(withBranch);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, selectedBranchId]);
+    }, [activeTab]);
 
-    // Re-fetch P&L whenever branch or datetime filters change (not only on Apply).
+    // Same applied From/To/branch as Chart of Accounts. Load only after Apply
+    // (or when opening this tab with an already-applied range).
     useEffect(() => {
-        if (activeTab !== 'P&L') return undefined;
-        if (!plFilters.dateFrom || !plFilters.dateTo) return undefined;
-        const handle = window.setTimeout(() => {
-            void loadPL(plFilters);
-        }, 280);
-        return () => window.clearTimeout(handle);
+        if (activeTab !== 'P&L') return;
+        if (!appliedDateFrom || !appliedDateTo) return;
+        void loadPL({
+            dateFrom: appliedDateFrom,
+            dateTo: appliedDateTo,
+            branchId: appliedBranch,
+        });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, plFilters.dateFrom, plFilters.dateTo, plFilters.branchId]);
+    }, [activeTab, appliedDateFrom, appliedDateTo, appliedBranch]);
 
     const branchSelectStyle = {
         appearance: 'none',
@@ -881,6 +861,9 @@ export default function WorkshopCOAView({
                 revenue: [],
                 totalRevenue: 0,
                 salesReturns: { amount: 0 },
+                outputVat: { amount: 0 },
+                salesAreInclVat: false,
+                netSalesInclVat: 0,
                 netRevenue: 0,
                 costOfGoodsSold: [],
                 totalCOGS: 0,
@@ -894,8 +877,17 @@ export default function WorkshopCOAView({
                 netIncome: 0,
             };
             const salesReturnsAmount = Number(d.salesReturns?.amount ?? 0);
+            const outputVatAmount = Number(d.outputVat?.amount ?? 0);
+            const salesAreInclVat = Boolean(d.salesAreInclVat);
+            const netSalesInclVat = Number(
+                d.netSalesInclVat != null
+                    ? d.netSalesInclVat
+                    : Number(d.totalRevenue || 0) - salesReturnsAmount,
+            );
             const netSales = Number(
-                d.netRevenue != null ? d.netRevenue : Number(d.totalRevenue || 0) - salesReturnsAmount,
+                d.netRevenue != null
+                    ? d.netRevenue
+                    : Number((netSalesInclVat - outputVatAmount).toFixed(2)),
             );
             const sectionHeader = { marginTop: 18, fontSize: 11, letterSpacing: 1, color: '#6b7280', fontWeight: 700 };
             const rowStyle = {
@@ -940,25 +932,33 @@ export default function WorkshopCOAView({
             return (
                 <div style={reportCard}>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <input
-                            type="datetime-local"
-                            value={plFilters.dateFrom}
-                            onChange={(e) => setPlFilters((p) => ({ ...p, dateFrom: e.target.value }))}
-                            style={{ ...inputStyle, minWidth: 190 }}
-                            title="Asia/Riyadh"
-                        />
-                        <input
-                            type="datetime-local"
-                            value={plFilters.dateTo}
-                            onChange={(e) => setPlFilters((p) => ({ ...p, dateTo: e.target.value }))}
-                            style={{ ...inputStyle, minWidth: 190 }}
-                            title="Asia/Riyadh"
-                        />
-                        {renderBranchPicker(plFilters.branchId, (v) => setPlFilters((p) => ({ ...p, branchId: v })))}
+                        <label className="coa-range-field">
+                            <span>{t('coa.range.from')}</span>
+                            <input
+                                type="datetime-local"
+                                value={draftDateFrom}
+                                onChange={(e) => setDraftDateFrom(e.target.value)}
+                                style={{ ...inputStyle, minWidth: 190 }}
+                                title="Asia/Riyadh"
+                            />
+                        </label>
+                        <label className="coa-range-field">
+                            <span>{t('coa.range.to')}</span>
+                            <input
+                                type="datetime-local"
+                                value={draftDateTo}
+                                onChange={(e) => setDraftDateTo(e.target.value)}
+                                style={{ ...inputStyle, minWidth: 190 }}
+                                title="Asia/Riyadh"
+                            />
+                        </label>
+                        {renderBranchPicker(draftBranch, setDraftBranch)}
                         <button
                             type="button"
-                            onClick={() => void loadPL()}
-                            style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
+                            className="btn-portal-dark"
+                            onClick={applyCoaFilters}
+                            disabled={plLoading}
+                            style={{ whiteSpace: 'nowrap', height: 38 }}
                         >
                             {t('date.apply')}
                         </button>
@@ -967,7 +967,7 @@ export default function WorkshopCOAView({
                             onClick={() =>
                                 printHtml(
                                     t('pl.printTitle'),
-                                    `<h2>${t('pl.printHeading')}</h2><div>${t('pl.period', { from: fmtRiyadhRangeLabel(plFilters.dateFrom), to: fmtRiyadhRangeLabel(plFilters.dateTo) })}</div>`,
+                                    `<h2>${t('pl.printHeading')}</h2><div>${t('pl.period', { from: fmtRiyadhRangeLabel(appliedDateFrom), to: fmtRiyadhRangeLabel(appliedDateTo) })}</div>`,
                                 )
                             }
                             style={{ ...inputStyle, width: 'auto', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -998,32 +998,44 @@ export default function WorkshopCOAView({
                                 <span>{t('pl.totalRevenue')}</span>
                                 <span>{fmtMoney(d.totalRevenue, t)}</span>
                             </div>
-                            <div
-                                role="button"
-                                tabIndex={0}
-                                title={t('pl.clickSalesReturns')}
-                                style={clickableRowStyle}
-                                onClick={openSalesReturnsProof}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        openSalesReturnsProof();
-                                    }
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = '#f1f5f9';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'transparent';
-                                }}
-                            >
-                                <span style={{ color: '#dc2626', fontWeight: 600 }}>{t('pl.salesReturns')}</span>
-                                <span style={{ color: '#dc2626', fontWeight: 600 }}>{fmtMoney(salesReturnsAmount, t)}</span>
-                            </div>
-                            <div style={{ ...rowStyle, fontWeight: 800, color: '#16a34a' }}>
-                                <span>{t('pl.netSales')}</span>
-                                <span>{fmtMoney(netSales, t)}</span>
-                            </div>
+                            {salesAreInclVat ? (
+                                <>
+                                    <div
+                                        role="button"
+                                        tabIndex={0}
+                                        title={t('pl.clickSalesReturns')}
+                                        style={clickableRowStyle}
+                                        onClick={openSalesReturnsProof}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                openSalesReturnsProof();
+                                            }
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = '#f1f5f9';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'transparent';
+                                        }}
+                                    >
+                                        <span style={{ color: '#dc2626', fontWeight: 600 }}>{t('pl.salesReturns')}</span>
+                                        <span style={{ color: '#dc2626', fontWeight: 600 }}>{fmtMoney(salesReturnsAmount, t)}</span>
+                                    </div>
+                                    <div style={{ ...rowStyle, fontWeight: 800, color: '#16a34a' }}>
+                                        <span>{t('pl.netSales')}</span>
+                                        <span>{fmtMoney(netSalesInclVat, t)}</span>
+                                    </div>
+                                    <div style={{ ...rowStyle, fontWeight: 600, color: '#dc2626' }}>
+                                        <span>{t('pl.outputVat')}</span>
+                                        <span>{fmtMoney(outputVatAmount, t)}</span>
+                                    </div>
+                                    <div style={{ ...rowStyle, fontWeight: 800, color: '#16a34a' }}>
+                                        <span>{t('pl.netRevenueExVat')}</span>
+                                        <span>{fmtMoney(netSales, t)}</span>
+                                    </div>
+                                </>
+                            ) : null}
                             <div style={sectionHeader}>{t('pl.cogs')}</div>
                             {d.costOfGoodsSold.length === 0 ? (
                                 <div style={{ color: palette.textSecondary, fontSize: 13 }}>{t('pl.noCogs')}</div>
@@ -1220,7 +1232,445 @@ export default function WorkshopCOAView({
         );
     };
 
-    const modalTitle = editingId ? t('coa.modal.edit') : t('coa.modal.new');
+    const renderCoaGroupTables = (groups) => (
+        <div className="coa-statement-table-wrap">
+            {groups.map((group) => {
+                const rows = grouped[group.key] || [];
+                const groupLabel = t(`coa.group.${group.key}`);
+                return (
+                    <div key={group.key} style={{ borderTop: `1px solid ${palette.border}` }}>
+                        <div
+                            style={{
+                                background: palette.sectionHeaderBg,
+                                padding: '10px 16px',
+                                borderBottom: `1px solid ${palette.border}`,
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                            }}
+                        >
+                            <strong style={{ color: palette.textPrimary }}>{groupLabel}</strong>
+                            <span style={{ color: palette.textSecondary, fontSize: 13 }}>
+                                {rows.length === 1
+                                    ? t('coa.accountCount', { n: rows.length })
+                                    : t('coa.accountsCount', { n: rows.length })}
+                            </span>
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    {[
+                                        t('coa.th.code'),
+                                        t('coa.th.name'),
+                                        t('coa.th.finalBal'),
+                                        !readOnly ? t('coa.th.actions') : null,
+                                    ]
+                                        .filter(Boolean)
+                                        .map((header) => (
+                                            <th
+                                                key={header}
+                                                style={{
+                                                    textAlign: header === t('coa.th.finalBal') ? 'right' : 'left',
+                                                    padding: '10px 12px',
+                                                    fontSize: 12,
+                                                    color: palette.textSecondary,
+                                                    borderBottom: `1px solid ${palette.border}`,
+                                                    background: '#fff',
+                                                }}
+                                            >
+                                                {header}
+                                            </th>
+                                        ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.length === 0 ? (
+                                    <tr>
+                                        <td
+                                            colSpan={readOnly ? 3 : 4}
+                                            style={{
+                                                textAlign: 'center',
+                                                color: palette.textSecondary,
+                                                fontStyle: 'italic',
+                                                padding: '14px 12px',
+                                            }}
+                                        >
+                                            {t('coa.emptyType', { type: groupLabel })}
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    rows.map((acc) => {
+                                        const parentName = acc.parentId
+                                            ? parentNameById.get(String(acc.parentId)) || t('money.dash')
+                                            : t('money.dash');
+                                        const autoLinked = acc.isAutoSeed;
+                                        const controlBadge = WORKSHOP_COA_CONTROL_BADGES[String(acc.code)];
+                                        const depth = Number(acc._depth || 0);
+                                        const hasChildren = Boolean(acc._hasChildren || acc.hasChildren);
+                                        const isExpanded = expandedIds.has(String(acc.id)) || Boolean(searchQ);
+                                        const bal = formatFinalBalance(acc, t);
+                                        const ledgerClickable = isWorkshopCoaLedgerClickable(acc);
+                                        const inactive = String(acc.status || 'active').toLowerCase() === 'inactive';
+                                        return (
+                                            <tr
+                                                key={acc.id}
+                                                role={ledgerClickable ? 'button' : undefined}
+                                                tabIndex={ledgerClickable ? 0 : undefined}
+                                                onClick={ledgerClickable ? () => openAccountLedger(acc) : undefined}
+                                                onKeyDown={ledgerClickable ? (e) => {
+                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                        e.preventDefault();
+                                                        openAccountLedger(acc);
+                                                    }
+                                                } : undefined}
+                                                className={ledgerClickable ? 'sa-acc-row-clickable' : undefined}
+                                                style={{
+                                                    borderBottom: '1px solid #f3f4f6',
+                                                    background: hasChildren ? '#fafafa' : '#fff',
+                                                    cursor: ledgerClickable ? 'pointer' : 'default',
+                                                }}
+                                            >
+                                                <td
+                                                    style={{
+                                                        padding: '10px 12px',
+                                                        color: palette.textSecondary,
+                                                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                                                        width: 88,
+                                                        fontSize: 12,
+                                                    }}
+                                                >
+                                                    {acc.code}
+                                                </td>
+                                                <td style={{ padding: '10px 12px' }}>
+                                                    <div
+                                                        style={{
+                                                            fontWeight: hasChildren ? 700 : 600,
+                                                            color: palette.textPrimary,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 6,
+                                                            paddingLeft: depth * 16,
+                                                        }}
+                                                    >
+                                                        {hasChildren ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => toggleExpanded(acc.id, e)}
+                                                                title={isExpanded ? 'Collapse' : 'Expand'}
+                                                                style={{
+                                                                    border: 'none',
+                                                                    background: 'transparent',
+                                                                    padding: 0,
+                                                                    display: 'inline-flex',
+                                                                    cursor: 'pointer',
+                                                                    color: palette.textSecondary,
+                                                                }}
+                                                            >
+                                                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                                            </button>
+                                                        ) : (
+                                                            <span style={{ width: 16, display: 'inline-block' }} />
+                                                        )}
+                                                        {hasChildren ? (
+                                                            isExpanded
+                                                                ? <FolderOpen size={15} color={palette.primary} />
+                                                                : <Folder size={15} color={palette.primary} />
+                                                        ) : null}
+                                                        <span>{acc.name}</span>
+                                                        {hasChildren && !controlBadge ? (
+                                                            <span
+                                                                style={{
+                                                                    background: '#FEF3C7',
+                                                                    color: '#92400E',
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: 4,
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                Folder
+                                                            </span>
+                                                        ) : null}
+                                                        {autoLinked ? (
+                                                            <span
+                                                                style={{
+                                                                    background: palette.autoBadgeBg,
+                                                                    color: palette.autoBadgeText,
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: 4,
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                {t('coa.autoLinked')}
+                                                            </span>
+                                                        ) : null}
+                                                        {controlBadge ? (
+                                                            <span
+                                                                style={{
+                                                                    background: controlBadge.background,
+                                                                    color: controlBadge.color,
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: 4,
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                {t('coa.badge.control')}
+                                                            </span>
+                                                        ) : null}
+                                                        {inactive ? (
+                                                            <span
+                                                                style={{
+                                                                    background: '#FEE2E2',
+                                                                    color: '#991B1B',
+                                                                    padding: '2px 8px',
+                                                                    borderRadius: 4,
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 600,
+                                                                }}
+                                                            >
+                                                                {t('coa.status.inactive')}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                    <div
+                                                        style={{
+                                                            color: palette.textSecondary,
+                                                            fontStyle: 'italic',
+                                                            fontSize: 12,
+                                                            marginTop: 2,
+                                                            paddingLeft: depth * 16 + 22,
+                                                        }}
+                                                    >
+                                                        {acc.description || parentName}
+                                                    </div>
+                                                    {isWorkshopPettyCashCoaControlAccount(acc) ? (
+                                                        <div
+                                                            style={{
+                                                                color: palette.textSecondary,
+                                                                fontSize: 11,
+                                                                marginTop: 4,
+                                                                paddingLeft: depth * 16 + 22,
+                                                            }}
+                                                        >
+                                                            {t('coa.pettyHint')}
+                                                        </div>
+                                                    ) : null}
+                                                </td>
+                                                <td
+                                                    style={{
+                                                        padding: '10px 12px',
+                                                        fontWeight: 600,
+                                                        color: bal.color,
+                                                        fontVariantNumeric: 'tabular-nums',
+                                                        whiteSpace: 'nowrap',
+                                                        textAlign: 'right',
+                                                    }}
+                                                >
+                                                    <div className="coa-vat-balance">
+                                                        <span>{bal.text}</span>
+                                                        <CoaVatBasisBadge account={acc} t={t} />
+                                                    </div>
+                                                </td>
+                                                {!readOnly ? (
+                                                    <td
+                                                        style={{ padding: '10px 12px', width: 72 }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onKeyDown={(e) => e.stopPropagation()}
+                                                    >
+                                                        {pendingDeleteId === acc.id ? (
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12 }}>
+                                                                <span>{t('coa.confirmDelete')}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => onConfirmDelete(acc.id)}
+                                                                    disabled={deleteLoadingId === acc.id}
+                                                                    style={{
+                                                                        border: `1px solid ${palette.delete}`,
+                                                                        background: '#fff',
+                                                                        color: palette.delete,
+                                                                        borderRadius: 6,
+                                                                        padding: '4px 8px',
+                                                                        cursor: 'pointer',
+                                                                    }}
+                                                                >
+                                                                    {deleteLoadingId === acc.id ? t('coa.deleting') : t('coa.yesDelete')}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setPendingDeleteId('');
+                                                                        setDeleteError('');
+                                                                    }}
+                                                                    style={{
+                                                                        border: `1px solid ${palette.border}`,
+                                                                        background: '#fff',
+                                                                        borderRadius: 6,
+                                                                        padding: '4px 8px',
+                                                                        cursor: 'pointer',
+                                                                    }}
+                                                                >
+                                                                    {t('btn.cancel')}
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => openEdit(acc)}
+                                                                    style={{
+                                                                        border: 'none',
+                                                                        background: 'transparent',
+                                                                        color: palette.edit,
+                                                                        cursor: 'pointer',
+                                                                        padding: 0,
+                                                                    }}
+                                                                    title={t('coa.editTitle')}
+                                                                >
+                                                                    <Pencil size={16} />
+                                                                </button>
+                                                                {!autoLinked ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setPendingDeleteId(acc.id);
+                                                                            setDeleteError('');
+                                                                        }}
+                                                                        style={{
+                                                                            border: 'none',
+                                                                            background: 'transparent',
+                                                                            color: palette.delete,
+                                                                            cursor: 'pointer',
+                                                                            padding: 0,
+                                                                        }}
+                                                                        title={t('coa.deleteTitle')}
+                                                                    >
+                                                                        <Trash2 size={16} />
+                                                                    </button>
+                                                                ) : null}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                ) : null}
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                );
+            })}
+        </div>
+    );
+
+    const renderStatementPanel = (part) => {
+        const isBs = part === COA_STATEMENT_PARTS.BALANCE_SHEET;
+        const groups = isBs ? bsGroupsVisible : plGroupsVisible;
+        const chipTypes = isBs ? BALANCE_SHEET_TYPES : INCOME_STATEMENT_TYPES;
+        const chipValue = isBs ? bsTypeFilter : plTypeFilter;
+        const setChip = isBs ? setBsTypeFilter : setPlTypeFilter;
+        const count = isBs ? bsAccountCount : plAccountCount;
+        return (
+            <section
+                className={`coa-statement-panel ${isBs ? 'coa-statement-panel--bs' : 'coa-statement-panel--pl'}`}
+                data-testid={isBs ? 'coa-balance-sheet' : 'coa-income-statement'}
+            >
+                <header className="coa-statement-panel-head">
+                    <div>
+                        <p className="coa-statement-panel-kicker">{isBs ? t('tab.bs') : t('coa.tab.plShort')}</p>
+                        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {isBs ? <Scale size={20} color="#1d4ed8" /> : <TrendingUp size={20} color="#b45309" />}
+                            {isBs ? t('coa.part.bs') : t('coa.part.pl')}
+                        </h2>
+                        <p>{isBs ? t('coa.part.bsHint') : t('coa.part.plHint')}</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                        <span style={{ color: palette.textSecondary, fontSize: 13, fontWeight: 600 }}>
+                            {count === 1 ? t('coa.accountCount', { n: count }) : t('coa.accountsCount', { n: count })}
+                        </span>
+                        {!readOnly ? (
+                            <button
+                                type="button"
+                                onClick={() => openCreate(defaultTypeForStatementPart(part))}
+                                title={isBs ? t('coa.part.bsNew') : t('coa.part.plNew')}
+                                style={{
+                                    border: 'none',
+                                    background: palette.primary,
+                                    color: '#fff',
+                                    borderRadius: 8,
+                                    padding: '8px 12px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    fontWeight: 700,
+                                    fontSize: 13,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                <Plus size={15} />
+                                {t('coa.newAccount')}
+                            </button>
+                        ) : null}
+                    </div>
+                </header>
+                <div className="coa-statement-chips">
+                    <button
+                        type="button"
+                        className={`coa-statement-chip${!chipValue ? ' is-active' : ''}`}
+                        onClick={() => setChip('')}
+                    >
+                        {t('coa.part.filterAll')}
+                    </button>
+                    {chipTypes.map((typeKey) => (
+                        <button
+                            key={typeKey}
+                            type="button"
+                            className={`coa-statement-chip${chipValue === typeKey ? ' is-active' : ''}`}
+                            onClick={() => setChip(typeKey)}
+                        >
+                            {t(`coa.group.${typeKey}`)}
+                            <span style={{ marginLeft: 6, color: '#94a3b8' }}>
+                                {(grouped[typeKey] || []).length}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+                <div className={`coa-statement-panel-kpis${isBs ? '' : ' is-pl'}`}>
+                    {(isBs ? statementTypeGroups.balanceSheet : statementTypeGroups.incomeStatement).map((group) => {
+                        const signed = kpiTotals[group.key] || 0;
+                        const shown = formatKpiAmount(group.key, signed);
+                        return (
+                            <div
+                                key={group.key}
+                                className="coa-statement-kpi"
+                                data-testid={`coa-kpi-${group.key.toLowerCase()}`}
+                            >
+                                <span>{t(`coa.group.${group.key}`)}</span>
+                                <strong style={{ color: shown.color }}>{shown.text}</strong>
+                            </div>
+                        );
+                    })}
+                    {!isBs ? (
+                        <div
+                            className={`coa-statement-kpi coa-statement-kpi--net ${kpiTotals.netProfit < -0.005 ? 'is-loss' : 'is-profit'}`}
+                            data-testid="coa-kpi-net-profit"
+                        >
+                            <span>
+                                {kpiTotals.netProfit < -0.005 ? t('coa.kpi.netLoss') : t('coa.kpi.netProfit')}
+                            </span>
+                            <strong>
+                                {fmtMoney(Math.abs(kpiTotals.netProfit), t)}
+                            </strong>
+                            <em>{t('coa.kpi.netHint')}</em>
+                        </div>
+                    ) : null}
+                </div>
+                {renderCoaGroupTables(groups)}
+            </section>
+        );
+    };
 
     return (
         <div
@@ -1288,34 +1738,6 @@ export default function WorkshopCOAView({
                 <div style={{ padding: 24, background: palette.cardBg }}>
                     <div
                         style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-                            gap: 12,
-                            marginBottom: 16,
-                        }}
-                    >
-                        {typeGroups.map((group) => (
-                            <div
-                                key={group.key}
-                                style={{
-                                    border: `1px solid ${palette.border}`,
-                                    borderRadius: 8,
-                                    padding: 16,
-                                    background: palette.cardBg,
-                                }}
-                            >
-                                <div style={{ fontSize: 14, color: palette.textSecondary, marginBottom: 6 }}>
-                                    {t(`coa.group.${group.key}`)}
-                                </div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: group.color }}>
-                                    {t('coa.accountsCount', { n: (grouped[group.key] || []).length })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div
-                        style={{
                             display: 'flex',
                             gap: 10,
                             alignItems: 'center',
@@ -1342,6 +1764,24 @@ export default function WorkshopCOAView({
                                     outline: 'none',
                                 }}
                             />
+                        </div>
+                        <div className="coa-statement-switch" role="tablist" aria-label={t('coa.title')}>
+                            {[
+                                { id: COA_STATEMENT_PARTS.BOTH, label: t('coa.part.both') },
+                                { id: COA_STATEMENT_PARTS.BALANCE_SHEET, label: t('coa.part.bs') },
+                                { id: COA_STATEMENT_PARTS.INCOME_STATEMENT, label: t('coa.part.pl') },
+                            ].map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={coaPart === item.id}
+                                    className={coaPart === item.id ? 'is-active' : ''}
+                                    onClick={() => setCoaPart(item.id)}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
                         </div>
                         <button
                             type="button"
@@ -1393,58 +1833,44 @@ export default function WorkshopCOAView({
                         >
                             Period Closings
                         </button>
-                        {renderBranchPicker(selectedBranch, setSelectedBranch)}
-                        <div style={{ position: 'relative' }}>
-                            <select
-                                value={selectedType}
-                                onChange={(e) => setSelectedType(e.target.value)}
-                                style={{
-                                    appearance: 'none',
-                                    border: `1px solid ${palette.border}`,
-                                    borderRadius: 8,
-                                    padding: '8px 34px 8px 12px',
-                                    fontSize: 14,
-                                    background: '#fff',
-                                    color: palette.textPrimary,
-                                }}
-                            >
-                                {selectTypes.map((item) => (
-                                    <option key={item.typeKey} value={item.value}>
-                                        {item.typeKey === 'all' ? t('coa.type.all') : t(`coa.type.${item.typeKey}`)}
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronDown
-                                size={16}
-                                color={palette.textSecondary}
-                                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}
-                            />
-                        </div>
-                        {!readOnly && (
-                            <button
-                                type="button"
-                                onClick={openCreate}
-                                style={{
-                                    border: 'none',
-                                    background: palette.primary,
-                                    color: '#fff',
-                                    borderRadius: 8,
-                                    padding: '9px 14px',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                <Plus size={16} />
-                                {t('coa.newAccount')}
-                            </button>
-                        )}
                     </div>
+                    <div className="coa-filter-row">
+                        <label className="coa-range-field">
+                            <span>{t('coa.range.from')}</span>
+                            <input
+                                type="datetime-local"
+                                value={draftDateFrom}
+                                onChange={(e) => setDraftDateFrom(e.target.value)}
+                                title="Asia/Riyadh"
+                            />
+                        </label>
+                        <label className="coa-range-field">
+                            <span>{t('coa.range.to')}</span>
+                            <input
+                                type="datetime-local"
+                                value={draftDateTo}
+                                onChange={(e) => setDraftDateTo(e.target.value)}
+                                title="Asia/Riyadh"
+                            />
+                        </label>
+                        {renderBranchPicker(draftBranch, setDraftBranch)}
+                        <button
+                            type="button"
+                            className="btn-portal-dark"
+                            onClick={applyCoaFilters}
+                            disabled={loading}
+                            style={{ whiteSpace: 'nowrap', height: 38 }}
+                        >
+                            {t('date.apply')}
+                        </button>
+                    </div>
+                    {coaRangeError ? (
+                        <p className="coa-filter-error" role="alert">{coaRangeError}</p>
+                    ) : null}
                     <p className="sa-acc-coa-hint" style={{ margin: '0 0 12px' }}>
                         {t('coa.hint.ws')}
                     </p>
+                    <p className="coa-vat-legend">{t('coa.vat.legend')}</p>
 
                     {loading ? (
                         <div
@@ -1487,372 +1913,16 @@ export default function WorkshopCOAView({
                             </button>
                         </div>
                     ) : (
-                        <div style={{ border: `1px solid ${palette.border}`, borderRadius: 8, overflow: 'hidden' }}>
-                            {typeGroups.map((group) => {
-                                const rows = grouped[group.key] || [];
-                                const groupLabel = t(`coa.group.${group.key}`);
-                                return (
-                                    <div key={group.key} style={{ borderTop: `1px solid ${palette.border}` }}>
-                                        <div
-                                            style={{
-                                                background: palette.sectionHeaderBg,
-                                                padding: '10px 16px',
-                                                borderBottom: `1px solid ${palette.border}`,
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                            }}
-                                        >
-                                            <strong style={{ color: palette.textPrimary }}>{groupLabel}</strong>
-                                            <span style={{ color: palette.textSecondary, fontSize: 13 }}>
-                                                {rows.length === 1
-                                                    ? t('coa.accountCount', { n: rows.length })
-                                                    : t('coa.accountsCount', { n: rows.length })}
-                                            </span>
-                                        </div>
-
-                                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                            <thead>
-                                                <tr>
-                                                    {[
-                                                        t('coa.th.code'),
-                                                        t('coa.th.name'),
-                                                        t('coa.th.subtype'),
-                                                        t('coa.th.branch'),
-                                                        t('coa.th.normalBal'),
-                                                        t('coa.th.finalBal'),
-                                                        t('coa.th.status'),
-                                                        t('coa.th.actions'),
-                                                    ]
-                                                        .filter((h) => !readOnly || h !== t('coa.th.actions'))
-                                                        .map((header) => (
-                                                            <th
-                                                                key={header}
-                                                                style={{
-                                                                    textAlign: 'left',
-                                                                    padding: '10px 12px',
-                                                                    fontSize: 12,
-                                                                    color: palette.textSecondary,
-                                                                    borderBottom: `1px solid ${palette.border}`,
-                                                                    background: '#fff',
-                                                                }}
-                                                            >
-                                                                {header}
-                                                            </th>
-                                                        ))}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {rows.length === 0 ? (
-                                                    <tr>
-                                                        <td
-                                                            colSpan={readOnly ? 7 : 8}
-                                                            style={{
-                                                                textAlign: 'center',
-                                                                color: palette.textSecondary,
-                                                                fontStyle: 'italic',
-                                                                padding: '14px 12px',
-                                                            }}
-                                                        >
-                                                            {t('coa.emptyType', { type: groupLabel })}
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    rows.map((acc) => {
-                                                        const parentName = acc.parentId
-                                                            ? parentNameById.get(String(acc.parentId)) || t('money.dash')
-                                                            : t('money.dash');
-                                                        const branchName = acc.branchId
-                                                            ? branchById.get(String(acc.branchId)) || t('money.dash')
-                                                            : t('coa.shared');
-                                                        const autoLinked = acc.isAutoSeed;
-                                                        const controlBadge = WORKSHOP_COA_CONTROL_BADGES[String(acc.code)];
-                                                        const depth = Number(acc._depth || 0);
-                                                        const hasChildren = Boolean(acc._hasChildren || acc.hasChildren);
-                                                        const isExpanded = expandedIds.has(String(acc.id)) || Boolean(searchQ);
-                                                        const bal = formatFinalBalance(acc, t);
-                                                        const ledgerClickable = isWorkshopCoaLedgerClickable(acc);
-                                                        const statusKey = `coa.status.${acc.status || 'active'}`;
-                                                        const statusLabel = t(statusKey) !== statusKey ? t(statusKey) : (acc.status || t('coa.status.active'));
-                                                        return (
-                                                            <tr
-                                                                key={acc.id}
-                                                                role={ledgerClickable ? 'button' : undefined}
-                                                                tabIndex={ledgerClickable ? 0 : undefined}
-                                                                onClick={ledgerClickable ? () => openAccountLedger(acc) : undefined}
-                                                                onKeyDown={ledgerClickable ? (e) => {
-                                                                    if (e.key === 'Enter' || e.key === ' ') {
-                                                                        e.preventDefault();
-                                                                        openAccountLedger(acc);
-                                                                    }
-                                                                } : undefined}
-                                                                className={ledgerClickable ? 'sa-acc-row-clickable' : undefined}
-                                                                style={{
-                                                                    borderBottom: '1px solid #f3f4f6',
-                                                                    background: hasChildren ? '#fafafa' : '#fff',
-                                                                    cursor: ledgerClickable ? 'pointer' : 'default',
-                                                                }}
-                                                                onMouseOver={ledgerClickable ? (e) => {
-                                                                    e.currentTarget.style.background = '#f3f4f6';
-                                                                } : undefined}
-                                                                onMouseOut={ledgerClickable ? (e) => {
-                                                                    e.currentTarget.style.background = hasChildren ? '#fafafa' : '#fff';
-                                                                } : undefined}
-                                                            >
-                                                                <td
-                                                                    style={{
-                                                                        padding: '12px',
-                                                                        color: palette.textSecondary,
-                                                                        fontFamily:
-                                                                            'ui-monospace, SFMono-Regular, Menlo, monospace',
-                                                                        width: 110,
-                                                                    }}
-                                                                >
-                                                                    {acc.code}
-                                                                </td>
-                                                                <td style={{ padding: '12px' }}>
-                                                                    <div
-                                                                        style={{
-                                                                            fontWeight: hasChildren ? 700 : 600,
-                                                                            color: palette.textPrimary,
-                                                                            display: 'flex',
-                                                                            alignItems: 'center',
-                                                                            gap: 6,
-                                                                            paddingLeft: depth * 18,
-                                                                        }}
-                                                                    >
-                                                                        {hasChildren ? (
-                                                                            <button
-                                                                                type="button"
-                                                                                onClick={(e) => toggleExpanded(acc.id, e)}
-                                                                                title={isExpanded ? 'Collapse' : 'Expand'}
-                                                                                style={{
-                                                                                    border: 'none',
-                                                                                    background: 'transparent',
-                                                                                    padding: 0,
-                                                                                    display: 'inline-flex',
-                                                                                    cursor: 'pointer',
-                                                                                    color: palette.textSecondary,
-                                                                                }}
-                                                                            >
-                                                                                {isExpanded ? (
-                                                                                    <ChevronDown size={16} />
-                                                                                ) : (
-                                                                                    <ChevronRight size={16} />
-                                                                                )}
-                                                                            </button>
-                                                                        ) : (
-                                                                            <span style={{ width: 16, display: 'inline-block' }} />
-                                                                        )}
-                                                                        {hasChildren ? (
-                                                                            isExpanded ? (
-                                                                                <FolderOpen size={15} color={palette.primary} />
-                                                                            ) : (
-                                                                                <Folder size={15} color={palette.primary} />
-                                                                            )
-                                                                        ) : null}
-                                                                        <span>{acc.name}</span>
-                                                                        {hasChildren && !controlBadge ? (
-                                                                            <span
-                                                                                style={{
-                                                                                    background: '#FEF3C7',
-                                                                                    color: '#92400E',
-                                                                                    padding: '2px 8px',
-                                                                                    borderRadius: 4,
-                                                                                    fontSize: '0.7rem',
-                                                                                    fontWeight: 600,
-                                                                                }}
-                                                                            >
-                                                                                Folder
-                                                                            </span>
-                                                                        ) : null}
-                                                                        {autoLinked && (
-                                                                            <span
-                                                                                style={{
-                                                                                    background: palette.autoBadgeBg,
-                                                                                    color: palette.autoBadgeText,
-                                                                                    padding: '2px 8px',
-                                                                                    borderRadius: 4,
-                                                                                    fontSize: '0.7rem',
-                                                                                    fontWeight: 600,
-                                                                                }}
-                                                                            >
-                                                                                {t('coa.autoLinked')}
-                                                                            </span>
-                                                                        )}
-                                                                        {controlBadge ? (
-                                                                            <span
-                                                                                style={{
-                                                                                    background: controlBadge.background,
-                                                                                    color: controlBadge.color,
-                                                                                    padding: '2px 8px',
-                                                                                    borderRadius: 4,
-                                                                                    fontSize: '0.7rem',
-                                                                                    fontWeight: 600,
-                                                                                }}
-                                                                            >
-                                                                                {t('coa.badge.control')}
-                                                                            </span>
-                                                                        ) : null}
-                                                                    </div>
-                                                                    <div
-                                                                        style={{
-                                                                            color: palette.textSecondary,
-                                                                            fontStyle: 'italic',
-                                                                            fontSize: 12,
-                                                                            marginTop: 2,
-                                                                            paddingLeft: depth * 18 + 22,
-                                                                        }}
-                                                                    >
-                                                                        {acc.description || parentName}
-                                                                    </div>
-                                                                    {isWorkshopPettyCashCoaControlAccount(acc) ? (
-                                                                        <div
-                                                                            style={{
-                                                                                color: palette.textSecondary,
-                                                                                fontSize: 11,
-                                                                                marginTop: 4,
-                                                                                paddingLeft: depth * 18 + 22,
-                                                                            }}
-                                                                        >
-                                                                            {t('coa.pettyHint')}
-                                                                        </div>
-                                                                    ) : null}
-                                                                </td>
-                                                                <td style={{ padding: '12px', color: palette.textSecondary }}>
-                                                                    {toLabel(acc.subType, t)}
-                                                                </td>
-                                                                <td style={{ padding: '12px', color: palette.textSecondary }}>
-                                                                    {branchName}
-                                                                </td>
-                                                                <td style={{ padding: '12px', color: palette.textSecondary }}>
-                                                                    {getNormalBalance(acc.type, t)}
-                                                                </td>
-                                                                <td
-                                                                    style={{
-                                                                        padding: '12px',
-                                                                        fontWeight: 600,
-                                                                        color: bal.color,
-                                                                        fontVariantNumeric: 'tabular-nums',
-                                                                        whiteSpace: 'nowrap',
-                                                                    }}
-                                                                >
-                                                                    {bal.text}
-                                                                </td>
-                                                                <td style={{ padding: '12px' }}>
-                                                                    <span
-                                                                        style={{
-                                                                            background: palette.activeBadgeBg,
-                                                                            color: palette.activeBadgeText,
-                                                                            padding: '2px 8px',
-                                                                            borderRadius: 999,
-                                                                            fontSize: 12,
-                                                                            fontWeight: 600,
-                                                                        }}
-                                                                    >
-                                                                        {statusLabel}
-                                                                    </span>
-                                                                </td>
-                                                                {!readOnly && (
-                                                                    <td
-                                                                        style={{ padding: '12px' }}
-                                                                        onClick={(e) => e.stopPropagation()}
-                                                                        onKeyDown={(e) => e.stopPropagation()}
-                                                                    >
-                                                                        {pendingDeleteId === acc.id ? (
-                                                                            <div
-                                                                                style={{
-                                                                                    display: 'flex',
-                                                                                    alignItems: 'center',
-                                                                                    gap: 8,
-                                                                                    flexWrap: 'wrap',
-                                                                                    fontSize: 12,
-                                                                                }}
-                                                                            >
-                                                                                <span>{t('coa.confirmDelete')}</span>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => onConfirmDelete(acc.id)}
-                                                                                    disabled={deleteLoadingId === acc.id}
-                                                                                    style={{
-                                                                                        border: `1px solid ${palette.delete}`,
-                                                                                        background: '#fff',
-                                                                                        color: palette.delete,
-                                                                                        borderRadius: 6,
-                                                                                        padding: '4px 8px',
-                                                                                        cursor: 'pointer',
-                                                                                    }}
-                                                                                >
-                                                                                    {deleteLoadingId === acc.id
-                                                                                        ? t('coa.deleting')
-                                                                                        : t('coa.yesDelete')}
-                                                                                </button>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => {
-                                                                                        setPendingDeleteId('');
-                                                                                        setDeleteError('');
-                                                                                    }}
-                                                                                    style={{
-                                                                                        border: `1px solid ${palette.border}`,
-                                                                                        background: '#fff',
-                                                                                        color: palette.textPrimary,
-                                                                                        borderRadius: 6,
-                                                                                        padding: '4px 8px',
-                                                                                        cursor: 'pointer',
-                                                                                    }}
-                                                                                >
-                                                                                    {t('btn.cancel')}
-                                                                                </button>
-                                                                            </div>
-                                                                        ) : (
-                                                                            <div style={{ display: 'flex', gap: 10 }}>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={() => openEdit(acc)}
-                                                                                    style={{
-                                                                                        border: 'none',
-                                                                                        background: 'transparent',
-                                                                                        color: palette.edit,
-                                                                                        cursor: 'pointer',
-                                                                                        padding: 0,
-                                                                                    }}
-                                                                                    title={t('coa.editTitle')}
-                                                                                >
-                                                                                    <Pencil size={16} />
-                                                                                </button>
-                                                                                {!autoLinked && (
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        onClick={() => {
-                                                                                            setPendingDeleteId(acc.id);
-                                                                                            setDeleteError('');
-                                                                                        }}
-                                                                                        style={{
-                                                                                            border: 'none',
-                                                                                            background: 'transparent',
-                                                                                            color: palette.delete,
-                                                                                            cursor: 'pointer',
-                                                                                            padding: 0,
-                                                                                        }}
-                                                                                        title={t('coa.deleteTitle')}
-                                                                                    >
-                                                                                        <Trash2 size={16} />
-                                                                                    </button>
-                                                                                )}
-                                                                            </div>
-                                                                        )}
-                                                                    </td>
-                                                                )}
-                                                            </tr>
-                                                        );
-                                                    })
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                );
-                            })}
+                        <div
+                            className={`coa-statement-split${coaPart !== COA_STATEMENT_PARTS.BOTH ? ' is-single' : ''}`}
+                            data-testid="coa-statement-split"
+                        >
+                            {coaPart !== COA_STATEMENT_PARTS.INCOME_STATEMENT
+                                ? renderStatementPanel(COA_STATEMENT_PARTS.BALANCE_SHEET)
+                                : null}
+                            {coaPart !== COA_STATEMENT_PARTS.BALANCE_SHEET
+                                ? renderStatementPanel(COA_STATEMENT_PARTS.INCOME_STATEMENT)
+                                : null}
                         </div>
                     )}
 
@@ -2090,220 +2160,6 @@ export default function WorkshopCOAView({
                                 </div>
                             </>
                         )}
-                    </div>
-                </div>
-            )}
-
-            {!readOnly && isModalOpen && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        background: 'rgba(0,0,0,0.5)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 9999,
-                        padding: 16,
-                    }}
-                    onClick={closeModal}
-                >
-                    <div
-                        style={{
-                            width: '100%',
-                            maxWidth: 600,
-                            background: '#fff',
-                            borderRadius: 12,
-                            padding: 32,
-                            boxSizing: 'border-box',
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: 20,
-                            }}
-                        >
-                            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: palette.textPrimary }}>
-                                {modalTitle}
-                            </h3>
-                            <button
-                                type="button"
-                                onClick={closeModal}
-                                style={{
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: palette.textSecondary,
-                                    cursor: 'pointer',
-                                    padding: 2,
-                                }}
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.code')}</label>
-                                <input
-                                    maxLength={20}
-                                    value={form.code}
-                                    onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
-                                    style={inputStyle}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.name')}</label>
-                                <input
-                                    value={form.name}
-                                    onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                                    style={inputStyle}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.type')}</label>
-                                <select
-                                    value={form.type}
-                                    onChange={(e) => onTypeChange(e.target.value)}
-                                    style={inputStyle}
-                                >
-                                    <option value="ASSET">{t('coa.type.ASSET')}</option>
-                                    <option value="LIABILITY">{t('coa.type.LIABILITY')}</option>
-                                    <option value="EQUITY">{t('coa.type.EQUITY')}</option>
-                                    <option value="INCOME">{t('coa.type.INCOME')}</option>
-                                    <option value="EXPENSE">{t('coa.type.EXPENSE')}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.subtype')}</label>
-                                <select
-                                    value={form.subType}
-                                    onChange={(e) => setForm((p) => ({ ...p, subType: e.target.value }))}
-                                    style={inputStyle}
-                                >
-                                    {subtypeOptions.map((sub) => (
-                                        <option key={sub} value={sub}>
-                                            {toLabel(sub, t)}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>
-                                    {t('coa.field.branch')}
-                                </label>
-                                <select
-                                    value={form.branchId}
-                                    onChange={(e) => setForm((p) => ({ ...p, branchId: e.target.value }))}
-                                    style={inputStyle}
-                                >
-                                    <option value="">{t('coa.field.branchShared')}</option>
-                                    {branches.map((b) => (
-                                        <option key={b.id} value={b.id}>
-                                            {b.name}
-                                        </option>
-                                    ))}
-                                </select>
-                                <div style={{ fontSize: 11, color: palette.textSecondary, marginTop: 4 }}>
-                                    {t('coa.field.branchHelp')}
-                                </div>
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.normalBal')}</label>
-                                <input
-                                    value={getNormalBalance(form.type, t)}
-                                    readOnly
-                                    style={{ ...inputStyle, background: '#f9fafb' }}
-                                />
-                            </div>
-
-                            <div style={{ gridColumn: 'span 2' }}>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.parent')}</label>
-                                <input
-                                    placeholder={t('coa.field.parentSearch')}
-                                    value={parentSearch}
-                                    onChange={(e) => setParentSearch(e.target.value)}
-                                    style={{ ...inputStyle, marginBottom: 6 }}
-                                />
-                                <select
-                                    value={form.parentId}
-                                    onChange={(e) => setForm((p) => ({ ...p, parentId: e.target.value }))}
-                                    style={inputStyle}
-                                >
-                                    <option value="">{t('coa.field.parentNone')}</option>
-                                    {parentOptions.map((acc) => (
-                                        <option key={acc.id} value={acc.id}>
-                                            {acc.code} - {acc.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.status')}</label>
-                                <select
-                                    value={form.status}
-                                    onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
-                                    style={inputStyle}
-                                >
-                                    <option value="active">{t('coa.status.active')}</option>
-                                    <option value="inactive">{t('coa.status.inactive')}</option>
-                                </select>
-                            </div>
-                            <div></div>
-
-                            <div style={{ gridColumn: 'span 2' }}>
-                                <label style={{ display: 'block', fontSize: 14, color: '#374151', marginBottom: 4 }}>{t('coa.field.description')}</label>
-                                <textarea
-                                    rows={3}
-                                    value={form.description}
-                                    onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                                    style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
-                                />
-                            </div>
-
-                            {submitError && <div style={{ gridColumn: 'span 2', color: palette.delete, fontSize: 13 }}>{submitError}</div>}
-
-                            <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                                <button
-                                    type="button"
-                                    onClick={closeModal}
-                                    disabled={submitLoading}
-                                    style={{
-                                        border: `1px solid ${palette.border}`,
-                                        background: '#fff',
-                                        padding: '10px 24px',
-                                        borderRadius: 6,
-                                        cursor: submitLoading ? 'not-allowed' : 'pointer',
-                                        opacity: submitLoading ? 0.6 : 1,
-                                    }}
-                                >
-                                    {t('btn.cancel')}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={onSubmit}
-                                    disabled={submitLoading}
-                                    style={{
-                                        border: 'none',
-                                        background: palette.primary,
-                                        color: '#fff',
-                                        padding: '10px 24px',
-                                        borderRadius: 6,
-                                        fontWeight: 600,
-                                        cursor: submitLoading ? 'not-allowed' : 'pointer',
-                                        opacity: submitLoading ? 0.6 : 1,
-                                    }}
-                                >
-                                    {submitLoading ? t('coa.saving') : editingId ? t('coa.update') : t('coa.create')}
-                                </button>
-                            </div>
-                        </div>
                     </div>
                 </div>
             )}

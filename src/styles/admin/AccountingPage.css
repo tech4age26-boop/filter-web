@@ -88,6 +88,428 @@
     font-size: 0.8125rem;
     color: #64748b;
 }
+
+/* Manager.io-style Chart of Accounts: Balance Sheet | Income Statement */
+.coa-statement-switch {
+    display: inline-flex;
+    padding: 3px;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #f8fafc;
+    gap: 2px;
+}
+.coa-statement-switch button {
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.coa-statement-switch button.is-active {
+    background: #fff;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.coa-statement-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+.coa-statement-split.is-single {
+    grid-template-columns: minmax(0, 1fr);
+}
+.coa-statement-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+    overflow: hidden;
+    min-width: 0;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.coa-statement-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.coa-statement-panel--bs .coa-statement-panel-head {
+    background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+.coa-statement-panel--pl .coa-statement-panel-head {
+    background: linear-gradient(180deg, #fffbeb 0%, #fff 100%);
+}
+.coa-statement-panel-kicker {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 4px;
+}
+.coa-statement-panel--bs .coa-statement-panel-kicker { color: #1d4ed8; }
+.coa-statement-panel--pl .coa-statement-panel-kicker { color: #b45309; }
+.coa-statement-panel-head h2 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 800;
+    color: #111827;
+}
+.coa-statement-panel-head p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #64748b;
+}
+.coa-statement-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 14px 0;
+}
+.coa-statement-chip {
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #475569;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.coa-statement-chip.is-active {
+    border-color: #d4a017;
+    background: #fffbeb;
+    color: #92400e;
+}
+.coa-statement-panel-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    padding: 12px 14px;
+}
+.coa-statement-panel-kpis.is-pl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.coa-statement-kpi {
+    border: 1px solid #eef2f7;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+}
+.coa-statement-kpi span {
+    display: block;
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+.coa-statement-kpi strong {
+    font-size: 15px;
+    font-weight: 800;
+    word-break: break-word;
+}
+.coa-statement-kpi em {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    font-style: normal;
+    color: #94a3b8;
+}
+.coa-statement-kpi--net.is-profit {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+.coa-statement-kpi--net.is-profit strong { color: #15803d; }
+.coa-statement-kpi--net.is-loss {
+    background: #fef2f2;
+    border-color: #fecaca;
+}
+.coa-statement-kpi--net.is-loss strong { color: #b91c1c; }
+.coa-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px;
+    margin: 0 0 10px;
+}
+.coa-filter-error {
+    margin: 0 0 10px;
+    color: #b91c1c;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+.coa-range-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.coa-range-field span {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+.coa-range-field input {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    background: #fff;
+    color: #111827;
+}
+@media (max-width: 900px) {
+    .coa-statement-panel-kpis.is-pl {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+.coa-vat-legend {
+    margin: 0 0 12px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.45;
+}
+.coa-vat-balance {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+}
+.coa-vat-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.coa-vat-badge--incl {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+.coa-vat-badge--excl {
+    background: #f1f5f9;
+    color: #475569;
+}
+.coa-vat-badge--vat {
+    background: #fef3c7;
+    color: #92400e;
+}
+.coa-statement-table-wrap {
+    border-top: 1px solid #e5e7eb;
+}
+.coa-statement-table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+}
+@media (max-width: 1180px) {
+    .coa-statement-split:not(.is-single) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.coa-account-page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding-bottom: 28px;
+}
+
+.coa-account-page-back {
+    margin-bottom: 20px;
+}
+
+[dir="rtl"] .coa-account-page-back svg {
+    transform: scaleX(-1);
+}
+
+.coa-account-hero {
+    margin-bottom: 24px;
+    padding: 22px 24px;
+    border-radius: 16px;
+    border: 1px solid #e5e7eb;
+    background:
+        linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.coa-account-hero.is-bs {
+    border-color: #bfdbfe;
+    background: linear-gradient(135deg, #eff6ff 0%, #ffffff 55%);
+}
+
+.coa-account-hero.is-pl {
+    border-color: #fde68a;
+    background: linear-gradient(135deg, #fffbeb 0%, #ffffff 55%);
+}
+
+.coa-account-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: #111827;
+    color: #fff;
+}
+
+.coa-account-hero.is-bs .coa-account-badge { background: #1d4ed8; }
+.coa-account-hero.is-pl .coa-account-badge { background: #b45309; }
+
+.coa-account-hero h1 {
+    margin: 10px 0 6px;
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: #111827;
+}
+
+.coa-account-hero p {
+    margin: 0;
+    max-width: 640px;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: #64748b;
+}
+
+.coa-account-section {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 22px 24px 24px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.coa-account-section h2 {
+    margin: 0 0 6px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.coa-account-section-hint,
+.coa-account-section .form-help-text {
+    margin: 0 0 14px;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: #64748b;
+}
+
+.coa-account-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 18px;
+}
+
+.coa-account-span-2 {
+    grid-column: 1 / -1;
+}
+
+.coa-account-type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin: 4px 0 18px;
+}
+
+.coa-account-type-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 14px 14px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+    cursor: pointer;
+    text-align: start;
+    color: #334155;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.coa-account-type-card strong {
+    font-size: 0.9375rem;
+    color: #111827;
+}
+
+.coa-account-type-card span {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.coa-account-type-card svg {
+    color: var(--type-color, #2563eb);
+}
+
+.coa-account-type-card:hover {
+    border-color: var(--type-color, #2563eb);
+}
+
+.coa-account-type-card.is-active {
+    border-color: var(--type-color, #2563eb);
+    background: color-mix(in srgb, var(--type-color, #2563eb) 8%, #fff);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--type-color, #2563eb) 18%, transparent);
+}
+
+.coa-account-register-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.coa-account-chip {
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    color: #334155;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.coa-account-chip.is-active {
+    background: #111827;
+    border-color: #111827;
+    color: #fff;
+}
+
+.coa-account-alert {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-size: 0.875rem;
+}
+
+.coa-account-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 0 4px;
+    background: linear-gradient(180deg, rgba(249, 250, 251, 0) 0%, #f9fafb 28%);
+}
+
+@media (max-width: 720px) {
+    .coa-account-grid {
+        grid-template-columns: 1fr;
+    }
+    .coa-account-hero h1 {
+        font-size: 1.4rem;
+    }
+}
 .sa-acc-row-clickable {
     cursor: pointer;
     transition: background 0.12s ease;

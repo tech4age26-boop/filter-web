@@ -47,6 +47,8 @@ function mapLineForExport(row) {
     return {
         date,
         coaRegister,
+        paidTo: row.counterpartyLabel || '',
+        purpose: row.offsetAccountLabel || '',
         description: row.description || '',
         reference: row.reference || row.sourceType || '',
         inAmt,
@@ -122,34 +124,38 @@ export function exportCashBankRegisterPdf({ header, summary, lines }) {
 
     const exportRows = buildExportRows(lines);
     const body = [
-        ['—', '—', 'Opening balance', '—', '', '', fmtMoney(sum.openingBalance)],
+        ['—', '—', '—', '—', 'Opening balance', '—', '', '', fmtMoney(sum.openingBalance)],
         ...exportRows.map((r) => [
             r.date,
             r.coaRegister,
+            r.paidTo,
+            r.purpose,
             r.description,
             r.reference,
             r.inAmt > 0 ? fmtMoney(r.inAmt) : '',
             r.outAmt > 0 ? fmtMoney(r.outAmt) : '',
             fmtMoney(r.balance),
         ]),
-        ['—', '—', 'Closing balance', '—', '', '', fmtMoney(sum.closingBalance)],
+        ['—', '—', '—', '—', 'Closing balance', '—', '', '', fmtMoney(sum.closingBalance)],
     ];
 
     autoTable(doc, {
         startY: cursorY,
-        head: [['Date', 'COA / Register', 'Description', 'Reference', 'IN', 'OUT', 'Balance']],
+        head: [['Date', 'COA / Register', 'Paid to / Received from', 'For / purpose', 'Description', 'Reference', 'IN', 'OUT', 'Balance']],
         body,
         margin: { left: margin, right: margin },
-        styles: { fontSize: 8.5, cellPadding: 5, overflow: 'linebreak' },
+        styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
         headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
         columnStyles: {
-            0: { cellWidth: 58 },
-            1: { cellWidth: 120 },
-            2: { cellWidth: 'auto' },
-            3: { cellWidth: 62 },
-            4: { cellWidth: 58, halign: 'right' },
-            5: { cellWidth: 58, halign: 'right' },
-            6: { cellWidth: 68, halign: 'right' },
+            0: { cellWidth: 52 },
+            1: { cellWidth: 88 },
+            2: { cellWidth: 90 },
+            3: { cellWidth: 90 },
+            4: { cellWidth: 'auto' },
+            5: { cellWidth: 56 },
+            6: { cellWidth: 50, halign: 'right' },
+            7: { cellWidth: 50, halign: 'right' },
+            8: { cellWidth: 60, halign: 'right' },
         },
         didParseCell(data) {
             const rowIdx = data.row.index;
@@ -159,9 +165,9 @@ export function exportCashBankRegisterPdf({ header, summary, lines }) {
                 data.cell.styles.fontStyle = 'bold';
                 data.cell.styles.fillColor = isOpening ? [248, 250, 252] : [255, 247, 237];
             }
-            if ((data.column.index === 4 || data.column.index === 5) && data.cell.raw) {
-                if (data.column.index === 4) data.cell.styles.textColor = [5, 150, 105];
-                if (data.column.index === 5) data.cell.styles.textColor = [220, 38, 38];
+            if ((data.column.index === 6 || data.column.index === 7) && data.cell.raw) {
+                if (data.column.index === 6) data.cell.styles.textColor = [5, 150, 105];
+                if (data.column.index === 7) data.cell.styles.textColor = [220, 38, 38];
             }
         },
     });
@@ -207,18 +213,20 @@ export function exportCashBankRegisterExcel({ header, summary, lines }) {
         ['Total Payments (OUT)', Number(sum.totalPayments ?? 0)],
         ['Closing Balance', Number(sum.closingBalance ?? 0)],
         [],
-        ['Date', 'COA / Register', 'Description', 'Reference', `IN (${currency})`, `OUT (${currency})`, `Balance (${currency})`],
-        ['—', '—', 'Opening balance', '—', '', '', Number(sum.openingBalance ?? 0)],
+        ['Date', 'COA / Register', 'Paid to / Received from', 'For / purpose', 'Description', 'Reference', `IN (${currency})`, `OUT (${currency})`, `Balance (${currency})`],
+        ['—', '—', '—', '—', 'Opening balance', '—', '', '', Number(sum.openingBalance ?? 0)],
         ...exportRows.map((r) => [
             r.date,
             r.coaRegister,
+            r.paidTo,
+            r.purpose,
             r.description,
             r.reference,
             r.inAmt > 0 ? Number(r.inAmt) : '',
             r.outAmt > 0 ? Number(r.outAmt) : '',
             Number(r.balance ?? 0),
         ]),
-        ['—', '—', 'Closing balance', '—', '', '', Number(sum.closingBalance ?? 0)],
+        ['—', '—', '—', '—', 'Closing balance', '—', '', '', Number(sum.closingBalance ?? 0)],
         [],
         ['Generated', new Date().toLocaleString()],
     ];
@@ -226,7 +234,9 @@ export function exportCashBankRegisterExcel({ header, summary, lines }) {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [
         { wch: 14 },
-        { wch: 36 },
+        { wch: 32 },
+        { wch: 26 },
+        { wch: 28 },
         { wch: 40 },
         { wch: 16 },
         { wch: 14 },

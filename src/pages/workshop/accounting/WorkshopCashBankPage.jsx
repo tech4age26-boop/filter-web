@@ -26,7 +26,15 @@ import {
 } from './workshopAccountingShared';
 import '../../../styles/admin/AccountingPage.css';
 
-export default function WorkshopCashBankPage({ branches = [] }) {
+function layoutBranchId(selectedBranchId) {
+    if (!selectedBranchId || selectedBranchId === 'all') return '';
+    return String(selectedBranchId);
+}
+
+export default function WorkshopCashBankPage({
+    branches = [],
+    selectedBranchId = 'all',
+}) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const outletCtx = useOutletContext() || {};
     const locale =
@@ -102,24 +110,33 @@ export default function WorkshopCashBankPage({ branches = [] }) {
     const [branchDefaults, setBranchDefaults] = useState({});
     const [branchDefaultsMsg, setBranchDefaultsMsg] = useState('');
 
+    const scopeBranchId = layoutBranchId(selectedBranchId);
+
     const loadAccounts = useCallback(async () => {
         setAccountsLoading(true);
         setAccountsError('');
         try {
-            const res = await listWorkshopCashBankAccounts();
+            const res = await listWorkshopCashBankAccounts(
+                scopeBranchId ? { branchId: scopeBranchId } : {},
+            );
             const list = Array.isArray(res?.accounts)
                 ? res.accounts
                 : Array.isArray(res?.data?.accounts)
                   ? res.data.accounts
                   : [];
-            setAccounts(list.map(normalizeWorkshopCashBankRow));
+            const normalized = list.map(normalizeWorkshopCashBankRow);
+            setAccounts(
+                scopeBranchId
+                    ? normalized.filter((a) => String(a.branchId) === scopeBranchId)
+                    : normalized,
+            );
         } catch (e) {
             setAccounts([]);
             setAccountsError(e?.message || t('cb.err.load'));
         } finally {
             setAccountsLoading(false);
         }
-    }, [t]);
+    }, [scopeBranchId, t]);
 
     const loadPosTerminals = useCallback(async () => {
         try {
@@ -363,6 +380,7 @@ export default function WorkshopCashBankPage({ branches = [] }) {
             <CashBankRegisterPanel
                 registerType={registerDrill.registerType}
                 initialCoaAccountId={registerDrill.coaAccountId}
+                branchId={searchParams.get('branchId') || scopeBranchId || ''}
                 onClose={closeRegisterDrill}
             />
         ) : (

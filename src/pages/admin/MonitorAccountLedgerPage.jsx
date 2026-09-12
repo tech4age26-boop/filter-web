@@ -342,6 +342,9 @@ export default function MonitorAccountLedgerPage() {
         )),
     );
 
+    const isCashRegisterLedger = Boolean(
+        data?.cashRegisterLedger && !isPettyCashExpenseLedger,
+    );
     const showExpenseCategoryFilter = isPettyCashExpenseLedger && !topupsOnly;
 
     const expenseCategoryComboboxOptions = useMemo(() => {
@@ -420,6 +423,7 @@ export default function MonitorAccountLedgerPage() {
                 onExportPdf={() => void onExportPdf()}
                 onExportExcel={() => void onExportExcel()}
                 exportDisabled={!data || loading}
+                showCashLedgerColumns={isCashRegisterLedger}
                 showPettyCashExpenseColumns={isPettyCashExpenseLedger}
                 closingBalanceKpiLabel={
                     isPettyCashExpenseLedger

@@ -59,7 +59,13 @@ export default function WorkshopAccountingPage({
                 <WorkshopCOAPage locale={locale} selectedBranchId={selectedBranchId} />
             )}
             {activeSub === 'period-closings' && <WorkshopPeriodClosingsPage locale={locale} />}
-            {activeSub === 'cash-bank' && <WorkshopCashBankPage branches={branches} locale={locale} />}
+            {activeSub === 'cash-bank' && (
+                <WorkshopCashBankPage
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    locale={locale}
+                />
+            )}
             {activeSub === 'payments' && (
                 <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />
             )}
