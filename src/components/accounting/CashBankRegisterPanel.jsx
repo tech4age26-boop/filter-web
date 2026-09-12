@@ -44,6 +44,7 @@ const REGISTER_TITLE_KEYS = {
 export default function CashBankRegisterPanel({
     registerType,
     initialCoaAccountId = '',
+    branchId = '',
     onClose,
     locale: localeProp,
 }) {
@@ -71,6 +72,7 @@ export default function CashBankRegisterPanel({
                 coaAccountId: coaAccountId || undefined,
                 dateFrom,
                 dateTo,
+                branchId: branchId || undefined,
             });
             setData(res);
         } catch (e) {
@@ -79,7 +81,7 @@ export default function CashBankRegisterPanel({
         } finally {
             setLoading(false);
         }
-    }, [registerType, coaAccountId, dateFrom, dateTo, t]);
+    }, [registerType, coaAccountId, dateFrom, dateTo, branchId, t]);
 
     useEffect(() => {
         load();
@@ -300,6 +302,8 @@ export default function CashBankRegisterPanel({
                         <tr>
                             <th>{t('register.th.date')}</th>
                             <th>{t('register.th.coaReg')}</th>
+                            <th>{t('register.th.paidTo')}</th>
+                            <th>{t('register.th.purpose')}</th>
                             <th>{t('register.th.desc')}</th>
                             <th>{t('register.th.ref')}</th>
                             <th style={{ textAlign: 'right' }}>{t('register.th.in')}</th>
@@ -309,16 +313,16 @@ export default function CashBankRegisterPanel({
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={7} className="table-cell table-empty">{t('register.loading')}</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">{t('register.loading')}</td></tr>
                         ) : (
                             <>
                                 <tr className="cash-bank-register-opening-row">
-                                    <td colSpan={6}><strong>{t('register.openingRow')}</strong></td>
+                                    <td colSpan={8}><strong>{t('register.openingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.openingBalance)}</td>
                                 </tr>
                                 {filteredLines.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="table-cell table-empty">
+                                        <td colSpan={9} className="table-cell table-empty">
                                             {emptyMessage}
                                         </td>
                                     </tr>
@@ -331,6 +335,12 @@ export default function CashBankRegisterPanel({
                                                     {row.coaCode ? `[${row.coaCode}] ${row.coaName}` : row.accountName}
                                                 </div>
                                                 <div style={{ fontSize: 12, color: '#64748b' }}>{row.accountName}</div>
+                                            </td>
+                                            <td title={row.counterpartyLabel || ''}>
+                                                {row.counterpartyLabel || '—'}
+                                            </td>
+                                            <td title={row.offsetAccountLabel || ''}>
+                                                {row.offsetAccountLabel || '—'}
                                             </td>
                                             <td>{row.description || '—'}</td>
                                             <td>{row.reference || row.sourceType || '—'}</td>
@@ -345,7 +355,7 @@ export default function CashBankRegisterPanel({
                                     ))
                                 )}
                                 <tr className="cash-bank-register-closing-row">
-                                    <td colSpan={6}><strong>{t('register.closingRow')}</strong></td>
+                                    <td colSpan={8}><strong>{t('register.closingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.closingBalance)}</td>
                                 </tr>
                             </>

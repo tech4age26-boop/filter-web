@@ -35,6 +35,8 @@ import WorkshopCommissions from './workshop/WorkshopCommissions';
 import WorkshopInventory from './workshop/WorkshopInventory';
 import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
 import WorkshopAccountLedgerPage from './workshop/accounting/WorkshopAccountLedgerPage';
+import WorkshopCoaAccountPage from './workshop/accounting/WorkshopCoaAccountPage';
+import { parseWorkshopCoaAccountFormFromPath } from './workshop/workshopCoaAccountRouting';
 import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
 import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
 import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
@@ -62,7 +64,7 @@ import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
 /** Tabs reachable by in-app navigation but not listed in the sidebar. */
-const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement', 'advanced-reports-drilldown']);
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement', 'acc-coa-account', 'advanced-reports-drilldown']);
 
 function parseLedgerTabStateFromSearch(search) {
     const params = new URLSearchParams(search || '');
@@ -179,6 +181,9 @@ export default function WorkshopLayout() {
         if (main === 'accounting' && sub) {
             if (sub === 'ledger' && parts[3]) {
                 return 'acc-ledger-statement';
+            }
+            if (sub === 'chart-of-accounts' && (parts[3] === 'new' || parts[4] === 'edit')) {
+                return 'acc-coa-account'; // full-page create/edit
             }
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
@@ -532,6 +537,7 @@ export default function WorkshopLayout() {
             case 'acc-vat':
                 return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'acc-ledger-statement': return <WorkshopAccountLedgerPage locale={locale} />;
+            case 'acc-coa-account': return <WorkshopCoaAccountPage locale={locale} selectedBranchId={selectedBranch} />;
             case 'sap-overview':
             case 'sap-expenses':
             case 'sap-requests':
@@ -727,7 +733,7 @@ export default function WorkshopLayout() {
         if (id === 'commissions') return lt('nav.commissions');
         if (id === 'branches') return lt('nav.branches');
         if (id === 'accounting') return lt('nav.accounting');
-        if (id === 'acc-chart') return accT(locale, 'tab.coa');
+        if (id === 'acc-chart' || id === 'acc-coa-account') return accT(locale, 'tab.coa');
         if (id === 'acc-cash') return accT(locale, 'tab.cashBank');
         if (id === 'acc-transactions') return accT(locale, 'tab.transactions');
         if (id === 'acc-journal') return accT(locale, 'tab.journal');
@@ -747,6 +753,12 @@ export default function WorkshopLayout() {
             ? lt('nav.supplierLedger')
             : activeTab === 'acc-ledger-statement'
                 ? accT(locale, 'tab.ledger')
+                : activeTab === 'acc-coa-account'
+                ? `${accT(locale, 'tab.coa')} — ${
+                    parseWorkshopCoaAccountFormFromPath(location.pathname)?.mode === 'edit'
+                        ? accT(locale, 'coa.page.editTitle')
+                        : accT(locale, 'coa.page.newTitle')
+                }`
                 : activeTab.startsWith('sap-')
                 ? `${lt('nav.staffApp')} — ${navLabelFor(activeTab, '')}`
                 : activeTab.startsWith('acc-')
@@ -817,7 +829,9 @@ export default function WorkshopLayout() {
                     {visibleNavItems.map((item) => {
                         const hasSub = item.subItems?.length > 0;
                         const isOpen = openMenus[item.id];
-                        const isActiveParent = activeTab === item.id || (hasSub && item.subItems.some(s => s.id === activeTab));
+                        const isActiveParent = activeTab === item.id
+                            || (hasSub && item.subItems.some((s) => s.id === activeTab))
+                            || (item.id === 'accounting' && activeTab === 'acc-coa-account');
                         
                         return (
                             <div key={item.id} className="ws-nav-item-group">
@@ -852,26 +866,30 @@ export default function WorkshopLayout() {
                                                 exit={{ height: 0, opacity: 0 }}
                                                 style={{ overflow: 'hidden', paddingLeft: '28px', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}
                                             >
-                                                {item.subItems.map(sub => (
+                                                {item.subItems.map(sub => {
+                                                    const subActive = activeTab === sub.id
+                                                        || (sub.id === 'acc-chart' && activeTab === 'acc-coa-account');
+                                                    return (
                                                     <button
                                                         key={sub.id}
-                                                        className={`ws-nav-btn ws-nav-sub-btn ${activeTab === sub.id ? 'active' : ''}`}
+                                                        className={`ws-nav-btn ws-nav-sub-btn ${subActive ? 'active' : ''}`}
                                                         onClick={() => handleTabChange(sub.id)}
                                                         style={{
                                                             padding: '10px 12px',
                                                             fontSize: '0.875rem',
-                                                            textDecoration: activeTab === sub.id ? 'underline' : 'none',
+                                                            textDecoration: subActive ? 'underline' : 'none',
                                                             border: 'none',
                                                             borderRadius: '6px',
                                                             textAlign: 'left',
                                                             cursor: 'pointer',
                                                             display: 'block',
-                                                            opacity: activeTab === sub.id ? 1 : 0.7
+                                                            opacity: subActive ? 1 : 0.7
                                                         }}
                                                     >
                                                         {navLabelFor(sub.id, sub.label)}
                                                     </button>
-                                                ))}
+                                                    );
+                                                })}
                                             </motion.div>
                                         )}
                                     </AnimatePresence>

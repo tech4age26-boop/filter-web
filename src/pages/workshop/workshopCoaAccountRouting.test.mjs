@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import {
+    buildWorkshopCoaAccountCreateUrl,
+    buildWorkshopCoaAccountEditUrl,
     filterWorkshopPettyCashCoaList,
     isWorkshopPettyCashCoaCollapsedChild,
     isWorkshopPettyCashCoaControlAccount,
     isWorkshopPettyCashLedgerAccount,
+    parseWorkshopCoaAccountFormFromPath,
     pruneWorkshopPettyCashCoaTree,
 } from './workshopCoaAccountRouting.js';
 
@@ -41,5 +44,26 @@ const tree = pruneWorkshopPettyCashCoaTree([
 assert.equal(tree.length, 1);
 assert.equal(tree[0].code, '1280');
 assert.equal(tree[0].children.length, 0);
+
+assert.equal(
+    buildWorkshopCoaAccountCreateUrl({ type: 'INCOME', statement: 'pl' }),
+    '/workshop/accounting/chart-of-accounts/new?type=INCOME&statement=pl',
+);
+assert.equal(
+    buildWorkshopCoaAccountEditUrl('109'),
+    '/workshop/accounting/chart-of-accounts/109/edit',
+);
+assert.deepEqual(
+    parseWorkshopCoaAccountFormFromPath('/workshop/accounting/chart-of-accounts/new'),
+    { mode: 'new', accountId: '' },
+);
+assert.deepEqual(
+    parseWorkshopCoaAccountFormFromPath('/workshop/accounting/chart-of-accounts/88/edit'),
+    { mode: 'edit', accountId: '88' },
+);
+assert.equal(
+    parseWorkshopCoaAccountFormFromPath('/workshop/accounting/chart-of-accounts'),
+    null,
+);
 
 console.log('workshopCoaAccountRouting tests passed');

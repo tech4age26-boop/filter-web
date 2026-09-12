@@ -35,6 +35,7 @@ export function isCashOrBankCoaAccount(account) {
     const code = accountCode(account);
     if (!code || code === '1000' || code === '1010') return false;
     if (code === '1004') return false;
+    if (/^CB[-_]/i.test(code)) return true;
     if (/^100\d/i.test(code)) return true;
     if (/^101\d/i.test(code)) return true;
     return false;
