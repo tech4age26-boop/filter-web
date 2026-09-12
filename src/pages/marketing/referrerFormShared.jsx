@@ -47,8 +47,11 @@ export function buildReferrerPayload(form) {
     phone: form.mobile.trim() || undefined,
     email: form.email.trim() || undefined,
     nationalId: form.nationalId.trim() || undefined,
+    national_id: form.nationalId.trim() || undefined,
     bankName: form.bankName.trim() || undefined,
+    bank_name: form.bankName.trim() || undefined,
     iban: form.iban.trim() || undefined,
+    bankIban: form.iban.trim() || undefined,
     status: normalizeStatus(form.status),
     notes: form.notes.trim() || undefined,
   };

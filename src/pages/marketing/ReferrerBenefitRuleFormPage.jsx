@@ -1,21 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import {
-  marketingCreateCommissionRule,
+  marketingCreateBenefitRule,
   marketingListReferrers,
 } from '../../services/superAdminMarketingApi';
-import { mktRefCategoryLabel, mktRefT } from '../../utils/marketingReferrersI18n';
+import { mktRefT } from '../../utils/marketingReferrersI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
 import { InputField, SelectField, TextAreaField } from './referrerFormShared';
 import './MarketingUniversal.css';
 
-const CATEGORY_VALUES = ['Individual', 'Corporate', 'Technician', 'Employee'];
 const ALL_REFERRERS = 'All Referrers';
-const ALL_CATEGORIES = 'All Categories';
-const ALL_CUSTOMERS = 'All Customers';
 
-export default function ReferrerCommissionRuleFormPage() {
+export default function ReferrerBenefitRuleFormPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const outletCtx = useOutletContext() || {};
@@ -25,20 +22,17 @@ export default function ReferrerCommissionRuleFormPage() {
     (typeof localStorage !== 'undefined' ? localStorage.getItem('marketing-locale') : null) ||
     'en';
   const t = useCallback((key, vars) => mktRefT(locale, key, vars), [locale]);
-  const listPath = `${marketingSectionPath(location.pathname, 'referrer-management')}?tab=rules`;
+  const listPath = `${marketingSectionPath(location.pathname, 'referrer-management')}?tab=benefits`;
 
   const [referrers, setReferrers] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     referrer: ALL_REFERRERS,
-    category: ALL_CATEGORIES,
-    customerType: ALL_CUSTOMERS,
-    service: '',
-    commissionType: 'percentage',
-    value: '',
-    effectiveFrom: '',
-    effectiveTo: '',
+    oncePerCustomer: 'true',
+    discountType: 'percentage',
+    discountValue: '',
+    minOrderValue: '0',
     notes: '',
   });
 
@@ -66,29 +60,26 @@ export default function ReferrerCommissionRuleFormPage() {
   ];
 
   const save = async () => {
-    const value = Number(form.value);
-    if (!Number.isFinite(value) || value <= 0) {
-      setError(t('ruleForm.valueRequired'));
+    const discountValue = Number(form.discountValue);
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      setError(t('benefitForm.valueRequired'));
       return;
     }
 
     setSaving(true);
     setError('');
     try {
-      await marketingCreateCommissionRule({
+      await marketingCreateBenefitRule({
         referrerId: form.referrer === ALL_REFERRERS ? null : form.referrer,
-        category: form.category === ALL_CATEGORIES ? null : form.category,
-        customerType: form.customerType === ALL_CUSTOMERS ? null : form.customerType,
-        service: form.service.trim() || null,
-        commissionType: form.commissionType,
-        value,
-        effectiveFrom: form.effectiveFrom || null,
-        effectiveTo: form.effectiveTo || null,
+        oncePerCustomer: form.oncePerCustomer === 'true',
+        discountType: form.discountType,
+        discountValue,
+        minOrderValue: Number(form.minOrderValue) || 0,
         notes: form.notes.trim() || null,
       });
       goBack();
     } catch (err) {
-      setError(err?.message || t('err.saveRule'));
+      setError(err?.message || t('err.saveBenefit'));
     } finally {
       setSaving(false);
     }
@@ -96,9 +87,9 @@ export default function ReferrerCommissionRuleFormPage() {
 
   return (
     <MarketingFormShell
-      title={t('ruleForm.title')}
-      subtitle={t('ruleForm.subtitle')}
-      backLabel={t('ruleForm.back')}
+      title={t('benefitForm.title')}
+      subtitle={t('benefitForm.subtitle')}
+      backLabel={t('benefitForm.back')}
       onBack={goBack}
       className="mk-page mkp-form-page"
     >
@@ -107,62 +98,44 @@ export default function ReferrerCommissionRuleFormPage() {
 
         <div className="mk-ref-form-grid">
           <SelectField
-            label={t('ruleForm.referrer')}
+            label={t('benefitForm.referrer')}
             value={form.referrer}
             onChange={(value) => setForm((prev) => ({ ...prev, referrer: value }))}
             options={referrerOptions}
           />
           <SelectField
-            label={t('ruleForm.category')}
-            value={form.category}
-            onChange={(value) => setForm((prev) => ({ ...prev, category: value }))}
+            label={t('benefitForm.once')}
+            value={form.oncePerCustomer}
+            onChange={(value) => setForm((prev) => ({ ...prev, oncePerCustomer: value }))}
             options={[
-              { value: ALL_CATEGORIES, label: t('ruleForm.allCategories') },
-              ...CATEGORY_VALUES.map((value) => ({
-                value,
-                label: mktRefCategoryLabel(locale, value),
-              })),
+              { value: 'true', label: t('benefitForm.onceYes') },
+              { value: 'false', label: t('benefitForm.onceNo') },
             ]}
           />
           <SelectField
-            label={t('ruleForm.customerType')}
-            value={form.customerType}
-            onChange={(value) => setForm((prev) => ({ ...prev, customerType: value }))}
-            options={[{ value: ALL_CUSTOMERS, label: t('ruleForm.allCustomers') }]}
-          />
-          <InputField
-            label={t('ruleForm.service')}
-            value={form.service}
-            onChange={(value) => setForm((prev) => ({ ...prev, service: value }))}
-            placeholder={t('ruleForm.servicePh')}
-          />
-          <SelectField
-            label={t('ruleForm.commissionType')}
-            value={form.commissionType}
-            onChange={(value) => setForm((prev) => ({ ...prev, commissionType: value }))}
+            label={t('benefitForm.discountType')}
+            value={form.discountType}
+            onChange={(value) => setForm((prev) => ({ ...prev, discountType: value }))}
             options={[
               { value: 'percentage', label: t('ruleForm.percentage') },
               { value: 'fixed', label: t('ruleForm.fixed') },
             ]}
           />
           <InputField
-            label={form.commissionType === 'fixed' ? t('ruleForm.valueSar') : t('ruleForm.value')}
-            value={form.value}
-            onChange={(value) => setForm((prev) => ({ ...prev, value }))}
+            label={
+              form.discountType === 'fixed' ? t('benefitForm.valueSar') : t('benefitForm.value')
+            }
+            value={form.discountValue}
+            onChange={(value) => setForm((prev) => ({ ...prev, discountValue: value }))}
             placeholder={t('ruleForm.valuePh')}
             type="number"
           />
           <InputField
-            label={t('ruleForm.from')}
-            value={form.effectiveFrom}
-            onChange={(value) => setForm((prev) => ({ ...prev, effectiveFrom: value }))}
-            type="date"
-          />
-          <InputField
-            label={t('ruleForm.to')}
-            value={form.effectiveTo}
-            onChange={(value) => setForm((prev) => ({ ...prev, effectiveTo: value }))}
-            type="date"
+            label={t('benefitForm.minOrder')}
+            value={form.minOrderValue}
+            onChange={(value) => setForm((prev) => ({ ...prev, minOrderValue: value }))}
+            placeholder={t('benefitForm.minOrderPh')}
+            type="number"
           />
           <TextAreaField
             label={t('form.notes')}
@@ -176,7 +149,7 @@ export default function ReferrerCommissionRuleFormPage() {
             {t('form.cancel')}
           </button>
           <button type="button" className="mk-ref-primary-btn" onClick={save} disabled={saving}>
-            {saving ? t('form.saving') : t('ruleForm.save')}
+            {saving ? t('form.saving') : t('benefitForm.save')}
           </button>
         </div>
       </div>

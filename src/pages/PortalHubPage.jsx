@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, ChevronRight, Loader, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import '../styles/SignInPage.css';
 import {
@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
 import { firstVisibleAdminPath, isLockerOnlyPortalUser, isWorkshopPortalUser, workshopLandingPath } from '../utils/permissions';
+import { captureReferralCodeFromSearch, publicReferralSharePath } from '../utils/referralCodeCapture';
 
 /**
  * Unified sign-in hub.
@@ -67,6 +68,7 @@ const PORTAL_LANDING = {
 
 export default function PortalHubPage() {
     const navigate = useNavigate();
+    const location = useLocation();
     const { login } = useAuth();
     const [portalId, setPortalId] = useState('workshop');
     const [email, setEmail] = useState('');
@@ -74,6 +76,11 @@ export default function PortalHubPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const code = captureReferralCodeFromSearch(location.search);
+        if (code) navigate(publicReferralSharePath(code), { replace: true });
+    }, [location.search, navigate]);
 
     const portalName =
         PORTAL_OPTIONS.find((p) => p.id === portalId)?.name || 'Portal';

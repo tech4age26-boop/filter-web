@@ -76,7 +76,7 @@ export default function ReferrerFormPage() {
             nationalId: item.nationalId || item.national_id || '',
             status: matchedStatus,
             bankName: item.bankName || item.bank_name || '',
-            iban: item.iban || '',
+            iban: item.iban || item.bankIban || item.bank_iban || '',
             notes: item.notes || '',
           });
         }

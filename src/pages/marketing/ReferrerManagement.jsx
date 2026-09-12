@@ -22,12 +22,19 @@ import {
   Scale,
   RefreshCw,
   Trash2,
+  Gift,
 } from 'lucide-react';
 import {
   marketingDeleteReferrer,
+  marketingDeleteCommissionRule,
+  marketingDeleteBenefitRule,
   marketingGetReferralCommissionsDashboard,
   marketingGetReferralManagementDashboard,
+  marketingListBenefitRules,
+  marketingListCommissionRules,
+  marketingListReferrerPayoutRequests,
   marketingListReferrers,
+  marketingUpdateReferrerPayoutRequest,
 } from '../../services/superAdminMarketingApi';
 import {
   mktRefCategoryLabel,
@@ -43,6 +50,7 @@ const TAB_IDS = [
   { id: 'referrers', icon: Users, labelKey: 'tab.referrers' },
   { id: 'tracker', icon: ListChecks, labelKey: 'tab.tracker' },
   { id: 'rules', icon: SlidersHorizontal, labelKey: 'tab.rules' },
+  { id: 'benefits', icon: Gift, labelKey: 'tab.benefits' },
   { id: 'payout', icon: CreditCard, labelKey: 'tab.payout' },
   { id: 'journals', icon: BookOpen, labelKey: 'tab.journals' },
 ];
@@ -187,6 +195,24 @@ function extractReferrals(payload, locale) {
   return rows.map((row) => normalizeReferral(row, locale));
 }
 
+function extractList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.rules)) return payload.rules;
+  if (Array.isArray(payload?.payouts)) return payload.payouts;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
+}
+
+function moneyKindLabel(locale, type, value) {
+  const n = Number(value);
+  const amount = Number.isFinite(n) ? n : 0;
+  if (String(type || '').toLowerCase().includes('fix')) {
+    return mktRefFormatSar(locale, amount);
+  }
+  return `${amount}%`;
+}
+
 const StatCard = ({ icon: Icon, title, value, sub, tone = 'blue' }) => (
   <div className="mk-ref-stat-card">
     <div className={`mk-ref-stat-icon mk-ref-icon-${tone}`}>
@@ -261,6 +287,9 @@ export const ReferrerManagement = () => {
   const [referrersData, setReferrersData] = useState([]);
   const [payableSummary, setPayableSummary] = useState([]);
   const [referrals, setReferrals] = useState([]);
+  const [commissionRules, setCommissionRules] = useState([]);
+  const [benefitRules, setBenefitRules] = useState([]);
+  const [payoutRequests, setPayoutRequests] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState('');
@@ -278,22 +307,27 @@ export const ReferrerManagement = () => {
     setError('');
 
     try {
-      const [dashboardRes, referrersRes, commissionsRes] = await Promise.all([
-        marketingGetReferralManagementDashboard({
-          recentReferrals: 20,
-          recentReferrers: 20,
-        }).catch(() => null),
+      const [dashboardRes, referrersRes, commissionsRes, rulesRes, benefitsRes, payoutsRes] =
+        await Promise.all([
+          marketingGetReferralManagementDashboard({
+            recentReferrals: 20,
+            recentReferrers: 20,
+          }).catch(() => null),
 
-        marketingListReferrers({
-          limit: 100,
-          offset: 0,
-          status: 'all',
-        }).catch(() => null),
+          marketingListReferrers({
+            limit: 100,
+            offset: 0,
+            status: 'all',
+          }).catch(() => null),
 
-        marketingGetReferralCommissionsDashboard({
-          tableLimit: 100,
-        }).catch(() => null),
-      ]);
+          marketingGetReferralCommissionsDashboard({
+            tableLimit: 100,
+          }).catch(() => null),
+
+          marketingListCommissionRules().catch(() => null),
+          marketingListBenefitRules().catch(() => null),
+          marketingListReferrerPayoutRequests().catch(() => null),
+        ]);
 
       const referrers = extractReferrers(referrersRes, locale);
       const recentReferrers = extractReferrers(dashboardRes, locale);
@@ -303,6 +337,9 @@ export const ReferrerManagement = () => {
       setReferrersData(referrers.length ? referrers : recentReferrers);
       setPayableSummary(payable);
       setReferrals(recentReferrals);
+      setCommissionRules(extractList(rulesRes));
+      setBenefitRules(extractList(benefitsRes));
+      setPayoutRequests(extractList(payoutsRes));
     } catch (err) {
       setError(err?.message || t('err.load'));
     } finally {
@@ -345,12 +382,14 @@ export const ReferrerManagement = () => {
       totalPayable,
       totalPaid,
       pendingCommission,
-      pendingPayoutRequests: 0,
+      pendingPayoutRequests: payoutRequests.filter((item) =>
+        String(item.status || '').toLowerCase() === 'pending',
+      ).length,
       referralsUnderReview: referrals.filter((item) =>
         ['pending', 'under_review'].includes(String(item.status || '').toLowerCase()),
       ).length,
     };
-  }, [referrersData, payableSummary, referrals]);
+  }, [referrersData, payableSummary, referrals, payoutRequests]);
 
   const filteredReferrers = useMemo(() => {
     const q = searchReferrer.trim().toLowerCase();
@@ -389,6 +428,44 @@ export const ReferrerManagement = () => {
       await loadReferrerManagement();
     } catch (err) {
       alert(err?.message || t('err.delete'));
+    } finally {
+      setActionLoadingId('');
+    }
+  };
+
+  const deleteCommissionRule = async (item) => {
+    if (!window.confirm(t('confirm.deleteRule'))) return;
+    try {
+      setActionLoadingId(`c-${item.id}`);
+      await marketingDeleteCommissionRule(item.id);
+      await loadReferrerManagement();
+    } catch (err) {
+      alert(err?.message || t('err.deleteRule'));
+    } finally {
+      setActionLoadingId('');
+    }
+  };
+
+  const deleteBenefitRule = async (item) => {
+    if (!window.confirm(t('confirm.deleteRule'))) return;
+    try {
+      setActionLoadingId(`b-${item.id}`);
+      await marketingDeleteBenefitRule(item.id);
+      await loadReferrerManagement();
+    } catch (err) {
+      alert(err?.message || t('err.deleteRule'));
+    } finally {
+      setActionLoadingId('');
+    }
+  };
+
+  const updatePayoutStatus = async (item, status) => {
+    try {
+      setActionLoadingId(`p-${item.id}`);
+      await marketingUpdateReferrerPayoutRequest(item.id, { status });
+      await loadReferrerManagement();
+    } catch (err) {
+      alert(err?.message || t('err.load'));
     } finally {
       setActionLoadingId('');
     }
@@ -693,15 +770,136 @@ export const ReferrerManagement = () => {
               <th>{t('th.commission')}</th>
               <th>{t('th.effective')}</th>
               <th>{t('th.status')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
           </thead>
 
           <tbody>
+            {commissionRules.length === 0 ? (
+              <tr>
+                <td colSpan="8" className="mk-ref-empty-table">
+                  {t('empty.rules')}
+                </td>
+              </tr>
+            ) : (
+              commissionRules.map((item) => (
+                <tr key={item.id}>
+                  <td className="mk-ref-td-strong">
+                    {item.referrerName || t('scope.global')}
+                  </td>
+                  <td>{item.category || t('dash')}</td>
+                  <td>{item.customerType || t('dash')}</td>
+                  <td>{item.service || t('dash')}</td>
+                  <td>{moneyKindLabel(locale, item.commissionType, item.value)}</td>
+                  <td>
+                    {item.effectiveFrom || item.effectiveTo
+                      ? `${
+                          item.effectiveFrom
+                            ? new Date(item.effectiveFrom).toLocaleDateString(dateLocale)
+                            : t('dash')
+                        } – ${
+                          item.effectiveTo
+                            ? new Date(item.effectiveTo).toLocaleDateString(dateLocale)
+                            : t('dash')
+                        }`
+                      : t('dash')}
+                  </td>
+                  <td>
+                    <span className={`mk-ref-status-badge ${item.isActive ? 'active' : 'inactive'}`}>
+                      {mktRefStatusLabel(locale, item.isActive ? 'active' : 'inactive')}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="mk-ref-icon-btn mk-ref-icon-btn-danger"
+                      disabled={actionLoadingId === `c-${item.id}`}
+                      onClick={() => deleteCommissionRule(item)}
+                    >
+                      <Trash2 size={15} strokeWidth={2} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
+    </>
+  );
+
+  const renderBenefits = () => (
+    <>
+      <div className="mk-ref-section-header">
+        <div>
+          <h2 className="mk-ref-section-title">{t('benefits.title')}</h2>
+          <p className="mk-ref-section-subtitle">{t('benefits.subtitle')}</p>
+        </div>
+
+        <button
+          type="button"
+          className="mk-ref-primary-btn"
+          onClick={() => navigate(`${basePath}/benefit-rules/new`)}
+        >
+          <Plus size={15} strokeWidth={2.4} />
+          {t('btn.addBenefit')}
+        </button>
+      </div>
+
+      <div className="mk-ref-info-banner">
+        <Info size={15} strokeWidth={2.2} />
+        <span>
+          <strong>{t('benefits.priority')}</strong>
+          {t('benefits.priorityBody')}
+        </span>
+      </div>
+
+      <section className="mk-card mk-ref-table-card">
+        <table className="mk-ref-table">
+          <thead>
             <tr>
-              <td colSpan="7" className="mk-ref-empty-table">
-                {t('empty.rules')}
-              </td>
+              <th>{t('th.scope')}</th>
+              <th>{t('th.discount')}</th>
+              <th>{t('th.minOrder')}</th>
+              <th>{t('th.once')}</th>
+              <th>{t('th.status')}</th>
+              <th>{t('th.actions')}</th>
             </tr>
+          </thead>
+          <tbody>
+            {benefitRules.length === 0 ? (
+              <tr>
+                <td colSpan="6" className="mk-ref-empty-table">
+                  {t('empty.benefits')}
+                </td>
+              </tr>
+            ) : (
+              benefitRules.map((item) => (
+                <tr key={item.id}>
+                  <td className="mk-ref-td-strong">
+                    {item.referrerName || t('scope.global')}
+                  </td>
+                  <td>{moneyKindLabel(locale, item.discountType, item.discountValue)}</td>
+                  <td>{formatSar(item.minOrderValue)}</td>
+                  <td>{item.oncePerCustomer ? t('yes') : t('no')}</td>
+                  <td>
+                    <span className={`mk-ref-status-badge ${item.isActive ? 'active' : 'inactive'}`}>
+                      {mktRefStatusLabel(locale, item.isActive ? 'active' : 'inactive')}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="mk-ref-icon-btn mk-ref-icon-btn-danger"
+                      disabled={actionLoadingId === `b-${item.id}`}
+                      onClick={() => deleteBenefitRule(item)}
+                    >
+                      <Trash2 size={15} strokeWidth={2} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </section>
@@ -715,15 +913,6 @@ export const ReferrerManagement = () => {
           <h2 className="mk-ref-section-title">{t('payout.title')}</h2>
           <p className="mk-ref-section-subtitle">{t('payout.subtitle')}</p>
         </div>
-
-        <button
-          type="button"
-          className="mk-ref-primary-btn"
-          onClick={() => navigate(`${basePath}/payouts/new`)}
-        >
-          <Plus size={15} strokeWidth={2.4} />
-          {t('btn.newPayout')}
-        </button>
       </div>
 
       <section className="mk-card mk-ref-table-card">
@@ -734,7 +923,6 @@ export const ReferrerManagement = () => {
               <th>{t('th.referrer')}</th>
               <th>{t('th.amount')}</th>
               <th>{t('th.method')}</th>
-              <th>{t('th.journalEntry')}</th>
               <th>{t('th.status')}</th>
               <th>{t('th.date')}</th>
               <th>{t('th.actions')}</th>
@@ -742,11 +930,60 @@ export const ReferrerManagement = () => {
           </thead>
 
           <tbody>
-            <tr>
-              <td colSpan="8" className="mk-ref-empty-table">
-                {t('empty.payouts')}
-              </td>
-            </tr>
+            {payoutRequests.length === 0 ? (
+              <tr>
+                <td colSpan="7" className="mk-ref-empty-table">
+                  {t('empty.payouts')}
+                </td>
+              </tr>
+            ) : (
+              payoutRequests.map((item) => {
+                const status = String(item.status || 'pending').toLowerCase();
+                const pending = status === 'pending';
+                return (
+                  <tr key={item.id}>
+                    <td className="mk-ref-id-text">{item.id}</td>
+                    <td className="mk-ref-td-strong">{item.referrerName || t('dash')}</td>
+                    <td>{formatSar(item.amount)}</td>
+                    <td>{item.method || t('dash')}</td>
+                    <td>
+                      <span className={`mk-ref-status-badge ${status === 'approved' || status === 'paid' ? 'active' : status}`}>
+                        {mktRefStatusLabel(locale, status)}
+                      </span>
+                    </td>
+                    <td>
+                      {item.createdAt
+                        ? new Date(item.createdAt).toLocaleDateString(dateLocale)
+                        : t('dash')}
+                    </td>
+                    <td>
+                      {pending ? (
+                        <div className="mk-ref-actions">
+                          <button
+                            type="button"
+                            className="mk-ref-primary-btn"
+                            disabled={actionLoadingId === `p-${item.id}`}
+                            onClick={() => updatePayoutStatus(item, 'approved')}
+                          >
+                            {t('btn.approve')}
+                          </button>
+                          <button
+                            type="button"
+                            className="mk-ref-secondary-btn"
+                            disabled={actionLoadingId === `p-${item.id}`}
+                            onClick={() => updatePayoutStatus(item, 'rejected')}
+                          >
+                            {t('btn.reject')}
+                          </button>
+                        </div>
+                      ) : (
+                        t('dash')
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </section>
@@ -911,6 +1148,7 @@ export const ReferrerManagement = () => {
       {activeTab === 'referrers' && renderReferrers()}
       {activeTab === 'tracker' && renderTracker()}
       {activeTab === 'rules' && renderRules()}
+      {activeTab === 'benefits' && renderBenefits()}
       {activeTab === 'payout' && renderPayout()}
       {activeTab === 'journals' && renderJournals()}
     </div>

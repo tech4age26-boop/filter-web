@@ -348,6 +348,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                     invoiceDate: new Date().toISOString(),
                     ...(localPayments.method ? { paymentMethod: localPayments.method } : {}),
                     payments: paymentsOut,
+                    ...(selected.referralCode ? { referralCode: selected.referralCode } : {}),
                 })
             });
 
@@ -469,8 +470,9 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
             createdAt: src.createdAt,
             odometer: src.odometerReading || src.odometer || '',
             vehicleInfo: src.vehicle ? `${src.vehicle.make || ''} ${src.vehicle.model || ''} ${src.vehicle.year || ''}`.trim() : '',
-            customerMobile: src.customer?.mobile || '',
-            customerTaxId: src.customer?.taxId || '',
+            customerMobile: src.customer?.mobile || src.customerMobile || src.customerPhone || src.phone || '',
+            customerTaxId: src.customer?.taxId || src.customerTaxId || src.vatNumber || '',
+            referralCode: src.referralCode || '',
             linesIncluded: src.linesIncluded !== false,
         };
         });
@@ -1037,6 +1039,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                     phone: selected?.customerMobile,
                     email: selected?.customerEmail,
                     vatNumber: selected?.vatNumber,
+                    referralCode: selected?.referralCode,
                     odometerReading: selected?.odometerReading,
                     vin: selected?.vin,
                     vehicleNumber: selected?.plateNumber,
@@ -1058,6 +1061,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                                 customerName: data.name,
                                 mobile: data.phone,
                                 vatNumber: data.vatNumber,
+                                referralCode: data.referralCode || undefined,
                                 vehicleNumber: data.vehicleNumber,
                                 make: data.make,
                                 model: data.model,
@@ -1071,7 +1075,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                         setActiveModal(null);
                     } catch (e) {
                         console.error('Failed to save billing info:', e);
-                        alert('Failed to save billing info. Please try again.');
+                        alert(e?.message || 'Failed to save billing info. Please try again.');
                     } finally {
                         setActionLoading(null);
                     }
