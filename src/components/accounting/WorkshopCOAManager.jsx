@@ -25,7 +25,7 @@ import {
     todayISO,
 } from '../../pages/supplier/accounting/SupplierAccountingShared';
 import { useAccountingWorkshopScope } from '../../context/AccountingWorkshopScopeContext';
-import { HQ_COA_CONTROL_BADGES } from '../../pages/admin/hqCoaAccountRouting';
+import { HQ_COA_CONTROL_BADGES, isCorporateArLedgerClickable } from '../../pages/admin/hqCoaAccountRouting';
 import {
     filterWorkshopPettyCashCoaList,
     isWorkshopPettyCashCoaControlAccount,
@@ -648,7 +648,9 @@ export default function WorkshopCOAManager({
         const ledgerUrl =
             enableLedgerLinks &&
             buildLedgerUrl &&
-            (!hasChildren || isWorkshopPettyCashCoaControlAccount(a))
+            (!hasChildren
+                || isWorkshopPettyCashCoaControlAccount(a)
+                || isCorporateArLedgerClickable(a))
                 ? buildLedgerUrl(a)
                 : null;
         const accountLabel = `[${a.code}] ${a.name}`;

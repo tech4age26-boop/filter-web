@@ -45,6 +45,8 @@ const AW_I18N = {
         'tab.pending': '{n} pending',
 
         'th.date': 'Date',
+        'th.requested': 'Requested',
+        'th.approved': 'Approved',
         'th.reference': 'Reference',
         'th.description': 'Description',
         'th.vendor': 'Vendor',
@@ -276,6 +278,8 @@ const AW_I18N = {
         'tab.pending': '{n} معلّق',
 
         'th.date': 'التاريخ',
+        'th.requested': 'تاريخ الطلب',
+        'th.approved': 'تاريخ الموافقة',
         'th.reference': 'المرجع',
         'th.description': 'الوصف',
         'th.vendor': 'المورّد',

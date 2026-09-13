@@ -37,7 +37,10 @@ function buildFileBase({ header }) {
 }
 
 function mapLineForExport(row) {
-    const date = row.entryDate ? String(row.entryDate).slice(0, 10) : '';
+    const posted = row.entryDate ? String(row.entryDate).slice(0, 10) : '';
+    const requested = row.requestedAt ? String(row.requestedAt).slice(0, 10) : '';
+    const approved = row.approvedAt ? String(row.approvedAt).slice(0, 10) : posted;
+    const date = requested ? `Requested ${requested}\nApproved ${approved}` : posted;
     const coaPart = row.coaCode ? `[${row.coaCode}] ${row.coaName || ''}` : row.accountName || '';
     const coaRegister = row.accountName && row.coaCode
         ? `${coaPart} — ${row.accountName}`

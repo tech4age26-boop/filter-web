@@ -115,10 +115,22 @@ function billingPeriodDateParam(dateStr) {
 
 function billStatusLabel(status, t) {
     if (status === 'paid') return t('status.paid');
+    if (status === 'partially_paid') return t('status.partiallyPaid');
+    if (status === 'overpaid') return t('status.overPaid');
     if (status === 'awaiting_approval') return t('status.awaiting');
     if (status === 'pending_deletion') return t('status.pendingDeletion');
     if (status === 'rejected') return t('status.rejected');
     return t('status.pending');
+}
+
+function billStatusBadgeClass(status) {
+    if (status === 'paid') return 'ws-badge ws-badge--green';
+    if (status === 'overpaid') return 'ws-badge ws-badge--blue';
+    if (status === 'partially_paid') return 'ws-badge ws-badge--yellow';
+    if (status === 'awaiting_approval') return 'ws-badge ws-badge--yellow';
+    if (status === 'rejected') return 'ws-badge ws-badge--red';
+    if (status === 'pending_deletion') return 'ws-badge ws-badge--yellow';
+    return 'ws-badge ws-badge--gray';
 }
 
 function BilingualTh({ primaryKey, secondaryKey, t, style }) {
@@ -1146,7 +1158,11 @@ export default function CorporateBillingSection() {
                                             </td>
                                             <td className="table-cell">{b.periodStartDate} — {b.periodEndDate}</td>
                                             <td className="table-cell">{b.dueDate}</td>
-                                            <td className="table-cell">{billStatusLabel(b.status, t)}</td>
+                                            <td className="table-cell">
+                                                <span className={billStatusBadgeClass(b.status)}>
+                                                    {billStatusLabel(b.status, t)}
+                                                </span>
+                                            </td>
                                             <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
                                                 <div>{t('money.sar', { amount: fmt(b.kpis?.balance) })}</div>
                                                 {b.hasManualEdits && b.originalKpis?.balance != null
@@ -1201,6 +1217,9 @@ export default function CorporateBillingSection() {
                                         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>
                                             {billDetail.billNo}
                                         </h3>
+                                        <span className={billStatusBadgeClass(billDetail.status)}>
+                                            {billStatusLabel(billDetail.status, t)}
+                                        </span>
                                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                             <button
                                                 type="button"
@@ -1245,6 +1264,7 @@ export default function CorporateBillingSection() {
                                             {t('btn.downloadOriginalPdf')}
                                         </button>
                                         {billDetail.status !== 'paid'
+                                        && billDetail.status !== 'overpaid'
                                         && billDetail.status !== 'awaiting_approval'
                                         && billDetail.status !== 'pending_deletion'
                                         && collectionDueBalance > 0.05 ? (

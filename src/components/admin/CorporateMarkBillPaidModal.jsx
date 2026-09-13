@@ -3,6 +3,12 @@ import { Loader } from 'lucide-react';
 import AdminModalAsScreen from './AdminModalAsScreen';
 import { listGeneratedBillCashAccounts, markGeneratedBillPaid } from '../../services/superAdminApi';
 import { todayISO } from '../../pages/admin/saAccountingDateRange';
+import {
+    classifyCorporateBillPayment,
+    parseCorporateReceivedAmount,
+    remainingAfterCorporateReceipt,
+    CORPORATE_BILL_PAY_EPS,
+} from '../../utils/corporateBillPayment';
 
 function fmt(n) {
     return Number(n ?? 0).toLocaleString('en-SA', {
@@ -45,15 +51,30 @@ export default function CorporateMarkBillPaidModal({
     const [loadingAccounts, setLoadingAccounts] = useState(false);
     const [cashBankAccountId, setCashBankAccountId] = useState('');
     const [receivedDate, setReceivedDate] = useState(() => todayISO());
+    const [receivedAmount, setReceivedAmount] = useState('');
     const [proofFile, setProofFile] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+
+    const due = Number(balanceDue) || 0;
+    const parsedReceived = parseCorporateReceivedAmount(receivedAmount);
+    const receiptStatus = Number.isFinite(parsedReceived)
+        ? classifyCorporateBillPayment(due, parsedReceived)
+        : null;
+    const remainingHint = Number.isFinite(parsedReceived)
+        ? remainingAfterCorporateReceipt(due, parsedReceived)
+        : 0;
+    const excessHint =
+        Number.isFinite(parsedReceived) && parsedReceived > due + CORPORATE_BILL_PAY_EPS
+            ? Math.round((parsedReceived - due) * 100) / 100
+            : 0;
 
     useEffect(() => {
         if (!open || !billId) {
             setAccounts([]);
             setCashBankAccountId('');
             setReceivedDate(todayISO());
+            setReceivedAmount('');
             setProofFile(null);
             setError('');
             setSubmitting(false);
@@ -64,6 +85,7 @@ export default function CorporateMarkBillPaidModal({
         setError('');
         setCashBankAccountId('');
         setReceivedDate(todayISO());
+        setReceivedAmount(Number(balanceDue || 0).toFixed(2));
         setProofFile(null);
         listGeneratedBillCashAccounts(billId)
             .then((res) => {
@@ -84,7 +106,7 @@ export default function CorporateMarkBillPaidModal({
         return () => {
             cancelled = true;
         };
-    }, [open, billId, t]);
+    }, [open, billId, balanceDue, t]);
 
     const grouped = useMemo(() => {
         const hq = accounts.filter((a) => a.scope === 'hq');
@@ -126,6 +148,11 @@ export default function CorporateMarkBillPaidModal({
             setError(t('err.selectReceivedDate'));
             return;
         }
+        const received = parseCorporateReceivedAmount(receivedAmount);
+        if (!Number.isFinite(received) || received <= CORPORATE_BILL_PAY_EPS) {
+            setError(t('err.receivedAmount'));
+            return;
+        }
         if (!proofFile) {
             setError(t('err.proofRequired'));
             return;
@@ -137,6 +164,7 @@ export default function CorporateMarkBillPaidModal({
                 id: billId,
                 cashBankAccountId,
                 receivedDate,
+                receivedAmount: received,
                 proofImage,
                 proofMimeType: proofFile.type || undefined,
                 proofFileName: proofFile.name || undefined,
@@ -195,6 +223,38 @@ export default function CorporateMarkBillPaidModal({
             </div>
 
             <div className="form-group">
+                <label className="form-label">{t('modal.receivedAmount')} *</label>
+                <input
+                    type="number"
+                    className="form-input-field"
+                    min="0.01"
+                    step="0.01"
+                    value={receivedAmount}
+                    onChange={(e) => {
+                        setError('');
+                        setReceivedAmount(e.target.value);
+                    }}
+                    disabled={submitting}
+                    required
+                />
+                {receiptStatus === 'partially_paid' ? (
+                    <p className="form-help-text" style={{ color: '#b45309', marginTop: 6 }}>
+                        {t('modal.receivedHintPartial', { amount: fmt(remainingHint) })}
+                    </p>
+                ) : null}
+                {receiptStatus === 'overpaid' ? (
+                    <p className="form-help-text" style={{ color: '#1d4ed8', marginTop: 6 }}>
+                        {t('modal.receivedHintOver', { amount: fmt(excessHint) })}
+                    </p>
+                ) : null}
+                {receiptStatus === 'paid' ? (
+                    <p className="form-help-text" style={{ color: '#15803d', marginTop: 6 }}>
+                        {t('modal.receivedHintPaid')}
+                    </p>
+                ) : null}
+            </div>
+
+            <div className="form-group">
                 <label className="form-label">{t('modal.cashBankAccount')} *</label>
                 {loadingAccounts ? (
                     <p className="form-help-text">
@@ -216,24 +276,6 @@ export default function CorporateMarkBillPaidModal({
                                 {grouped.hq.map((a) => (
                                     <option key={a.id} value={a.id}>
                                         {a.name} ({a.type})
-                                    </option>
-                                ))}
-                            </optgroup>
-                        ) : null}
-                        {grouped.workshop.length > 0 ? (
-                            <optgroup
-                                label={
-                                    grouped.workshop[0]?.workshopName
-                                        ? t('modal.workshopAccounts', {
-                                              name: grouped.workshop[0].workshopName,
-                                          })
-                                        : t('modal.workshopAccountsGeneric')
-                                }
-                            >
-                                {grouped.workshop.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                        {a.name}
-                                        {a.branchName ? ` · ${a.branchName}` : ''} ({a.type})
                                     </option>
                                 ))}
                             </optgroup>

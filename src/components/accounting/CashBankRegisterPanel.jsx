@@ -329,7 +329,11 @@ export default function CashBankRegisterPanel({
                                 ) : (
                                     filteredLines.map((row) => (
                                         <tr key={row.id}>
-                                            <td>{String(row.entryDate).slice(0, 10)}</td>
+                                            <td style={{ whiteSpace: 'pre-line', lineHeight: 1.35 }}>
+                                                {row.requestedAt
+                                                    ? `Requested ${String(row.requestedAt).slice(0, 10)}\nApproved ${String(row.approvedAt || row.entryDate).slice(0, 10)}`
+                                                    : String(row.entryDate).slice(0, 10)}
+                                            </td>
                                             <td>
                                                 <div style={{ fontWeight: 600 }}>
                                                     {row.coaCode ? `[${row.coaCode}] ${row.coaName}` : row.accountName}

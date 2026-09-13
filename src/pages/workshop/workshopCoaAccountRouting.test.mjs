@@ -3,12 +3,14 @@ import {
     buildWorkshopCoaAccountCreateUrl,
     buildWorkshopCoaAccountEditUrl,
     filterWorkshopPettyCashCoaList,
+    isWorkshopCoaLedgerClickable,
     isWorkshopPettyCashCoaCollapsedChild,
     isWorkshopPettyCashCoaControlAccount,
     isWorkshopPettyCashLedgerAccount,
     parseWorkshopCoaAccountFormFromPath,
     pruneWorkshopPettyCashCoaTree,
 } from './workshopCoaAccountRouting.js';
+import { isCorporateArLedgerClickable } from '../admin/hqCoaAccountRouting.js';
 
 assert.equal(isWorkshopPettyCashCoaControlAccount({ code: '1280' }), true);
 assert.equal(isWorkshopPettyCashCoaControlAccount({ code: '6100' }), true);
@@ -65,5 +67,11 @@ assert.equal(
     parseWorkshopCoaAccountFormFromPath('/workshop/accounting/chart-of-accounts'),
     null,
 );
+
+assert.equal(isCorporateArLedgerClickable({ code: '1110', isHeading: true }), true);
+assert.equal(isCorporateArLedgerClickable({ code: '1112', parentCode: '1110' }), true);
+assert.equal(isWorkshopCoaLedgerClickable({ id: '9', code: '1110', isHeading: true }), true);
+assert.equal(isWorkshopCoaLedgerClickable({ id: '10', code: '1112', hasChildren: false }), true);
+assert.equal(isWorkshopCoaLedgerClickable({ id: '11', code: '1000', isHeading: true }), false);
 
 console.log('workshopCoaAccountRouting tests passed');

@@ -620,8 +620,16 @@ function buildMetaChips(item) {
             push('Company', m.companyName);
             push('Bill', m.billNo);
             push('Method', m.paymentMethod);
-            push('Received', m.receivedDate);
-            push('Balance', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            push('Date received', m.receivedDate);
+            push('Balance due', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            push(
+                'Received amount',
+                m.receivedAmount != null
+                    ? `SAR ${Number(m.receivedAmount).toFixed(2)}`
+                    : m.amount != null
+                      ? `SAR ${Number(m.amount).toFixed(2)}`
+                      : null,
+            );
             if (m.rejectionReason) push('Reason', m.rejectionReason);
             break;
         case 'corporate_generated_bill_deletion':
@@ -2510,8 +2518,15 @@ function GeneratedBillApprovalDetailsModal({ id, item, onClose, onApprove, onRej
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Bill</p>
                             <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{data.billNo ?? '—'}</p>
                             <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                Balance: SAR {Number(data.balance || 0).toFixed(2)}
+                                Balance due: SAR {Number(data.balance || 0).toFixed(2)}
                             </p>
+                            {kind === 'payment' ? (
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#0f172a' }}>
+                                    Received amount: SAR {Number(
+                                        data.receivedAmount != null ? data.receivedAmount : data.balance || 0,
+                                    ).toFixed(2)}
+                                </p>
+                            ) : null}
                         </div>
                         {kind === 'payment' ? (
                             <>
@@ -3414,6 +3429,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                   companyName: r.corporate?.companyName,
                                   billNo: r.billNo,
                                   amount: r.balance,
+                                  receivedAmount: r.receivedAmount,
                                   paymentMethod: r.paymentMethod,
                                   receivedDate: r.receivedDate,
                                   previousStatus: r.previousStatus,

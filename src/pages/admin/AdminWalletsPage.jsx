@@ -31,6 +31,19 @@ function formatSar(value) {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function WalletRequestApprovalDateCells({ requestedAt, approvedAt, emptyLabel }) {
+    return (
+        <>
+            <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
+                {requestedAt ? formatWalletTxDate({ createdAt: requestedAt }) : emptyLabel}
+            </td>
+            <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
+                {approvedAt ? formatWalletTxDate({ createdAt: approvedAt }) : emptyLabel}
+            </td>
+        </>
+    );
+}
+
 function runningBalanceCell(value, emptyLabel) {
     if (value == null || value === '') {
         return { text: emptyLabel, negative: false };
@@ -133,7 +146,8 @@ function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDe
             <table className="admin-wallets-tx-table">
                 <thead>
                     <tr>
-                        <th>{t('th.date')}</th>
+                        <th>{t('th.requested')}</th>
+                        <th>{t('th.approved')}</th>
                         <th>{t('th.reference')}</th>
                         <th>{t('th.description')}</th>
                         <th>{t('th.vendor')}</th>
@@ -152,9 +166,11 @@ function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDe
                         const to = runningBalanceCell(row.newBalance, t('empty.emDash'));
                         return (
                             <tr key={row.id}>
-                                <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
-                                    {formatWalletTxDate(row)}
-                                </td>
+                                <WalletRequestApprovalDateCells
+                                    requestedAt={row.requestedAt}
+                                    approvedAt={row.approvedAt || row.createdAt}
+                                    emptyLabel={t('empty.emDash')}
+                                />
                                 <td className="admin-wallets-tx-ref">{row.referenceId || t('empty.emDash')}</td>
                                 <td>{parsed.description}</td>
                                 <td style={{ color: '#64748b' }}>{parsed.vendor || t('empty.emDash')}</td>
@@ -208,7 +224,8 @@ function TransactionTable({ rows, loading, t, canMutate, actionBusyId, onEdit, o
             <table className="admin-wallets-tx-table">
                 <thead>
                     <tr>
-                        <th>{t('th.date')}</th>
+                        <th>{t('th.requested')}</th>
+                        <th>{t('th.approved')}</th>
                         <th>{t('th.reference')}</th>
                         <th>{t('th.description')}</th>
                         <th>{t('th.type')}</th>
@@ -232,9 +249,11 @@ function TransactionTable({ rows, loading, t, canMutate, actionBusyId, onEdit, o
                         const to = runningBalanceCell(row.newBalance, t('empty.emDash'));
                         return (
                             <tr key={row.id}>
-                                <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
-                                    {formatWalletTxDate(row)}
-                                </td>
+                                <WalletRequestApprovalDateCells
+                                    requestedAt={row.requestedAt}
+                                    approvedAt={row.approvedAt || row.createdAt}
+                                    emptyLabel={t('empty.emDash')}
+                                />
                                 <td className="admin-wallets-tx-ref">{row.referenceId || t('empty.emDash')}</td>
                                 <td>{coerceWalletFieldText(row.description)}</td>
                                 <td>
@@ -300,7 +319,8 @@ function FundRequestsTable({
             <table className="admin-wallets-tx-table">
                 <thead>
                     <tr>
-                        <th>{t('th.date')}</th>
+                        <th>{t('th.requested')}</th>
+                        <th>{t('th.approved')}</th>
                         <th>{t('th.reference')}</th>
                         <th>{t('th.purpose')}</th>
                         <th>{t('th.amount')}</th>
@@ -315,9 +335,11 @@ function FundRequestsTable({
                         const busy = actionBusyId === r.id;
                         return (
                             <tr key={r.id}>
-                                <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
-                                    {formatWalletTxDate({ createdAt: r.createdAt })}
-                                </td>
+                                <WalletRequestApprovalDateCells
+                                    requestedAt={r.createdAt}
+                                    approvedAt={r.approvedAt}
+                                    emptyLabel={t('empty.emDash')}
+                                />
                                 <td className="admin-wallets-tx-ref">{r.requestNumber}</td>
                                 <td>
                                     {r.purpose}
