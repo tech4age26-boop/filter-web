@@ -37,6 +37,8 @@ const PAYMENT_METHODS = ['Wallet', 'Bank Transfer', 'Cash', 'Card', 'Cheque'];
 
 function billStatusLabel(status) {
     if (status === 'paid') return 'Paid';
+    if (status === 'partially_paid') return 'Partially Paid';
+    if (status === 'overpaid') return 'Over Paid';
     if (status === 'awaiting_approval') return 'Awaiting approval';
     if (status === 'rejected') return 'Rejected';
     return 'Pending payment';
@@ -44,6 +46,8 @@ function billStatusLabel(status) {
 
 function billStatusClass(status) {
     if (status === 'paid') return 'ws-badge ws-badge--green';
+    if (status === 'overpaid') return 'ws-badge ws-badge--blue';
+    if (status === 'partially_paid') return 'ws-badge ws-badge--yellow';
     if (status === 'awaiting_approval') return 'ws-badge ws-badge--yellow';
     if (status === 'rejected') return 'ws-badge ws-badge--red';
     return 'ws-badge ws-badge--gray';
@@ -578,7 +582,9 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                             <Download size={16} /> Download original PDF
                                                         </button>
                                                     ) : null}
-                                                    {(bill.status === 'pending' || bill.status === 'rejected') &&
+                                                    {(bill.status === 'pending' ||
+                                                        bill.status === 'rejected' ||
+                                                        bill.status === 'partially_paid') &&
                                                     Number(bill.kpis?.balance ?? 0) > 0.05 ? (
                                                         <button
                                                             type="button"

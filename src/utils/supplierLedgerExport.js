@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { formatLedgerDateCell } from './accountLedgerStatementUtils';
 
 const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString(undefined, {
@@ -445,7 +446,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
         ...rows.map((r) =>
             hasPettyCols
                 ? [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.walletUserLabel || '',
                       r.expenseCategoryLabel || '',
                       r.description || '',
@@ -456,7 +457,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                   ]
                 : hasCashCols
                   ? [
-                        r.date,
+                        formatLedgerDateCell(r),
                         r.counterpartyLabel || '',
                         r.offsetAccountLabel || '',
                         r.description || '',
@@ -466,7 +467,7 @@ export function exportAccountLedgerPdf({ header, openingBalance, rows, totals })
                         fmtMoney(r.runningBalance),
                     ]
                   : [
-                        r.date,
+                        formatLedgerDateCell(r),
                         r.description || '',
                         r.reference || '',
                         r.debit > 0 ? fmtMoney(r.debit) : '',
@@ -614,7 +615,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   ],
                   ['—', 'Opening balance', '', '', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.walletUserLabel || '',
                       r.expenseCategoryLabel || '',
                       r.description || '',
@@ -648,7 +649,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   ],
                   ['—', 'Opening balance', '', '', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.counterpartyLabel || '',
                       r.offsetAccountLabel || '',
                       r.description || '',
@@ -672,7 +673,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   ['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance'],
                   ['—', 'Opening balance', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.description || '',
                       r.reference || '',
                       r.debit > 0 ? Number(r.debit) : '',

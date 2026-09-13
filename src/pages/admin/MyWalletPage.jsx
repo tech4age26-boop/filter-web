@@ -848,7 +848,12 @@ export default function MyWalletPage() {
                         </div>
                         <p className="my-wallet-list-item-title">{r.purpose}</p>
                         <div className="my-wallet-list-item-meta">
-                            <span>{formatWalletTxDate({ createdAt: r.createdAt })}</span>
+                            <span>
+                                Requested {formatWalletTxDate({ createdAt: r.createdAt })}
+                                {r.approvedAt
+                                    ? ` · Approved ${formatWalletTxDate({ createdAt: r.approvedAt })}`
+                                    : ''}
+                            </span>
                             {(r.workshopName || r.branchName) && (
                                 <span>{[r.workshopName, r.branchName].filter(Boolean).join(' · ')}</span>
                             )}
@@ -932,7 +937,11 @@ export default function MyWalletPage() {
                             </div>
                             <p className="my-wallet-list-item-title">{coerceWalletFieldText(t.description)}</p>
                             <div className="my-wallet-list-item-meta">
-                                <span>{formatWalletTxDate(t)}</span>
+                                <span>
+                                    {t.requestedAt
+                                        ? `Requested ${formatWalletTxDate({ createdAt: t.requestedAt })} · Approved ${formatWalletTxDate({ createdAt: t.approvedAt || t.createdAt })}`
+                                        : formatWalletTxDate(t)}
+                                </span>
                                 {hasRun ? (
                                     <span className={Number(t.newBalance) < 0 ? 'my-wallet-amount--debit' : undefined}>
                                         SAR {formatSar(t.previousBalance)} → SAR {formatSar(t.newBalance)}
@@ -1004,7 +1013,11 @@ export default function MyWalletPage() {
                                 const to = t.newBalance;
                                 return (
                                     <tr key={t.id}>
-                                        <td className="my-wallet-td-muted">{formatWalletTxDate(t)}</td>
+                                        <td className="my-wallet-td-muted" style={{ whiteSpace: 'pre-line' }}>
+                                            {t.requestedAt
+                                                ? `Requested ${formatWalletTxDate({ createdAt: t.requestedAt })}\nApproved ${formatWalletTxDate({ createdAt: t.approvedAt || t.createdAt })}`
+                                                : formatWalletTxDate(t)}
+                                        </td>
                                         <td className="my-wallet-td-ref">{t.referenceId || '—'}</td>
                                         <td>{coerceWalletFieldText(t.description)}</td>
                                         <td>

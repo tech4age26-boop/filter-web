@@ -2,7 +2,7 @@
  * Workshop Chart of Accounts — petty cash fund / expense ledger navigation.
  */
 
-import { isCashOrBankCoaAccount } from '../admin/hqCoaAccountRouting';
+import { isCashOrBankCoaAccount, isCorporateArLedgerClickable } from '../admin/hqCoaAccountRouting.js';
 
 /** Parent control accounts shown on COA; branch / employee GL lives underneath. */
 export function isWorkshopPettyCashCoaControlAccount(account) {
@@ -111,10 +111,11 @@ export function buildWorkshopCoaNavigationUrl(account, { dateFrom, dateTo, branc
     return `/workshop/accounting/ledger/${encodeURIComponent(account.id)}${qs ? `?${qs}` : ''}`;
 }
 
-/** True when a COA row should open a ledger / register (leaf or petty-cash control). */
+/** True when a COA row should open a ledger / register (leaf, petty-cash, or corporate AR). */
 export function isWorkshopCoaLedgerClickable(account) {
     if (!account?.id) return false;
     if (isWorkshopPettyCashCoaControlAccount(account)) return true;
+    if (isCorporateArLedgerClickable(account)) return true;
     const hasChildren = Boolean(
         account.hasChildren
         || account.isHeading

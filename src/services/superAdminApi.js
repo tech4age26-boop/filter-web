@@ -765,6 +765,7 @@ export const markGeneratedBillPaid = ({
     id,
     cashBankAccountId,
     receivedDate,
+    receivedAmount,
     proofImage,
     proofMimeType,
     proofFileName,
@@ -774,6 +775,7 @@ export const markGeneratedBillPaid = ({
         body: JSON.stringify({
             cashBankAccountId,
             receivedDate,
+            receivedAmount,
             proofImage,
             proofMimeType,
             proofFileName,

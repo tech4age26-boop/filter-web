@@ -783,7 +783,7 @@ const ACC_I18N = {
         'coa.err.range': 'Start must be on or before end.',
         'coa.err.rangeRequired': 'Choose both From and To, then click Apply.',
         'coa.hint.ws':
-            'Accounts are split like Manager.io: Balance Sheet on the left, Income Statement (P&L) on the right. Click Apply to load KPI cards and Final balance for the selected branch and date range. Balance-sheet totals are as of To; P&L totals and Net Profit are activity from From to To. Click a detail row to open its ledger.',
+            'Accounts are split into Balance Sheet on the left and Income Statement (P&L) on the right. Click Apply to load KPI cards and Final balance for the selected branch and date range. Balance-sheet totals are as of To; P&L totals and Net Profit are activity from From to To. Click a detail row to open its ledger.',
         'coa.loading': 'Loading accounts...',
         'coa.retry': 'Retry',
         'coa.th.code': 'Code',
@@ -1736,7 +1736,7 @@ const ACC_I18N = {
         'coa.err.range': 'يجب أن يكون تاريخ البداية قبل النهاية أو مساوياً لها.',
         'coa.err.rangeRequired': 'اختر من وإلى ثم انقر تطبيق.',
         'coa.hint.ws':
-            'الحسابات مقسومة كما في Manager.io: الميزانية العمومية يساراً وقائمة الدخل (أ.خ) يميناً. انقر تطبيق لتحميل بطاقات المؤشرات والرصيد النهائي حسب الفرع ونطاق التاريخ. الميزانية حتى تاريخ إلى؛ قائمة الدخل وصافي الربح من من إلى إلى. انقر صفاً تفصيلياً لفتح دفتر الأستاذ.',
+            'الحسابات مقسومة إلى الميزانية العمومية يساراً وقائمة الدخل (أ.خ) يميناً. انقر تطبيق لتحميل بطاقات المؤشرات والرصيد النهائي حسب الفرع ونطاق التاريخ. الميزانية حتى تاريخ إلى؛ قائمة الدخل وصافي الربح من من إلى إلى. انقر صفاً تفصيلياً لفتح دفتر الأستاذ.',
         'coa.loading': 'جارٍ تحميل الحسابات...',
         'coa.retry': 'إعادة المحاولة',
         'coa.th.code': 'الرمز',

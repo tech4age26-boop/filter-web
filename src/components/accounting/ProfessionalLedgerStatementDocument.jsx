@@ -15,6 +15,7 @@ import {
     LEDGER_ROWS_PER_PAGE,
     fmtBalanceSide,
     fmtMoneySar,
+    formatLedgerDateCell,
 } from '../../utils/accountLedgerStatementUtils';
 import '../../styles/accounting/ProfessionalLedgerStatement.css';
 
@@ -407,7 +408,7 @@ export default function ProfessionalLedgerStatementDocument({
                     <table className="pls-table">
                         <thead>
                             <tr>
-                                <th style={{ width: 100 }}>Date</th>
+                                <th style={{ width: 128 }}>Date</th>
                                 {showPettyCashExpenseColumns ? (
                                     <>
                                         <th>{walletUserColumnLabel}</th>
@@ -475,7 +476,9 @@ export default function ProfessionalLedgerStatementDocument({
                             ) : (
                                 pagedRows.map((r) => (
                                     <tr key={r.id}>
-                                        <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                                        <td style={{ whiteSpace: 'pre-line', lineHeight: 1.35 }}>
+                                            {formatLedgerDateCell(r)}
+                                        </td>
                                         {showPettyCashExpenseColumns ? (
                                             <>
                                                 <td title={r.walletUserLabel || ''}>
