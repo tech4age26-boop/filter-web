@@ -127,6 +127,7 @@ function TxActionButtons({ row, busy, onEdit, onDelete, t }) {
 }
 
 function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDelete }) {
+    const list = Array.isArray(rows) ? rows : [];
     if (loading) {
         return (
             <div className="admin-wallets-loading">
@@ -134,7 +135,7 @@ function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDe
             </div>
         );
     }
-    if (!rows.length) {
+    if (!list.length) {
         return (
             <div className="admin-wallets-empty" style={{ minHeight: 180, padding: '32px 16px' }}>
                 <p style={{ margin: 0, fontSize: '0.875rem' }}>{t('empty.expenses')}</p>
@@ -159,7 +160,7 @@ function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDe
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((row) => {
+                    {list.map((row) => {
                         const parsed = parseExpenseDescription(row.description);
                         const amount = Number(row.amount ?? 0);
                         const from = runningBalanceCell(row.previousBalance, t('empty.emDash'));
@@ -205,6 +206,7 @@ function ExpensesTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDe
 }
 
 function TransactionTable({ rows, loading, t, canMutate, actionBusyId, onEdit, onDelete }) {
+    const list = Array.isArray(rows) ? rows : [];
     if (loading) {
         return (
             <div className="admin-wallets-loading">
@@ -212,7 +214,7 @@ function TransactionTable({ rows, loading, t, canMutate, actionBusyId, onEdit, o
             </div>
         );
     }
-    if (!rows.length) {
+    if (!list.length) {
         return (
             <div className="admin-wallets-empty" style={{ minHeight: 180, padding: '32px 16px' }}>
                 <p style={{ margin: 0, fontSize: '0.875rem' }}>{t('empty.transactions')}</p>
@@ -236,7 +238,7 @@ function TransactionTable({ rows, loading, t, canMutate, actionBusyId, onEdit, o
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((row) => {
+                    {list.map((row) => {
                         const typeRaw = String(row.type || '').toLowerCase();
                         const amount = Number(row.amount ?? 0);
                         const isCredit = typeRaw === 'credit' || (typeRaw !== 'debit' && amount > 0);
@@ -300,6 +302,7 @@ function FundRequestsTable({
     onReject,
     t,
 }) {
+    const list = Array.isArray(rows) ? rows : [];
     if (loading) {
         return (
             <div className="admin-wallets-loading" style={{ minHeight: 120 }}>
@@ -307,7 +310,7 @@ function FundRequestsTable({
             </div>
         );
     }
-    if (!rows.length) {
+    if (!list.length) {
         return (
             <div className="admin-wallets-empty" style={{ minHeight: 140, padding: '28px 16px' }}>
                 <p style={{ margin: 0, fontSize: '0.875rem' }}>{t('empty.fundRequests')}</p>
@@ -329,7 +332,7 @@ function FundRequestsTable({
                     </tr>
                 </thead>
                 <tbody>
-                    {rows.map((r) => {
+                    {list.map((r) => {
                         const status = String(r.status || 'pending').toLowerCase();
                         const isPending = status === 'pending';
                         const busy = actionBusyId === r.id;

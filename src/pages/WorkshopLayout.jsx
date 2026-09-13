@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { SectionErrorBoundary } from '../components/AppErrorBoundary';
 import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -963,7 +964,9 @@ export default function WorkshopLayout() {
                     </div>
                 )}
                 <main className={`ws-content${isWalletTab ? ' ws-content--my-wallet' : ''}`}>
-                    {renderContent()}
+                    <SectionErrorBoundary resetKey={activeTab}>
+                        {renderContent()}
+                    </SectionErrorBoundary>
                 </main>
             </div>
             <PlatformChatFab

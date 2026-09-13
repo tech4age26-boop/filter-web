@@ -165,7 +165,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                     offset: (page - 1) * PAGE_SIZE,
                 }),
             );
-            setRows(res?.items ?? []);
+            setRows(Array.isArray(res?.items) ? res.items : []);
             setTotal(Number(res?.total ?? 0));
             const amountFromApi = Number(res?.totalAmount);
             if (Number.isFinite(amountFromApi)) {

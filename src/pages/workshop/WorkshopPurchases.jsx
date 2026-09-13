@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { Plus, BarChart3, AlertTriangle, Calendar, Zap, Trash2 } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
@@ -738,6 +739,7 @@ function pendingSiId(inv) {
 }
 
 export default function WorkshopPurchases({ tabState, clearTabState, selectedBranchId, branches = [], locale: localeProp }) {
+    const navigate = useNavigate();
     const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
     const t = useCallback((key, vars) => wpT(locale, key, vars), [locale]);
     const money = useCallback((amount) => t('money.sar', { amount }), [t]);

@@ -12,6 +12,15 @@ export function AppErrorBoundaryWithRouter({ children }) {
     );
 }
 
+/** Keeps portal chrome (sidebar/tabs) when a single page or tab throws. */
+export function SectionErrorBoundary({ children, resetKey }) {
+    return (
+        <AppErrorBoundary resetKey={resetKey} variant="section">
+            {children}
+        </AppErrorBoundary>
+    );
+}
+
 export default class AppErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
@@ -42,9 +51,10 @@ export default class AppErrorBoundary extends React.Component {
         if (this.state.error) {
             const staleChunk = isChunkLoadError(this.state.error);
             const isDev = import.meta.env.DEV;
+            const section = this.props.variant === 'section';
             return (
                 <div style={{
-                    minHeight: '100vh',
+                    minHeight: section ? 240 : '100vh',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',

@@ -922,7 +922,12 @@ function maxSellableQtyForLine(line, lines, inventoryItems) {
 }
 
 /** Lines where invoice qty exceeds on-hand supplier stock (incl. zero stock). */
-function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItems) {
+function collectInsufficientStockLines(
+    lineItems,
+    normalizedLines,
+    inventoryItems,
+    t = (k, v) => ssiT('en', k, v),
+) {
     const out = [];
     for (let i = 0; i < lineItems.length; i++) {
         const row = lineItems[i];
@@ -1937,6 +1942,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 lineItems,
                 normalizedLines,
                 inventoryItems,
+                t,
             );
             if (insufficientStock.length > 0 && !invoiceFromQuoteRef.current) {
                 const detail = insufficientStock
@@ -1955,6 +1961,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             lineItems,
             normalizedLines,
             inventoryItems,
+            t,
         ).map((row) => row.productId);
         const allLineProductIds = lineItems
             .map((row) =>

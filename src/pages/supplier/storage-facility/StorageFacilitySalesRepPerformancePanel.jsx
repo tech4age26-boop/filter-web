@@ -8,7 +8,7 @@ import {
     TrendingUp,
 } from 'lucide-react';
 import Modal from '../../../components/Modal';
-import { ShimmerStatStrip, ShimmerTable } from '../../../components/supplier/Shimmer';
+import { ShimmerKpiGrid, ShimmerTable } from '../../../components/supplier/Shimmer';
 import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 
 

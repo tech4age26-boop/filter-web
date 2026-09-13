@@ -9,7 +9,7 @@ import {
     Search,
     TrendingUp,
 } from 'lucide-react';
-import { ShimmerStatStrip, ShimmerTable } from '../../../components/supplier/Shimmer';
+import { ShimmerKpiGrid, ShimmerTable } from '../../../components/supplier/Shimmer';
 import { useStorageFacilityApi } from './StorageFacilityPortalContext';
 
 
