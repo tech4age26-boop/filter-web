@@ -26,7 +26,10 @@ import {
     getPLReport,
     getTrialBalance,
 } from '../../services/accountsApi';
-import { runWorkshopPeriodClose } from '../../services/workshopAccountingApi';
+import {
+    listWorkshopPeriodCloses,
+    runWorkshopPeriodClose,
+} from '../../services/workshopAccountingApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import {
     buildWorkshopCoaAccountCreateUrl,
@@ -60,6 +63,7 @@ import {
 } from '../../pages/admin/saAccountingDateRange';
 import {
     defaultRiyadhReportRangeDatetimeLocal,
+    liveBooksRangeAfterPeriodEnd,
     fmtRiyadhRangeLabel,
     riyadhPlRangeToLedgerCalendarDates,
     workshopAdminRangeQueryParams,
@@ -293,6 +297,7 @@ export default function WorkshopCOAView({
     const [periodCloseLoading, setPeriodCloseLoading] = useState(false);
     const [periodCloseError, setPeriodCloseError] = useState('');
     const [periodCloseDone, setPeriodCloseDone] = useState(null);
+    const [latestLiveClose, setLatestLiveClose] = useState(null);
 
     const [tbFilters, setTbFilters] = useState({ dateFrom: '', dateTo: '', branchId: '' });
     const [tbData, setTbData] = useState({
@@ -419,6 +424,35 @@ export default function WorkshopCOAView({
         const next = plBranchFromLayout(selectedBranchId);
         setDraftBranch((prev) => (prev === next ? prev : next));
     }, [selectedBranchId]);
+
+    const applyLiveBooksRange = useCallback((periodEndYmd) => {
+        const next = liveBooksRangeAfterPeriodEnd(periodEndYmd);
+        if (!next) return;
+        setDraftDateFrom(next.dateFrom);
+        setDraftDateTo(next.dateTo);
+        setAppliedDateFrom(next.dateFrom);
+        setAppliedDateTo(next.dateTo);
+        setPlFilters((p) => ({ ...p, dateFrom: next.dateFrom, dateTo: next.dateTo }));
+        saveWorkshopAdminDatetimeRange(next);
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await listWorkshopPeriodCloses();
+                const root = res?.data && typeof res.data === 'object' ? res.data : res;
+                const rows = Array.isArray(root?.periodCloses) ? root.periodCloses : [];
+                const latest = rows.find((r) => !r.restoredAt) || null;
+                if (!cancelled) setLatestLiveClose(latest);
+            } catch {
+                if (!cancelled) setLatestLiveClose(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reloadTick]);
 
     const applyCoaFilters = useCallback(() => {
         if (!draftDateFrom || !draftDateTo) {
@@ -1867,6 +1901,37 @@ export default function WorkshopCOAView({
                     {coaRangeError ? (
                         <p className="coa-filter-error" role="alert">{coaRangeError}</p>
                     ) : null}
+                    {latestLiveClose?.periodEndDate ? (
+                        <div
+                            style={{
+                                margin: '0 0 12px',
+                                padding: '10px 12px',
+                                borderRadius: 10,
+                                background: '#ECFDF5',
+                                border: '1px solid #A7F3D0',
+                                color: '#065F46',
+                                fontSize: 13,
+                                lineHeight: 1.45,
+                            }}
+                        >
+                            {t('coa.close.banner', { date: latestLiveClose.periodEndDate })}{' '}
+                            <button
+                                type="button"
+                                onClick={() => navigate('/workshop/accounting/period-closings')}
+                                style={{
+                                    border: 'none',
+                                    background: 'none',
+                                    color: '#0F766E',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    textDecoration: 'underline',
+                                }}
+                            >
+                                {t('coa.close.bannerLink')}
+                            </button>
+                        </div>
+                    ) : null}
                     <p className="sa-acc-coa-hint" style={{ margin: '0 0 12px' }}>
                         {t('coa.hint.ws')}
                     </p>
@@ -2127,6 +2192,10 @@ export default function WorkshopCOAView({
                                                     a.remove();
                                                     URL.revokeObjectURL(url);
                                                 }
+                                                const closedEnd =
+                                                    root?.periodClose?.periodEndDate ||
+                                                    periodCloseDate;
+                                                applyLiveBooksRange(closedEnd);
                                                 setPeriodCloseDone({
                                                     message: root?.message,
                                                     linkPath:

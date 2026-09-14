@@ -130,3 +130,12 @@ export const downloadWorkshopPeriodCloseBackup = (id, params = {}) =>
             params,
         ),
     );
+
+export const restoreWorkshopPeriodClose = (id, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/workshop-accounting/period-closes/${encodeURIComponent(id)}/restore`,
+            params,
+        ),
+        { method: 'POST' },
+    );

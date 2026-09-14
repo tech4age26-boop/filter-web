@@ -347,7 +347,7 @@ export default function LockerExpenses({
                     <div className="wlk-stat-body">
                         <div className="wlk-stat-label">Locker vault balance</div>
                         <div className="wlk-stat-value">{fmtSar(lockerBalance)}</div>
-                        <div className="wlk-stat-hint">1004 Cash in Transit — Locker</div>
+                        <div className="wlk-stat-hint">1004 Locker Cash</div>
                     </div>
                 </div>
                 <div className="wlk-stat">

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, ExternalLink, RefreshCw } from 'lucide-react';
+import { Download, ExternalLink, RefreshCw, RotateCcw } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
     downloadWorkshopPeriodCloseBackup,
     getWorkshopPeriodClose,
     listWorkshopPeriodCloses,
+    restoreWorkshopPeriodClose,
 } from '../../../services/workshopAccountingApi';
 
 function parsePeriodCloseIdFromPath(pathname) {
@@ -33,11 +34,40 @@ function downloadBlob(filename, content, mime) {
     URL.revokeObjectURL(url);
 }
 
+const RESTORE_CONFIRM =
+    'Restore live Chart of Accounts to the balances from this close? Journals posted after the close stay. You can close the period again later.';
+
+function RestoreButton({ disabled, loading, onClick, restored }) {
+    if (restored) {
+        return (
+            <span style={{ color: '#64748B', fontSize: 13, fontWeight: 600 }}>Restored</span>
+        );
+    }
+    return (
+        <button
+            type="button"
+            className="btn-portal-outline"
+            disabled={disabled || loading}
+            onClick={onClick}
+            title={
+                disabled
+                    ? 'Restore the latest close first'
+                    : 'Put live accounts back to this snapshot'
+            }
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+            <RotateCcw size={14} />
+            {loading ? 'Restoring…' : 'Restore'}
+        </button>
+    );
+}
+
 function PeriodCloseDetail({ id }) {
     const navigate = useNavigate();
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
+    const [restoring, setRestoring] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -61,6 +91,21 @@ function PeriodCloseDetail({ id }) {
         const snap = data?.snapshot;
         return Array.isArray(snap) ? snap : [];
     }, [data]);
+
+    async function onRestore() {
+        if (!window.confirm(RESTORE_CONFIRM)) return;
+        setRestoring(true);
+        setErr('');
+        try {
+            await restoreWorkshopPeriodClose(id);
+            await load();
+            navigate('/workshop/accounting/chart-of-accounts');
+        } catch (e) {
+            setErr(e?.message || 'Restore failed');
+        } finally {
+            setRestoring(false);
+        }
+    }
 
     async function onDownload() {
         try {
@@ -119,6 +164,12 @@ function PeriodCloseDetail({ id }) {
                         {' · Read-only snapshot (live books were zeroed after this close)'}
                     </p>
                 </div>
+                <RestoreButton
+                    restored={Boolean(data?.restoredAt)}
+                    disabled={!data?.canRestore}
+                    loading={restoring}
+                    onClick={() => void onRestore()}
+                />
                 <button type="button" className="btn-portal-outline" onClick={() => void onDownload()}>
                     <Download size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
                     Download backup
@@ -178,6 +229,7 @@ export default function WorkshopPeriodClosingsPage() {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
+    const [restoringId, setRestoringId] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -209,7 +261,7 @@ export default function WorkshopPeriodClosingsPage() {
                         Period Closings
                     </h2>
                     <p style={{ margin: '6px 0 0', color: '#64748B', fontSize: '0.875rem' }}>
-                        Each link opens the frozen Chart of Accounts from that close. Live COA was reset to zero; sales, purchases, and history stay unchanged.
+                        Each link opens the frozen Chart of Accounts from that close. Live COA starts fresh after a close. Restore puts live accounts back to that snapshot. Sales, purchases, and history stay unchanged.
                     </p>
                 </div>
                 <button type="button" className="btn-portal-outline" onClick={() => void load()} disabled={loading}>
@@ -262,15 +314,35 @@ export default function WorkshopPeriodClosingsPage() {
                                     </td>
                                     <td>{r.closingJournalEntryNumber || '—'}</td>
                                     <td style={{ fontSize: 12, color: '#64748B' }}>{r.backupFileName}</td>
-                                    <td style={{ textAlign: 'right' }}>
-                                        <Link
-                                            to={`/workshop/accounting/period-closings/${r.id}`}
-                                            className="btn-portal-outline"
-                                            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                                        >
-                                            <ExternalLink size={14} />
-                                            Open books
-                                        </Link>
+                                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                                            <Link
+                                                to={`/workshop/accounting/period-closings/${r.id}`}
+                                                className="btn-portal-outline"
+                                                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                                            >
+                                                <ExternalLink size={14} />
+                                                Open books
+                                            </Link>
+                                            <RestoreButton
+                                                restored={Boolean(r.restoredAt)}
+                                                disabled={!r.canRestore}
+                                                loading={restoringId === String(r.id)}
+                                                onClick={async () => {
+                                                    if (!window.confirm(RESTORE_CONFIRM)) return;
+                                                    setRestoringId(String(r.id));
+                                                    setErr('');
+                                                    try {
+                                                        await restoreWorkshopPeriodClose(r.id);
+                                                        await load();
+                                                    } catch (e) {
+                                                        setErr(e?.message || 'Restore failed');
+                                                    } finally {
+                                                        setRestoringId('');
+                                                    }
+                                                }}
+                                            />
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

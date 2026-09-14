@@ -127,6 +127,7 @@ export default function WorkshopCoaAccountPage({
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const [accounts, setAccounts] = useState([]);
+    const [equityAccounts, setEquityAccounts] = useState([]);
     const [parentsLoading, setParentsLoading] = useState(true);
     const [branches, setBranches] = useState([]);
     const [parentSearch, setParentSearch] = useState('');
@@ -149,6 +150,8 @@ export default function WorkshopCoaAccountPage({
     const [status, setStatus] = useState('active');
     const [openingBalance, setOpeningBalance] = useState('0');
     const [openingBalanceDate, setOpeningBalanceDate] = useState(() => todayIsoDate());
+    const [openingOffsetAccountId, setOpeningOffsetAccountId] = useState('');
+    const [hasChildren, setHasChildren] = useState(false);
     const [registerType, setRegisterType] = useState('');
     const [bankName, setBankName] = useState('');
     const [iban, setIban] = useState('');
@@ -198,6 +201,20 @@ export default function WorkshopCoaAccountPage({
     }, [type]);
 
     useEffect(() => {
+        let alive = true;
+        getAccounts({ type: 'EQUITY' })
+            .then((list) => {
+                if (alive) setEquityAccounts(parseAccountList(list));
+            })
+            .catch(() => {
+                if (alive) setEquityAccounts([]);
+            });
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    useEffect(() => {
         if (!isEdit || !accountId) {
             setLoading(false);
             return undefined;
@@ -223,6 +240,18 @@ export default function WorkshopCoaAccountPage({
                 setBranchId(acc.branchId ? String(acc.branchId) : '');
                 setDescription(acc.description || '');
                 setStatus(acc.status || 'active');
+                setOpeningBalance(
+                    acc.openingBalance != null ? String(acc.openingBalance) : '0',
+                );
+                setOpeningBalanceDate(
+                    acc.openingBalanceDate
+                        ? String(acc.openingBalanceDate).slice(0, 10)
+                        : todayIsoDate(),
+                );
+                setOpeningOffsetAccountId(
+                    acc.openingOffsetAccountId ? String(acc.openingOffsetAccountId) : '',
+                );
+                setHasChildren(Boolean(acc.hasChildren || acc.isHeading));
             } catch (e) {
                 if (!cancelled) setErr(e?.message || t('coa.err.generic'));
             } finally {
@@ -233,6 +262,18 @@ export default function WorkshopCoaAccountPage({
             cancelled = true;
         };
     }, [accountId, isEdit, t]);
+
+    const equityContraOptions = useMemo(
+        () =>
+            equityAccounts.filter(
+                (acc) =>
+                    String(acc.type || '').toUpperCase() === 'EQUITY' &&
+                    !acc.hasChildren &&
+                    !acc.isHeading &&
+                    (!accountId || String(acc.id) !== String(accountId)),
+            ),
+        [equityAccounts, accountId],
+    );
 
     const parentOptions = useMemo(() => {
         const q = parentSearch.trim().toLowerCase();
@@ -265,7 +306,8 @@ export default function WorkshopCoaAccountPage({
         }
         const opening = Number(openingBalance);
         const openingAmt = Number.isFinite(opening) ? opening : 0;
-        if (!isEdit && openingAmt !== 0 && !openingBalanceDate) {
+        const canSetOpening = !hasChildren;
+        if (canSetOpening && openingAmt !== 0 && !openingBalanceDate) {
             setErr(t('coa.page.err.openingDate'));
             return;
         }
@@ -284,11 +326,21 @@ export default function WorkshopCoaAccountPage({
             };
             const trimmedCode = code.trim();
             if (trimmedCode) payload.code = trimmedCode;
-            if (!isEdit) {
-                if (openingAmt !== 0) {
-                    payload.openingBalance = openingAmt;
+            if (canSetOpening) {
+                payload.openingBalance = openingAmt;
+                if (Math.abs(openingAmt) >= 0.005) {
                     payload.openingBalanceDate = openingBalanceDate;
+                    if (openingOffsetAccountId) {
+                        payload.openingOffsetAccountId = openingOffsetAccountId;
+                    } else if (isEdit) {
+                        payload.openingOffsetAccountId = '';
+                    }
+                } else {
+                    payload.openingBalanceDate = '';
+                    if (isEdit) payload.openingOffsetAccountId = '';
                 }
+            }
+            if (!isEdit) {
                 if (type === 'ASSET' && registerType) {
                     payload.cashBankRegisterType = registerType;
                     payload.isCashEquivalent = true;
@@ -471,39 +523,62 @@ export default function WorkshopCoaAccountPage({
                             </div>
                         </section>
 
-                        {!isEdit ? (
-                            <section className="coa-account-section">
-                                <h2>{t('coa.page.section.opening')}</h2>
-                                <div className="coa-account-grid">
-                                    <div className="form-group">
-                                        <label className="form-label" htmlFor="coa-acc-opening">
-                                            {t('coa.page.openingBal')}
-                                        </label>
-                                        <input
-                                            id="coa-acc-opening"
-                                            type="number"
-                                            step="0.01"
-                                            className="form-input-field"
-                                            value={openingBalance}
-                                            onChange={(e) => setOpeningBalance(e.target.value)}
-                                        />
+                        <section className="coa-account-section">
+                            <h2>{t('coa.page.section.opening')}</h2>
+                            {hasChildren ? (
+                                <p className="form-help-text">{t('coa.page.openingFolder')}</p>
+                            ) : (
+                                <>
+                                    <div className="coa-account-grid">
+                                        <div className="form-group">
+                                            <label className="form-label" htmlFor="coa-acc-opening">
+                                                {t('coa.page.openingBal')}
+                                            </label>
+                                            <input
+                                                id="coa-acc-opening"
+                                                type="number"
+                                                step="0.01"
+                                                className="form-input-field"
+                                                value={openingBalance}
+                                                onChange={(e) => setOpeningBalance(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label" htmlFor="coa-acc-opening-date">
+                                                {t('coa.page.openingDate')}
+                                            </label>
+                                            <input
+                                                id="coa-acc-opening-date"
+                                                type="date"
+                                                className="form-input-field"
+                                                value={openingBalanceDate}
+                                                onChange={(e) => setOpeningBalanceDate(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="form-group coa-account-span-2">
+                                            <label className="form-label" htmlFor="coa-acc-opening-contra">
+                                                {t('coa.page.openingContra')}
+                                            </label>
+                                            <select
+                                                id="coa-acc-opening-contra"
+                                                className="form-input-field"
+                                                value={openingOffsetAccountId}
+                                                onChange={(e) => setOpeningOffsetAccountId(e.target.value)}
+                                            >
+                                                <option value="">{t('coa.page.openingSuspense')}</option>
+                                                {equityContraOptions.map((acc) => (
+                                                    <option key={acc.id} value={acc.id}>
+                                                        [{acc.code}] {acc.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label" htmlFor="coa-acc-opening-date">
-                                            {t('coa.page.openingDate')}
-                                        </label>
-                                        <input
-                                            id="coa-acc-opening-date"
-                                            type="date"
-                                            className="form-input-field"
-                                            value={openingBalanceDate}
-                                            onChange={(e) => setOpeningBalanceDate(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-                                <p className="form-help-text">{t('coa.page.openingHint')}</p>
-                            </section>
-                        ) : null}
+                                    <p className="form-help-text">{t('coa.page.openingHint')}</p>
+                                    <p className="form-help-text">{t('coa.page.openingContraHint')}</p>
+                                </>
+                            )}
+                        </section>
 
                         {!isEdit && type === 'ASSET' ? (
                             <section className="coa-account-section">

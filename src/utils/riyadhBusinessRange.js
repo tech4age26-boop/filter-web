@@ -62,6 +62,29 @@ export function defaultRiyadhReportRangeDatetimeLocal(d = new Date()) {
     return { start, end: `${endDay}T00:00` };
 }
 
+/** Add calendar days to a `YYYY-MM-DD` value without using the browser timezone. */
+export function addCalendarDaysYmd(ymd, days) {
+    const s = String(ymd || '').slice(0, 10);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const utc = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + Number(days || 0));
+    return new Date(utc).toISOString().slice(0, 10);
+}
+
+/**
+ * Live COA window after a period close: day after period end 00:00 → default To.
+ */
+export function liveBooksRangeAfterPeriodEnd(periodEndYmd, now = new Date()) {
+    const fromDay = addCalendarDaysYmd(periodEndYmd, 1);
+    const end = defaultRiyadhReportRangeDatetimeLocal(now).end;
+    if (!fromDay || !end) return null;
+    let dateTo = end;
+    if (dateTo < `${fromDay}T00:00`) {
+        dateTo = `${addCalendarDaysYmd(fromDay, 1)}T00:00`;
+    }
+    return { dateFrom: `${fromDay}T00:00`, dateTo };
+}
+
 /**
  * Parse `YYYY-MM-DDTHH:mm` (or with seconds) as Asia/Riyadh wall clock → UTC Date.
  */
