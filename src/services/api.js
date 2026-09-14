@@ -1,12 +1,19 @@
 import { notifyUserActivity } from '../utils/sessionIdle';
 
-// Production url
-// export const BASE_URL = "https://api.filtercarservices.com";
-// staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-// development url
+const RAILWAY_API_BASE = 'https://filterbackend-production.up.railway.app';
 
-// export const BASE_URL = 'http://localhost:3000';
+function resolveApiBaseUrl() {
+    const fromEnv = String(import.meta.env.VITE_API_BASE_URL || '')
+        .trim()
+        .replace(/\/$/, '');
+    if (fromEnv) return fromEnv;
+    // `npm run dev` must hit local Nest. Production/Vercel builds fall back to Railway
+    // unless VITE_API_BASE_URL is set at build time.
+    if (import.meta.env.DEV) return 'http://localhost:3000';
+    return RAILWAY_API_BASE;
+}
+
+export const BASE_URL = resolveApiBaseUrl();
 
 const API_LOADING_EVENT = 'filter-api-loading';
 
@@ -189,7 +196,7 @@ function wrongPortalRedirectPath() {
 
 /**
  * Central secure API client.
- * - Uses VITE_API_BASE_URL
+ * - Uses VITE_API_BASE_URL (dev: .env.development → localhost:3000)
  * - Adds Bearer token automatically
  * - Supports JSON and FormData
  * - Handles 401 globally
