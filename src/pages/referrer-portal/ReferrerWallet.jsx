@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { CreditCard, Wallet, TrendingUp } from 'lucide-react';
 import PayoutModal from '../../components/PayoutModal';
 import { rfT, rfStatusKey } from '../../utils/referrerPortalI18n';
@@ -6,7 +7,10 @@ import { rfBadgeClass, useReferrerPortal } from './useReferrerPortal';
 import { referrerPortalCreatePayout } from '../../services/referrerPortalApi';
 
 export default function ReferrerWallet() {
-    const { locale, overview, reloadOverview } = useReferrerPortal();
+    const { locale, overview, reloadOverview, isCommunity, overviewLoading } = useReferrerPortal();
+    if (!overviewLoading && isCommunity) {
+        return <Navigate to="/referrer-portal/dashboard" replace />;
+    }
     const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
     const [payoutAmount, setPayoutAmount] = useState('');
     const [payoutError, setPayoutError] = useState('');

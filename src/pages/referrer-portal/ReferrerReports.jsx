@@ -30,7 +30,7 @@ function todayIso() {
 }
 
 export default function ReferrerReports() {
-    const { locale } = useReferrerPortal();
+    const { locale, isCommunity } = useReferrerPortal();
     const [from, setFrom] = useState(defaultFrom);
     const [to, setTo] = useState(todayIso);
     const [data, setData] = useState(null);
@@ -58,7 +58,11 @@ export default function ReferrerReports() {
         { labelKey: 'reports.total', value: String(statsObj.referrals || 0), icon: Users },
         { labelKey: 'reports.converted', value: String(statsObj.converted || 0), icon: Target },
         { labelKey: 'reports.rate', value: `${statsObj.rate || 0}%`, icon: TrendingUp },
-        { labelKey: 'reports.avg', value: formatSar(locale, statsObj.avgCommission), icon: DollarSign },
+        {
+            labelKey: isCommunity ? 'reports.avgDiscount' : 'reports.avg',
+            value: formatSar(locale, isCommunity ? statsObj.avgDiscount : statsObj.avgCommission),
+            icon: DollarSign,
+        },
     ];
 
     const pieData = (Array.isArray(data?.mix) ? data.mix : []).map((d) => ({
@@ -70,7 +74,7 @@ export default function ReferrerReports() {
 
     const monthly = Array.isArray(data?.monthly) && data.monthly.length
         ? data.monthly
-        : [{ month: '—', earnings: 0 }];
+        : [{ month: '—', earnings: 0, discount: 0 }];
 
     const orders = Array.isArray(data?.orders) ? data.orders : [];
     const pageCount = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
@@ -84,7 +88,7 @@ export default function ReferrerReports() {
         o.customerName || '',
         o.customerMobile || '',
         Number(o.invoiceTotal || 0).toFixed(2),
-        Number(o.commissionAmount || 0).toFixed(2),
+        Number(isCommunity ? o.discountAmount || 0 : o.commissionAmount || 0).toFixed(2),
         o.status || '',
         o.createdAt ? new Date(o.createdAt).toLocaleString() : '',
     ]);
@@ -93,7 +97,7 @@ export default function ReferrerReports() {
         rfT(locale, 'table.customer'),
         rfT(locale, 'add.mobile'),
         rfT(locale, 'table.invoiceTotal'),
-        rfT(locale, 'table.commission'),
+        rfT(locale, isCommunity ? 'table.discount' : 'table.commission'),
         rfT(locale, 'table.status'),
         rfT(locale, 'table.date'),
     ];
@@ -101,7 +105,7 @@ export default function ReferrerReports() {
 
     return (
         <div className="rf-page">
-            <p className="rf-page-lead">{rfT(locale, 'reports.subtitle')}</p>
+            <p className="rf-page-lead">{rfT(locale, isCommunity ? 'reports.subtitleCommunity' : 'reports.subtitle')}</p>
 
             <form className="rf-date-filters" onSubmit={applyDates}>
                 <div className="rf-form-group">
@@ -159,7 +163,7 @@ export default function ReferrerReports() {
             <div className="rf-split-grid">
                 <div className="rf-card">
                     <div className="rf-card-header">
-                        <h3 className="rf-card-title">{rfT(locale, 'reports.monthly')}</h3>
+                        <h3 className="rf-card-title">{rfT(locale, isCommunity ? 'reports.monthlyDiscount' : 'reports.monthly')}</h3>
                     </div>
                     <div className="rf-chart-container">
                         <ResponsiveContainer width="100%" height="100%">
@@ -168,7 +172,7 @@ export default function ReferrerReports() {
                                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
                                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} />
                                 <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: 'var(--shadow-premium)' }} />
-                                <Bar dataKey="earnings" fill="var(--color-primary)" radius={[6, 6, 0, 0]} barSize={36} />
+                                <Bar dataKey={isCommunity ? 'discount' : 'earnings'} fill="var(--color-primary)" radius={[6, 6, 0, 0]} barSize={36} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
@@ -211,7 +215,7 @@ export default function ReferrerReports() {
                                 <th>{rfT(locale, 'table.invoice')}</th>
                                 <th>{rfT(locale, 'table.customer')}</th>
                                 <th className="rf-num">{rfT(locale, 'table.invoiceTotal')}</th>
-                                <th className="rf-num">{rfT(locale, 'table.commission')}</th>
+                                <th className="rf-num">{rfT(locale, isCommunity ? 'table.discount' : 'table.commission')}</th>
                                 <th>{rfT(locale, 'table.date')}</th>
                             </tr>
                         </thead>
@@ -228,7 +232,7 @@ export default function ReferrerReports() {
                                         <div className="rf-muted">{o.customerMobile}</div>
                                     </td>
                                     <td className="rf-num">{formatSar(locale, o.invoiceTotal)}</td>
-                                    <td className="rf-num">{formatSar(locale, o.commissionAmount)}</td>
+                                    <td className="rf-num">{formatSar(locale, isCommunity ? o.discountAmount : o.commissionAmount)}</td>
                                     <td className="rf-muted">{o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}</td>
                                 </tr>
                             ))}

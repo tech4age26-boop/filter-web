@@ -40,10 +40,12 @@ export default function ReferrerLayout() {
 
     const segment = location.pathname.split('/').filter(Boolean)[1] || 'dashboard';
     const pageTitle = rfT(locale, PAGE_TITLE_KEYS[segment] || 'title.dashboard');
+    const isCommunity = Boolean(overview?.profile?.isCommunity);
+    const navItems = REFERRER_NAV_ITEMS.filter((item) => !isCommunity || item.id !== 'wallet');
 
     const displayName =
         overview?.profile?.name || user?.name || user?.email || rfT(locale, 'layout.guest');
-    const userRole = rfT(locale, 'layout.role');
+    const userRole = rfT(locale, isCommunity ? 'layout.communityRole' : 'layout.role');
     const initials = displayName
         .split(' ')
         .map((n) => n[0])
@@ -78,6 +80,12 @@ export default function ReferrerLayout() {
     useEffect(() => {
         setIsMobileMenuOpen(false);
     }, [location.pathname]);
+
+    useEffect(() => {
+        if (!overviewLoading && isCommunity && segment === 'wallet') {
+            navigate('/referrer-portal/dashboard', { replace: true });
+        }
+    }, [overviewLoading, isCommunity, segment, navigate]);
 
     useEffect(() => {
         document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
@@ -116,17 +124,19 @@ export default function ReferrerLayout() {
                     <p className="logo-desc">{rfT(locale, 'layout.logoDesc')}</p>
                 </div>
 
-                <div className="rf-sidebar-wallet">
-                    <div className="rf-sidebar-wallet-label">{rfT(locale, 'layout.available')}</div>
-                    <div className="rf-sidebar-wallet-value">
-                        <Wallet size={16} strokeWidth={2} />
-                        <span>{availableBalance} SAR</span>
+                {!isCommunity ? (
+                    <div className="rf-sidebar-wallet">
+                        <div className="rf-sidebar-wallet-label">{rfT(locale, 'layout.available')}</div>
+                        <div className="rf-sidebar-wallet-value">
+                            <Wallet size={16} strokeWidth={2} />
+                            <span>{availableBalance} SAR</span>
+                        </div>
                     </div>
-                </div>
+                ) : null}
 
                 <nav className="sidebar-nav">
                     <div className="sidebar-section-label">{rfT(locale, 'layout.logoDesc')}</div>
-                    {REFERRER_NAV_ITEMS.map((item) => (
+                    {navItems.map((item) => (
                         <NavLink
                             key={item.id}
                             to={item.id === 'dashboard' ? '/referrer-portal/dashboard' : `/referrer-portal/${item.id}`}
@@ -210,6 +220,7 @@ export default function ReferrerLayout() {
                         overviewError,
                         overviewLoading,
                         reloadOverview,
+                        isCommunity,
                     }}
                 />
             </main>

@@ -19,7 +19,7 @@ function formatSar(locale, value) {
 
 export default function MyReferrals() {
     const navigate = useNavigate();
-    const { locale } = useReferrerPortal();
+    const { locale, isCommunity } = useReferrerPortal();
     const [filter, setFilter] = useState('All');
     const [searchTerm, setSearchTerm] = useState('');
     const [rows, setRows] = useState([]);
@@ -95,7 +95,7 @@ export default function MyReferrals() {
                                 <th>{rfT(locale, 'table.customer')}</th>
                                 <th>{rfT(locale, 'table.orders')}</th>
                                 <th className="rf-num">{rfT(locale, 'table.invoiceTotal')}</th>
-                                <th className="rf-num">{rfT(locale, 'table.commission')}</th>
+                                <th className="rf-num">{rfT(locale, isCommunity ? 'table.discount' : 'table.commission')}</th>
                                 <th>{rfT(locale, 'table.status')}</th>
                                 <th>{rfT(locale, 'table.date')}</th>
                                 <th />
@@ -123,7 +123,7 @@ export default function MyReferrals() {
                                         </td>
                                         <td>{ref.orderCount || 0}</td>
                                         <td className="rf-num">{formatSar(locale, ref.invoiceTotal)}</td>
-                                        <td className="rf-num">{formatSar(locale, ref.commissionTotal)}</td>
+                                        <td className="rf-num">{formatSar(locale, isCommunity ? ref.discountTotal : ref.commissionTotal)}</td>
                                         <td>
                                             <span className={rfBadgeClass(ref.status)}>
                                                 {rfT(locale, rfStatusKey(ref.status) || ref.status)}

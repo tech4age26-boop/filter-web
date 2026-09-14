@@ -98,6 +98,8 @@ function normalizeReferrer(row, locale) {
     iban: row.iban || row.IBAN || '',
     notes: row.notes || '',
     status: normalizeStatus(row.status),
+    isCommunity: Boolean(row.isCommunity ?? row.is_community ?? row.community),
+    referralCode: row.referralCode || row.referral_code || row.code || '',
     available: Number(row.available ?? row.availableCommission ?? row.available_commission ?? 0),
     pending: Number(row.pending ?? row.pendingCommission ?? row.pending_commission ?? 0),
     paid: Number(row.paid ?? row.paidCommission ?? row.paid_commission ?? 0),
@@ -628,13 +630,20 @@ export const ReferrerManagement = () => {
                       <div className="mk-ref-name-cell">
                         <div className="mk-ref-td-strong">{item.name}</div>
                         <div className="mk-ref-sub-cell">{item.email || t('dash')}</div>
+                        {item.isCommunity ? (
+                          <span className="mk-ref-community-badge">{t('badge.community')}</span>
+                        ) : null}
                       </div>
                     </td>
 
                     <td>{mktRefCategoryLabel(locale, item.type)}</td>
                     <td>{item.mobile || t('dash')}</td>
-                    <td className="mk-ref-text-green">{formatSar(item.available)}</td>
-                    <td className="mk-ref-text-yellow">{formatSar(item.pending)}</td>
+                    <td className="mk-ref-text-green">
+                      {item.isCommunity ? t('dash') : formatSar(item.available)}
+                    </td>
+                    <td className="mk-ref-text-yellow">
+                      {item.isCommunity ? t('dash') : formatSar(item.pending)}
+                    </td>
 
                     <td>
                       <span className={`mk-ref-status-badge ${item.status}`}>

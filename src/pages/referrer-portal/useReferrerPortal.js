@@ -10,8 +10,13 @@ export function useReferrerPortal() {
             overviewError: '',
             overviewLoading: false,
             reloadOverview: () => {},
+            isCommunity: false,
         }
     );
+}
+
+export function isCommunityReferrer(overview) {
+    return Boolean(overview?.profile?.isCommunity);
 }
 
 export function formatRuleValue(rule, kind = 'commission') {

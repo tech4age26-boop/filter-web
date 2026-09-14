@@ -6,6 +6,7 @@ import { referrerPortalGetNotifications, referrerPortalMarkNotificationsRead } f
 
 const ICONS = {
     commission: DollarSign,
+    conversion: UserPlus,
     payout: CreditCard,
     payoutPending: CreditCard,
     lead: UserPlus,
@@ -13,6 +14,7 @@ const ICONS = {
 
 function typeClass(type) {
     if (type === 'commission') return 'is-gold';
+    if (type === 'conversion') return 'is-green';
     if (type === 'payout') return 'is-green';
     if (type === 'payoutPending') return 'is-amber';
     return 'is-slate';
@@ -33,7 +35,7 @@ function dayLabel(locale, date) {
 }
 
 export default function ReferrerNotifications() {
-    const { locale, reloadOverview } = useReferrerPortal();
+    const { locale, reloadOverview, isCommunity } = useReferrerPortal();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [marking, setMarking] = useState(false);
@@ -77,7 +79,7 @@ export default function ReferrerNotifications() {
         <div className="rf-page">
             <div className="rf-notif-head">
                 <div>
-                    <p className="rf-page-lead" style={{ margin: 0 }}>{rfT(locale, 'notif.subtitle')}</p>
+                    <p className="rf-page-lead" style={{ margin: 0 }}>{rfT(locale, isCommunity ? 'notif.subtitleCommunity' : 'notif.subtitle')}</p>
                 </div>
                 <div className="rf-actions-bar">
                     {unreadCount > 0 ? (

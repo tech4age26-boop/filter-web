@@ -17,7 +17,7 @@ const TABS = [
 
 export default function ReferrerSettings() {
     const { updateUser } = useAuth();
-    const { locale, setLocale, overview, overviewError, reloadOverview } = useReferrerPortal();
+    const { locale, setLocale, overview, overviewError, reloadOverview, isCommunity } = useReferrerPortal();
     const [searchParams, setSearchParams] = useSearchParams();
     const requestedTab = searchParams.get('tab');
     const [tab, setTab] = useState(TABS.some((t) => t.id === requestedTab) ? requestedTab : 'code');
@@ -111,8 +111,12 @@ export default function ReferrerSettings() {
                 name: form.name.trim(),
                 phone: form.phone.trim(),
                 email: form.email.trim(),
-                bankName: form.bankName.trim(),
-                iban: form.iban.trim(),
+                ...(isCommunity
+                    ? {}
+                    : {
+                        bankName: form.bankName.trim(),
+                        iban: form.iban.trim(),
+                    }),
             });
             updateUser?.({
                 name: res?.profile?.name || form.name.trim(),
@@ -233,11 +237,19 @@ export default function ReferrerSettings() {
                             </div>
                             <div className="rf-form-group">
                                 <label className="rf-label">{rfT(locale, 'set.type')}</label>
-                                <input className="rf-input" value={profile?.category || rfT(locale, 'layout.role')} readOnly />
+                                <input className="rf-input" value={profile?.category || rfT(locale, isCommunity ? 'layout.communityRole' : 'layout.role')} readOnly />
                             </div>
                         </div>
+                        {isCommunity ? (
+                            <div className="rf-form-actions" style={{ marginTop: 16 }}>
+                                <button type="submit" className="rf-btn-primary" disabled={saving}>
+                                    {saving ? rfT(locale, 'set.saving') : rfT(locale, 'set.save')}
+                                </button>
+                            </div>
+                        ) : null}
                     </div>
 
+                    {!isCommunity ? (
                     <div className="rf-card">
                         <div className="rf-card-header">
                             <h3 className="rf-card-title">
@@ -263,6 +275,7 @@ export default function ReferrerSettings() {
                             </button>
                         </div>
                     </div>
+                    ) : null}
 
                     <div className="rf-card">
                         <div className="rf-card-header">
@@ -336,6 +349,7 @@ export default function ReferrerSettings() {
                         <span>{rfT(locale, 'set.rulesHint')}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
+                        {!isCommunity ? (
                         <div className="rf-rule">
                             <div className="rf-rule-top">
                                 <span className="rf-rule-target">{rfT(locale, 'set.commission')}</span>
@@ -360,6 +374,7 @@ export default function ReferrerSettings() {
                                 <p className="rf-muted">{rfT(locale, 'set.noCommission')}</p>
                             )}
                         </div>
+                        ) : null}
 
                         <div className="rf-rule">
                             <div className="rf-rule-top">

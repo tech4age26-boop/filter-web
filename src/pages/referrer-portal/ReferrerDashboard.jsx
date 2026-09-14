@@ -20,7 +20,7 @@ function formatSar(locale, value) {
 
 export default function ReferrerDashboard() {
     const navigate = useNavigate();
-    const { locale, displayName, overview, reloadOverview } = useReferrerPortal();
+    const { locale, displayName, overview, reloadOverview, isCommunity } = useReferrerPortal();
     const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
     const [payoutAmount, setPayoutAmount] = useState('');
     const [payoutError, setPayoutError] = useState('');
@@ -66,12 +66,19 @@ export default function ReferrerDashboard() {
         }
     };
 
-    const statCards = [
-        { labelKey: 'stat.commissionTotal', value: formatSar(locale, stats.commissionTotal), icon: TrendingUp },
-        { labelKey: 'stat.invoiceTotal', value: formatSar(locale, stats.invoiceTotal), icon: Receipt },
-        { labelKey: 'stat.referrals', value: String(stats.referrals || 0), icon: Users },
-        { labelKey: 'stat.orders', value: String(stats.orders || 0), icon: Wallet },
-    ];
+    const statCards = isCommunity
+        ? [
+            { labelKey: 'stat.discountTotal', value: formatSar(locale, stats.discountTotal), icon: TrendingUp },
+            { labelKey: 'stat.invoiceTotal', value: formatSar(locale, stats.invoiceTotal), icon: Receipt },
+            { labelKey: 'stat.referrals', value: String(stats.referrals || 0), icon: Users },
+            { labelKey: 'stat.orders', value: String(stats.orders || 0), icon: Wallet },
+        ]
+        : [
+            { labelKey: 'stat.commissionTotal', value: formatSar(locale, stats.commissionTotal), icon: TrendingUp },
+            { labelKey: 'stat.invoiceTotal', value: formatSar(locale, stats.invoiceTotal), icon: Receipt },
+            { labelKey: 'stat.referrals', value: String(stats.referrals || 0), icon: Users },
+            { labelKey: 'stat.orders', value: String(stats.orders || 0), icon: Wallet },
+        ];
 
     return (
         <div className="rf-page">
@@ -95,32 +102,36 @@ export default function ReferrerDashboard() {
                             ? rfT(locale, 'dash.welcome', { name: firstName })
                             : rfT(locale, 'dash.welcomeGuest')}
                     </h2>
-                    <p>{rfT(locale, 'dash.subtitle')}</p>
+                    <p>{rfT(locale, isCommunity ? 'dash.subtitleCommunity' : 'dash.subtitle')}</p>
                 </div>
-                <div className="rf-actions-bar">
-                    <button
-                        type="button"
-                        className="rf-btn-outline"
-                        onClick={() => {
-                            setPayoutError('');
-                            setIsPayoutModalOpen(true);
-                        }}
-                    >
-                        <CreditCard size={16} />
-                        {rfT(locale, 'dash.requestPayout')}
-                    </button>
-                </div>
+                {!isCommunity ? (
+                    <div className="rf-actions-bar">
+                        <button
+                            type="button"
+                            className="rf-btn-outline"
+                            onClick={() => {
+                                setPayoutError('');
+                                setIsPayoutModalOpen(true);
+                            }}
+                        >
+                            <CreditCard size={16} />
+                            {rfT(locale, 'dash.requestPayout')}
+                        </button>
+                    </div>
+                ) : null}
             </div>
 
             <div className="rf-split-grid" style={{ marginBottom: 4 }}>
-                <div className="rf-card">
-                    <div className="rf-card-header">
-                        <h3 className="rf-card-title">{rfT(locale, 'dash.yourCommission')}</h3>
+                {!isCommunity ? (
+                    <div className="rf-card">
+                        <div className="rf-card-header">
+                            <h3 className="rf-card-title">{rfT(locale, 'dash.yourCommission')}</h3>
+                        </div>
+                        <p className="rf-stat-value" style={{ fontSize: '1.4rem' }}>
+                            {commission ? formatRuleValue(commission, 'commission') : rfT(locale, 'dash.noRules')}
+                        </p>
                     </div>
-                    <p className="rf-stat-value" style={{ fontSize: '1.4rem' }}>
-                        {commission ? formatRuleValue(commission, 'commission') : rfT(locale, 'dash.noRules')}
-                    </p>
-                </div>
+                ) : null}
                 <div className="rf-card">
                     <div className="rf-card-header">
                         <h3 className="rf-card-title">{rfT(locale, 'dash.customerGets')}</h3>
@@ -154,11 +165,11 @@ export default function ReferrerDashboard() {
             <div className="rf-split-grid">
                 <div className="rf-card">
                     <div className="rf-card-header">
-                        <h3 className="rf-card-title">{rfT(locale, 'dash.earningsTrend')}</h3>
+                        <h3 className="rf-card-title">{rfT(locale, isCommunity ? 'dash.discountTrend' : 'dash.earningsTrend')}</h3>
                     </div>
                     <div className="rf-chart-container">
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={monthly.length ? monthly : [{ month: '—', earnings: 0 }]}>
+                            <AreaChart data={monthly.length ? monthly : [{ month: '—', earnings: 0, discount: 0 }]}>
                                 <defs>
                                     <linearGradient id="colorGold" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.18} />
@@ -182,7 +193,7 @@ export default function ReferrerDashboard() {
                                 />
                                 <Area
                                     type="monotone"
-                                    dataKey="earnings"
+                                    dataKey={isCommunity ? 'discount' : 'earnings'}
                                     stroke="var(--color-primary)"
                                     strokeWidth={3}
                                     fillOpacity={1}
@@ -239,7 +250,7 @@ export default function ReferrerDashboard() {
                                 <th>{rfT(locale, 'table.customer')}</th>
                                 <th>{rfT(locale, 'table.orders')}</th>
                                 <th>{rfT(locale, 'table.status')}</th>
-                                <th className="rf-num">{rfT(locale, 'table.commission')}</th>
+                                <th className="rf-num">{rfT(locale, isCommunity ? 'table.discount' : 'table.commission')}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -261,7 +272,7 @@ export default function ReferrerDashboard() {
                                                 {rfT(locale, rfStatusKey(ref.status) || ref.status)}
                                             </span>
                                         </td>
-                                        <td className="rf-num">{formatSar(locale, ref.commissionTotal)}</td>
+                                        <td className="rf-num">{formatSar(locale, isCommunity ? ref.discountTotal : ref.commissionTotal)}</td>
                                     </tr>
                                 ))
                             )}

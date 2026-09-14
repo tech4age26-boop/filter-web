@@ -14,7 +14,7 @@ function formatSar(locale, value) {
 export default function ReferrerReferralDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { locale } = useReferrerPortal();
+    const { locale, isCommunity } = useReferrerPortal();
     const [data, setData] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(true);
@@ -77,8 +77,8 @@ export default function ReferrerReferralDetail() {
                                 <p className="rf-name">{formatSar(locale, data.invoiceTotal)}</p>
                             </div>
                             <div>
-                                <p className="rf-muted">{rfT(locale, 'table.commission')}</p>
-                                <p className="rf-name">{formatSar(locale, data.commissionTotal)}</p>
+                                <p className="rf-muted">{rfT(locale, isCommunity ? 'table.discount' : 'table.commission')}</p>
+                                <p className="rf-name">{formatSar(locale, isCommunity ? data.discountTotal : data.commissionTotal)}</p>
                             </div>
                         </div>
                     </div>
@@ -96,7 +96,7 @@ export default function ReferrerReferralDetail() {
                                     <tr>
                                         <th>{rfT(locale, 'table.invoice')}</th>
                                         <th className="rf-num">{rfT(locale, 'table.invoiceTotal')}</th>
-                                        <th className="rf-num">{rfT(locale, 'table.commission')}</th>
+                                        <th className="rf-num">{rfT(locale, isCommunity ? 'table.discount' : 'table.commission')}</th>
                                         <th>{rfT(locale, 'table.status')}</th>
                                         <th>{rfT(locale, 'table.date')}</th>
                                     </tr>
@@ -111,7 +111,7 @@ export default function ReferrerReferralDetail() {
                                             <tr key={order.id}>
                                                 <td className="rf-name">{order.invoiceNo || order.id}</td>
                                                 <td className="rf-num">{formatSar(locale, order.invoiceTotal)}</td>
-                                                <td className="rf-num">{formatSar(locale, order.commissionAmount)}</td>
+                                                <td className="rf-num">{formatSar(locale, isCommunity ? order.discountAmount : order.commissionAmount)}</td>
                                                 <td>
                                                     <span className={rfBadgeClass(order.status)}>
                                                         {rfT(locale, rfStatusKey(order.status) || order.status)}
