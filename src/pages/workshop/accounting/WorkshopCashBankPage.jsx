@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams, useOutletContext } from 'react-router-dom';
-import { Plus, ArrowLeftRight, RefreshCw, Landmark, Wallet, Banknote, Zap, BookOpen } from 'lucide-react';
+import { Plus, ArrowLeftRight, RefreshCw, Landmark, Wallet, Banknote, Zap, BookOpen, SlidersHorizontal } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../../components/Modal';
 import SearchableEntityCombobox from '../../../components/SearchableEntityCombobox';
@@ -12,6 +12,7 @@ import {
     updateWorkshopCashBankAccount,
     listWorkshopCashBankPosTerminals,
     internalTransferWorkshopCashBank,
+    adjustWorkshopCashBankAmount,
     resetCashFlowV3,
     setBranchDefaultAccounts,
 } from '../../../services/workshopStaffApi';
@@ -109,6 +110,12 @@ export default function WorkshopCashBankPage({
     const [migrationMsg, setMigrationMsg] = useState('');
     const [branchDefaults, setBranchDefaults] = useState({});
     const [branchDefaultsMsg, setBranchDefaultsMsg] = useState('');
+    const [adjustAccount, setAdjustAccount] = useState(null);
+    const [adjustAmount, setAdjustAmount] = useState('');
+    const [adjustDate, setAdjustDate] = useState(() => todayIsoDate());
+    const [adjustReason, setAdjustReason] = useState('');
+    const [adjustError, setAdjustError] = useState('');
+    const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
     const scopeBranchId = layoutBranchId(selectedBranchId);
 
@@ -182,17 +189,24 @@ export default function WorkshopCashBankPage({
 
     const visibleAccounts = useMemo(() => {
         if (accountTab === 'all') return accounts;
-        const want = accountTab === 'cash' ? 'CASH' : accountTab === 'bank' ? 'BANK' : 'PETTY_CASH';
+        if (accountTab === 'tills') {
+            return accounts.filter((a) => a.kind === 'SYSTEM_CASHIER_TILL');
+        }
+        if (accountTab === 'cash') {
+            return accounts.filter((a) => a.apiType === 'CASH' && a.kind !== 'SYSTEM_CASHIER_TILL');
+        }
+        const want = accountTab === 'bank' ? 'BANK' : 'PETTY_CASH';
         return accounts.filter((a) => a.apiType === want);
     }, [accounts, accountTab]);
 
     const stats = useMemo(() => {
-        const sum = (t) => accounts.filter((a) => a.apiType === t).reduce((s, a) => s + a.currentBalance, 0);
+        const isOperatingCash = (a) => a.apiType === 'CASH' && a.kind !== 'SYSTEM_CASHIER_TILL';
+        const sum = (pred) => accounts.filter(pred).reduce((s, a) => s + a.currentBalance, 0);
         return {
-            cash: sum('CASH'),
-            bank: sum('BANK'),
-            petty: sum('PETTY_CASH'),
-            nCash: accounts.filter((a) => a.apiType === 'CASH').length,
+            cash: sum(isOperatingCash),
+            bank: sum((a) => a.apiType === 'BANK'),
+            petty: sum((a) => a.apiType === 'PETTY_CASH'),
+            nCash: accounts.filter(isOperatingCash).length,
             nBank: accounts.filter((a) => a.apiType === 'BANK').length,
             nPetty: accounts.filter((a) => a.apiType === 'PETTY_CASH').length,
         };
@@ -236,6 +250,69 @@ export default function WorkshopCashBankPage({
         setSaveError('');
         setNewPosTerminalId('');
         setNewAccountOpen(true);
+    };
+
+    const closeAdjustModal = () => {
+        setAdjustAccount(null);
+        setAdjustAmount('');
+        setAdjustDate(todayIsoDate());
+        setAdjustReason('');
+        setAdjustError('');
+        setAdjustSubmitting(false);
+    };
+
+    const openAdjustModal = (account) => {
+        setAdjustError('');
+        setAdjustAmount('');
+        setAdjustDate(todayIsoDate());
+        setAdjustReason('');
+        setAdjustAccount(account);
+    };
+
+    const adjustPreview = useMemo(() => {
+        const current = Number(adjustAccount?.currentBalance ?? 0);
+        const delta = Number(adjustAmount);
+        if (!Number.isFinite(delta) || adjustAmount === '' || adjustAmount === '-' || adjustAmount === '+') {
+            return { current, delta: null, next: current };
+        }
+        return { current, delta, next: current + delta };
+    }, [adjustAccount, adjustAmount]);
+
+    const handleAdjust = async () => {
+        if (!adjustAccount) return;
+        setAdjustError('');
+        if (!adjustAccount.coaAccountId) {
+            setAdjustError(t('cb.adjust.err.coa'));
+            return;
+        }
+        const delta = Number(adjustAmount);
+        if (!Number.isFinite(delta) || delta === 0) {
+            setAdjustError(t('cb.adjust.err.amount'));
+            return;
+        }
+        if (adjustPreview.next < 0) {
+            setAdjustError(t('cb.adjust.err.negative'));
+            return;
+        }
+        const reason = adjustReason.trim();
+        if (!reason) {
+            setAdjustError(t('cb.adjust.err.reason'));
+            return;
+        }
+        setAdjustSubmitting(true);
+        try {
+            await adjustWorkshopCashBankAmount(adjustAccount.id, {
+                amount: delta,
+                entryDate: adjustDate,
+                reason,
+            });
+            closeAdjustModal();
+            await loadAccounts();
+        } catch (e) {
+            setAdjustError(e?.message || t('cb.adjust.err.failed'));
+        } finally {
+            setAdjustSubmitting(false);
+        }
     };
 
     const handleSaveNew = async () => {
@@ -809,6 +886,18 @@ export default function WorkshopCashBankPage({
                                                     {t('cb.openRegister')}
                                                 </button>
                                             ) : null}
+                                            {!isAdminHqBooks && a.coaAccountId ? (
+                                                <button
+                                                    type="button"
+                                                    className="btn-edit-zone"
+                                                    onClick={() => openAdjustModal(a)}
+                                                    title={t('cb.adjust.title')}
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                                >
+                                                    <SlidersHorizontal size={14} />
+                                                    {t('cb.adjust')}
+                                                </button>
+                                            ) : null}
                                             {a.isSystem ? (
                                                 <span className="form-help-text" title={t('cb.systemTitle')}>{t('cb.system')}</span>
                                             ) : (
@@ -1039,6 +1128,72 @@ export default function WorkshopCashBankPage({
                         </div>
                     </Modal>
                 )}
+
+                {adjustAccount ? (
+                    <Modal
+                        title={`${t('cb.adjust.title')} — ${adjustAccount.name}`}
+                        onClose={closeAdjustModal}
+                        footer={
+                            <>
+                                <button type="button" className="btn-secondary" onClick={closeAdjustModal} disabled={adjustSubmitting}>{t('cb.modal.cancel')}</button>
+                                <button type="button" className="btn-submit btn-dark" onClick={handleAdjust} disabled={adjustSubmitting}>
+                                    {adjustSubmitting ? t('cb.adjust.submitting') : t('cb.adjust.submit')}
+                                </button>
+                            </>
+                        }
+                    >
+                        <p className="form-help-text" style={{ marginBottom: 12 }}>{t('cb.adjust.desc')}</p>
+                        {adjustError ? (
+                            <p className="form-help-text" style={{ color: '#B45309', marginBottom: 10 }} role="alert">{adjustError}</p>
+                        ) : null}
+                        <div className="modal-form-grid">
+                            <div className="form-group">
+                                <label className="form-label">{t('cb.adjust.current')}</label>
+                                <input type="text" className="form-input-field" readOnly value={`SAR ${formatSarAmount(adjustPreview.current)}`} />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">{t('cb.adjust.preview')}</label>
+                                <input
+                                    type="text"
+                                    className="form-input-field"
+                                    readOnly
+                                    value={`SAR ${formatSarAmount(adjustPreview.next)}`}
+                                    style={{ fontWeight: 700, color: adjustPreview.next < 0 ? '#B91C1C' : undefined }}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">{t('cb.adjust.amount')}</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    className="form-input-field"
+                                    value={adjustAmount}
+                                    onChange={(e) => setAdjustAmount(e.target.value)}
+                                    placeholder={t('cb.adjust.amountPh')}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">{t('cb.adjust.date')}</label>
+                                <input
+                                    type="date"
+                                    className="form-input-field"
+                                    value={adjustDate}
+                                    onChange={(e) => setAdjustDate(e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group form-group-full">
+                                <label className="form-label">{t('cb.adjust.reason')}</label>
+                                <textarea
+                                    className="form-input-field"
+                                    rows={3}
+                                    value={adjustReason}
+                                    onChange={(e) => setAdjustReason(e.target.value)}
+                                    placeholder={t('cb.adjust.reasonPh')}
+                                />
+                            </div>
+                        </div>
+                    </Modal>
+                ) : null}
             </AnimatePresence>
             ) : null}
         </div>

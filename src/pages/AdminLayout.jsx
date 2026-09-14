@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { SectionErrorBoundary } from '../components/AppErrorBoundary';
 import UserProfileMenu from '../components/UserProfileMenu';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -510,7 +511,9 @@ function AdminLayoutShell() {
                         </div>
                     </div>
                 </header>
-                <Outlet context={{ locale }} />
+                <SectionErrorBoundary resetKey={location.pathname + location.search}>
+                    <Outlet context={{ locale }} />
+                </SectionErrorBoundary>
             </main>
             {!location.pathname.startsWith('/admin/chat') && hasPermission('chat.view') && (
                 <PlatformChatFab onClick={() => navigate('/admin/chat')} />

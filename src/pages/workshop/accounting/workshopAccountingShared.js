@@ -24,6 +24,7 @@ export const blankPaymentRow = (i, voucher) => ({
     payeeId: '',
     payeeName: '',
     accountId: '',
+    accountAutoFilled: '',
     amount: '',
     ref: '',
     notes: '',
@@ -37,6 +38,7 @@ export const blankReceiptRow = (i, voucher) => ({
     payeeId: '',
     payeeName: '',
     accountId: '',
+    accountAutoFilled: '',
     amount: '',
     ref: '',
     notes: '',
@@ -65,6 +67,7 @@ export function buildRowsFromVoucherPool(makeBlank, pool, count = 2) {
 export const CASH_BANK_TABS = [
     { id: 'all', labelKey: 'cb.tab.all' },
     { id: 'cash', labelKey: 'cb.tab.cash' },
+    { id: 'tills', labelKey: 'cb.tab.tills' },
     { id: 'bank', labelKey: 'cb.tab.bank' },
     { id: 'petty', labelKey: 'cb.tab.petty' },
 ];

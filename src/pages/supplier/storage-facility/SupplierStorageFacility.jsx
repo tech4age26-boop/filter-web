@@ -5,7 +5,7 @@ import SupplierStorageFacilityBrandHub from './SupplierStorageFacilityBrandHub';
 
 export default function SupplierStorageFacility({ locale } = {}) {
     const [searchParams] = useSearchParams();
-    const brandId = searchParams.get('brand');
+    const brandId = searchParams.get('brand') || searchParams.get('brandId');
     if (brandId) {
         return <SupplierStorageFacilityBrandHub brandId={brandId} locale={locale} />;
     }
