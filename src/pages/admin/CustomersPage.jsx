@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, NavLink, useNavigate, useLocation, useOutletContext } from 'react-router-dom';
-import { Search, Plus, Users, Building, Pencil, FileText, Loader, Check } from 'lucide-react';
+import { Search, Plus, Users, Building, Pencil, FileText, Loader } from 'lucide-react';
 import CustomersPageShell from '../../components/admin/CustomersPageShell';
+import MultiSelectSearchCombo from '../../components/MultiSelectSearchCombo';
 import CorporateBillingSection from '../../components/admin/CorporateBillingSection';
 import { PaginationControls } from '../../components/PaginationControls';
 import { useAuth } from '../../context/AuthContext';
@@ -262,6 +263,33 @@ export default function CustomersPage() {
         };
     }, [t]);
 
+    const branchComboOptions = useMemo(() => {
+        const workshopNameById = new Map(
+            workshops.map((w) => [String(w.id), w.name || t('fallback.workshop', { id: w.id })]),
+        );
+        return allBranches
+            .map((b) => {
+                const workshopName =
+                    workshopNameById.get(String(b.workshopId)) ||
+                    b.workshopName ||
+                    t('fallback.workshop', { id: b.workshopId || '' });
+                const branchName = b.name || t('fallback.branch');
+                return {
+                    id: String(b.id),
+                    label: `${branchName} · ${workshopName}`,
+                    chipLabel: branchName,
+                    hint: workshopName,
+                    group: workshopName,
+                    searchText: `${workshopName} ${branchName} ${b.id}`,
+                };
+            })
+            .sort((a, b) => {
+                const g = String(a.group).localeCompare(String(b.group), undefined, { sensitivity: 'base' });
+                if (g !== 0) return g;
+                return String(a.chipLabel).localeCompare(String(b.chipLabel), undefined, { sensitivity: 'base' });
+            });
+    }, [workshops, allBranches, t]);
+
     const totalCustomersCount = grandTotal;
     const corporateCount = corporateTotal;
     const walkInCount = walkInTotal;
@@ -344,7 +372,10 @@ export default function CustomersPage() {
                 if (!prev || String(prev.id) !== String(customerId)) return prev;
                 return {
                     ...prev,
-                    loginEmail: primary?.email ?? '',
+                    taxId: String(raw?.customer?.taxId ?? raw?.taxId ?? prev.taxId ?? '').trim() || prev.taxId || '',
+                    crNumber: String(raw?.customer?.crNumber ?? raw?.crNumber ?? prev.crNumber ?? '').trim() || prev.crNumber || '',
+                    mobile: String(raw?.customer?.mobile ?? raw?.mobile ?? prev.mobile ?? '').trim() || prev.mobile || '',
+                    loginEmail: primary?.email ?? prev.loginEmail ?? '',
                     companyName: raw?.corporateAccount?.companyName ?? prev.companyName ?? '',
                     contactPerson: raw?.corporateAccount?.contactPerson ?? prev.contactPerson ?? '',
                     workshopId: raw?.customer?.workshopId != null ? String(raw.customer.workshopId) : prev.workshopId,
@@ -475,6 +506,7 @@ export default function CustomersPage() {
             const payload = {
                 companyName,
                 vatNumber: String(newCustomer.vatNumber || '').trim() || undefined,
+                taxId: String(newCustomer.vatNumber || '').trim() || undefined,
                 crNumber: String(newCustomer.crNumber || '').trim() || undefined,
                 contactPerson,
                 email,
@@ -542,58 +574,29 @@ export default function CustomersPage() {
         }
     };
 
-    const renderBranchPicker = (selectedIds, onToggle, className = '') => {
+    const renderBranchPicker = (selectedIds, onChangeIds) => {
         const selectedCount = selectedIds.length;
         return (
-        <div className={`customer-branch-picker customers-form-branch-picker ${className}`.trim()}>
-            {selectedCount > 0 && (
-                <div className="customer-branch-picker-summary">
-                    {t(selectedCount === 1 ? 'picker.selected' : 'picker.selectedPlural', { n: selectedCount })}
-                </div>
-            )}
+        <div className="customer-branch-combo">
             {workshops.length === 0 ? (
                 <div className="customer-branch-picker-empty">{t('picker.noWorkshops')}</div>
             ) : (
-                workshops.map((w) => {
-                    const branchRows = allBranches.filter((b) => String(b.workshopId) === String(w.id));
-                    if (branchRows.length === 0) return null;
-                    const workshopSelected = branchRows.filter((b) => selectedIds.includes(String(b.id))).length;
-                    return (
-                        <div key={w.id} className="customer-branch-workshop-card">
-                            <div className="customer-branch-workshop-head">
-                                <Building size={15} strokeWidth={2} />
-                                <span className="customer-branch-workshop-name">{w.name}</span>
-                                {workshopSelected > 0 && (
-                                    <span className="customer-branch-workshop-badge">
-                                        {workshopSelected}/{branchRows.length}
-                                    </span>
-                                )}
-                            </div>
-                            <div className="customer-branch-tile-grid">
-                                {branchRows.map((b) => {
-                                    const checked = selectedIds.includes(String(b.id));
-                                    return (
-                                        <label
-                                            key={b.id}
-                                            className={`customer-branch-tile${checked ? ' selected' : ''}`}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                className="customer-branch-tile-input"
-                                                checked={checked}
-                                                onChange={(e) => onToggle(String(b.id), e.target.checked)}
-                                            />
-                                            <span className="customer-branch-tile-indicator" aria-hidden="true">
-                                                {checked ? <Check size={13} strokeWidth={2.5} /> : null}
-                                            </span>
-                                            <span className="customer-branch-tile-label">{b.name}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
+                <>
+                    <MultiSelectSearchCombo
+                        options={branchComboOptions}
+                        value={selectedIds}
+                        onChange={onChangeIds}
+                        placeholder={t('picker.searchPh')}
+                        emptyHint={t('picker.empty')}
+                        clearLabel={t('picker.clear')}
+                        menuMinWidth={420}
+                    />
+                    {selectedCount > 0 && (
+                        <div className="customer-branch-picker-summary">
+                            {t(selectedCount === 1 ? 'picker.selected' : 'picker.selectedPlural', { n: selectedCount })}
                         </div>
-                    );
-                })
+                    )}
+                </>
             )}
         </div>
         );
@@ -620,7 +623,7 @@ export default function CustomersPage() {
                             {t('create.lead')}
                         </p>
 
-                        <div className="customers-create-layout">
+                        <div className="customers-create-layout customers-create-layout--single">
                             <div className="customers-create-main">
                                 <section className="customers-form-section">
                                     <h2 className="customers-form-section-title">{t('section.company')}</h2>
@@ -679,6 +682,17 @@ export default function CustomersPage() {
                                 </section>
 
                                 <section className="customers-form-section">
+                                    <h2 className="customers-form-section-title">{t('section.branches')}</h2>
+                                    <p className="customers-form-hint">{t('hint.branches')}</p>
+                                    {renderBranchPicker(newCustomer.selectedStoreIds, (ids) => {
+                                        setNewCustomer((prev) => ({
+                                            ...prev,
+                                            selectedStoreIds: (ids || []).map(String),
+                                        }));
+                                    })}
+                                </section>
+
+                                <section className="customers-form-section">
                                     <h2 className="customers-form-section-title">{t('section.portal')}</h2>
                                     <div className="customers-form-grid customers-form-grid--3">
                                         <div className="form-group">
@@ -721,21 +735,6 @@ export default function CustomersPage() {
                                     </div>
                                 </section>
                             </div>
-
-                            <aside className="customers-create-branches">
-                                <section className="customers-form-section customers-form-section--fill">
-                                    <h2 className="customers-form-section-title">{t('section.branches')}</h2>
-                                    <p className="customers-form-hint">{t('hint.branches')}</p>
-                                    {renderBranchPicker(newCustomer.selectedStoreIds, (branchId, checked) => {
-                                        setNewCustomer((prev) => ({
-                                            ...prev,
-                                            selectedStoreIds: checked
-                                                ? [...prev.selectedStoreIds, branchId]
-                                                : prev.selectedStoreIds.filter((id) => String(id) !== branchId),
-                                        }));
-                                    })}
-                                </section>
-                            </aside>
                         </div>
                     </CustomersPageShell>
                 )}
@@ -762,7 +761,7 @@ export default function CustomersPage() {
                                     <p className="customers-form-lead">
                                         {isCorp ? t('edit.leadCorp') : t('edit.leadWalkIn')}
                                     </p>
-                                    <div className={`customers-create-layout${isCorp ? '' : ' customers-create-layout--single'}`}>
+                                    <div className="customers-create-layout customers-create-layout--single">
                                         <div className="customers-create-main">
                                             <section className="customers-form-section">
                                                 <h2 className="customers-form-section-title">{t('section.profile')}</h2>
@@ -897,24 +896,20 @@ export default function CustomersPage() {
                                                     </div>
                                                 </section>
                                             )}
-                                        </div>
 
-                                        {isCorp && (
-                                            <aside className="customers-create-branches">
-                                                <section className="customers-form-section customers-form-section--fill">
+                                            {isCorp && (
+                                                <section className="customers-form-section">
                                                     <h2 className="customers-form-section-title">{t('section.branches')}</h2>
                                                     <p className="customers-form-hint">{t('hint.branches')}</p>
-                                                    {renderBranchPicker(editingCustomer.selectedStoreIds || [], (branchId, checked) => {
+                                                    {renderBranchPicker(editingCustomer.selectedStoreIds || [], (ids) => {
                                                         setEditingCustomer((prev) => ({
                                                             ...prev,
-                                                            selectedStoreIds: checked
-                                                                ? [...(prev.selectedStoreIds || []), branchId]
-                                                                : (prev.selectedStoreIds || []).filter((id) => String(id) !== branchId),
+                                                            selectedStoreIds: (ids || []).map(String),
                                                         }));
                                                     })}
                                                 </section>
-                                            </aside>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
                                 </>
                             );
@@ -935,6 +930,12 @@ export default function CustomersPage() {
                                     <label className="form-label">{t('label.customer')}</label>
                                     <div className="cell-main-text">{detailsData.name ?? detailsData.customer?.name ?? '—'}</div>
                                     <div className="cell-sub-text">{detailsData.mobile ?? detailsData.customer?.mobile ?? '—'}</div>
+                                    <div className="cell-sub-text">
+                                        VAT: {detailsData.customer?.taxId || detailsData.taxId || '—'}
+                                    </div>
+                                    <div className="cell-sub-text">
+                                        CR: {detailsData.customer?.crNumber || detailsData.crNumber || '—'}
+                                    </div>
                                 </div>
                                 <div className="form-group">
                                     <label className="form-label">{t('label.type')}</label>

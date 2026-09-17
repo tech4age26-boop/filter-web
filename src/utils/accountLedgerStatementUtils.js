@@ -28,6 +28,8 @@ function mapLegacyLedgerLines(lines) {
         return {
             id: line.id,
             date: dateStr,
+            requestedAt: line.requestedAt ?? null,
+            approvedAt: line.approvedAt ?? null,
             description,
             reference,
             debit: Number(line.debit ?? 0),
@@ -134,3 +136,21 @@ export function fmtBalanceSide(amount, normalDebit = true) {
 }
 
 export const LEDGER_ROWS_PER_PAGE = 25;
+
+function ymdOrNull(raw) {
+    if (raw == null || raw === '') return null;
+    const s = String(raw);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+/** Date column for request-based wallet / petty-cash / locker rows. */
+export function formatLedgerDateCell(row) {
+    const posted = ymdOrNull(row?.date) || String(row?.date || '').trim() || '—';
+    const requested = ymdOrNull(row?.requestedAt);
+    const approved = ymdOrNull(row?.approvedAt);
+    if (!requested) return posted;
+    const approvedLabel = approved || posted;
+    return `Requested ${requested}\nApproved ${approvedLabel}`;
+}

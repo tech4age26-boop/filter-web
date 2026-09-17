@@ -1,6 +1,13 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { formatLedgerDateCell } from './accountLedgerStatementUtils';
+import {
+    buildGenericLedgerPdfPages,
+    stackedNameHtml,
+    escapePdfHtml,
+    exportHtmlPagesToPdf,
+} from './bilingualHtmlPdf';
 
 const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString(undefined, {
@@ -397,188 +404,169 @@ function accountLedgerColumnMode(rows) {
 }
 
 /** Export a Chart of Accounts ledger statement to PDF. */
-export function exportAccountLedgerPdf({ header, openingBalance, rows, totals }) {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-    const margin = 32;
-    let cursorY = margin;
-
+export async function exportAccountLedgerPdf({ header, openingBalance, rows, totals }) {
     const accountLabel = header?.accountCode
         ? `[${header.accountCode}] ${header.accountName || ''}`
         : header?.accountName || 'Account';
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.text(pdfAsciiOrFallback(header?.companyName, 'FILTER'), margin, cursorY + 16);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text(pdfAsciiOrFallback(accountLabel, 'Account Ledger'), margin, cursorY + 38);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Account Ledger Statement', margin, cursorY + 58);
-
-    cursorY += 78;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    const lines = [
-        header?.accountType ? `Account type: ${header.accountType}` : null,
-        `Period: ${header?.from || '—'}  to  ${header?.to || '—'}`,
-        header?.expenseCategory ? `Expense category: ${header.expenseCategory}` : null,
-        `Currency: ${header?.currencyCode || 'SAR'}`,
-    ].filter(Boolean);
-    lines.forEach((line, i) => {
-        doc.text(line, margin, cursorY + i * 14);
-    });
-    cursorY += lines.length * 14 + 8;
-
     const colMode = accountLedgerColumnMode(rows);
     const hasCashCols = colMode === 'cash';
     const hasPettyCols = colMode === 'pettyCash';
-    const body = [
-        hasPettyCols
-            ? ['—', 'Opening balance', '', '', '', '', '', fmtMoney(openingBalance)]
-            : hasCashCols
-              ? ['—', 'Opening balance', '', '', '', '', '', fmtMoney(openingBalance)]
-              : ['—', 'Opening balance', '', '', '', fmtMoney(openingBalance)],
-        ...rows.map((r) =>
-            hasPettyCols
-                ? [
-                      r.date,
-                      r.walletUserLabel || '',
-                      r.expenseCategoryLabel || '',
-                      r.description || '',
-                      r.reference || '',
-                      r.debit > 0 ? fmtMoney(r.debit) : '',
-                      r.credit > 0 ? fmtMoney(r.credit) : '',
-                      fmtMoney(r.runningBalance),
-                  ]
-                : hasCashCols
-                  ? [
-                        r.date,
-                        r.counterpartyLabel || '',
-                        r.offsetAccountLabel || '',
-                        r.description || '',
-                        r.reference || '',
-                        r.debit > 0 ? fmtMoney(r.debit) : '',
-                        r.credit > 0 ? fmtMoney(r.credit) : '',
-                        fmtMoney(r.runningBalance),
-                    ]
-                  : [
-                        r.date,
-                        r.description || '',
-                        r.reference || '',
-                        r.debit > 0 ? fmtMoney(r.debit) : '',
-                        r.credit > 0 ? fmtMoney(r.credit) : '',
-                        fmtMoney(r.runningBalance),
-                    ],
-        ),
+    const brand = 'FILTER';
+    const currency = header?.currencyCode || 'SAR';
+    const scopeName = header?.workshopName || header?.companyName || '';
+    const partyTitle = (() => {
+        const raw = header?.partyName || header?.partyLabel || header?.accountName || accountLabel;
+        const code = header?.accountCode;
+        if (code && raw && !String(raw).includes(String(code))) {
+            return `[${code}] ${raw}`;
+        }
+        return raw || accountLabel;
+    })();
+    const sellerName =
+        header?.sellerName && header.sellerName !== scopeName
+            ? header.sellerName
+            : 'Filter Car Services';
+
+    const columns = hasPettyCols
+        ? [
+              { label: 'Date' },
+              { label: 'Wallet user / employee' },
+              { label: 'Expense category' },
+              { label: 'Description' },
+              { label: 'Reference' },
+              { label: 'Debit', num: true },
+              { label: 'Credit', num: true },
+              { label: 'Balance', num: true },
+          ]
+        : hasCashCols
+          ? [
+                { label: 'Date' },
+                { label: 'Paid to / Received from' },
+                { label: 'Expense / AR account' },
+                { label: 'Description' },
+                { label: 'Reference' },
+                { label: 'Debit', num: true },
+                { label: 'Credit', num: true },
+                { label: 'Balance', num: true },
+            ]
+          : [
+                { label: 'Date' },
+                { label: 'Description' },
+                { label: 'Reference' },
+                { label: 'Debit', num: true },
+                { label: 'Credit', num: true },
+                { label: 'Balance', num: true },
+            ];
+
+    const moneyCell = (v, show) => ({
+        html: show ? escapePdfHtml(fmtMoney(v)) : '',
+        className: 'num',
+    });
+    const textCell = (v) => ({ text: v });
+
+    const dataRows = (rows ?? []).map((r) =>
         hasPettyCols
             ? [
-                  '',
-                  '',
-                  '',
-                  'Totals',
-                  '',
-                  fmtMoney(totals?.totalDebit),
-                  fmtMoney(totals?.totalCredit),
-                  fmtMoney(totals?.closingBalance),
+                  textCell(formatLedgerDateCell(r)),
+                  textCell(r.walletUserLabel),
+                  textCell(r.expenseCategoryLabel),
+                  textCell(r.description),
+                  textCell(r.reference),
+                  moneyCell(r.debit, r.debit > 0),
+                  moneyCell(r.credit, r.credit > 0),
+                  moneyCell(r.runningBalance, true),
               ]
             : hasCashCols
               ? [
-                    '',
-                    '',
-                    '',
-                    'Totals',
-                    '',
-                    fmtMoney(totals?.totalDebit),
-                    fmtMoney(totals?.totalCredit),
-                    fmtMoney(totals?.closingBalance),
+                    textCell(formatLedgerDateCell(r)),
+                    textCell(r.counterpartyLabel),
+                    textCell(r.offsetAccountLabel),
+                    textCell(r.description),
+                    textCell(r.reference),
+                    moneyCell(r.debit, r.debit > 0),
+                    moneyCell(r.credit, r.credit > 0),
+                    moneyCell(r.runningBalance, true),
                 ]
               : [
-                    '',
-                    'Totals',
-                    '',
-                    fmtMoney(totals?.totalDebit),
-                    fmtMoney(totals?.totalCredit),
-                    fmtMoney(totals?.closingBalance),
+                    textCell(formatLedgerDateCell(r)),
+                    textCell(r.description),
+                    textCell(r.reference),
+                    moneyCell(r.debit, r.debit > 0),
+                    moneyCell(r.credit, r.credit > 0),
+                    moneyCell(r.runningBalance, true),
                 ],
-    ];
-
-    autoTable(doc, {
-        startY: cursorY,
-        head: hasPettyCols
-            ? [
-                  [
-                      'Date',
-                      'Wallet user / employee',
-                      'Expense category',
-                      'Description',
-                      'Reference',
-                      'Debit',
-                      'Credit',
-                      'Balance',
-                  ],
-              ]
-            : hasCashCols
-              ? [
-                    [
-                        'Date',
-                        'Paid to / Received from',
-                        'Expense / AR account',
-                        'Description',
-                        'Reference',
-                        'Debit',
-                        'Credit',
-                        'Balance',
-                    ],
-                ]
-              : [['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance']],
-        body,
-        margin: { left: margin, right: margin },
-        styles: { fontSize: 8, cellPadding: 4 },
-        headStyles: { fillColor: [241, 245, 249], textColor: 30 },
-        columnStyles: hasPettyCols || hasCashCols
-            ? {
-                  0: { cellWidth: 52 },
-                  1: { cellWidth: 70 },
-                  2: { cellWidth: 70 },
-                  3: { cellWidth: 'auto' },
-                  4: { cellWidth: 68 },
-                  5: { cellWidth: 52, halign: 'right' },
-                  6: { cellWidth: 52, halign: 'right' },
-                  7: { cellWidth: 62, halign: 'right' },
-              }
-            : {
-                  0: { cellWidth: 64 },
-                  1: { cellWidth: 'auto' },
-                  2: { cellWidth: 78 },
-                  3: { cellWidth: 68, halign: 'right' },
-                  4: { cellWidth: 68, halign: 'right' },
-                  5: { cellWidth: 78, halign: 'right' },
-              },
-        didParseCell(data) {
-            const last = data.row.index === body.length - 1;
-            const first = data.row.index === 0;
-            if (last || first) {
-                data.cell.styles.fontStyle = 'bold';
-                data.cell.styles.fillColor = first ? [248, 250, 252] : [255, 247, 237];
-            }
-        },
-    });
-
-    const finalY = doc.lastAutoTable?.finalY ?? cursorY + 200;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(100);
-    doc.text(
-        `Generated ${new Date().toLocaleString()}`,
-        margin,
-        Math.min(finalY + 18, doc.internal.pageSize.getHeight() - 16),
     );
 
-    doc.save(`${buildAccountFileBase({ header })}.pdf`);
+    const blank = (n) => Array.from({ length: n }, () => textCell(''));
+    const openingCells = hasPettyCols || hasCashCols
+        ? [
+              textCell('—'),
+              textCell('Opening balance'),
+              ...blank(5),
+              moneyCell(openingBalance, true),
+          ]
+        : [
+              textCell('—'),
+              textCell('Opening balance'),
+              textCell(''),
+              ...blank(2),
+              moneyCell(openingBalance, true),
+          ];
+    const closingCells = hasPettyCols || hasCashCols
+        ? [
+              textCell(''),
+              textCell(''),
+              textCell(''),
+              textCell('Totals'),
+              textCell(''),
+              moneyCell(totals?.totalDebit, true),
+              moneyCell(totals?.totalCredit, true),
+              moneyCell(totals?.closingBalance, true),
+          ]
+        : [
+              textCell(''),
+              textCell('Totals'),
+              textCell(''),
+              moneyCell(totals?.totalDebit, true),
+              moneyCell(totals?.totalCredit, true),
+              moneyCell(totals?.closingBalance, true),
+          ];
+
+    const metaHtml = [
+        header?.vatNumber ? `VAT No.: ${escapePdfHtml(header.vatNumber)}` : null,
+        header?.crNumber ? `CR No.: ${escapePdfHtml(header.crNumber)}` : null,
+        header?.contactPerson ? `Contact:<br/>${stackedNameHtml(header.contactPerson, { enClass: 'meta-en', arClass: 'meta-ar' })}` : null,
+        header?.partyPhone ? `Tel.: ${escapePdfHtml(header.partyPhone)}` : null,
+        header?.partyAddress ? `Address:<br/>${stackedNameHtml(header.partyAddress, { enClass: 'meta-en', arClass: 'meta-ar' })}` : null,
+        header?.accountType ? `Account type: ${escapePdfHtml(header.accountType)}` : null,
+        `Period: ${escapePdfHtml(header?.from || '—')} to ${escapePdfHtml(header?.to || '—')}`,
+        header?.expenseCategory ? `Expense category: ${escapePdfHtml(header.expenseCategory)}` : null,
+        `Currency: ${escapePdfHtml(currency)}`,
+    ]
+        .filter(Boolean)
+        .join('<br/>');
+
+    const pages = buildGenericLedgerPdfPages({
+        letterhead: true,
+        brand,
+        sellerName,
+        scopeName,
+        sellerVat: header?.sellerVatNumber || '',
+        title: partyTitle,
+        metaHtml,
+        columns,
+        dataRows,
+        openingCells,
+        closingCells,
+        rowsPerPage: hasPettyCols || hasCashCols ? 14 : 18,
+        generated: `Generated ${new Date().toLocaleString()} · FILTER`,
+    });
+
+    await exportHtmlPagesToPdf({
+        fileName: `${buildAccountFileBase({ header })}.pdf`,
+        orientation: 'portrait',
+        pages,
+    });
 }
 
 /** Export a Chart of Accounts ledger statement to Excel. */
@@ -594,6 +582,12 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
         [accountLabel],
         ['Account Ledger Statement'],
         [],
+        ...(header?.sellerVatNumber ? [['Seller VAT No.', header.sellerVatNumber]] : []),
+        ...(header?.vatNumber ? [['VAT No.', header.vatNumber]] : []),
+        ...(header?.crNumber ? [['CR No.', header.crNumber]] : []),
+        ...(header?.contactPerson ? [['Contact', header.contactPerson]] : []),
+        ...(header?.partyPhone ? [['Phone', header.partyPhone]] : []),
+        ...(header?.partyAddress ? [['Address', header.partyAddress]] : []),
         ['Ledger account', accountLabel],
         ['Account type', header?.accountType || ''],
         ['Period', `${header?.from || '—'}  to  ${header?.to || '—'}`],
@@ -614,7 +608,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   ],
                   ['—', 'Opening balance', '', '', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.walletUserLabel || '',
                       r.expenseCategoryLabel || '',
                       r.description || '',
@@ -648,7 +642,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   ],
                   ['—', 'Opening balance', '', '', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.counterpartyLabel || '',
                       r.offsetAccountLabel || '',
                       r.description || '',
@@ -672,7 +666,7 @@ export function exportAccountLedgerExcel({ header, openingBalance, rows, totals 
                   ['Date', 'Description', 'Reference', 'Debit', 'Credit', 'Balance'],
                   ['—', 'Opening balance', '', '', '', Number(openingBalance ?? 0)],
                   ...rows.map((r) => [
-                      r.date,
+                      formatLedgerDateCell(r),
                       r.description || '',
                       r.reference || '',
                       r.debit > 0 ? Number(r.debit) : '',

@@ -8641,17 +8641,17 @@
   padding-left: 9px;
 }
 
-.mkp-dd-option:hover,
-.mkp-dd-single-option:hover,
-.mkp-dd-single-option.selected,
-.mkp-dd-option.selected {
-  background: #f8fafc;
+.mkp-dd-option:hover:not(.selected):not(.active),
+.mkp-dd-single-option:hover:not(.selected):not(.active) {
+  background: #fff6d6;
 }
 
+.mkp-dd-single-option.selected,
+.mkp-dd-option.selected,
 .mkp-dd-single-option.active,
 .mkp-dd-option.active {
-  background: #fef3c7;
-  outline: 1px solid #fcd34d;
+  background: #fcc247;
+  outline: 1px solid #d4a017;
 }
 
 .mkp-select-wrap.mkp-dd-wrap .mkp-dd-button {

@@ -1060,7 +1060,9 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                             body: JSON.stringify({
                                 customerName: data.name,
                                 mobile: data.phone,
-                                vatNumber: data.vatNumber,
+                                ...(String(data.vatNumber || '').trim()
+                                    ? { vatNumber: String(data.vatNumber).trim() }
+                                    : {}),
                                 referralCode: data.referralCode || undefined,
                                 vehicleNumber: data.vehicleNumber,
                                 make: data.make,

@@ -44,6 +44,7 @@ const REGISTER_TITLE_KEYS = {
 export default function CashBankRegisterPanel({
     registerType,
     initialCoaAccountId = '',
+    branchId = '',
     onClose,
     locale: localeProp,
 }) {
@@ -59,6 +60,7 @@ export default function CashBankRegisterPanel({
     const [coaSearch, setCoaSearch] = useState('');
     const [ledgerFilter, setLedgerFilter] = useState('all');
     const [loading, setLoading] = useState(true);
+    const [pdfExporting, setPdfExporting] = useState(false);
     const [error, setError] = useState('');
     const [data, setData] = useState(null);
 
@@ -71,6 +73,7 @@ export default function CashBankRegisterPanel({
                 coaAccountId: coaAccountId || undefined,
                 dateFrom,
                 dateTo,
+                branchId: branchId || undefined,
             });
             setData(res);
         } catch (e) {
@@ -79,7 +82,7 @@ export default function CashBankRegisterPanel({
         } finally {
             setLoading(false);
         }
-    }, [registerType, coaAccountId, dateFrom, dateTo, t]);
+    }, [registerType, coaAccountId, dateFrom, dateTo, branchId, t]);
 
     useEffect(() => {
         load();
@@ -140,12 +143,20 @@ export default function CashBankRegisterPanel({
         };
     }, [title, registerType, selectedCoaLabel, allAccountsLabel, coaAccountId, dateFrom, dateTo, ledgerFilter, t]);
 
-    const handleExportPdf = () => {
-        exportCashBankRegisterPdf({
-            header: exportHeader,
-            summary,
-            lines: filteredLines,
-        });
+    const handleExportPdf = async () => {
+        setPdfExporting(true);
+        setError('');
+        try {
+            await exportCashBankRegisterPdf({
+                header: exportHeader,
+                summary,
+                lines: filteredLines,
+            });
+        } catch (e) {
+            setError(e?.message || t('register.pdfFailed'));
+        } finally {
+            setPdfExporting(false);
+        }
     };
 
     const handleExportExcel = () => {
@@ -156,7 +167,7 @@ export default function CashBankRegisterPanel({
         });
     };
 
-    const exportDisabled = loading || !!error;
+    const exportDisabled = loading || pdfExporting || !!error;
 
     const emptyMessage =
         ledgerFilter !== 'all'
@@ -221,8 +232,8 @@ export default function CashBankRegisterPanel({
                     disabled={exportDisabled}
                     title={t('register.pdfTitle')}
                 >
-                    <FileText size={16} style={{ marginRight: 6 }} />
-                    {t('register.pdf')}
+                    <FileText size={16} style={{ marginRight: 6, opacity: pdfExporting ? 0.5 : 1 }} />
+                    {pdfExporting ? t('register.pdfPreparing') : t('register.pdf')}
                 </button>
                 <button
                     type="button"
@@ -300,6 +311,8 @@ export default function CashBankRegisterPanel({
                         <tr>
                             <th>{t('register.th.date')}</th>
                             <th>{t('register.th.coaReg')}</th>
+                            <th>{t('register.th.paidTo')}</th>
+                            <th>{t('register.th.purpose')}</th>
                             <th>{t('register.th.desc')}</th>
                             <th>{t('register.th.ref')}</th>
                             <th style={{ textAlign: 'right' }}>{t('register.th.in')}</th>
@@ -309,28 +322,38 @@ export default function CashBankRegisterPanel({
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={7} className="table-cell table-empty">{t('register.loading')}</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">{t('register.loading')}</td></tr>
                         ) : (
                             <>
                                 <tr className="cash-bank-register-opening-row">
-                                    <td colSpan={6}><strong>{t('register.openingRow')}</strong></td>
+                                    <td colSpan={8}><strong>{t('register.openingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.openingBalance)}</td>
                                 </tr>
                                 {filteredLines.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="table-cell table-empty">
+                                        <td colSpan={9} className="table-cell table-empty">
                                             {emptyMessage}
                                         </td>
                                     </tr>
                                 ) : (
                                     filteredLines.map((row) => (
                                         <tr key={row.id}>
-                                            <td>{String(row.entryDate).slice(0, 10)}</td>
+                                            <td style={{ whiteSpace: 'pre-line', lineHeight: 1.35 }}>
+                                                {row.requestedAt
+                                                    ? `Requested ${String(row.requestedAt).slice(0, 10)}\nApproved ${String(row.approvedAt || row.entryDate).slice(0, 10)}`
+                                                    : String(row.entryDate).slice(0, 10)}
+                                            </td>
                                             <td>
                                                 <div style={{ fontWeight: 600 }}>
                                                     {row.coaCode ? `[${row.coaCode}] ${row.coaName}` : row.accountName}
                                                 </div>
                                                 <div style={{ fontSize: 12, color: '#64748b' }}>{row.accountName}</div>
+                                            </td>
+                                            <td title={row.counterpartyLabel || ''}>
+                                                {row.counterpartyLabel || '—'}
+                                            </td>
+                                            <td title={row.offsetAccountLabel || ''}>
+                                                {row.offsetAccountLabel || '—'}
                                             </td>
                                             <td>{row.description || '—'}</td>
                                             <td>{row.reference || row.sourceType || '—'}</td>
@@ -345,7 +368,7 @@ export default function CashBankRegisterPanel({
                                     ))
                                 )}
                                 <tr className="cash-bank-register-closing-row">
-                                    <td colSpan={6}><strong>{t('register.closingRow')}</strong></td>
+                                    <td colSpan={8}><strong>{t('register.closingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.closingBalance)}</td>
                                 </tr>
                             </>

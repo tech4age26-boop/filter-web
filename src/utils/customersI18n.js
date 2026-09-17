@@ -92,6 +92,9 @@ const CUST_I18N = {
         'picker.selected': '{n} branch selected',
         'picker.selectedPlural': '{n} branches selected',
         'picker.noWorkshops': 'No workshops available.',
+        'picker.searchPh': 'Search workshop or branch…',
+        'picker.empty': 'No matching workshops or branches',
+        'picker.clear': 'Clear',
         'fallback.workshop': 'Workshop {id}',
         'fallback.branch': 'Unnamed branch',
         'err.createRequired':
@@ -196,6 +199,9 @@ const CUST_I18N = {
         'picker.selected': '{n} فرع محدد',
         'picker.selectedPlural': '{n} فروع محددة',
         'picker.noWorkshops': 'لا توجد ورش متاحة.',
+        'picker.searchPh': 'ابحث عن الورشة أو الفرع…',
+        'picker.empty': 'لا توجد ورش أو فروع مطابقة',
+        'picker.clear': 'مسح',
         'fallback.workshop': 'ورشة {id}',
         'fallback.branch': 'فرع بلا اسم',
         'err.createRequired':

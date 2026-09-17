@@ -1124,7 +1124,7 @@
     cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;
 }
 .ws-dropdown-item:hover { background: #F9FAFB; }
-.ws-dropdown-item.active { background: #FFF7ED; color: #B45309; font-weight: 600; }
+.ws-dropdown-item.active { background: #fcc247; color: #1e2124; font-weight: 600; }
 .ws-dropdown-item .ws-check { color: #B45309; font-weight: 700; }
 
 .ws-btn-refresh {

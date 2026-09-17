@@ -636,6 +636,13 @@ export const internalTransferWorkshopCashBank = (body) =>
         body: JSON.stringify(mergeAccountingScopeBody(body ?? {})),
     });
 
+/** Signed +/- closing adjustment (register movement + JE vs 1154). */
+export const adjustWorkshopCashBankAmount = (id, body) =>
+    apiFetch(`/workshop-staff/cash-bank/accounts/${encodeURIComponent(String(id))}/adjust`, {
+        method: 'POST',
+        body: JSON.stringify(mergeAccountingScopeBody(body ?? {})),
+    });
+
 /** Set or clear a branch's default cash/bank operating register. */
 export const setBranchDefaultAccounts = (branchId, body) =>
     apiFetch(`/workshop-staff/branches/${encodeURIComponent(String(branchId))}/default-accounts`, {

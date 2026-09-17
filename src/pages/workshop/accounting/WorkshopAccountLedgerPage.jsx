@@ -23,6 +23,7 @@ import {
     toLedgerFilterControlValue,
 } from '../../../utils/riyadhBusinessRange';
 import { loadWorkshopAdminDatetimeRange } from '../workshopAdminDatetimeRange';
+import { isCashOrBankCoaAccount } from '../../admin/hqCoaAccountRouting';
 import {
     isWorkshopLockerExpensesLedgerAccount,
     isWorkshopPettyCashExpenseLedgerAccount,
@@ -250,7 +251,7 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         setErr('');
         try {
             const root = await fetchForExport();
-            exportAccountLedgerPdf({
+            await exportAccountLedgerPdf({
                 header: buildExportHeader(root),
                 openingBalance: root?.openingBalance ?? 0,
                 rows: root?.rows ?? [],
@@ -348,6 +349,10 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         || isExpenseFromCode
         || isLockerFromCode,
     );
+    const isCashRegisterLedger = Boolean(
+        data?.cashRegisterLedger
+        || (!isPettyCashExpenseLedger && isCashOrBankCoaAccount({ code: accountCode })),
+    );
     const showTopupsOnlyFilter = isWorkshopPettyCashFundLedger;
     const showExpenseCategoryFilter = isPettyCashExpenseLedger && !topupsOnly;
     const showBranchFilter =
@@ -362,7 +367,9 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
             ? t('stmt.scope.expense', { entity: entityLabel })
             : isWorkshopPettyCashFundLedger
                 ? t('stmt.scope.fund', { entity: entityLabel })
-                : '';
+                : isCashRegisterLedger
+                    ? t('stmt.scope.cashRegister', { entity: entityLabel })
+                    : '';
 
     const ledgerFilterOptions = useMemo(() => {
         if (data?.filterOptions) {
@@ -467,6 +474,14 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
                 accountName={data?.header?.accountName || fallbackName}
                 accountType={accountType}
                 companyName={data?.header?.companyName || entityLabel || undefined}
+                sellerName={data?.header?.sellerName || 'Filter Car Services'}
+                vatNumber={data?.header?.vatNumber || ''}
+                sellerVatNumber={data?.header?.sellerVatNumber || ''}
+                crNumber={data?.header?.crNumber || ''}
+                partyAddress={data?.header?.partyAddress || ''}
+                partyPhone={data?.header?.partyPhone || ''}
+                contactPerson={data?.header?.contactPerson || ''}
+                partyName={data?.header?.partyName || ''}
                 periodFrom={
                     fmtRiyadhRangeLabel(
                         toLedgerFilterControlValue(data?.header?.from || dateFrom) || dateFrom,
@@ -491,7 +506,10 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
                 onExportPdf={() => void onExportPdf()}
                 onExportExcel={() => void onExportExcel()}
                 exportDisabled={!data || loading}
+                showCashLedgerColumns={isCashRegisterLedger && !isPettyCashExpenseLedger}
                 showPettyCashExpenseColumns={isPettyCashExpenseLedger}
+                counterpartyColumnLabel={t('stmt.paidToFrom')}
+                offsetAccountColumnLabel={t('stmt.forPurpose')}
                 walletUserColumnLabel={
                     isWorkshopLockerExpensesLedger
                         ? t('stmt.recordedBy')

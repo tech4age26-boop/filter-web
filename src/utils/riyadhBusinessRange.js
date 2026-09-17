@@ -63,6 +63,89 @@ export function defaultRiyadhReportRangeDatetimeLocal(d = new Date()) {
 }
 
 /**
+ * If a stored workshop From/To ends yesterday or earlier today (stale dashboard
+ * window), extend To to the live end (tomorrow 00:00) so today's journals still
+ * appear on Chart of Accounts. Intentional historical months (To before yesterday)
+ * are left unchanged.
+ */
+export function extendStaleWorkshopRangeToLiveEnd(range, now = new Date()) {
+    const dateFrom = String(range?.dateFrom || '').trim();
+    const dateTo = String(range?.dateTo || '').trim();
+    const live = defaultRiyadhReportRangeDatetimeLocal(now);
+    if (!dateFrom || !dateTo || !live.end) return { dateFrom, dateTo };
+    const today = toRiyadhDateISO(now);
+    const yesterday = addCalendarDaysYmd(today, -1);
+    const toDay = dateTo.slice(0, 10);
+    if (toDay >= yesterday && dateTo < live.end) {
+        return { dateFrom, dateTo: live.end };
+    }
+    return { dateFrom, dateTo };
+}
+
+function isCalendarDayBound(raw) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(raw || '').trim());
+}
+
+/**
+ * Manager.io-style inclusive calendar From/To (Asia/Riyadh).
+ * Datetime-local half-open windows (To at 00:00 = exclusive) collapse to the
+ * last included calendar day. Already-calendar values are kept as-is.
+ */
+export function toInclusiveCalendarRange(dateFrom, dateTo) {
+    const fromRaw = String(dateFrom || '').trim();
+    const toRaw = String(dateTo || '').trim();
+    if (!fromRaw && !toRaw) return { dateFrom: '', dateTo: '' };
+    if (isCalendarDayBound(fromRaw) && isCalendarDayBound(toRaw)) {
+        return { dateFrom: fromRaw, dateTo: toRaw };
+    }
+    return riyadhPlRangeToLedgerCalendarDates(fromRaw, toRaw);
+}
+
+/** Default COA window: 1st of Riyadh month → today, inclusive. */
+export function defaultInclusiveCoaCalendarRange(now = new Date()) {
+    const today = toRiyadhDateISO(now);
+    const start = riyadhStartOfMonthDatetimeLocal(now).slice(0, 10);
+    return { dateFrom: start, dateTo: today };
+}
+
+/**
+ * Persist inclusive calendar days as the dashboard half-open datetime-local
+ * window (From 00:00 → day after To 00:00).
+ */
+export function inclusiveCalendarRangeToDatetimeLocal(dateFrom, dateTo) {
+    const from = String(dateFrom || '').slice(0, 10);
+    const to = String(dateTo || '').slice(0, 10);
+    if (!from || !to) return { dateFrom: '', dateTo: '' };
+    return {
+        dateFrom: `${from}T00:00`,
+        dateTo: `${addCalendarDaysYmd(to, 1)}T00:00`,
+    };
+}
+
+/** Add calendar days to a `YYYY-MM-DD` value without using the browser timezone. */
+export function addCalendarDaysYmd(ymd, days) {
+    const s = String(ymd || '').slice(0, 10);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    const utc = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + Number(days || 0));
+    return new Date(utc).toISOString().slice(0, 10);
+}
+
+/**
+ * Live COA window after a period close: day after period end 00:00 → default To.
+ */
+export function liveBooksRangeAfterPeriodEnd(periodEndYmd, now = new Date()) {
+    const fromDay = addCalendarDaysYmd(periodEndYmd, 1);
+    const end = defaultRiyadhReportRangeDatetimeLocal(now).end;
+    if (!fromDay || !end) return null;
+    let dateTo = end;
+    if (dateTo < `${fromDay}T00:00`) {
+        dateTo = `${addCalendarDaysYmd(fromDay, 1)}T00:00`;
+    }
+    return { dateFrom: `${fromDay}T00:00`, dateTo };
+}
+
+/**
  * Parse `YYYY-MM-DDTHH:mm` (or with seconds) as Asia/Riyadh wall clock → UTC Date.
  */
 export function riyadhWallToUtcDate(wall) {

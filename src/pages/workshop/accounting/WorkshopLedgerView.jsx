@@ -816,6 +816,16 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         vatNumber: selectedCorpProfile?.vatNumber
             || corpLedgerRaw?.corporateAccount?.vatNumber
             || '',
+        crNumber: corpLedgerRaw?.corporateAccount?.crNumber || '',
+        sellerVatNumber: '311120967500003',
+        sellerName: 'Filter Car Services',
+        partyName: selectedCorpProfile?.companyName
+            || corpLedgerRaw?.corporateAccount?.companyName
+            || '',
+        partyPhone: selectedCorpProfile?.phone
+            || corpLedgerRaw?.corporateAccount?.customerMobile
+            || '',
+        partyAddress: corpLedgerRaw?.corporateAccount?.address || '',
         phone: selectedCorpProfile?.phone
             || corpLedgerRaw?.corporateAccount?.customerMobile
             || '',
@@ -887,7 +897,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             } else if (isApSupplierView && apLedgerRaw) {
                 exportSupplierLedgerPdf(buildApExportPayload());
             } else {
-                exportWorkshopGlLedgerPdf({
+                await exportWorkshopGlLedgerPdf({
                     header: exportHeader,
                     openingBalance: statementOpening,
                     lines: filteredLines,

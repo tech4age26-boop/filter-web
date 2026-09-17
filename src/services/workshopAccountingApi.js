@@ -76,6 +76,25 @@ export const rejectPayment = (id) =>
         method: 'PATCH',
     });
 
+export const getPayment = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}`, {}));
+
+export const updatePayment = (id, body) =>
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}`, {}), {
+        method: 'PATCH',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
+
+export const voidPayment = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}/void`, {}), {
+        method: 'POST',
+    });
+
+export const unvoidPayment = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}/unvoid`, {}), {
+        method: 'POST',
+    });
+
 export const listReceipts = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/receipts', params));
 
@@ -95,11 +114,46 @@ export const rejectReceipt = (id) =>
         method: 'PATCH',
     });
 
+export const getReceipt = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}`, {}));
+
+export const updateReceipt = (id, body) =>
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}`, {}), {
+        method: 'PATCH',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
+
+export const voidReceipt = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}/void`, {}), {
+        method: 'POST',
+    });
+
+export const unvoidReceipt = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}/unvoid`, {}), {
+        method: 'POST',
+    });
+
 export const listJournalEntries = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/journal-entries', params));
 
 export const getJournalEntry = (id) =>
     apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}`, {}));
+
+export const updateJournalEntry = (id, body) =>
+    apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}`, {}), {
+        method: 'PATCH',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
+
+export const voidJournalEntry = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}/void`, {}), {
+        method: 'POST',
+    });
+
+export const unvoidJournalEntry = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}/unvoid`, {}), {
+        method: 'POST',
+    });
 
 /** VAT Calculation — output (2100) vs input (1310), net ZATCA payable. */
 export const getWorkshopVatReport = (params = {}) =>
@@ -129,4 +183,13 @@ export const downloadWorkshopPeriodCloseBackup = (id, params = {}) =>
             `/workshop-accounting/period-closes/${encodeURIComponent(id)}/backup`,
             params,
         ),
+    );
+
+export const restoreWorkshopPeriodClose = (id, params = {}) =>
+    apiFetch(
+        withQuery(
+            `/workshop-accounting/period-closes/${encodeURIComponent(id)}/restore`,
+            params,
+        ),
+        { method: 'POST' },
     );

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronsUpDown, Search, X } from 'lucide-react';
+import { computeFixedComboMenuStyle, stepComboHighlightIdx } from './multiSelectMenuPlacement';
 import './SearchableEntityCombobox.css';
 import './MultiSelectSearchCombo.css';
 
@@ -17,6 +18,7 @@ export default function MultiSelectSearchCombo({
     menuMinWidth = 320,
     maxInitial = 0,
     maxFiltered = 0,
+    clearLabel = 'Clear',
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -57,16 +59,15 @@ export default function MultiSelectSearchCombo({
     const updateMenu = useCallback(() => {
         const wrap = wrapRef.current;
         if (!wrap) return;
-        const rect = wrap.getBoundingClientRect();
-        const gap = 4;
-        setMenuStyle({
-            position: 'fixed',
-            left: rect.left,
-            top: rect.bottom + gap,
-            width: Math.max(rect.width, menuMinWidth),
-            zIndex: 80,
-            maxHeight: Math.min(320, window.innerHeight - rect.bottom - 24),
-        });
+        const { openUp: _openUp, ...style } = computeFixedComboMenuStyle(
+            wrap.getBoundingClientRect(),
+            {
+                menuMinWidth,
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+            },
+        );
+        setMenuStyle(style);
     }, [menuMinWidth]);
 
     useLayoutEffect(() => {
@@ -100,6 +101,76 @@ export default function MultiSelectSearchCombo({
         onChange?.(next);
     };
 
+    const toggleGroup = (group) => {
+        const ids = filtered
+            .filter((o) => String(o.group || '') === String(group || ''))
+            .map((o) => String(o.id ?? o.value));
+        if (!ids.length) return;
+        const allOn = ids.every((id) => selected.has(id));
+        if (allOn) {
+            onChange?.((value || []).filter((v) => !ids.includes(String(v))));
+            return;
+        }
+        const keep = (value || []).filter((v) => !ids.includes(String(v)));
+        onChange?.([...keep, ...ids]);
+    };
+
+    const moveHighlight = useCallback((delta) => {
+        setHighlightIdx((i) => stepComboHighlightIdx(i, delta, filtered.length));
+    }, [filtered.length]);
+
+    const selectHighlighted = useCallback(() => {
+        const row = filtered[highlightIdx];
+        if (!row) return;
+        toggle(row.id ?? row.value);
+        setQuery('');
+        inputRef.current?.focus();
+    }, [filtered, highlightIdx, value, selected]);
+
+    useEffect(() => {
+        setHighlightIdx((i) => stepComboHighlightIdx(i, 0, filtered.length));
+    }, [filtered.length]);
+
+    useEffect(() => {
+        if (!open) return undefined;
+        const ownsFocus = () => {
+            const active = document.activeElement;
+            return Boolean(
+                wrapRef.current?.contains(active) || menuRef.current?.contains(active),
+            );
+        };
+        const onKey = (e) => {
+            if (!ownsFocus()) return;
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                e.stopPropagation();
+                moveHighlight(1);
+                inputRef.current?.focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                e.stopPropagation();
+                moveHighlight(-1);
+                inputRef.current?.focus();
+            } else if (e.key === 'Enter') {
+                if (!filtered[highlightIdx]) return;
+                e.preventDefault();
+                e.stopPropagation();
+                selectHighlighted();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [open, moveHighlight, selectHighlighted, filtered, highlightIdx]);
+
+    useLayoutEffect(() => {
+        if (!open || !menuRef.current) return;
+        const el = menuRef.current.querySelector(`[data-combo-idx="${highlightIdx}"]`);
+        el?.scrollIntoView({ block: 'nearest' });
+    }, [highlightIdx, open, filtered.length]);
+
     return (
         <div className="ms-combo" ref={wrapRef}>
             <div
@@ -113,11 +184,12 @@ export default function MultiSelectSearchCombo({
                 <Search size={16} aria-hidden />
                 <div className="ms-combo__chips">
                     {selectedRows.map((o) => (
-                        <span key={String(o.id ?? o.value)} className="ms-combo__chip">
-                            {o.label}
+                        <span key={String(o.id ?? o.value)} className="ms-combo__chip" title={o.label}>
+                            {o.chipLabel || o.label}
                             <button
                                 type="button"
                                 className="ms-combo__chip-x"
+                                tabIndex={-1}
                                 aria-label={`Remove ${o.label}`}
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -140,20 +212,14 @@ export default function MultiSelectSearchCombo({
                         }}
                         onFocus={() => setOpen(true)}
                         onKeyDown={(e) => {
-                            if (e.key === 'ArrowDown') {
+                            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                                 e.preventDefault();
-                                setHighlightIdx((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
-                            } else if (e.key === 'ArrowUp') {
-                                e.preventDefault();
-                                setHighlightIdx((i) => Math.max(i - 1, 0));
-                            } else if (e.key === 'Enter' && filtered[highlightIdx]) {
-                                e.preventDefault();
-                                toggle(filtered[highlightIdx].id ?? filtered[highlightIdx].value);
-                                setQuery('');
+                                if (!open) {
+                                    setOpen(true);
+                                    setHighlightIdx(0);
+                                }
                             } else if (e.key === 'Backspace' && !query && selectedRows.length) {
                                 toggle(selectedRows[selectedRows.length - 1].id ?? selectedRows[selectedRows.length - 1].value);
-                            } else if (e.key === 'Escape') {
-                                setOpen(false);
                             }
                         }}
                     />
@@ -162,13 +228,14 @@ export default function MultiSelectSearchCombo({
                     <button
                         type="button"
                         className="ms-combo__clear"
+                        tabIndex={-1}
                         onClick={(e) => {
                             e.stopPropagation();
                             onChange?.([]);
                             setQuery('');
                         }}
                     >
-                        Clear
+                        {clearLabel}
                     </button>
                 ) : null}
                 <ChevronsUpDown size={16} aria-hidden />
@@ -189,14 +256,38 @@ export default function MultiSelectSearchCombo({
                               filtered.map((o, idx) => {
                                   const id = String(o.id ?? o.value);
                                   const on = selected.has(id);
+                                  const group = String(o.group || '');
+                                  const prevGroup = idx > 0 ? String(filtered[idx - 1].group || '') : '';
+                                  const showGroup = Boolean(group) && group !== prevGroup;
+                                  const groupIds = group
+                                      ? filtered
+                                            .filter((row) => String(row.group || '') === group)
+                                            .map((row) => String(row.id ?? row.value))
+                                      : [];
+                                  const groupAllOn =
+                                      groupIds.length > 0 && groupIds.every((gid) => selected.has(gid));
                                   return (
                                       <li key={id}>
+                                          {showGroup ? (
+                                              <button
+                                                  type="button"
+                                                  tabIndex={-1}
+                                                  className={`ms-combo__group${groupAllOn ? ' ms-combo__group--on' : ''}`}
+                                                  onMouseDown={(e) => e.preventDefault()}
+                                                  onClick={() => toggleGroup(group)}
+                                              >
+                                                  {group}
+                                              </button>
+                                          ) : null}
                                           <button
                                               type="button"
                                               role="option"
+                                              tabIndex={-1}
+                                              data-combo-idx={idx}
                                               aria-selected={on}
                                               className={`ms-combo__opt${on ? ' ms-combo__opt--on' : ''}${idx === highlightIdx ? ' ms-combo__opt--hi' : ''}`}
                                               onMouseEnter={() => setHighlightIdx(idx)}
+                                              onMouseDown={(e) => e.preventDefault()}
                                               onClick={() => {
                                                   toggle(id);
                                                   setQuery('');
@@ -206,7 +297,12 @@ export default function MultiSelectSearchCombo({
                                               <span className={`ms-combo__check${on ? ' ms-combo__check--on' : ''}`}>
                                                   {on ? <Check size={12} /> : null}
                                               </span>
-                                              <span>{o.label}</span>
+                                              <span className="ms-combo__opt-copy">
+                                                  <span className="ms-combo__opt-label">{o.chipLabel || o.label}</span>
+                                                  {o.hint ? (
+                                                      <span className="ms-combo__opt-hint">{o.hint}</span>
+                                                  ) : null}
+                                              </span>
                                           </button>
                                       </li>
                                   );

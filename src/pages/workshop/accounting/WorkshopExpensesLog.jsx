@@ -42,7 +42,8 @@ function formatExpenseDate(value) {
 
 function buildExpenseExportTable(list, t) {
     const headers = [
-        t('th.date'),
+        t('th.requested'),
+        t('th.approved'),
         t('th.amount'),
         t('th.category'),
         t('th.user'),
@@ -52,6 +53,7 @@ function buildExpenseExportTable(list, t) {
         t('th.description'),
     ];
     const rows = list.map((r) => [
+        formatExpenseDate(r.requestedAt || r.createdAt),
         formatExpenseDate(r.approvedAt),
         fmt(r.amount),
         r.category?.name
@@ -163,7 +165,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                     offset: (page - 1) * PAGE_SIZE,
                 }),
             );
-            setRows(res?.items ?? []);
+            setRows(Array.isArray(res?.items) ? res.items : []);
             setTotal(Number(res?.total ?? 0));
             const amountFromApi = Number(res?.totalAmount);
             if (Number.isFinite(amountFromApi)) {
@@ -413,7 +415,8 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
-                            <th className="table-th">{t('th.date')}</th>
+                            <th className="table-th">{t('th.requested')}</th>
+                            <th className="table-th">{t('th.approved')}</th>
                             <th className="table-th">{t('th.amount')}</th>
                             <th className="table-th">{t('th.category')}</th>
                             <th className="table-th">{t('th.user')}</th>
@@ -425,9 +428,10 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
-                            <tr><td colSpan={8} className="table-cell table-empty">{loading ? t('header.loading') : t('empty')}</td></tr>
+                            <tr><td colSpan={9} className="table-cell table-empty">{loading ? t('header.loading') : t('empty')}</td></tr>
                         ) : rows.map((r) => (
                             <tr key={r.id}>
+                                <td className="table-cell">{formatExpenseDate(r.requestedAt || r.createdAt)}</td>
                                 <td className="table-cell">{formatExpenseDate(r.approvedAt)}</td>
                                 <td className="table-cell">SAR {fmt(r.amount)}</td>
                                 <td className="table-cell">
