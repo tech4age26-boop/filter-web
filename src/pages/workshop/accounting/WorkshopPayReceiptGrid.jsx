@@ -7,6 +7,8 @@ import {
     listPayments as listAcctPayments,
     listReceipts as listAcctReceipts,
     previewNextVouchers as previewAcctNextVouchers,
+    updatePayment as updateAcctPayment,
+    updateReceipt as updateAcctReceipt,
 } from '../../../services/workshopAccountingApi';
 import {
     AcctError,
@@ -22,26 +24,32 @@ import {
     blankPaymentRow,
     blankReceiptRow,
     buildRowsFromVoucherPool,
+    mergePayeeDefaultAccountOptions,
+    normalizePayeeType,
+    payeesForTypeList,
+    resolvePayeeComboId,
+    sharedPayeeDefaultAccountId,
+    suggestPayeeAccountPatch,
     todayIsoDate,
 } from './workshopAccountingShared';
-import { accountComboLabel, cashAccountLabel, moneySar } from './workshopTransactionUi';
+import { accountComboLabel, cashAccountLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
 
-function payeesForType(type, payees) {
-    if (type === 'Supplier') return payees.supplier || [];
-    if (type === 'Employee') return payees.employee || [];
-    if (type === 'Customer') return payees.customer || [];
-    return [];
-}
-
-function suggestAccountPatch(row, payees, nextType, nextPayeeId) {
-    const options = payeesForType(nextType, payees);
-    const opt = options.find((o) => String(o.id) === String(nextPayeeId));
-    const suggested = opt?.defaultAccountId ? String(opt.defaultAccountId) : '';
-    const current = String(row.accountId || '');
-    const lastAuto = String(row.accountAutoFilled || '');
-    const canFill = !current || current === lastAuto;
-    if (!canFill || !suggested) return {};
-    return { accountId: suggested, accountAutoFilled: suggested };
+function payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment) {
+    if (!editRow?.id) return null;
+    const type = normalizePayeeType(editRow.payeeType) || (isPayment ? 'Supplier' : 'Customer');
+    return {
+        ...makeBlank(0, editRow.voucherNumber),
+        voucher: editRow.voucherNumber || '',
+        date: fmtDateYmd(editRow.date) || todayIsoDate(),
+        type,
+        payeeId: resolvePayeeComboId(editRow, payees),
+        payeeName: editRow.payeeName || '',
+        accountId: editRow.accountId ? String(editRow.accountId) : '',
+        accountAutoFilled: '',
+        amount: editRow.amount != null ? String(editRow.amount) : '',
+        ref: editRow.reference || '',
+        notes: editRow.notes || '',
+    };
 }
 
 function PayeeCell({ row, payees, onChange, t }) {
@@ -55,7 +63,7 @@ function PayeeCell({ row, payees, onChange, t }) {
             />
         );
     }
-    const options = payeesForType(row.type, payees);
+    const options = payeesForTypeList(row.type, payees);
     return (
         <SupplierAccountingCombobox
             value={row.payeeId}
@@ -64,7 +72,7 @@ function PayeeCell({ row, payees, onChange, t }) {
                 onChange(row.id, {
                     payeeId: v,
                     payeeName: opt?.name ?? '',
-                    ...suggestAccountPatch(row, payees, row.type, v),
+                    ...suggestPayeeAccountPatch(row, payees, row.type, v),
                 });
             }}
             placeholder={t('tx.selectPayee', { type: t(`tx.payee.${row.type}`).toLowerCase() })}
@@ -88,6 +96,8 @@ export default function WorkshopPayReceiptGrid({
     isAdminHqBooks = false,
     t,
     onPosted,
+    editRow = null,
+    onCancelEdit,
 }) {
     const isPayment = variant === 'payment';
     const prefix = isPayment ? 'PE' : 'RV';
@@ -95,18 +105,23 @@ export default function WorkshopPayReceiptGrid({
     const listFn = isPayment ? listAcctPayments : listAcctReceipts;
     const createFn = isPayment ? createAcctPayments : createAcctReceipts;
 
-    const [headerDate, setHeaderDate] = useState(todayIsoDate());
-    const [headerRef, setHeaderRef] = useState('');
+    const [headerDate, setHeaderDate] = useState(() => (editRow?.date ? fmtDateYmd(editRow.date) : todayIsoDate()));
+    const [headerRef, setHeaderRef] = useState(() => editRow?.reference || '');
     const [refAutoGenerate, setRefAutoGenerate] = useState(false);
-    const [generalNote, setGeneralNote] = useState('');
-    const [headerBranchId, setHeaderBranchId] = useState('');
-    const [cashAccountId, setCashAccountId] = useState('');
+    const [generalNote, setGeneralNote] = useState(() => editRow?.generalNote || '');
+    const [headerBranchId, setHeaderBranchId] = useState(() => (editRow?.branchId ? String(editRow.branchId) : ''));
+    const [cashAccountId, setCashAccountId] = useState(() => (editRow?.cashBankAccountId ? String(editRow.cashBankAccountId) : ''));
     const [voucherPool, setVoucherPool] = useState([`${prefix}0001`]);
-    const [rows, setRows] = useState(() => buildRowsFromVoucherPool(makeBlank, [`${prefix}0001`], 1));
+    const [rows, setRows] = useState(() => {
+        const fromEdit = payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment);
+        return fromEdit ? [fromEdit] : buildRowsFromVoucherPool(makeBlank, [`${prefix}0001`], 1);
+    });
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const [okMsg, setOkMsg] = useState('');
-    const cashTouchedRef = useRef(false);
+    const cashTouchedRef = useRef(Boolean(editRow?.id));
+    const editingIdRef = useRef(editRow?.id || null);
+    editingIdRef.current = editRow?.id || null;
 
     const reloadVouchers = useCallback(async (count = 1) => {
         const need = Math.max(count + 3, 5);
@@ -115,7 +130,9 @@ export default function WorkshopPayReceiptGrid({
             const pool = Array.isArray(res?.vouchers) ? res.vouchers : [];
             if (pool.length) {
                 setVoucherPool(pool);
-                setRows((prev) => assignVouchersFromPool(prev, pool, prefix));
+                if (!editingIdRef.current) {
+                    setRows((prev) => assignVouchersFromPool(prev, pool, prefix));
+                }
             }
             return pool;
         } catch {
@@ -124,12 +141,41 @@ export default function WorkshopPayReceiptGrid({
     }, [prefix, voucherPool]);
 
     useEffect(() => {
+        if (editingIdRef.current) return;
         reloadVouchers(1).then((pool) => {
+            if (editingIdRef.current) return;
             if (pool?.length) setRows(buildRowsFromVoucherPool(makeBlank, pool, 1));
         });
         // Mount-only: seed the first voucher row.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [prefix]);
+
+    useEffect(() => {
+        if (!editRow?.id) return;
+        cashTouchedRef.current = true;
+        setHeaderDate(fmtDateYmd(editRow.date) || todayIsoDate());
+        setHeaderRef(editRow.reference || '');
+        setRefAutoGenerate(false);
+        setGeneralNote(editRow.generalNote || '');
+        setHeaderBranchId(editRow.branchId ? String(editRow.branchId) : '');
+        if (editRow.cashBankAccountId) setCashAccountId(String(editRow.cashBankAccountId));
+        const type = normalizePayeeType(editRow.payeeType) || (isPayment ? 'Supplier' : 'Customer');
+        setRows([{
+            ...makeBlank(0, editRow.voucherNumber),
+            voucher: editRow.voucherNumber || '',
+            date: fmtDateYmd(editRow.date) || todayIsoDate(),
+            type,
+            payeeId: resolvePayeeComboId(editRow, payees),
+            payeeName: editRow.payeeName || '',
+            accountId: editRow.accountId ? String(editRow.accountId) : '',
+            accountAutoFilled: '',
+            amount: editRow.amount != null ? String(editRow.amount) : '',
+            ref: editRow.reference || '',
+            notes: editRow.notes || '',
+        }]);
+        setErr('');
+        setOkMsg('');
+    }, [editRow?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (cashTouchedRef.current) return;
@@ -163,16 +209,36 @@ export default function WorkshopPayReceiptGrid({
     const updateRow = (id, patch) => {
         setRows((prev) => prev.map((r) => {
             if (r.id !== id) return r;
-            const next = { ...r, ...patch };
+            let next = { ...r, ...patch };
             if ('type' in patch) {
                 next.payeeId = '';
                 next.payeeName = '';
-                next.accountId = '';
-                next.accountAutoFilled = '';
+                const suggested = sharedPayeeDefaultAccountId(
+                    payeesForTypeList(next.type, payees),
+                );
+                next.accountId = suggested;
+                next.accountAutoFilled = suggested;
             }
             return next;
         }));
     };
+
+    useEffect(() => {
+        if (editingIdRef.current) return;
+        setRows((prev) => prev.map((r) => {
+            if (r.accountId && r.accountId !== r.accountAutoFilled) return r;
+            const suggested = r.payeeId
+                ? (suggestPayeeAccountPatch(
+                    { ...r, accountId: r.accountAutoFilled || '' },
+                    payees,
+                    r.type,
+                    r.payeeId,
+                ).accountId || '')
+                : sharedPayeeDefaultAccountId(payeesForTypeList(r.type, payees));
+            if (!suggested || String(r.accountId || '') === suggested) return r;
+            return { ...r, accountId: suggested, accountAutoFilled: suggested };
+        }));
+    }, [payees]);
 
     const addRow = () => {
         setRows((prev) => {
@@ -241,22 +307,54 @@ export default function WorkshopPayReceiptGrid({
         }
         setSaving(true);
         try {
-            const res = await createFn({
+            const rowPayload = validRows.map((r) => ({
+                voucherHint: r.voucher,
+                date: r.date || headerDate,
+                payeeType: r.type,
+                payeeId: r.payeeId || undefined,
+                payeeName: r.payeeName || undefined,
+                accountId: r.accountId,
+                amount: Number(r.amount),
+                reference: r.ref?.trim() || headerRef.trim() || undefined,
+                notes: r.notes || undefined,
+            }));
+            const header = {
                 date: headerDate,
                 ...(isAdminHqBooks ? {} : { branchId: headerBranchId || undefined }),
                 generalNote: generalNote || undefined,
                 cashBankAccountId: cashAccountId,
-                rows: validRows.map((r) => ({
-                    voucherHint: r.voucher,
-                    date: r.date || headerDate,
-                    payeeType: r.type,
-                    payeeId: r.payeeId || undefined,
-                    payeeName: r.payeeName || undefined,
-                    accountId: r.accountId,
-                    amount: Number(r.amount),
-                    reference: r.ref?.trim() || headerRef.trim() || undefined,
-                    notes: r.notes || undefined,
-                })),
+            };
+            let res;
+            if (editRow?.id) {
+                const first = rowPayload[0];
+                const updateFn = isPayment ? updateAcctPayment : updateAcctReceipt;
+                res = await updateFn(editRow.id, {
+                    ...header,
+                    payeeType: first.payeeType,
+                    payeeId: first.payeeId,
+                    payeeName: first.payeeName,
+                    accountId: first.accountId,
+                    amount: first.amount,
+                    reference: first.reference,
+                    notes: first.notes,
+                });
+                setOkMsg(
+                    isPayment
+                        ? t('tx.ok.updatedPayment', { doc: editRow.voucherNumber || editRow.id })
+                        : t('tx.ok.updatedReceipt', { doc: editRow.voucherNumber || editRow.id }),
+                );
+                setGeneralNote('');
+                setHeaderRef('');
+                setRefAutoGenerate(false);
+                const pool = await reloadVouchers(1);
+                setRows(buildRowsFromVoucherPool(makeBlank, pool?.length ? pool : voucherPool, 1));
+                onPosted?.(res);
+                onCancelEdit?.();
+                return;
+            }
+            res = await createFn({
+                ...header,
+                rows: rowPayload,
             });
             setOkMsg(
                 isPayment
@@ -278,6 +376,25 @@ export default function WorkshopPayReceiptGrid({
 
     return (
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {editRow?.id ? (
+                <div className="ws-tx-editing">
+                    <span>{t('tx.editing', { doc: editRow.voucherNumber || editRow.id })}</span>
+                    <button
+                        type="button"
+                        style={outlineBtnStyle}
+                        onClick={() => {
+                            onCancelEdit?.();
+                            reloadVouchers(1).then((pool) => {
+                                if (pool?.length) setRows(buildRowsFromVoucherPool(makeBlank, pool, 1));
+                            });
+                            setOkMsg('');
+                            setErr('');
+                        }}
+                    >
+                        {t('tx.cancelEdit')}
+                    </button>
+                </div>
+            ) : null}
             <p style={{ margin: 0, fontSize: 12, color: '#64748B', lineHeight: 1.45 }}>
                 {isPayment ? t('tx.hint.paymentsPage') : t('tx.hint.receiptsPage')}
             </p>
@@ -431,12 +548,15 @@ export default function WorkshopPayReceiptGrid({
                                         placeholder={t('tx.selectAccount')}
                                         entityLabel="account"
                                         emptyHint={t('tx.selectAccount')}
-                                        options={accounts.map((a) => ({
-                                            id: String(a.id),
-                                            label: accountComboLabel(a),
-                                            searchText: `${a.code || ''} ${a.name || ''} ${a.label || ''}`,
-                                            subtitle: a.type,
-                                        }))}
+                                        options={mergePayeeDefaultAccountOptions(
+                                            accounts.map((a) => ({
+                                                id: String(a.id),
+                                                label: accountComboLabel(a),
+                                                searchText: `${a.code || ''} ${a.name || ''} ${a.label || ''}`,
+                                                subtitle: a.type,
+                                            })),
+                                            payeesForTypeList(row.type, payees),
+                                        )}
                                     />
                                 </td>
                                 <td>
@@ -522,15 +642,17 @@ export default function WorkshopPayReceiptGrid({
                     })}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" style={outlineBtnStyle} onClick={addRow} disabled={saving}>
+                    <button type="button" style={outlineBtnStyle} onClick={addRow} disabled={saving || Boolean(editRow?.id)}>
                         <Plus size={14} /> {t('tx.addRow')}
                     </button>
                     <button type="submit" style={primaryBtnStyle} disabled={saving || validRows.length === 0}>
                         {saving
                             ? t('tx.saving')
-                            : isPayment
-                              ? t('tx.btn.savePayments')
-                              : t('tx.btn.saveReceipts')}
+                            : editRow?.id
+                              ? (isPayment ? t('tx.btn.updatePayment') : t('tx.btn.updateReceipt'))
+                              : isPayment
+                                ? t('tx.btn.savePayments')
+                                : t('tx.btn.saveReceipts')}
                     </button>
                 </div>
             </div>

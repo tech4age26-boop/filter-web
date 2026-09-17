@@ -1,19 +1,15 @@
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import {
+    buildGenericLedgerPdfPages,
+    escapePdfHtml,
+    exportHtmlPagesToPdf,
+} from './bilingualHtmlPdf';
 
 const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
-
-function pdfAsciiOrFallback(text, fallback = '') {
-    const s = String(text || '').trim();
-    if (!s) return fallback;
-    if (/[^\u0020-\u007E]/.test(s)) return fallback;
-    return s;
-}
 
 function buildFileBase({ header }) {
     const safe = (s) => String(s || '').replace(/[^\w-]+/g, '_').replace(/_+/g, '_');
@@ -46,148 +42,148 @@ function fmtDateCell(d) {
  * Export workshop General Ledger (all lines for the selected period — not just the current page).
  * Optional `includeVehicle` adds a Vehicle No. column (corporate AR customer view).
  */
-export function exportWorkshopGlLedgerPdf({
+export async function exportWorkshopGlLedgerPdf({
     header,
     openingBalance = 0,
     lines = [],
     totals,
     includeVehicle = false,
 }) {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-    const margin = 28;
-    let cursorY = margin;
-
     const accountLabel = header?.accountCode
         ? `[${header.accountCode}] ${header.accountName || ''}`
         : header?.accountName || 'Account';
-
-    const headingName = header?.partyLabel || header?.companyName || accountLabel;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text(pdfAsciiOrFallback(headingName, 'General Ledger'), margin, cursorY + 12);
-
-    doc.setFontSize(11);
-    doc.text(pdfAsciiOrFallback(accountLabel, 'Account Ledger'), margin, cursorY + 30);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    const meta = [
-        header?.workshopName ? `Workshop: ${header.workshopName}` : null,
-        `Period: ${header?.from || '—'}  to  ${header?.to || '—'}`,
-        header?.partyLabel ? `Corporate customer: ${header.partyLabel}` : null,
-        header?.vatNumber ? `VAT No.: ${header.vatNumber}` : null,
-        header?.phone ? `Phone: ${header.phone}` : null,
-        header?.contactPerson || header?.customerName
-            ? `Contact: ${header.contactPerson || header.customerName}`
-            : null,
-        `Currency: ${header?.currencyCode || 'SAR'}`,
-        `Lines: ${lines.length}`,
-    ].filter(Boolean);
-    meta.forEach((line, i) => {
-        doc.text(pdfAsciiOrFallback(line, line), margin, cursorY + 48 + i * 12);
-    });
-    cursorY += 48 + meta.length * 12 + 6;
-
-    const head = includeVehicle
-        ? [['Date', 'Entry #', 'Type', 'Vehicle No.', 'Description', 'Source', 'Debit', 'Credit', 'Balance']]
-        : [['Date', 'Entry #', 'Type', 'Description', 'Source', 'Debit', 'Credit', 'Balance']];
-
-    const openingRow = includeVehicle
-        ? ['—', '—', 'Opening', '—', 'Opening balance', '—', '', '', fmtMoney(openingBalance)]
-        : ['—', '—', 'Opening', 'Opening balance', '—', '', '', fmtMoney(openingBalance)];
-
-    const body = [
-        openingRow,
-        ...lines.map((l) => {
-            const desc = l.lineDescription || l.journalDescription || l.description || '—';
-            const base = [
-                fmtDateCell(l.date),
-                l.entryNumber || '—',
-                l.journalType || l.type || '—',
-            ];
-            if (includeVehicle) base.push(l.vehicleNo || '—');
-            base.push(
-                desc,
-                l.source || '—',
-                Number(l.debit) > 0 ? fmtMoney(l.debit) : '',
-                Number(l.credit) > 0 ? fmtMoney(l.credit) : '',
-                fmtMoney(l.runningBalance),
-            );
-            return base;
-        }),
-        includeVehicle
-            ? [
-                  '',
-                  '',
-                  '',
-                  '',
-                  'Totals / Closing',
-                  '',
-                  fmtMoney(totals?.totalDebit),
-                  fmtMoney(totals?.totalCredit),
-                  fmtMoney(totals?.closingBalance),
-              ]
-            : [
-                  '',
-                  '',
-                  '',
-                  'Totals / Closing',
-                  '',
-                  fmtMoney(totals?.totalDebit),
-                  fmtMoney(totals?.totalCredit),
-                  fmtMoney(totals?.closingBalance),
-              ],
-    ];
-
-    autoTable(doc, {
-        startY: cursorY,
-        head,
-        body,
-        margin: { left: margin, right: margin },
-        styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak' },
-        headStyles: { fillColor: [241, 245, 249], textColor: 30, fontStyle: 'bold' },
-        columnStyles: includeVehicle
-            ? {
-                  0: { cellWidth: 58 },
-                  1: { cellWidth: 78 },
-                  2: { cellWidth: 56 },
-                  3: { cellWidth: 62 },
-                  4: { cellWidth: 'auto' },
-                  5: { cellWidth: 70 },
-                  6: { cellWidth: 62, halign: 'right' },
-                  7: { cellWidth: 62, halign: 'right' },
-                  8: { cellWidth: 68, halign: 'right' },
-              }
-            : {
-                  0: { cellWidth: 58 },
-                  1: { cellWidth: 90 },
-                  2: { cellWidth: 62 },
-                  3: { cellWidth: 'auto' },
-                  4: { cellWidth: 72 },
-                  5: { cellWidth: 62, halign: 'right' },
-                  6: { cellWidth: 62, halign: 'right' },
-                  7: { cellWidth: 70, halign: 'right' },
-              },
-        didParseCell(data) {
-            const last = data.row.index === body.length - 1;
-            const first = data.row.index === 0;
-            if (last || first) {
-                data.cell.styles.fontStyle = 'bold';
-                data.cell.styles.fillColor = first ? [248, 250, 252] : [255, 247, 237];
-            }
-        },
+    const headingName = header?.partyLabel || header?.partyName || accountLabel;
+    const brand = 'FILTER';
+    const scopeName = header?.workshopName || header?.companyName || '';
+    const sellerName =
+        header?.sellerName && header.sellerName !== scopeName
+            ? header.sellerName
+            : 'Filter Car Services';
+    const textCell = (v) => ({ text: v });
+    const moneyCell = (v, show) => ({
+        html: show ? escapePdfHtml(fmtMoney(v)) : '',
+        className: 'num',
     });
 
-    const finalY = doc.lastAutoTable?.finalY ?? cursorY + 200;
-    doc.setFontSize(8);
-    doc.setTextColor(100);
-    doc.text(
-        `Generated ${new Date().toLocaleString()}`,
-        margin,
-        Math.min(finalY + 16, doc.internal.pageSize.getHeight() - 14),
-    );
+    const columns = includeVehicle
+        ? [
+              { label: 'Date' },
+              { label: 'Entry #' },
+              { label: 'Type' },
+              { label: 'Vehicle No.' },
+              { label: 'Description' },
+              { label: 'Source' },
+              { label: 'Debit', num: true },
+              { label: 'Credit', num: true },
+              { label: 'Balance', num: true },
+          ]
+        : [
+              { label: 'Date' },
+              { label: 'Entry #' },
+              { label: 'Type' },
+              { label: 'Description' },
+              { label: 'Source' },
+              { label: 'Debit', num: true },
+              { label: 'Credit', num: true },
+              { label: 'Balance', num: true },
+          ];
 
-    doc.save(`${buildFileBase({ header })}.pdf`);
+    const dataRows = (lines ?? []).map((l) => {
+        const desc = l.lineDescription || l.journalDescription || l.description || '—';
+        const cells = [
+            textCell(fmtDateCell(l.date)),
+            textCell(l.entryNumber || '—'),
+            textCell(l.journalType || l.type || '—'),
+        ];
+        if (includeVehicle) cells.push(textCell(l.vehicleNo || '—'));
+        cells.push(
+            textCell(desc),
+            textCell(l.source || '—'),
+            moneyCell(l.debit, Number(l.debit) > 0),
+            moneyCell(l.credit, Number(l.credit) > 0),
+            moneyCell(l.runningBalance, true),
+        );
+        return cells;
+    });
+
+    const openingCells = includeVehicle
+        ? [
+              textCell('—'),
+              textCell('—'),
+              textCell('Opening'),
+              textCell('—'),
+              textCell('Opening balance'),
+              textCell('—'),
+              moneyCell(0, false),
+              moneyCell(0, false),
+              moneyCell(openingBalance, true),
+          ]
+        : [
+              textCell('—'),
+              textCell('—'),
+              textCell('Opening'),
+              textCell('Opening balance'),
+              textCell('—'),
+              moneyCell(0, false),
+              moneyCell(0, false),
+              moneyCell(openingBalance, true),
+          ];
+    const closingCells = includeVehicle
+        ? [
+              textCell(''),
+              textCell(''),
+              textCell(''),
+              textCell(''),
+              textCell('Totals / Closing'),
+              textCell(''),
+              moneyCell(totals?.totalDebit, true),
+              moneyCell(totals?.totalCredit, true),
+              moneyCell(totals?.closingBalance, true),
+          ]
+        : [
+              textCell(''),
+              textCell(''),
+              textCell(''),
+              textCell('Totals / Closing'),
+              textCell(''),
+              moneyCell(totals?.totalDebit, true),
+              moneyCell(totals?.totalCredit, true),
+              moneyCell(totals?.closingBalance, true),
+          ];
+
+    const metaHtml = [
+        `Period: ${escapePdfHtml(header?.from || '—')} to ${escapePdfHtml(header?.to || '—')}`,
+        header?.vatNumber ? `VAT No.: ${escapePdfHtml(header.vatNumber)}` : null,
+        header?.crNumber ? `CR No.: ${escapePdfHtml(header.crNumber)}` : null,
+        header?.partyPhone ? `Tel.: ${escapePdfHtml(header.partyPhone)}` : null,
+        header?.partyAddress ? `Address: ${escapePdfHtml(header.partyAddress)}` : null,
+        `Currency: ${escapePdfHtml(header?.currencyCode || 'SAR')}`,
+        `Lines: ${escapePdfHtml(String(lines.length))}`,
+    ]
+        .filter(Boolean)
+        .join('<br/>');
+
+    const pages = buildGenericLedgerPdfPages({
+        letterhead: true,
+        brand,
+        sellerName,
+        scopeName,
+        sellerVat: header?.sellerVatNumber || '',
+        title: headingName,
+        metaHtml,
+        columns,
+        dataRows,
+        openingCells,
+        closingCells,
+        rowsPerPage: includeVehicle ? 12 : 14,
+        generated: `Generated ${new Date().toLocaleString()} · FILTER`,
+    });
+
+    await exportHtmlPagesToPdf({
+        fileName: `${buildFileBase({ header })}.pdf`,
+        orientation: 'landscape',
+        pages,
+    });
 }
 
 export function exportWorkshopGlLedgerExcel({

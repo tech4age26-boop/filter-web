@@ -1,10 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileDown, FileSpreadsheet } from 'lucide-react';
+import { Eye, FileDown, FileSpreadsheet, FileText, Pencil, Printer, RotateCcw, Trash2 } from 'lucide-react';
 import {
     listPayments as listAcctPayments,
     listReceipts as listAcctReceipts,
     listJournalEntries as listAcctJournalEntries,
+    getJournalEntry as getAcctJournalEntry,
+    getPayment as getAcctPayment,
+    getReceipt as getAcctReceipt,
+    voidPayment as voidAcctPayment,
+    voidReceipt as voidAcctReceipt,
+    voidJournalEntry as voidAcctJournal,
+    unvoidPayment as unvoidAcctPayment,
+    unvoidReceipt as unvoidAcctReceipt,
+    unvoidJournalEntry as unvoidAcctJournal,
 } from '../../../services/workshopAccountingApi';
+import {
+    journalFromPayReceipt,
+    printJournalVoucher,
+    printPayReceiptVoucher,
+} from '../../../utils/printWorkshopVoucher';
 import { exportRowsToExcel, exportRowsToPdf } from '../../../utils/tableExport';
 import {
     AcctEmpty,
@@ -30,6 +44,10 @@ function statusLabel(status) {
     return String(status || 'posted').replace(/_/g, ' ').toUpperCase();
 }
 
+function isVoidRow(row) {
+    return String(row?.status || '').toLowerCase() === 'void';
+}
+
 export default function WorkshopTransactionLogPanel({
     tab,
     locale = 'en',
@@ -37,6 +55,8 @@ export default function WorkshopTransactionLogPanel({
     refreshToken = 0,
     cashBankAccounts = [],
     payees = { supplier: [], employee: [], customer: [] },
+    onEdit,
+    onChanged,
 }) {
     const isJournal = tab === 'journals';
     const [rows, setRows] = useState([]);
@@ -51,6 +71,7 @@ export default function WorkshopTransactionLogPanel({
     const [pageSize, setPageSize] = useState(DEFAULT_MONEY_PAGE_SIZE);
     const [exporting, setExporting] = useState('');
     const [openId, setOpenId] = useState('');
+    const [busyId, setBusyId] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -118,12 +139,13 @@ export default function WorkshopTransactionLogPanel({
     }, [cashBankAccounts, payees, rows, t, tab]);
 
     const kpis = useMemo(() => {
+        const live = rows.filter((r) => !isVoidRow(r));
         if (isJournal) {
-            const debit = rows.reduce((s, r) => s + (Number(r.totalDebit) || 0), 0);
-            const credit = rows.reduce((s, r) => s + (Number(r.totalCredit) || 0), 0);
-            return { count: rows.length, debit, credit };
+            const debit = live.reduce((s, r) => s + (Number(r.totalDebit) || 0), 0);
+            const credit = live.reduce((s, r) => s + (Number(r.totalCredit) || 0), 0);
+            return { count: live.length, debit, credit };
         }
-        return summarizeMoneyKpis(rows);
+        return summarizeMoneyKpis(live);
     }, [isJournal, rows]);
 
     const paged = useMemo(() => sliceLogPage(rows, page, pageSize), [rows, page, pageSize]);
@@ -145,8 +167,9 @@ export default function WorkshopTransactionLogPanel({
     };
 
     const headers = isJournal
-        ? [t('tx.log.th.date'), t('tx.log.th.entry'), t('tx.log.th.desc'), t('tx.log.th.status'), t('tx.log.th.debit'), t('tx.log.th.credit')]
+        ? [t('tx.log.th.actions'), t('tx.log.th.date'), t('tx.log.th.entry'), t('tx.log.th.desc'), t('tx.log.th.status'), t('tx.log.th.debit'), t('tx.log.th.credit')]
         : [
+            t('tx.log.th.actions'),
             t('tx.log.th.date'),
             t('tx.log.th.entry'),
             tab === 'payments' ? t('tx.log.th.paidTo') : t('tx.log.th.receivedFrom'),
@@ -157,6 +180,141 @@ export default function WorkshopTransactionLogPanel({
             t('tx.log.th.status'),
             t('tx.log.th.total'),
         ];
+
+    const handleVoid = async (row) => {
+        const doc = isJournal ? (row.entryNumber || row.id) : (row.voucherNumber || row.id);
+        if (!window.confirm(t('tx.log.voidConfirm', { doc }))) return;
+        setBusyId(String(row.id));
+        setErr('');
+        try {
+            if (isJournal) await voidAcctJournal(row.id);
+            else if (tab === 'payments') await voidAcctPayment(row.id);
+            else await voidAcctReceipt(row.id);
+            await load();
+            onChanged?.();
+        } catch (e) {
+            setErr(e?.message || t('tx.log.voidErr'));
+        } finally {
+            setBusyId('');
+        }
+    };
+
+    const handleUnvoid = async (row) => {
+        const doc = isJournal ? (row.entryNumber || row.id) : (row.voucherNumber || row.id);
+        if (!window.confirm(t('tx.log.unvoidConfirm', { doc }))) return;
+        setBusyId(String(row.id));
+        setErr('');
+        try {
+            if (isJournal) await unvoidAcctJournal(row.id);
+            else if (tab === 'payments') await unvoidAcctPayment(row.id);
+            else await unvoidAcctReceipt(row.id);
+            await load();
+            onChanged?.();
+        } catch (e) {
+            setErr(e?.message || t('tx.log.unvoidErr'));
+        } finally {
+            setBusyId('');
+        }
+    };
+
+    const handleEdit = (row) => {
+        if (isVoidRow(row) || busyId) return;
+        onEdit?.(row, tab);
+    };
+
+    const handleViewPrint = async (row) => {
+        try {
+            if (isJournal) {
+                const full = await getAcctJournalEntry(row.id);
+                printJournalVoucher(t, full?.entry || row);
+                return;
+            }
+            const getter = tab === 'payments' ? getAcctPayment : getAcctReceipt;
+            const full = await getter(row.id);
+            printJournalVoucher(t, full?.journal || journalFromPayReceipt(full?.row || row, tab === 'payments' ? 'payment' : 'receipt'));
+        } catch (e) {
+            setErr(e?.message || t('tx.log.printErr'));
+        }
+    };
+
+    const handlePartyVoucher = (row) => {
+        if (isJournal) {
+            printJournalVoucher(t, row);
+            return;
+        }
+        printPayReceiptVoucher(t, row, tab === 'payments' ? 'payment' : 'receipt');
+    };
+
+    const renderActions = (row) => {
+        const voided = isVoidRow(row);
+        const busy = busyId === String(row.id);
+        const src = String(row.source || '').toUpperCase();
+        const periodClose = src === 'PERIOD_CLOSE';
+        const canEdit = isJournal
+            ? Boolean(row.linkedTransaction)
+                || src === 'PAYMENT'
+                || src === 'RECEIPT'
+                || src === 'MANUAL_JE'
+                || !src
+            : true;
+        const partyTitle = isJournal
+            ? t('tx.log.act.journalVoucher')
+            : tab === 'payments'
+              ? t('tx.log.act.paymentVoucher')
+              : t('tx.log.act.receiptVoucher');
+        return (
+            <td className="ws-tx-actions" onClick={(e) => e.stopPropagation()}>
+                {voided ? (
+                    <button
+                        type="button"
+                        className="ws-tx-act ws-tx-act--restore"
+                        title={t('tx.log.act.unvoid')}
+                        disabled={busy || periodClose}
+                        onClick={() => handleUnvoid(row)}
+                    >
+                        <RotateCcw size={14} />
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        className="ws-tx-act ws-tx-act--danger"
+                        title={t('tx.log.act.void')}
+                        disabled={busy || periodClose}
+                        onClick={() => handleVoid(row)}
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                )}
+                <button
+                    type="button"
+                    className="ws-tx-act"
+                    title={t('tx.log.act.edit')}
+                    disabled={voided || busy || !canEdit}
+                    onClick={() => handleEdit(row)}
+                >
+                    <Pencil size={14} />
+                </button>
+                <button
+                    type="button"
+                    className="ws-tx-act"
+                    title={t('tx.log.act.viewPrint')}
+                    disabled={busy}
+                    onClick={() => handleViewPrint(row)}
+                >
+                    <Eye size={14} />
+                </button>
+                <button
+                    type="button"
+                    className="ws-tx-act"
+                    title={partyTitle}
+                    disabled={busy}
+                    onClick={() => handlePartyVoucher(row)}
+                >
+                    {isJournal ? <Printer size={14} /> : <FileText size={14} />}
+                </button>
+            </td>
+        );
+    };
 
     const exportRows = (list) => {
         if (isJournal) {
@@ -194,7 +352,7 @@ export default function WorkshopTransactionLogPanel({
             const payload = {
                 title,
                 subtitle: `${applied.dateFrom || '—'} → ${applied.dateTo || '—'} · ${rows.length}`,
-                headers,
+                headers: headers.slice(1),
                 rows: exportRows(rows),
                 filenameBase: isJournal ? 'workshop-journals' : tab === 'payments' ? 'workshop-payments' : 'workshop-receipts',
             };
@@ -310,9 +468,11 @@ export default function WorkshopTransactionLogPanel({
                                     return (
                                         <React.Fragment key={id}>
                                             <tr
+                                                className={isVoidRow(r) ? 'ws-tx-row--void' : undefined}
                                                 style={{ cursor: 'pointer' }}
                                                 onClick={() => setOpenId(open ? '' : id)}
                                             >
+                                                {renderActions(r)}
                                                 <td>{fmtDateYmd(r.date)}</td>
                                                 <td style={{ fontWeight: 700 }}>{r.entryNumber || em}</td>
                                                 <td style={{ maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -324,7 +484,7 @@ export default function WorkshopTransactionLogPanel({
                                             </tr>
                                             {open ? (
                                                 <tr>
-                                                    <td colSpan={6} style={{ background: '#F8FAFC', fontSize: 13 }}>
+                                                    <td colSpan={7} style={{ background: '#F8FAFC', fontSize: 13 }}>
                                                         {(r.lines || []).length === 0 ? t('tx.log.noLines') : (
                                                             <table className="ws-table" style={{ width: '100%', margin: 0 }}>
                                                                 <thead>
@@ -357,9 +517,11 @@ export default function WorkshopTransactionLogPanel({
                                 return (
                                     <React.Fragment key={id}>
                                         <tr
+                                            className={isVoidRow(r) ? 'ws-tx-row--void' : undefined}
                                             style={{ cursor: 'pointer' }}
                                             onClick={() => setOpenId(open ? '' : id)}
                                         >
+                                            {renderActions(r)}
                                             <td>{fmtDateYmd(r.date)}</td>
                                             <td style={{ fontWeight: 700 }}>{r.voucherNumber || em}</td>
                                             <td style={{ maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.payeeName || ''}>
@@ -380,7 +542,7 @@ export default function WorkshopTransactionLogPanel({
                                         </tr>
                                         {open ? (
                                             <tr>
-                                                <td colSpan={9} style={{ background: '#F8FAFC', fontSize: 13, color: '#334155' }}>
+                                                <td colSpan={10} style={{ background: '#F8FAFC', fontSize: 13, color: '#334155' }}>
                                                     {[
                                                         r.payeeType ? `${t('tx.th.type')}: ${t(`tx.payee.${r.payeeType}`) || r.payeeType}` : null,
                                                         r.branchName ? `${t('tx.branch')}: ${r.branchName}` : null,

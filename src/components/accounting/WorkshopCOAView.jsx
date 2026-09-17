@@ -57,19 +57,16 @@ import {
     vatBasisI18nKey,
 } from '../../pages/workshop/workshopCoaVatBasis';
 import {
-    loadSaAccountingDateRange,
-    startOfMonthISO,
     todayISO,
 } from '../../pages/admin/saAccountingDateRange';
 import {
-    defaultRiyadhReportRangeDatetimeLocal,
+    defaultInclusiveCoaCalendarRange,
     liveBooksRangeAfterPeriodEnd,
     fmtRiyadhRangeLabel,
-    riyadhPlRangeToLedgerCalendarDates,
-    workshopAdminRangeQueryParams,
+    toInclusiveCalendarRange,
+    inclusiveCalendarRangeToDatetimeLocal,
     riyadhPlRangeToLedgerQueryParams,
     riyadhRangeToApiIso,
-    BUSINESS_TIMEZONE,
 } from '../../utils/riyadhBusinessRange';
 import {
     loadWorkshopAdminDatetimeRange,
@@ -173,6 +170,20 @@ function filterTreeForSearch(nodes = [], q = '') {
 }
 
 /** Visible rows for Manager-style folder COA (expand/collapse). */
+function stampTreeBalances(nodes, byId) {
+    return (nodes || []).map((node) => {
+        const flat = byId.get(String(node.id)) || {};
+        return {
+            ...node,
+            id: String(node.id),
+            parentId: node.parentId != null && node.parentId !== '' ? String(node.parentId) : null,
+            closingDebit: Number(flat.closingDebit ?? 0),
+            closingCredit: Number(flat.closingCredit ?? 0),
+            children: stampTreeBalances(node.children, byId),
+        };
+    });
+}
+
 function flattenVisibleTree(nodes = [], expandedIds, forceExpand = false, depth = 0, acc = []) {
     nodes.forEach((node) => {
         const children = Array.isArray(node.children) ? node.children : [];
@@ -269,9 +280,10 @@ export default function WorkshopCOAView({
     const [search, setSearch] = useState('');
     const initialCoaRange = (() => {
         const shared = loadWorkshopAdminDatetimeRange();
-        if (shared?.dateFrom && shared?.dateTo) return shared;
-        const r = defaultRiyadhReportRangeDatetimeLocal();
-        return { dateFrom: r.start, dateTo: r.end };
+        if (shared?.dateFrom && shared?.dateTo) {
+            return toInclusiveCalendarRange(shared.dateFrom, shared.dateTo);
+        }
+        return defaultInclusiveCoaCalendarRange();
     })();
     const initialCoaBranch = plBranchFromLayout(selectedBranchId);
     const [draftBranch, setDraftBranch] = useState(initialCoaBranch);
@@ -312,10 +324,11 @@ export default function WorkshopCOAView({
         const shared = loadWorkshopAdminDatetimeRange();
         const branchId = plBranchFromLayout(selectedBranchId);
         if (shared?.dateFrom && shared?.dateTo) {
-            return { dateFrom: shared.dateFrom, dateTo: shared.dateTo, branchId };
+            const cal = toInclusiveCalendarRange(shared.dateFrom, shared.dateTo);
+            return { dateFrom: cal.dateFrom, dateTo: cal.dateTo, branchId };
         }
-        const r = defaultRiyadhReportRangeDatetimeLocal();
-        return { dateFrom: r.start, dateTo: r.end, branchId };
+        const r = defaultInclusiveCoaCalendarRange();
+        return { dateFrom: r.dateFrom, dateTo: r.dateTo, branchId };
     });
     const [plData, setPlData] = useState(null);
     const [plLoading, setPlLoading] = useState(false);
@@ -332,16 +345,24 @@ export default function WorkshopCOAView({
     const openAccountLedger = useCallback(
         (acc) => {
             if (!isWorkshopCoaLedgerClickable(acc)) return;
-            const storedRange = loadSaAccountingDateRange();
+            let dateFrom = appliedDateFrom || '';
+            let dateTo = appliedDateTo || '';
+            try {
+                const q = riyadhPlRangeToLedgerQueryParams(appliedDateFrom, appliedDateTo);
+                dateFrom = q.dateFrom || dateFrom;
+                dateTo = q.dateTo || dateTo;
+            } catch {
+                /* keep applied wall-clock locals */
+            }
             navigate(
                 buildWorkshopCoaNavigationUrl(acc, {
-                    dateFrom: storedRange.dateFrom || startOfMonthISO(),
-                    dateTo: storedRange.dateTo || todayISO(),
+                    dateFrom: dateFrom || undefined,
+                    dateTo: dateTo || undefined,
                     branchId: appliedBranch || acc.branchId || '',
                 }),
             );
         },
-        [navigate, appliedBranch],
+        [navigate, appliedDateFrom, appliedDateTo, appliedBranch],
     );
 
     /** P&L line → account ledger for the same period / branch (proof of the total). */
@@ -395,13 +416,33 @@ export default function WorkshopCOAView({
 
     const openSalesReturnsProof = useCallback(() => {
         if (plFilters.dateFrom && plFilters.dateTo) {
-            saveWorkshopAdminDatetimeRange({
-                dateFrom: plFilters.dateFrom,
-                dateTo: plFilters.dateTo,
-            });
+            const cal = toInclusiveCalendarRange(plFilters.dateFrom, plFilters.dateTo);
+            saveWorkshopAdminDatetimeRange(
+                inclusiveCalendarRangeToDatetimeLocal(cal.dateFrom, cal.dateTo),
+            );
         }
         navigate('/workshop/sales-returns');
     }, [navigate, plFilters.dateFrom, plFilters.dateTo]);
+
+    useEffect(() => {
+        if (!appliedDateFrom || !appliedDateTo) return;
+        const cal = toInclusiveCalendarRange(appliedDateFrom, appliedDateTo);
+        if (!cal.dateFrom || !cal.dateTo) return;
+        if (cal.dateFrom === appliedDateFrom && cal.dateTo === appliedDateTo) return;
+        setAppliedDateFrom(cal.dateFrom);
+        setAppliedDateTo(cal.dateTo);
+        setDraftDateFrom(cal.dateFrom);
+        setDraftDateTo(cal.dateTo);
+    }, [appliedDateFrom, appliedDateTo]);
+
+    useEffect(() => {
+        if (appliedDateFrom && appliedDateTo) {
+            const cal = toInclusiveCalendarRange(appliedDateFrom, appliedDateTo);
+            saveWorkshopAdminDatetimeRange(
+                inclusiveCalendarRangeToDatetimeLocal(cal.dateFrom, cal.dateTo),
+            );
+        }
+    }, [appliedDateFrom, appliedDateTo]);
 
     useEffect(() => {
         let cancelled = false;
@@ -428,12 +469,15 @@ export default function WorkshopCOAView({
     const applyLiveBooksRange = useCallback((periodEndYmd) => {
         const next = liveBooksRangeAfterPeriodEnd(periodEndYmd);
         if (!next) return;
-        setDraftDateFrom(next.dateFrom);
-        setDraftDateTo(next.dateTo);
-        setAppliedDateFrom(next.dateFrom);
-        setAppliedDateTo(next.dateTo);
-        setPlFilters((p) => ({ ...p, dateFrom: next.dateFrom, dateTo: next.dateTo }));
-        saveWorkshopAdminDatetimeRange(next);
+        const cal = toInclusiveCalendarRange(next.dateFrom, next.dateTo);
+        setDraftDateFrom(cal.dateFrom);
+        setDraftDateTo(cal.dateTo);
+        setAppliedDateFrom(cal.dateFrom);
+        setAppliedDateTo(cal.dateTo);
+        setPlFilters((p) => ({ ...p, dateFrom: cal.dateFrom, dateTo: cal.dateTo }));
+        saveWorkshopAdminDatetimeRange(
+            inclusiveCalendarRangeToDatetimeLocal(cal.dateFrom, cal.dateTo),
+        );
     }, []);
 
     useEffect(() => {
@@ -455,27 +499,27 @@ export default function WorkshopCOAView({
     }, [reloadTick]);
 
     const applyCoaFilters = useCallback(() => {
-        if (!draftDateFrom || !draftDateTo) {
+        const cal = toInclusiveCalendarRange(draftDateFrom, draftDateTo);
+        if (!cal.dateFrom || !cal.dateTo) {
             setCoaRangeError(t('coa.err.rangeRequired'));
             return;
         }
-        try {
-            workshopAdminRangeQueryParams(draftDateFrom, draftDateTo);
-        } catch (err) {
-            setCoaRangeError(err?.message || t('coa.err.range'));
+        if (cal.dateFrom > cal.dateTo) {
+            setCoaRangeError(t('coa.err.range'));
             return;
         }
         setCoaRangeError('');
-        saveWorkshopAdminDatetimeRange({
-            dateFrom: draftDateFrom,
-            dateTo: draftDateTo,
-        });
-        setAppliedDateFrom(draftDateFrom);
-        setAppliedDateTo(draftDateTo);
+        setDraftDateFrom(cal.dateFrom);
+        setDraftDateTo(cal.dateTo);
+        saveWorkshopAdminDatetimeRange(
+            inclusiveCalendarRangeToDatetimeLocal(cal.dateFrom, cal.dateTo),
+        );
+        setAppliedDateFrom(cal.dateFrom);
+        setAppliedDateTo(cal.dateTo);
         setAppliedBranch(draftBranch);
         setPlFilters({
-            dateFrom: draftDateFrom,
-            dateTo: draftDateTo,
+            dateFrom: cal.dateFrom,
+            dateTo: cal.dateTo,
             branchId: draftBranch,
         });
         setReloadTick((x) => x + 1);
@@ -490,12 +534,14 @@ export default function WorkshopCOAView({
                 const params = { _t: Date.now() };
                 if (appliedBranch) params.branchId = appliedBranch;
                 if (appliedDateFrom && appliedDateTo) {
-                    try {
-                        const rangeParams = workshopAdminRangeQueryParams(appliedDateFrom, appliedDateTo);
-                        params.dateFrom = rangeParams.dateFrom;
-                        params.dateTo = rangeParams.dateTo;
-                    } catch (rangeErr) {
-                        if (!cancelled) setCoaRangeError(rangeErr?.message || t('coa.err.range'));
+                    const cal = toInclusiveCalendarRange(appliedDateFrom, appliedDateTo);
+                    if (!cal.dateFrom || !cal.dateTo) {
+                        if (!cancelled) setCoaRangeError(t('coa.err.range'));
+                    } else if (cal.dateFrom > cal.dateTo) {
+                        if (!cancelled) setCoaRangeError(t('coa.err.range'));
+                    } else {
+                        params.dateFrom = cal.dateFrom;
+                        params.dateTo = cal.dateTo;
                     }
                 }
                 const treeParams = appliedBranch ? { branchId: appliedBranch } : {};
@@ -509,9 +555,10 @@ export default function WorkshopCOAView({
                 const normalizedFlat = flat
                     .map(normalizeAccount)
                     .sort((a, b) => a.code.localeCompare(b.code));
-                const normalizedTree = tree.map(normalizeAccount);
+                const byId = new Map(normalizedFlat.map((acc) => [String(acc.id), acc]));
+                const stampedTree = stampTreeBalances(tree, byId);
                 setAccounts(normalizedFlat);
-                setTreeAccounts(normalizedTree);
+                setTreeAccounts(stampedTree);
             } catch (err) {
                 if (!cancelled) setError(getErrorMessage(err, t));
             } finally {
@@ -568,8 +615,8 @@ export default function WorkshopCOAView({
             const merged = {
                 ...flat,
                 ...row,
-                closingDebit: flat.closingDebit ?? row.closingDebit,
-                closingCredit: flat.closingCredit ?? row.closingCredit,
+                closingDebit: Number(flat.closingDebit ?? row.closingDebit ?? 0),
+                closingCredit: Number(flat.closingCredit ?? row.closingCredit ?? 0),
                 hasChildren: row._hasChildren,
                 isHeading: row._hasChildren,
             };
@@ -689,15 +736,19 @@ export default function WorkshopCOAView({
         setPlLoading(true);
         setPlRangeError('');
         try {
-            const rangeParams = workshopAdminRangeQueryParams(filters.dateFrom, filters.dateTo);
-            if (filters.dateFrom && filters.dateTo) {
-                saveWorkshopAdminDatetimeRange({
-                    dateFrom: filters.dateFrom,
-                    dateTo: filters.dateTo,
-                });
+            const cal = toInclusiveCalendarRange(filters.dateFrom, filters.dateTo);
+            if (!cal.dateFrom || !cal.dateTo) {
+                throw new Error(t('coa.err.rangeRequired'));
             }
+            if (cal.dateFrom > cal.dateTo) {
+                throw new Error(t('coa.err.range'));
+            }
+            saveWorkshopAdminDatetimeRange(
+                inclusiveCalendarRangeToDatetimeLocal(cal.dateFrom, cal.dateTo),
+            );
             const res = await getPLReport({
-                ...rangeParams,
+                dateFrom: cal.dateFrom,
+                dateTo: cal.dateTo,
                 branchId: filters.branchId || undefined,
             });
             if (gen !== plFetchGen.current) return;
@@ -969,8 +1020,8 @@ export default function WorkshopCOAView({
                         <label className="coa-range-field">
                             <span>{t('coa.range.from')}</span>
                             <input
-                                type="datetime-local"
-                                value={draftDateFrom}
+                                type="date"
+                                value={String(draftDateFrom || '').slice(0, 10)}
                                 onChange={(e) => setDraftDateFrom(e.target.value)}
                                 style={{ ...inputStyle, minWidth: 190 }}
                                 title="Asia/Riyadh"
@@ -979,8 +1030,8 @@ export default function WorkshopCOAView({
                         <label className="coa-range-field">
                             <span>{t('coa.range.to')}</span>
                             <input
-                                type="datetime-local"
-                                value={draftDateTo}
+                                type="date"
+                                value={String(draftDateTo || '').slice(0, 10)}
                                 onChange={(e) => setDraftDateTo(e.target.value)}
                                 style={{ ...inputStyle, minWidth: 190 }}
                                 title="Asia/Riyadh"
@@ -1872,8 +1923,8 @@ export default function WorkshopCOAView({
                         <label className="coa-range-field">
                             <span>{t('coa.range.from')}</span>
                             <input
-                                type="datetime-local"
-                                value={draftDateFrom}
+                                type="date"
+                                value={String(draftDateFrom || '').slice(0, 10)}
                                 onChange={(e) => setDraftDateFrom(e.target.value)}
                                 title="Asia/Riyadh"
                             />
@@ -1881,8 +1932,8 @@ export default function WorkshopCOAView({
                         <label className="coa-range-field">
                             <span>{t('coa.range.to')}</span>
                             <input
-                                type="datetime-local"
-                                value={draftDateTo}
+                                type="date"
+                                value={String(draftDateTo || '').slice(0, 10)}
                                 onChange={(e) => setDraftDateTo(e.target.value)}
                                 title="Asia/Riyadh"
                             />
@@ -1898,6 +1949,14 @@ export default function WorkshopCOAView({
                             {t('date.apply')}
                         </button>
                     </div>
+                    {appliedDateFrom && appliedDateTo ? (
+                        <p className="coa-range-as-at" style={{ margin: '0 0 10px', fontSize: 13, color: palette.textSecondary }}>
+                            {t('coa.range.asAt', {
+                                from: String(appliedDateFrom).slice(0, 10),
+                                to: String(appliedDateTo).slice(0, 10),
+                            })}
+                        </p>
+                    ) : null}
                     {coaRangeError ? (
                         <p className="coa-filter-error" role="alert">{coaRangeError}</p>
                     ) : null}

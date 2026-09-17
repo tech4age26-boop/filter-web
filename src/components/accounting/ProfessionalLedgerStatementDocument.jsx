@@ -17,7 +17,34 @@ import {
     fmtMoneySar,
     formatLedgerDateCell,
 } from '../../utils/accountLedgerStatementUtils';
+import { splitLatinAndArabic, statementScopeLabel } from '../../utils/bilingualHtmlPdf';
 import '../../styles/accounting/ProfessionalLedgerStatement.css';
+
+function BilingualBlock({
+    text,
+    prefix = '',
+    className = '',
+    enClass = 'pls-bi-en',
+    arClass = 'pls-bi-ar',
+}) {
+    const { english, arabic } = splitLatinAndArabic(text);
+    if (!english && !arabic && !prefix) return null;
+    return (
+        <div className={className}>
+            {english || prefix ? (
+                <div className={enClass}>
+                    {prefix}
+                    {english}
+                </div>
+            ) : null}
+            {arabic ? (
+                <div className={arClass} dir="rtl" lang="ar">
+                    {arabic}
+                </div>
+            ) : null}
+        </div>
+    );
+}
 
 /**
  * Full-page professional ledger statement (print / PDF / Excel toolbar + paginated document).
@@ -33,6 +60,14 @@ export default function ProfessionalLedgerStatementDocument({
     partyLabel = '',
     accountType = '',
     companyName = '',
+    vatNumber = '',
+    sellerVatNumber = '',
+    crNumber = '',
+    partyAddress = '',
+    partyPhone = '',
+    contactPerson = '',
+    partyName = '',
+    sellerName = 'Filter Car Services',
     periodFrom = '—',
     periodTo = '—',
     openingBalance = 0,
@@ -129,10 +164,18 @@ export default function ProfessionalLedgerStatementDocument({
         window.print();
     }
 
-    const accountLine =
-        accountCode && accountName
-            ? `[${accountCode}] ${accountName}`
-            : accountName || accountCode || '—';
+    const headline = partyLabel || partyName || accountName || '';
+    const accountPrefix = accountCode ? `[${accountCode}] ` : '';
+    const headlineLooksLikeAccount =
+        Boolean(accountName) &&
+        (headline === accountName
+            || splitLatinAndArabic(headline).english === splitLatinAndArabic(accountName).english);
+    const showAccountCaption = Boolean(accountName) && !headlineLooksLikeAccount;
+    const sellerLabel =
+        sellerName && sellerName !== companyName
+            ? sellerName
+            : 'Filter Car Services';
+    const oppositeScope = statementScopeLabel(companyName);
 
     return (
         <div className="pls-page">
@@ -387,21 +430,59 @@ export default function ProfessionalLedgerStatementDocument({
 
             <div className="pls-document" ref={printRef} id="ledger-statement-print">
                 <header className="pls-doc-head">
-                    <h1 className="pls-doc-title">Statement</h1>
-                    <div className="pls-doc-brand" aria-hidden>
-                        FILTER
+                    <div className="pls-doc-party-col">
+                        <h1 className="pls-doc-title">Statement of Account</h1>
+                        <p className="pls-doc-title-ar" dir="rtl" lang="ar">كشف حساب</p>
+                        <p className="pls-doc-period">
+                            From {periodFrom} &nbsp; To {periodTo}
+                        </p>
+                        <BilingualBlock
+                            text={headline}
+                            prefix={headlineLooksLikeAccount ? accountPrefix : ''}
+                            className="pls-doc-party"
+                        />
+                        {showAccountCaption ? (
+                            <BilingualBlock
+                                text={accountName}
+                                prefix={accountPrefix}
+                                className="pls-doc-account"
+                            />
+                        ) : null}
+                        {accountType ? (
+                            <p className="pls-doc-account-type">{accountType}</p>
+                        ) : null}
+                        <div className="pls-doc-details">
+                            {vatNumber ? (
+                                <span>VAT No. {vatNumber}</span>
+                            ) : null}
+                            {crNumber ? <span>CR No. {crNumber}</span> : null}
+                            {contactPerson ? (
+                                <span className="pls-doc-detail-stack">
+                                    Contact
+                                    <BilingualBlock text={contactPerson} />
+                                </span>
+                            ) : null}
+                            {partyPhone ? <span>Tel. {partyPhone}</span> : null}
+                            {partyAddress ? (
+                                <span className="pls-doc-detail-stack">
+                                    <BilingualBlock text={partyAddress} />
+                                </span>
+                            ) : null}
+                        </div>
                     </div>
-                    {companyName ? (
-                        <p className="pls-doc-sub">({companyName})</p>
-                    ) : null}
-                    <p className="pls-doc-account">
-                        {accountLine}
-                        {accountType ? ` · ${accountType}` : ''}
-                    </p>
-                    {partyLabel ? <p className="pls-doc-party">{partyLabel}</p> : null}
-                    <p className="pls-doc-period">
-                        From {periodFrom} &nbsp; To {periodTo}
-                    </p>
+                    <div className="pls-doc-brand-col">
+                        <div className="pls-doc-brand">FILTER</div>
+                        <div className="pls-doc-seller-en">{sellerLabel}</div>
+                        <div className="pls-doc-seller-ar" dir="rtl" lang="ar">
+                            فلتر لخدمات السيارات
+                        </div>
+                        {oppositeScope ? (
+                            <p className="pls-doc-scope">{oppositeScope}</p>
+                        ) : null}
+                        {sellerVatNumber ? (
+                            <p className="pls-doc-seller-vat">VAT {sellerVatNumber}</p>
+                        ) : null}
+                    </div>
                 </header>
 
                 <div className="pls-table-wrap">

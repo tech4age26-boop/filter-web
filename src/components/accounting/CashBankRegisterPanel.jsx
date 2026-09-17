@@ -60,6 +60,7 @@ export default function CashBankRegisterPanel({
     const [coaSearch, setCoaSearch] = useState('');
     const [ledgerFilter, setLedgerFilter] = useState('all');
     const [loading, setLoading] = useState(true);
+    const [pdfExporting, setPdfExporting] = useState(false);
     const [error, setError] = useState('');
     const [data, setData] = useState(null);
 
@@ -142,12 +143,20 @@ export default function CashBankRegisterPanel({
         };
     }, [title, registerType, selectedCoaLabel, allAccountsLabel, coaAccountId, dateFrom, dateTo, ledgerFilter, t]);
 
-    const handleExportPdf = () => {
-        exportCashBankRegisterPdf({
-            header: exportHeader,
-            summary,
-            lines: filteredLines,
-        });
+    const handleExportPdf = async () => {
+        setPdfExporting(true);
+        setError('');
+        try {
+            await exportCashBankRegisterPdf({
+                header: exportHeader,
+                summary,
+                lines: filteredLines,
+            });
+        } catch (e) {
+            setError(e?.message || t('register.pdfFailed'));
+        } finally {
+            setPdfExporting(false);
+        }
     };
 
     const handleExportExcel = () => {
@@ -158,7 +167,7 @@ export default function CashBankRegisterPanel({
         });
     };
 
-    const exportDisabled = loading || !!error;
+    const exportDisabled = loading || pdfExporting || !!error;
 
     const emptyMessage =
         ledgerFilter !== 'all'
@@ -223,8 +232,8 @@ export default function CashBankRegisterPanel({
                     disabled={exportDisabled}
                     title={t('register.pdfTitle')}
                 >
-                    <FileText size={16} style={{ marginRight: 6 }} />
-                    {t('register.pdf')}
+                    <FileText size={16} style={{ marginRight: 6, opacity: pdfExporting ? 0.5 : 1 }} />
+                    {pdfExporting ? t('register.pdfPreparing') : t('register.pdf')}
                 </button>
                 <button
                     type="button"

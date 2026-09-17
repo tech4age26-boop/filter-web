@@ -3664,13 +3664,13 @@
     border-bottom: none;
 }
 
-.pi-result-item:hover {
-    background: #fff8f1;
+.pi-result-item:hover:not(.selected) {
+    background: #fff6d6;
 }
 
 .pi-result-item.selected {
-    background: #fff8f1;
-    box-shadow: inset 3px 0 0 #f97316;
+    background: #fcc247 !important;
+    box-shadow: inset 0 0 0 1px #d4a017;
 }
 
 .pi-result-info {
@@ -5718,9 +5718,14 @@
     cursor: pointer;
 }
 
+.sf-movement-picker-item:hover:not(.active) {
+    background: #fff6d6;
+}
+
 .sf-movement-picker-item.active,
-.sf-movement-picker-item:hover {
-    background: #eff6ff;
+.sf-movement-picker-item.active:hover {
+    background: #fcc247 !important;
+    box-shadow: inset 0 0 0 1px #d4a017;
 }
 
 .sf-movement-picker-name {

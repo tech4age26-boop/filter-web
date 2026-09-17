@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import { countSearchMatches, filterSearchOptions } from '../utils/entitySearchUtils';
+import { stepComboHighlightIdx } from './multiSelectMenuPlacement';
 import './SearchableEntityCombobox.css';
 
 /**
@@ -145,26 +146,41 @@ export default function SearchableEntityCombobox({
         [onSelect, onTabAdvance],
     );
 
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (e) => {
+            const active = document.activeElement;
+            if (!wrapRef.current?.contains(active) && !portalRef.current?.contains(active)) {
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                e.stopPropagation();
+                clearBlurTimer();
+                setHighlightIdx((i) => stepComboHighlightIdx(i, 1, filtered.length));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                e.stopPropagation();
+                clearBlurTimer();
+                setHighlightIdx((i) => stepComboHighlightIdx(i, -1, filtered.length));
+            } else if (e.key === 'Enter' && filtered.length > 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                pick(filtered[highlightIdx] ?? filtered[0], false);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [open, filtered, highlightIdx, pick, clearBlurTimer]);
+
     const onKeyDown = (e) => {
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            clearBlurTimer();
-            setOpen(true);
-            setHighlightIdx((i) =>
-                filtered.length === 0 ? 0 : Math.min(i + 1, filtered.length - 1),
-            );
-            return;
-        }
-        if (e.key === 'ArrowUp') {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
             clearBlurTimer();
             if (!open) setOpen(true);
-            setHighlightIdx((i) => Math.max(i - 1, 0));
-            return;
-        }
-        if (e.key === 'Enter' && filtered.length > 0) {
-            e.preventDefault();
-            pick(filtered[highlightIdx] ?? filtered[0], false);
             return;
         }
         if (e.key === 'Tab' && !e.shiftKey && filtered.length > 0 && open) {

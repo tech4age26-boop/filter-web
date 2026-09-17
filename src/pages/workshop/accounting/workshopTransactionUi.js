@@ -74,6 +74,7 @@ export function summarizeMoneyKpis(rows) {
     let total = 0;
     for (const r of Array.isArray(rows) ? rows : []) {
         if (String(r?.status || '').toLowerCase() === 'rejected') continue;
+        if (String(r?.status || '').toLowerCase() === 'void') continue;
         const amt = Number(r?.amount || r?.totalDebit || 0);
         if (!Number.isFinite(amt)) continue;
         total += amt;
@@ -191,6 +192,70 @@ export const MONEY_LOG_CSS = `
     height: 36px;
     min-height: 36px;
     padding: 0 12px;
+}
+.ws-tx-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 168px;
+}
+.ws-tx-act {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #334155;
+    cursor: pointer;
+}
+.ws-tx-act:hover:not(:disabled) {
+    border-color: #FCC247;
+    background: #fffbeb;
+}
+.ws-tx-act--danger {
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+.ws-tx-act--danger:hover:not(:disabled) {
+    background: #fef2f2;
+    border-color: #f87171;
+}
+.ws-tx-act--restore {
+    color: #0f766e;
+    border-color: #99f6e4;
+}
+.ws-tx-act--restore:hover:not(:disabled) {
+    background: #f0fdfa;
+    border-color: #2dd4bf;
+}
+.ws-tx-act:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.ws-tx-row--void td {
+    opacity: 0.55;
+}
+.ws-tx-row--void td.ws-tx-actions {
+    opacity: 1;
+}
+.ws-tx-editing {
+    padding: 10px 12px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #92400e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 .ws-tx-tabs {
     display: flex;

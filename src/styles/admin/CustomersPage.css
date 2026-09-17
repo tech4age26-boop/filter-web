@@ -68,7 +68,7 @@
 
 .customers-form-section--fill .customers-form-branch-picker {
     flex: 1;
-    min-height: 420px;
+    min-height: 0;
     max-height: none;
 }
 
@@ -134,7 +134,36 @@
 }
 
 .customers-form-branch-picker {
-    max-height: 360px;
+    max-height: none;
+}
+
+.customer-branch-combo {
+    max-width: 720px;
+}
+
+.customer-branch-combo .ms-combo {
+    min-width: 0;
+}
+
+.customers-form-page-wrap .form-input-field:focus,
+.customers-form-page-wrap .form-input:focus,
+.customers-form-page-wrap .form-select:focus,
+.customers-form-page-wrap textarea:focus {
+    border-color: #d4a017;
+    background: #fffdf5;
+    box-shadow: 0 0 0 3px rgba(252, 194, 71, 0.55);
+}
+
+.customers-form-page-wrap .form-input-field::selection,
+.customers-form-page-wrap .form-input::selection,
+.customers-form-page-wrap textarea::selection,
+.customer-branch-combo .ms-combo__chips input::selection {
+    background: #fcc247;
+    color: #1e2124;
+}
+
+.customer-branch-combo .customer-branch-picker-summary {
+    margin-top: 8px;
 }
 
 @media (max-width: 1200px) {
