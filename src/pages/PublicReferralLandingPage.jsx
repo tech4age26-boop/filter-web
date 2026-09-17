@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Copy, Ticket } from 'lucide-react';
+import { Copy, QrCode, Ticket } from 'lucide-react';
+import QRCode from 'qrcode';
 import { apiFetch } from '../services/api';
-import { persistReferralCode } from '../utils/referralCodeCapture';
+import { persistReferralCode, publicReferralSharePath } from '../utils/referralCodeCapture';
 
 export default function PublicReferralLandingPage() {
   const { code: rawCode } = useParams();
   const scanned = decodeURIComponent(String(rawCode || '').trim());
   const [info, setInfo] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [qrSrc, setQrSrc] = useState('');
 
   useEffect(() => {
     if (!scanned) return;
@@ -29,6 +31,28 @@ export default function PublicReferralLandingPage() {
 
   const displayCode = info?.referralCode || scanned;
   const valid = info?.found === true;
+  const shareUrl =
+    typeof window !== 'undefined' && displayCode
+      ? `${window.location.origin}${publicReferralSharePath(displayCode)}`
+      : '';
+
+  useEffect(() => {
+    if (!shareUrl) {
+      setQrSrc('');
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(shareUrl, { width: 220, margin: 1, errorCorrectionLevel: 'M' })
+      .then((src) => {
+        if (!cancelled) setQrSrc(src);
+      })
+      .catch(() => {
+        if (!cancelled) setQrSrc('');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareUrl]);
 
   const copy = async () => {
     if (!displayCode) return;
@@ -60,6 +84,14 @@ export default function PublicReferralLandingPage() {
           <p style={styles.muted}>Referred by {info.referrerName}</p>
         ) : null}
         <div style={styles.code}>{displayCode || '—'}</div>
+        {qrSrc ? (
+          <div style={styles.qrWrap}>
+            <img src={qrSrc} alt={`QR code for ${displayCode}`} width={180} height={180} />
+            <p style={styles.qrHint}>
+              <QrCode size={14} /> Scan to open this referral link
+            </p>
+          </div>
+        ) : null}
         {displayCode ? (
           <button type="button" style={styles.btn} onClick={copy}>
             <Copy size={16} />
@@ -132,6 +164,22 @@ const styles = {
     borderRadius: 14,
     padding: '14px 12px',
     marginBottom: 16,
+  },
+  qrWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 8,
+    margin: '0 0 16px',
+  },
+  qrHint: {
+    margin: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: 600,
   },
   btn: {
     display: 'inline-flex',
