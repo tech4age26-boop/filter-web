@@ -251,7 +251,7 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
         setErr('');
         try {
             const root = await fetchForExport();
-            exportAccountLedgerPdf({
+            await exportAccountLedgerPdf({
                 header: buildExportHeader(root),
                 openingBalance: root?.openingBalance ?? 0,
                 rows: root?.rows ?? [],
@@ -474,6 +474,14 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
                 accountName={data?.header?.accountName || fallbackName}
                 accountType={accountType}
                 companyName={data?.header?.companyName || entityLabel || undefined}
+                sellerName={data?.header?.sellerName || 'Filter Car Services'}
+                vatNumber={data?.header?.vatNumber || ''}
+                sellerVatNumber={data?.header?.sellerVatNumber || ''}
+                crNumber={data?.header?.crNumber || ''}
+                partyAddress={data?.header?.partyAddress || ''}
+                partyPhone={data?.header?.partyPhone || ''}
+                contactPerson={data?.header?.contactPerson || ''}
+                partyName={data?.header?.partyName || ''}
                 periodFrom={
                     fmtRiyadhRangeLabel(
                         toLedgerFilterControlValue(data?.header?.from || dateFrom) || dateFrom,

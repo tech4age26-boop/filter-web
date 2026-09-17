@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
     createAccount,
     deleteAccount,
     getAccounts,
-    getAccountsTree,
     updateAccount,
 } from '../../services/accountsApi';
 import {
@@ -29,9 +28,15 @@ import { HQ_COA_CONTROL_BADGES, isCorporateArLedgerClickable } from '../../pages
 import {
     filterWorkshopPettyCashCoaList,
     isWorkshopPettyCashCoaControlAccount,
-    pruneWorkshopPettyCashCoaTree,
 } from '../../pages/workshop/workshopCoaAccountRouting';
 import { coaBadgeLabel, coaT, coaTypeLabel } from '../../utils/workshopCoaI18n';
+import {
+    buildCoaTreeFromFlat,
+    collectExpandableCoaIds,
+    dedupeCoaFlatList,
+    filterCoaTreeForSearch,
+    flattenVisibleCoaTree,
+} from '../../utils/coaFolderTree';
 
 const HQ_CASHIER_CODE_RE = /^10(01|03|11)-(C|U)\d+/i;
 const HQ_STAFF_PETTY_RE = /^1003-E\d+/i;
@@ -73,16 +78,6 @@ function shouldHideFromHqCoa(account) {
 function filterHqBooksAccounts(list, hqBooks) {
     if (!hqBooks) return list;
     return (list || []).filter((a) => !shouldHideFromHqCoa(a));
-}
-
-function filterHqBooksTree(nodes, hqBooks) {
-    if (!hqBooks) return nodes;
-    const walk = (node) => {
-        const children = (node.children || []).map(walk).filter(Boolean);
-        if (shouldHideFromHqCoa(node)) return null;
-        return { ...node, children };
-    };
-    return (nodes || []).map(walk).filter(Boolean);
 }
 
 const parseArr = (res) => {
@@ -516,6 +511,8 @@ export default function WorkshopCOAManager({
     const navigate = useNavigate();
     const [accounts, setAccounts] = useState([]);
     const [tree, setTree] = useState([]);
+    const [expandedIds, setExpandedIds] = useState(() => new Set());
+    const [expandInitForTree, setExpandInitForTree] = useState('');
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [view, setView] = useState('tree');
@@ -546,30 +543,16 @@ export default function WorkshopCOAManager({
                 ...(scopeWorkshopId ? { workshopId: scopeWorkshopId } : {}),
                 ...(hqBooks ? { hqBooks: 'true' } : {}),
             };
-            const [flat, treeRes] = await Promise.all([
+            const [flat] = await Promise.all([
                 getAccounts(scopeParams),
-                getAccountsTree(scopeParams),
             ]);
             const flatList = filterHqBooksAccounts(parseArr(flat), hqBooks);
             const visibleFlat = hqBooks
                 ? flatList
                 : filterWorkshopPettyCashCoaList(flatList);
-            const byId = new Map(visibleFlat.map((a) => [String(a.id), a]));
-            const enrichTree = (nodes) =>
-                (nodes || []).map((n) => ({
-                    ...n,
-                    closingDebit: byId.get(String(n.id))?.closingDebit ?? 0,
-                    closingCredit: byId.get(String(n.id))?.closingCredit ?? 0,
-                    isAutoSeed: byId.get(String(n.id))?.isAutoSeed ?? n.isAutoSeed,
-                    hasChildren: byId.get(String(n.id))?.hasChildren ?? n.hasChildren,
-                    isHeading: byId.get(String(n.id))?.isHeading ?? n.isHeading,
-                    children: enrichTree(n.children),
-                }));
-            setAccounts(visibleFlat);
-            const rawTree = hqBooks
-                ? filterHqBooksTree(parseArr(treeRes), hqBooks)
-                : pruneWorkshopPettyCashCoaTree(parseArr(treeRes));
-            setTree(enrichTree(rawTree));
+            const uniqueFlat = dedupeCoaFlatList(visibleFlat);
+            setAccounts(uniqueFlat);
+            setTree(buildCoaTreeFromFlat(uniqueFlat));
         } catch (e) {
             setErr(e?.message || t('err.load'));
         } finally {
@@ -581,8 +564,17 @@ export default function WorkshopCOAManager({
         reload();
     }, [reload]);
 
+    useEffect(() => {
+        const signature = (tree || []).map((n) => n.id).join(',');
+        if (!signature || signature === expandInitForTree) return;
+        setExpandedIds(new Set());
+        setExpandInitForTree(signature);
+    }, [tree, expandInitForTree]);
+
+    const searchQ = search.trim().toLowerCase();
+
     const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
+        const q = searchQ;
         return (accounts || []).filter((a) => {
             if (filterType && a.type !== filterType) return false;
             if (!q) return true;
@@ -591,28 +583,39 @@ export default function WorkshopCOAManager({
                 String(a.code || '').toLowerCase().includes(q)
             );
         });
-    }, [accounts, search, filterType]);
+    }, [accounts, searchQ, filterType]);
 
-    const treeRootsFiltered = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        const matches = (a) =>
-            (a.name || '').toLowerCase().includes(q) ||
-            String(a.code || '').toLowerCase().includes(q) ||
-            (a.children || []).some(matches);
-        return (tree || [])
-            .filter((n) => !filterType || n.type === filterType)
-            .filter((n) => !q || matches(n));
-    }, [tree, filterType, search]);
+    const filteredTree = useMemo(() => {
+        const typed = (tree || []).filter((n) => !filterType || n.type === filterType);
+        return filterCoaTreeForSearch(typed, searchQ);
+    }, [tree, filterType, searchQ]);
 
-    const treeVisibleRowCount = useMemo(() => {
-        let c = 0;
-        const walk = (node) => {
-            c += 1;
-            for (const ch of node.children || []) walk(ch);
-        };
-        for (const n of treeRootsFiltered) walk(n);
-        return c;
-    }, [treeRootsFiltered]);
+    const visibleTreeRows = useMemo(
+        () => flattenVisibleCoaTree(filteredTree, expandedIds, Boolean(searchQ)),
+        [filteredTree, expandedIds, searchQ],
+    );
+
+    const treeVisibleRowCount = visibleTreeRows.length;
+
+    const toggleExpanded = useCallback((id, e) => {
+        e?.stopPropagation?.();
+        e?.preventDefault?.();
+        const key = String(id);
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    }, []);
+
+    const expandAllFolders = useCallback(() => {
+        setExpandedIds(new Set(collectExpandableCoaIds(tree)));
+    }, [tree]);
+
+    const collapseAllFolders = useCallback(() => {
+        setExpandedIds(new Set());
+    }, []);
 
     const rollupById = useMemo(() => {
         const map = buildRollupMap(tree);
@@ -637,13 +640,18 @@ export default function WorkshopCOAManager({
 
     function renderRow(a, depth = 0) {
         const roll = rollupById.get(a.id);
-        const hasChildren =
+        const hasChildren = Boolean(
+            a._hasChildren ||
             (a.children && a.children.length > 0) ||
-            !!a.hasChildren ||
-            (roll?.hasChildren ?? false);
+            a.hasChildren ||
+            a.isHeading ||
+            (roll?.hasChildren ?? false),
+        );
         const rd = roll ? roll.rollupDebit : Number(a.closingDebit) || 0;
         const rc = roll ? roll.rollupCredit : Number(a.closingCredit) || 0;
-        const pad = depth * 18;
+        const pad = depth * 16;
+        const folderMode = view === 'tree' && hasChildren;
+        const isExpanded = expandedIds.has(String(a.id)) || Boolean(searchQ);
 
         const ledgerUrl =
             enableLedgerLinks &&
@@ -658,7 +666,7 @@ export default function WorkshopCOAManager({
 
         return (
             <tr
-                key={a.id}
+                key={`${a.id}:${a.code}:${depth}`}
                 className={ledgerUrl ? 'sa-acc-row-clickable' : undefined}
                 onClick={ledgerUrl ? () => navigate(ledgerUrl) : undefined}
                 onKeyDown={ledgerUrl ? (e) => {
@@ -669,38 +677,68 @@ export default function WorkshopCOAManager({
                 } : undefined}
                 tabIndex={ledgerUrl ? 0 : undefined}
                 role={ledgerUrl ? 'link' : undefined}
+                style={{ background: folderMode ? '#FAFAFA' : '#fff' }}
             >
                 <td style={{ paddingLeft: 12 + pad }}>
-                    {ledgerUrl ? (
-                        <Link to={ledgerUrl} className="sa-acc-ledger-link" onClick={(e) => e.stopPropagation()}>
-                            {accountLabel}
-                        </Link>
-                    ) : (
-                        accountLabel
-                    )}
-                    {a.isAutoSeed ? (
-                        <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
-                            {t('badge.system')}
-                        </span>
-                    ) : null}
-                    {controlBadge ? (
-                        <span style={{
-                            marginLeft: 8,
-                            fontSize: 10,
-                            padding: '2px 6px',
-                            borderRadius: 999,
-                            background: controlBadge.background,
-                            color: controlBadge.color,
-                            fontWeight: 700,
-                        }}>
-                            {coaBadgeLabel(locale, controlBadge.label)}
-                        </span>
-                    ) : null}
-                    {hasChildren ? (
-                        <span style={{ marginLeft: 8, fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}>
-                            {t('badge.heading')}
-                        </span>
-                    ) : null}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: folderMode ? 700 : 500 }}>
+                        {folderMode ? (
+                            <button
+                                type="button"
+                                onClick={(e) => toggleExpanded(a.id, e)}
+                                title={isExpanded ? t('btn.collapseFolders') : t('btn.expandFolders')}
+                                style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    padding: 0,
+                                    display: 'inline-flex',
+                                    cursor: 'pointer',
+                                    color: '#64748B',
+                                }}
+                            >
+                                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </button>
+                        ) : (
+                            <span style={{ width: 16, display: 'inline-block' }} />
+                        )}
+                        {folderMode ? (
+                            isExpanded
+                                ? <FolderOpen size={15} color="#D4A017" />
+                                : <Folder size={15} color="#D4A017" />
+                        ) : null}
+                        {ledgerUrl ? (
+                            <Link to={ledgerUrl} className="sa-acc-ledger-link" onClick={(e) => e.stopPropagation()}>
+                                {accountLabel}
+                            </Link>
+                        ) : (
+                            <span>{accountLabel}</span>
+                        )}
+                        {a.isAutoSeed ? (
+                            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#E0F2FE', color: '#075985', fontWeight: 700 }}>
+                                {t('badge.system')}
+                            </span>
+                        ) : null}
+                        {controlBadge ? (
+                            <span style={{
+                                fontSize: 10,
+                                padding: '2px 6px',
+                                borderRadius: 999,
+                                background: controlBadge.background,
+                                color: controlBadge.color,
+                                fontWeight: 700,
+                            }}>
+                                {coaBadgeLabel(locale, controlBadge.label)}
+                            </span>
+                        ) : null}
+                        {folderMode ? (
+                            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}>
+                                {t('badge.folder')}
+                            </span>
+                        ) : hasChildren ? (
+                            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 700 }}>
+                                {t('badge.heading')}
+                            </span>
+                        ) : null}
+                    </div>
                 </td>
                 <td>{a.type}</td>
                 <td>{String(a.subType || '').replace(/_/g, ' ') || '—'}</td>
@@ -710,10 +748,10 @@ export default function WorkshopCOAManager({
                 <td style={{ textAlign: 'right' }}>
                     {!readOnly && !a.isAutoSeed && !hasChildren ? (
                         <>
-                            <button type="button" style={outlineBtnStyle} onClick={() => { setEditing(a); setCreating(false); }} title={t('btn.edit')}>
+                            <button type="button" style={outlineBtnStyle} onClick={(e) => { e.stopPropagation(); setEditing(a); setCreating(false); }} title={t('btn.edit')}>
                                 <Pencil size={14} />
                             </button>
-                            <button type="button" style={{ ...dangerBtnStyle, marginLeft: 6 }} onClick={() => handleDelete(a.id)} title={t('btn.delete')}>
+                            <button type="button" style={{ ...dangerBtnStyle, marginLeft: 6 }} onClick={(e) => { e.stopPropagation(); handleDelete(a.id); }} title={t('btn.delete')}>
                                 <Trash2 size={14} />
                             </button>
                         </>
@@ -721,16 +759,6 @@ export default function WorkshopCOAManager({
                 </td>
             </tr>
         );
-    }
-
-    function renderTreeNode(node, depth) {
-        const rows = [renderRow(node, depth)];
-        if (node.children?.length) {
-            for (const child of node.children) {
-                rows.push(...renderTreeNode(child, depth + 1));
-            }
-        }
-        return rows;
     }
 
     return (
@@ -743,6 +771,16 @@ export default function WorkshopCOAManager({
                             <option value="tree">{t('view.tree')}</option>
                             <option value="flat">{t('view.flat')}</option>
                         </select>
+                        {view === 'tree' ? (
+                            <>
+                                <button type="button" className="btn-portal-outline" onClick={expandAllFolders}>
+                                    {t('btn.expandFolders')}
+                                </button>
+                                <button type="button" className="btn-portal-outline" onClick={collapseAllFolders}>
+                                    {t('btn.collapseFolders')}
+                                </button>
+                            </>
+                        ) : null}
                         <select style={{ ...inputStyle, width: 'auto' }} value={filterType} onChange={(e) => setFilterType(e.target.value)}>
                             <option value="">{t('filter.allTypes')}</option>
                             {ACCOUNT_TYPES.map((typeKey) => (
@@ -798,7 +836,7 @@ export default function WorkshopCOAManager({
                             </thead>
                             <tbody>
                                 {view === 'tree'
-                                    ? treeRootsFiltered.flatMap((n) => renderTreeNode(n, 0))
+                                    ? visibleTreeRows.map((a) => renderRow(a, Number(a._depth || 0)))
                                     : filtered.map((a) => renderRow(a, 0))}
                                 {!loading &&
                                     (view === 'tree' ? treeVisibleRowCount === 0 : filtered.length === 0) && (

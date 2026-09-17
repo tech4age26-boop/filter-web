@@ -6,6 +6,9 @@ import {
     listCashBankAccounts as listAcctCashBank,
     listCoaAccounts as listAcctCoa,
     listPayees as listAcctPayees,
+    getPayment as getAcctPayment,
+    getReceipt as getAcctReceipt,
+    getJournalEntry as getAcctJournalEntry,
 } from '../../../services/workshopAccountingApi';
 import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
 import {
@@ -45,6 +48,8 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
     const [loading, setLoading] = useState(true);
     const [lookupErr, setLookupErr] = useState('');
     const [refreshToken, setRefreshToken] = useState(0);
+    const [editTxn, setEditTxn] = useState(null);
+    const [editJournal, setEditJournal] = useState(null);
 
     const reloadLookups = useCallback(async () => {
         setLookupErr('');
@@ -81,6 +86,58 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
         reloadLookups();
     }, [reloadLookups]);
 
+    const clearEdit = useCallback(() => {
+        setEditTxn(null);
+        setEditJournal(null);
+    }, []);
+
+    const handleEditFromLog = useCallback(async (row, tab) => {
+        try {
+            if (tab === 'journals') {
+                const src = String(row?.source || '').toUpperCase();
+                const linked = row?.linkedTransaction;
+                if (src === 'PAYMENT' || linked?.transactionType === 'payment') {
+                    let id = linked?.id;
+                    if (!id) {
+                        const full = await getAcctJournalEntry(row.id);
+                        id = full?.entry?.linkedTransaction?.id;
+                    }
+                    if (!id) return;
+                    const res = await getAcctPayment(id);
+                    setEditJournal(null);
+                    setActiveTab('Payments');
+                    setEditTxn(res?.row || null);
+                    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                    return;
+                }
+                if (src === 'RECEIPT' || linked?.transactionType === 'receipt') {
+                    let id = linked?.id;
+                    if (!id) {
+                        const full = await getAcctJournalEntry(row.id);
+                        id = full?.entry?.linkedTransaction?.id;
+                    }
+                    if (!id) return;
+                    const res = await getAcctReceipt(id);
+                    setEditJournal(null);
+                    setActiveTab('Receipts');
+                    setEditTxn(res?.row || null);
+                    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                    return;
+                }
+                const full = await getAcctJournalEntry(row.id);
+                setEditTxn(null);
+                setEditJournal(full?.entry || row);
+                if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+                return;
+            }
+            setEditJournal(null);
+            setEditTxn(row);
+            if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch {
+            setLookupErr(t('tx.log.editErr'));
+        }
+    }, [t]);
+
     const logTab =
         activeTab === 'Payments' ? 'payments'
             : activeTab === 'Receipts' ? 'receipts'
@@ -104,7 +161,10 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                             key={tab.id}
                             type="button"
                             style={active ? primaryBtnStyle : outlineBtnStyle}
-                            onClick={() => setActiveTab(tab.id)}
+                            onClick={() => {
+                                setActiveTab(tab.id);
+                                clearEdit();
+                            }}
                         >
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                                 <Icon size={14} />
@@ -123,6 +183,7 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                         <AcctLoading locale={locale} />
                     ) : (
                         <WorkshopPayReceiptGrid
+                            key={editTxn?.id ? `pay-edit-${editTxn.id}` : 'pay-new'}
                             variant="payment"
                             cashBankAccounts={cashBankAccounts}
                             accounts={coaPayableExpense}
@@ -131,6 +192,8 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                             isAdminHqBooks={isAdminHqBooks}
                             t={t}
                             onPosted={handlePosted}
+                            editRow={editTxn}
+                            onCancelEdit={clearEdit}
                         />
                     )}
                 </AcctCard>
@@ -142,6 +205,7 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                         <AcctLoading locale={locale} />
                     ) : (
                         <WorkshopPayReceiptGrid
+                            key={editTxn?.id ? `rcpt-edit-${editTxn.id}` : 'rcpt-new'}
                             variant="receipt"
                             cashBankAccounts={cashBankAccounts}
                             accounts={coaReceivableRevenue}
@@ -150,6 +214,8 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                             isAdminHqBooks={isAdminHqBooks}
                             t={t}
                             onPosted={handlePosted}
+                            editRow={editTxn}
+                            onCancelEdit={clearEdit}
                         />
                     )}
                 </AcctCard>
@@ -161,11 +227,14 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                         <AcctLoading locale={locale} />
                     ) : (
                         <WorkshopJournalGrid
+                            key={editJournal?.id ? `je-edit-${editJournal.id}` : 'je-new'}
                             accounts={coaAll}
                             branches={branches}
                             isAdminHqBooks={isAdminHqBooks}
                             t={t}
                             onPosted={handlePosted}
+                            editEntry={editJournal}
+                            onCancelEdit={clearEdit}
                         />
                     )}
                 </AcctCard>
@@ -187,6 +256,8 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                     refreshToken={refreshToken}
                     cashBankAccounts={cashBankAccounts}
                     payees={payees}
+                    onEdit={handleEditFromLog}
+                    onChanged={handlePosted}
                 />
             </AcctCard>
         </div>

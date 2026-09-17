@@ -1,7 +1,8 @@
 /**
  * How a workshop COA balance relates to VAT, from how journals actually post:
  *
- * Incl. VAT — cash, bank, AR, AP, POS settlement (gross tender / invoice total).
+ * Incl. VAT — cash, bank, tills, locker, AR (incl. corporate children), AP,
+ *             POS/HQ settlement, petty-cash float (gross tender / invoice total).
  * Excl. VAT — revenue (posted pre-VAT), inventory, COGS, operating expenses, equity.
  * VAT — control accounts that hold tax only (1310 input, 2100 output).
  */
@@ -12,11 +13,23 @@ export const COA_VAT_BASIS = {
     VAT: 'vat',
 };
 
+const SETTLEMENT_ASSET_CODES = new Set([1300, 1320, 1330, 1335, 1340, 1400]);
+const SETTLEMENT_LIABILITY_CODES = new Set([2310, 2400, 2410, 2420]);
+
 function rootCode(account) {
     const raw = String(account?.code ?? '').trim();
     if (!raw) return '';
     if (/^CB[-_]/i.test(raw)) return 'CB';
     return raw.split(/[-_]/)[0];
+}
+
+function numericRoot(account) {
+    const n = Number.parseInt(rootCode(account), 10);
+    return Number.isFinite(n) ? n : null;
+}
+
+function accountType(account) {
+    return String(account?.type || '').toUpperCase();
 }
 
 export function vatBasisForCoaAccount(account) {
@@ -25,28 +38,29 @@ export function vatBasisForCoaAccount(account) {
     const raw = String(account?.code ?? '').trim();
     if (/^CB[-_]/i.test(raw)) return COA_VAT_BASIS.INCL;
 
-    const root = rootCode(account);
-    if (!root) return COA_VAT_BASIS.EXCL;
+    const n = numericRoot(account);
+    if (n == null) return COA_VAT_BASIS.EXCL;
 
-    if (root === '1310' || root === '2100') return COA_VAT_BASIS.VAT;
+    if (n === 1310 || n === 2100) return COA_VAT_BASIS.VAT;
 
-    // Cash / bank / locker / cashier tills (100x, 101x)
-    if (/^100\d$/.test(root) || /^101\d$/.test(root)) return COA_VAT_BASIS.INCL;
+    const t = accountType(account);
+    // P&L / equity post net of VAT (or are not tax bases).
+    if (t === 'INCOME' || t === 'EXPENSE' || t === 'EQUITY') return COA_VAT_BASIS.EXCL;
 
-    // AR, petty-cash float, POS/SoftPOS settlement, marketing wallet, AP
-    if (
-        root === '1100'
-        || root === '1110'
-        || root === '1280'
-        || root === '1300'
-        || root === '1320'
-        || root === '1330'
-        || root === '2000'
-        || root === '2001'
-        || root === '2010'
-    ) {
+    if (/corporate-ar:\d+/i.test(String(account?.description || ''))) {
         return COA_VAT_BASIS.INCL;
     }
+
+    // 1000–1099 cash / bank / locker / cashier tills (1020 was missed as 102x).
+    if (n >= 1000 && n <= 1099) return COA_VAT_BASIS.INCL;
+    // 1100–1149 AR trade + corporate + per-customer children (1111…), not 1150 variance.
+    if (n >= 1100 && n <= 1149) return COA_VAT_BASIS.INCL;
+    // Petty-cash float (1280, 1280-BR-*).
+    if (n === 1280) return COA_VAT_BASIS.INCL;
+    if (SETTLEMENT_ASSET_CODES.has(n)) return COA_VAT_BASIS.INCL;
+    // 2000–2019 AP trade / affiliated / local + children.
+    if (n >= 2000 && n <= 2019) return COA_VAT_BASIS.INCL;
+    if (SETTLEMENT_LIABILITY_CODES.has(n)) return COA_VAT_BASIS.INCL;
 
     return COA_VAT_BASIS.EXCL;
 }

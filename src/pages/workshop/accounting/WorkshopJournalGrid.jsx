@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { createJournalEntry as createAcctJournalEntry } from '../../../services/workshopAccountingApi';
+import { createJournalEntry as createAcctJournalEntry, updateJournalEntry as updateAcctJournalEntry } from '../../../services/workshopAccountingApi';
 import {
     AcctError,
     Field,
@@ -10,7 +10,7 @@ import {
 } from '../../supplier/accounting/SupplierAccountingShared';
 import SupplierAccountingCombobox from '../../supplier/accounting/SupplierAccountingCombobox';
 import { blankJournalRow, todayIsoDate } from './workshopAccountingShared';
-import { accountComboLabel, moneySar } from './workshopTransactionUi';
+import { accountComboLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
 
 export default function WorkshopJournalGrid({
     accounts = [],
@@ -18,6 +18,8 @@ export default function WorkshopJournalGrid({
     isAdminHqBooks = false,
     t,
     onPosted,
+    editEntry = null,
+    onCancelEdit,
 }) {
     const [headerDate, setHeaderDate] = useState(todayIsoDate());
     const [headerRef, setHeaderRef] = useState('');
@@ -27,6 +29,27 @@ export default function WorkshopJournalGrid({
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const [okMsg, setOkMsg] = useState('');
+
+    useEffect(() => {
+        if (!editEntry?.id) return;
+        setHeaderDate(fmtDateYmd(editEntry.date) || todayIsoDate());
+        setHeaderRef('');
+        setHeaderBranchId(editEntry.branchId ? String(editEntry.branchId) : '');
+        setJournalMemo(editEntry.description || '');
+        const lines = Array.isArray(editEntry.lines) && editEntry.lines.length
+            ? editEntry.lines.map((l, i) => ({
+                id: `j-edit-${l.id || i}`,
+                accountId: l.accountId ? String(l.accountId) : '',
+                description: l.description || '',
+                debit: Number(l.debit) ? String(l.debit) : '',
+                credit: Number(l.credit) ? String(l.credit) : '',
+            }))
+            : [blankJournalRow(0), blankJournalRow(1)];
+        while (lines.length < 2) lines.push(blankJournalRow(lines.length));
+        setRows(lines);
+        setErr('');
+        setOkMsg('');
+    }, [editEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const updateRow = (id, patch) => {
         setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -89,7 +112,7 @@ export default function WorkshopJournalGrid({
         const memoBits = [headerRef.trim(), journalMemo.trim()].filter(Boolean);
         setSaving(true);
         try {
-            const res = await createAcctJournalEntry({
+            const payload = {
                 date: headerDate,
                 ...(isAdminHqBooks ? {} : { branchId: headerBranchId || undefined }),
                 description: memoBits.join(' — ') || undefined,
@@ -99,7 +122,19 @@ export default function WorkshopJournalGrid({
                     debit: Number(l.debit) || 0,
                     credit: Number(l.credit) || 0,
                 })),
-            });
+            };
+            const res = editEntry?.id
+                ? await updateAcctJournalEntry(editEntry.id, payload)
+                : await createAcctJournalEntry(payload);
+            if (editEntry?.id) {
+                setOkMsg(t('tx.ok.updatedJournal', { doc: editEntry.entryNumber || editEntry.id }));
+                setRows([blankJournalRow(0), blankJournalRow(1)]);
+                setJournalMemo('');
+                setHeaderRef('');
+                onPosted?.(res);
+                onCancelEdit?.();
+                return;
+            }
             setRows([blankJournalRow(0), blankJournalRow(1)]);
             setJournalMemo('');
             setHeaderRef('');
@@ -118,6 +153,25 @@ export default function WorkshopJournalGrid({
 
     return (
         <form onSubmit={handlePost} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {editEntry?.id ? (
+                <div className="ws-tx-editing">
+                    <span>{t('tx.editing', { doc: editEntry.entryNumber || editEntry.id })}</span>
+                    <button
+                        type="button"
+                        style={outlineBtnStyle}
+                        onClick={() => {
+                            onCancelEdit?.();
+                            setRows([blankJournalRow(0), blankJournalRow(1)]);
+                            setJournalMemo('');
+                            setHeaderRef('');
+                            setOkMsg('');
+                            setErr('');
+                        }}
+                    >
+                        {t('tx.cancelEdit')}
+                    </button>
+                </div>
+            ) : null}
             <p style={{ margin: 0, fontSize: 12, color: '#64748B', lineHeight: 1.45 }}>
                 {t('tx.hint.journalPage')}
             </p>
@@ -290,7 +344,7 @@ export default function WorkshopJournalGrid({
                         <Plus size={14} /> {t('tx.addRow')}
                     </button>
                     <button type="submit" style={primaryBtnStyle} disabled={saving || !totals.canPost}>
-                        {saving ? t('tx.saving') : t('tx.postJe')}
+                        {saving ? t('tx.saving') : editEntry?.id ? t('tx.btn.updateJournal') : t('tx.postJe')}
                     </button>
                 </div>
             </div>

@@ -260,14 +260,13 @@
     border-bottom: none;
 }
 
-.staff-chat-member-picker__option:hover {
-    background: #f8fafc;
+.staff-chat-member-picker__option:hover:not(.is-active) {
+    background: #fff6d6;
 }
 
-.staff-chat-member-picker__option:hover,
 .staff-chat-member-picker__option.is-active {
-    background: #e0f2fe;
-    outline: 1px solid #38bdf8;
+    background: #fcc247;
+    outline: 1px solid #d4a017;
     outline-offset: -1px;
 }
 
