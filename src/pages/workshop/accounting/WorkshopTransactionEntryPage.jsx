@@ -29,7 +29,11 @@ const TABS = [
     { id: 'Journal Entry', icon: ArrowLeftRight, labelKey: 'tx.tab.journal' },
 ];
 
-export default function WorkshopTransactionEntryPage({ branches = [], locale: localeProp }) {
+export default function WorkshopTransactionEntryPage({
+    branches = [],
+    selectedBranchId = 'all',
+    locale: localeProp,
+}) {
     const { isAdminHqBooks } = useHqAdminBooksScope();
     const outletCtx = useOutletContext() || {};
     const locale =
@@ -189,6 +193,7 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                             accounts={coaPayableExpense}
                             payees={payees}
                             branches={branches}
+                            defaultBranchId={selectedBranchId}
                             isAdminHqBooks={isAdminHqBooks}
                             t={t}
                             onPosted={handlePosted}
@@ -211,6 +216,7 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                             accounts={coaReceivableRevenue}
                             payees={payees}
                             branches={branches}
+                            defaultBranchId={selectedBranchId}
                             isAdminHqBooks={isAdminHqBooks}
                             t={t}
                             onPosted={handlePosted}
@@ -230,6 +236,7 @@ export default function WorkshopTransactionEntryPage({ branches = [], locale: lo
                             key={editJournal?.id ? `je-edit-${editJournal.id}` : 'je-new'}
                             accounts={coaAll}
                             branches={branches}
+                            defaultBranchId={selectedBranchId}
                             isAdminHqBooks={isAdminHqBooks}
                             t={t}
                             onPosted={handlePosted}

@@ -2294,8 +2294,9 @@
 }
 .mc-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .mc-btn-large { flex: 1; padding: 12px; font-size: 0.9375rem; }
-.mc-btn-ghost { background: transparent; border: 1px solid var(--color-border); font-weight: 600; cursor: pointer; border-radius: 10px; }
+.mc-btn-ghost { background: #FFFFFF; border: 1px solid var(--color-border); color: #374151; font-weight: 600; cursor: pointer; border-radius: 10px; }
 .mc-btn-ghost:hover { background: #F9FAFB; }
+.mc-btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* Selection Layout */
 .mc-selection-layout { display: grid; grid-template-columns: 1fr 320px; gap: 24px; min-height: 500px; }

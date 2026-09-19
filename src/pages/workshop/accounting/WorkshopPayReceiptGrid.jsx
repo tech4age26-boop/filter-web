@@ -32,7 +32,7 @@ import {
     suggestPayeeAccountPatch,
     todayIsoDate,
 } from './workshopAccountingShared';
-import { accountComboLabel, cashAccountLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
+import { ALL_COMBO, accountComboLabel, cashAccountLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
 
 function payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment) {
     if (!editRow?.id) return null;
@@ -93,6 +93,7 @@ export default function WorkshopPayReceiptGrid({
     accounts = [],
     payees = { supplier: [], employee: [], customer: [] },
     branches = [],
+    defaultBranchId = '',
     isAdminHqBooks = false,
     t,
     onPosted,
@@ -109,7 +110,13 @@ export default function WorkshopPayReceiptGrid({
     const [headerRef, setHeaderRef] = useState(() => editRow?.reference || '');
     const [refAutoGenerate, setRefAutoGenerate] = useState(false);
     const [generalNote, setGeneralNote] = useState(() => editRow?.generalNote || '');
-    const [headerBranchId, setHeaderBranchId] = useState(() => (editRow?.branchId ? String(editRow.branchId) : ''));
+    const [headerBranchId, setHeaderBranchId] = useState(() => (
+        editRow?.branchId
+            ? String(editRow.branchId)
+            : defaultBranchId && defaultBranchId !== 'all'
+              ? String(defaultBranchId)
+              : ''
+    ));
     const [cashAccountId, setCashAccountId] = useState(() => (editRow?.cashBankAccountId ? String(editRow.cashBankAccountId) : ''));
     const [voucherPool, setVoucherPool] = useState([`${prefix}0001`]);
     const [rows, setRows] = useState(() => {
@@ -443,12 +450,12 @@ export default function WorkshopPayReceiptGrid({
                     <Field label={t('tx.branch')}>
                         <SupplierAccountingCombobox
                             className="acct-table-combobox acct-filter-combobox"
-                            value={headerBranchId}
-                            onChange={setHeaderBranchId}
+                            value={headerBranchId || ALL_COMBO}
+                            onChange={(id) => setHeaderBranchId(id === ALL_COMBO ? '' : String(id || ''))}
                             placeholder={t('tx.allBranches')}
                             entityLabel="branch"
                             options={[
-                                { id: '', label: t('tx.allBranches') },
+                                { id: ALL_COMBO, label: t('tx.allBranches'), searchText: t('tx.allBranches') },
                                 ...branches.map((b) => ({ id: String(b.id), label: b.name, searchText: b.name })),
                             ]}
                         />

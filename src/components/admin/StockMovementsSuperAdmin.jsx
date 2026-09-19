@@ -35,6 +35,12 @@ import {
     exportAdjustmentReportPdf,
 } from '../../utils/inventoryAdjustmentReportExport';
 import { smT } from '../../utils/stockMovementsI18n';
+import {
+    adjustInputMin,
+    isValidAdjustNewQty,
+    parseInventoryQty,
+    qtyEquals,
+} from '../../utils/inventoryAdjustQty';
 
 const GRID_LIMIT = 50;
 const MOVEMENT_LIMIT = 100;
@@ -1192,7 +1198,8 @@ export default function StockMovementsSuperAdmin() {
         setAdjustProduct(product);
         setAdjustReason('');
         setAdjustNote('');
-        setAdjustNewQty(String(product.currentQty ?? ''));
+        const current = parseInventoryQty(product.currentQty);
+        setAdjustNewQty(current != null && current >= 0 ? String(current) : '');
         setAdjustError('');
         setAdjustSaving(false);
     }, []);
@@ -1217,16 +1224,21 @@ export default function StockMovementsSuperAdmin() {
         const isOpening = reason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
         let newQtyNum;
         if (!isInfinite) {
-            newQtyNum = Number.parseFloat(String(adjustNewQty).trim().replace(/,/g, ''));
-            if (!Number.isFinite(newQtyNum) || newQtyNum < 0) {
+            newQtyNum = parseInventoryQty(adjustNewQty);
+            if (
+                !isValidAdjustNewQty(newQtyNum, {
+                    isOpening,
+                    allowMinus: Boolean(adjustProduct.allowMinusQty) && !isOpening,
+                })
+            ) {
                 setAdjustError(t('err.validQtyGte0'));
                 return;
             }
             newQtyNum = Math.round(newQtyNum);
             const baseline = isOpening
-                ? Number(adjustProduct.openingQty ?? adjustProduct.currentQty) || 0
-                : Number(adjustProduct.currentQty) || 0;
-            if (newQtyNum === baseline) {
+                ? parseInventoryQty(adjustProduct.openingQty ?? adjustProduct.currentQty) ?? 0
+                : parseInventoryQty(adjustProduct.currentQty) ?? 0;
+            if (qtyEquals(newQtyNum, baseline)) {
                 setAdjustError(t('err.qtyUnchanged'));
                 return;
             }
@@ -1240,7 +1252,13 @@ export default function StockMovementsSuperAdmin() {
             };
             if (!isInfinite) {
                 body.newQty = newQtyNum;
-                body.previousQty = Number(adjustProduct.currentQty) || 0;
+                if (isOpening) {
+                    const openingPrev = parseInventoryQty(adjustProduct.openingQty);
+                    if (openingPrev != null) body.previousQty = openingPrev;
+                } else {
+                    const onHandPrev = parseInventoryQty(adjustProduct.currentQty);
+                    if (onHandPrev != null) body.previousQty = onHandPrev;
+                }
             } else {
                 body.newQty = 0;
             }
@@ -1594,7 +1612,12 @@ export default function StockMovementsSuperAdmin() {
                                 adjustSaving ||
                                 !adjustReason.trim() ||
                                 (adjustReason !== INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY &&
-                                    (!Number.isFinite(Number(adjustNewQty)) || Number(adjustNewQty) < 0))
+                                    !isValidAdjustNewQty(parseInventoryQty(adjustNewQty), {
+                                        isOpening: adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+                                        allowMinus:
+                                            Boolean(adjustProduct.allowMinusQty) &&
+                                            adjustReason !== INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+                                    }))
                             }
                         >
                             {adjustSaving ? t('btn.saving') : t('btn.applyAdjustment')}
@@ -1609,6 +1632,9 @@ export default function StockMovementsSuperAdmin() {
                             qty: formatNum(adjustProduct.currentQty),
                             unit: displayCell(adjustProduct.unit),
                         })}
+                        {parseInventoryQty(adjustProduct.currentQty) < 0
+                            ? ` ${t('modal.adjustFromMinus')}`
+                            : ''}
                     </p>
                     <div className="form-group">
                         <label className="form-label">{t('modal.reason')}</label>
@@ -1640,7 +1666,13 @@ export default function StockMovementsSuperAdmin() {
                             <input
                                 type="number"
                                 className="form-input-field"
-                                min={0}
+                                min={adjustInputMin({
+                                    isOpening: adjustReason === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+                                    allowMinus:
+                                        Boolean(adjustProduct.allowMinusQty) &&
+                                        adjustReason !== INVENTORY_ADJUSTMENT_REASON_OPENING_QTY,
+                                    currentQty: adjustProduct.currentQty,
+                                })}
                                 step={1}
                                 value={adjustNewQty}
                                 onChange={(e) => setAdjustNewQty(e.target.value)}
