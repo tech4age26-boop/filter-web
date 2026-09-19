@@ -10,11 +10,13 @@ import {
 } from '../../supplier/accounting/SupplierAccountingShared';
 import SupplierAccountingCombobox from '../../supplier/accounting/SupplierAccountingCombobox';
 import { blankJournalRow, todayIsoDate } from './workshopAccountingShared';
-import { accountComboLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
+import { ALL_COMBO, accountComboLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
+import { ledgerRowDescriptionAndReference } from '../../../utils/accountLedgerStatementUtils';
 
 export default function WorkshopJournalGrid({
     accounts = [],
     branches = [],
+    defaultBranchId = '',
     isAdminHqBooks = false,
     t,
     onPosted,
@@ -23,7 +25,9 @@ export default function WorkshopJournalGrid({
 }) {
     const [headerDate, setHeaderDate] = useState(todayIsoDate());
     const [headerRef, setHeaderRef] = useState('');
-    const [headerBranchId, setHeaderBranchId] = useState('');
+    const [headerBranchId, setHeaderBranchId] = useState(
+        defaultBranchId && defaultBranchId !== 'all' ? String(defaultBranchId) : '',
+    );
     const [journalMemo, setJournalMemo] = useState('');
     const [rows, setRows] = useState(() => [blankJournalRow(0), blankJournalRow(1)]);
     const [saving, setSaving] = useState(false);
@@ -33,9 +37,10 @@ export default function WorkshopJournalGrid({
     useEffect(() => {
         if (!editEntry?.id) return;
         setHeaderDate(fmtDateYmd(editEntry.date) || todayIsoDate());
-        setHeaderRef('');
+        const parsed = ledgerRowDescriptionAndReference({ description: editEntry.description });
+        setHeaderRef(parsed.reference || '');
         setHeaderBranchId(editEntry.branchId ? String(editEntry.branchId) : '');
-        setJournalMemo(editEntry.description || '');
+        setJournalMemo(parsed.description && parsed.description !== '—' ? parsed.description : '');
         const lines = Array.isArray(editEntry.lines) && editEntry.lines.length
             ? editEntry.lines.map((l, i) => ({
                 id: `j-edit-${l.id || i}`,
@@ -109,13 +114,13 @@ export default function WorkshopJournalGrid({
             }));
             return;
         }
-        const memoBits = [headerRef.trim(), journalMemo.trim()].filter(Boolean);
         setSaving(true);
         try {
             const payload = {
                 date: headerDate,
                 ...(isAdminHqBooks ? {} : { branchId: headerBranchId || undefined }),
-                description: memoBits.join(' — ') || undefined,
+                description: journalMemo.trim() || undefined,
+                ...(headerRef.trim() ? { reference: headerRef.trim() } : {}),
                 lines: lines.map((l) => ({
                     accountId: l.accountId,
                     description: l.description || undefined,
@@ -211,12 +216,12 @@ export default function WorkshopJournalGrid({
                     <Field label={t('tx.branch')}>
                         <SupplierAccountingCombobox
                             className="acct-table-combobox acct-filter-combobox"
-                            value={headerBranchId}
-                            onChange={setHeaderBranchId}
+                            value={headerBranchId || ALL_COMBO}
+                            onChange={(id) => setHeaderBranchId(id === ALL_COMBO ? '' : String(id || ''))}
                             placeholder={t('tx.allBranches')}
                             entityLabel="branch"
                             options={[
-                                { id: '', label: t('tx.allBranches') },
+                                { id: ALL_COMBO, label: t('tx.allBranches'), searchText: t('tx.allBranches') },
                                 ...branches.map((b) => ({ id: String(b.id), label: b.name, searchText: b.name })),
                             ]}
                         />

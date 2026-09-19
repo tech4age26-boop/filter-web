@@ -4,7 +4,9 @@ export function normalizeEntitySearchText(value) {
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^\p{L}\p{N}\s@._+-]/gu, ' ')
+        // Treat dashes as word breaks so "nahdah" matches "Al-nahdah".
+        .replace(/[\u2010-\u2015\u2212]+/g, ' ')
+        .replace(/[^\p{L}\p{N}\s@._+]/gu, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }

@@ -21,6 +21,12 @@ import {
 } from '../../services/workshopInventoryApi';
 import { useAuth } from '../../context/AuthContext';
 import { wiT, wiReasonLabel } from '../../utils/workshopInventoryI18n';
+import {
+    adjustInputMin,
+    isValidAdjustNewQty,
+    parseInventoryQty,
+    qtyEquals,
+} from '../../utils/inventoryAdjustQty';
 import { catalogDisplayName } from '../../utils/catalogDisplayName';
 import { formatStockOnHandDisplay, formatUomRule, productEffectiveUom } from './workshopUomUtils';
 import {
@@ -202,7 +208,7 @@ function formatInventoryQty(value, isInfiniteQty = false) {
 
 function computeBulkAdjustmentRow(item, amount, reasonKind) {
     if (reasonKind === 'infinite') {
-        const prevCurrent = Number(item.qty) || 0;
+        const prevCurrent = parseInventoryQty(item.qty) ?? 0;
         return {
             id: String(item.id),
             name: item.name || '—',
@@ -219,14 +225,14 @@ function computeBulkAdjustmentRow(item, amount, reasonKind) {
         };
     }
     const isOpeningReason = reasonKind === 'opening';
-    const rawAmt = Math.round(Number(amount) || 0);
+    const rawAmt = Math.round(parseInventoryQty(amount) ?? 0);
     const amt = item.allowMinusQty && !isOpeningReason ? rawAmt : Math.max(0, rawAmt);
     if (isOpeningReason) {
         const prevOpening =
             item.openingQty != null && item.openingQty !== ''
                 ? Number(item.openingQty)
-                : Number(item.qty) || 0;
-        const prevCurrent = Number(item.qty) || 0;
+                : parseInventoryQty(item.qty) ?? 0;
+        const prevCurrent = parseInventoryQty(item.qty) ?? 0;
         return {
             id: String(item.id),
             name: item.name || '—',
@@ -241,7 +247,7 @@ function computeBulkAdjustmentRow(item, amount, reasonKind) {
             unchanged: prevOpening === amt && prevCurrent === amt,
         };
     }
-    const prevQty = Number(item.qty) || 0;
+    const prevQty = parseInventoryQty(item.qty) ?? 0;
     return {
         id: String(item.id),
         name: item.name || '—',
@@ -1401,7 +1407,8 @@ export default function WorkshopInventory({
         if (!hasPermission('workshop.inventory.manual-adjust')) return;
         const resolved = resolveEffectiveOpeningForItem(item);
         setAdjustItem(resolved);
-        setNewQty(resolved.qty != null ? String(resolved.qty) : '0');
+        const current = parseInventoryQty(resolved.qty);
+        setNewQty(current != null && current >= 0 ? String(current) : '');
         setAdjustReason('');
         setAdjustSubmitError('');
         setIsAdjustModalOpen(true);
@@ -1479,20 +1486,30 @@ export default function WorkshopInventory({
         const openingQtyAdjust = adjustReason.trim() === INVENTORY_ADJUSTMENT_REASON_OPENING_QTY;
         const infiniteQtyAdjust = adjustReason.trim() === INVENTORY_ADJUSTMENT_REASON_INFINITE_QTY;
         const prevQty = openingQtyAdjust
-            ? Number(adjustItem.openingQty ?? adjustItem.qty) || 0
+            ? parseInventoryQty(adjustItem.openingQty ?? adjustItem.qty) ?? 0
             : adjustItem.isInfiniteQty
-              ? Number(adjustItem.lastPhysicalQty) || 0
-              : Number(adjustItem.qty) || 0;
+              ? parseInventoryQty(adjustItem.lastPhysicalQty) ?? 0
+              : parseInventoryQty(adjustItem.qty) ?? 0;
 
         if (infiniteQtyAdjust && adjustItem.isInfiniteQty) return;
 
         let qtyNum = prevQty;
         if (!infiniteQtyAdjust) {
-            const parsed = Number.parseFloat(String(newQty).trim().replace(/,/g, ''));
+            const parsed = parseInventoryQty(newQty);
             const allowNegative = Boolean(adjustItem.allowMinusQty) && !openingQtyAdjust;
-            if (!Number.isFinite(parsed) || (parsed < 0 && !allowNegative)) return;
+            if (!isValidAdjustNewQty(parsed, { isOpening: openingQtyAdjust, allowMinus: allowNegative })) {
+                setAdjustSubmitError(
+                    openingQtyAdjust || !allowNegative
+                        ? t('err.adjustQtyGte0')
+                        : t('err.adjustQtyInvalid'),
+                );
+                return;
+            }
             qtyNum = Math.round(parsed);
-            if (!openingQtyAdjust && !infiniteQtyAdjust && !adjustItem.isInfiniteQty && qtyNum === prevQty) return;
+            if (!openingQtyAdjust && !infiniteQtyAdjust && !adjustItem.isInfiniteQty && qtyEquals(qtyNum, prevQty)) {
+                setAdjustSubmitError(t('err.adjustQtyUnchanged'));
+                return;
+            }
         }
 
         const pid = String(adjustItem.id);
@@ -1556,7 +1573,11 @@ export default function WorkshopInventory({
                               : d.qty_on_hand != null
                                 ? Number(d.qty_on_hand)
                                 : nextOpening
-                          : serverEntry.newQty;
+                          : d.qtyOnHand != null
+                            ? Number(d.qtyOnHand)
+                            : d.qty_on_hand != null
+                              ? Number(d.qty_on_hand)
+                              : serverEntry.newQty;
 
                 setProductRows((prev) =>
                     prev.map((p) => {
@@ -2459,7 +2480,9 @@ export default function WorkshopInventory({
                                                     ) : (
                                                         <>
                                                             <span dangerouslySetInnerHTML={{ __html: t('adjust.helpStock') }} />
-                                                            {adjustItem?.allowMinusQty
+                                                            {parseInventoryQty(adjustItem?.qty) < 0
+                                                                ? t('adjust.helpFromMinus')
+                                                                : adjustItem?.allowMinusQty
                                                                 ? t('adjust.helpAllowMinus')
                                                                 : t('adjust.helpMustGe0')}
                                                         </>
@@ -2505,7 +2528,11 @@ export default function WorkshopInventory({
                                                         className="mc-filter-select"
                                                         style={{ width: '100%', height: '45px' }}
                                                         placeholder={isAdjustOpeningQty ? t('adjust.placeholderOpening') : t('adjust.placeholderStock')}
-                                                        min={0}
+                                                        min={adjustInputMin({
+                                                            isOpening: isAdjustOpeningQty,
+                                                            allowMinus: Boolean(adjustItem?.allowMinusQty) && !isAdjustOpeningQty,
+                                                            currentQty: adjustItem?.qty,
+                                                        })}
                                                         step={1}
                                                         value={newQty}
                                                         onChange={(e) => setNewQty(e.target.value)}
@@ -2521,26 +2548,33 @@ export default function WorkshopInventory({
                                                 )}
 
                                                 <div style={{ display: 'flex', gap: '12px' }}>
-                                                    <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px' }} onClick={closeAdjustModal} disabled={adjustSaving}>
+                                                    <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: '12px', justifyContent: 'center' }} onClick={closeAdjustModal} disabled={adjustSaving}>
                                                         {t('btn.cancel')}
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        className="mc-btn-primary"
-                                                        style={{ flex: 2, padding: '12px', background: '#4B5563', borderColor: '#4B5563' }}
+                                                        className="mc-btn-ghost"
+                                                        style={{ flex: 1, padding: '12px', justifyContent: 'center' }}
                                                         onClick={handleAdjustSubmit}
                                                         disabled={(() => {
                                                             if (adjustSaving || !adjustItem || !adjustReason.trim()) return true;
                                                             if (isAdjustInfiniteQty) {
                                                                 return Boolean(adjustItem.isInfiniteQty);
                                                             }
-                                                            const parsed = Number.parseFloat(String(newQty).trim().replace(/,/g, ''));
-                                                            if (!Number.isFinite(parsed) || parsed < 0) return true;
+                                                            const parsed = parseInventoryQty(newQty);
+                                                            if (
+                                                                !isValidAdjustNewQty(parsed, {
+                                                                    isOpening: isAdjustOpeningQty,
+                                                                    allowMinus: Boolean(adjustItem.allowMinusQty) && !isAdjustOpeningQty,
+                                                                })
+                                                            ) {
+                                                                return true;
+                                                            }
                                                             if (adjustItem.isInfiniteQty) return false;
                                                             const baseline = isAdjustOpeningQty
-                                                                ? Number(adjustItem.openingQty ?? adjustItem.qty) || 0
-                                                                : Number(adjustItem.qty) || 0;
-                                                            return Math.round(parsed) === baseline;
+                                                                ? parseInventoryQty(adjustItem.openingQty ?? adjustItem.qty) ?? 0
+                                                                : parseInventoryQty(adjustItem.qty) ?? 0;
+                                                            return qtyEquals(Math.round(parsed), baseline);
                                                         })()}
                                                     >
                                                         {adjustSaving ? t('btn.saving') : t('btn.applyAdjustment')}
