@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Eye, FileDown, FileSpreadsheet, FileText, Pencil, Printer, RotateCcw, Trash2 } from 'lucide-react';
+import { Ban, Eye, FileDown, FileSpreadsheet, FileText, Pencil, Printer, RotateCcw, Trash2 } from 'lucide-react';
 import {
     listPayments as listAcctPayments,
     listReceipts as listAcctReceipts,
@@ -13,6 +13,9 @@ import {
     unvoidPayment as unvoidAcctPayment,
     unvoidReceipt as unvoidAcctReceipt,
     unvoidJournalEntry as unvoidAcctJournal,
+    deletePayment as deleteAcctPayment,
+    deleteReceipt as deleteAcctReceipt,
+    deleteJournalEntry as deleteAcctJournal,
 } from '../../../services/workshopAccountingApi';
 import {
     journalFromPayReceipt,
@@ -217,6 +220,24 @@ export default function WorkshopTransactionLogPanel({
         }
     };
 
+    const handleDelete = async (row) => {
+        const doc = isJournal ? (row.entryNumber || row.id) : (row.voucherNumber || row.id);
+        if (!window.confirm(t('tx.log.deleteConfirm', { doc }))) return;
+        setBusyId(String(row.id));
+        setErr('');
+        try {
+            if (isJournal) await deleteAcctJournal(row.id);
+            else if (tab === 'payments') await deleteAcctPayment(row.id);
+            else await deleteAcctReceipt(row.id);
+            await load();
+            onChanged?.();
+        } catch (e) {
+            setErr(e?.message || t('tx.log.deleteErr'));
+        } finally {
+            setBusyId('');
+        }
+    };
+
     const handleEdit = (row) => {
         if (isVoidRow(row) || busyId) return;
         onEdit?.(row, tab);
@@ -282,9 +303,18 @@ export default function WorkshopTransactionLogPanel({
                         disabled={busy || periodClose}
                         onClick={() => handleVoid(row)}
                     >
-                        <Trash2 size={14} />
+                        <Ban size={14} />
                     </button>
                 )}
+                <button
+                    type="button"
+                    className="ws-tx-act ws-tx-act--danger"
+                    title={t('tx.log.act.delete')}
+                    disabled={busy || periodClose}
+                    onClick={() => handleDelete(row)}
+                >
+                    <Trash2 size={14} />
+                </button>
                 <button
                     type="button"
                     className="ws-tx-act"
