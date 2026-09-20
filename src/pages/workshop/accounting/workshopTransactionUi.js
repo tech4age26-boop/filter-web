@@ -198,7 +198,7 @@ export const MONEY_LOG_CSS = `
     flex-wrap: nowrap;
     align-items: center;
     gap: 4px;
-    min-width: 168px;
+    min-width: 208px;
 }
 .ws-tx-act {
     width: 32px;
