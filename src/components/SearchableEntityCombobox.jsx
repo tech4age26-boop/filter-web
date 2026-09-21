@@ -43,8 +43,7 @@ export default function SearchableEntityCombobox({
     const blurTimerRef = useRef(null);
 
     const selectedLabel = useMemo(() => {
-        if (value == null || value === '') return '';
-        const o = options.find((x) => String(x.id) === String(value));
+        const o = options.find((x) => String(x.id ?? '') === String(value ?? ''));
         return o?.label || '';
     }, [options, value]);
 
@@ -145,7 +144,7 @@ export default function SearchableEntityCombobox({
 
     const pick = useCallback(
         (opt, advance) => {
-            if (!opt?.id) return;
+            if (opt == null || opt.id == null) return;
             onSelect?.(opt);
             setOpen(false);
             setHighlightIdx(0);

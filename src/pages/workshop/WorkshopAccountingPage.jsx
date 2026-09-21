@@ -70,7 +70,11 @@ export default function WorkshopAccountingPage({
                 <WorkshopPaymentsLog branches={branches} selectedBranchId={selectedBranchId} locale={locale} />
             )}
             {activeSub === 'transactions' && (
-                <WorkshopTransactionEntryPage branches={branches} locale={locale} />
+                <WorkshopTransactionEntryPage
+                    branches={branches}
+                    selectedBranchId={selectedBranchId}
+                    locale={locale}
+                />
             )}
             {activeSub === 'journal-entries' && <WorkshopGeneralJournalPage locale={locale} />}
             {activeSub === 'expenses' && (

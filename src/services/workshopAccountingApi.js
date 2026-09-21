@@ -95,6 +95,11 @@ export const unvoidPayment = (id) =>
         method: 'POST',
     });
 
+export const deletePayment = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/payments/${encodeURIComponent(id)}`, {}), {
+        method: 'DELETE',
+    });
+
 export const listReceipts = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/receipts', params));
 
@@ -133,6 +138,11 @@ export const unvoidReceipt = (id) =>
         method: 'POST',
     });
 
+export const deleteReceipt = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/receipts/${encodeURIComponent(id)}`, {}), {
+        method: 'DELETE',
+    });
+
 export const listJournalEntries = (params = {}) =>
     apiFetch(withQuery('/workshop-accounting/journal-entries', params));
 
@@ -153,6 +163,11 @@ export const voidJournalEntry = (id) =>
 export const unvoidJournalEntry = (id) =>
     apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}/unvoid`, {}), {
         method: 'POST',
+    });
+
+export const deleteJournalEntry = (id) =>
+    apiFetch(withQuery(`/workshop-accounting/journal-entries/${encodeURIComponent(id)}`, {}), {
+        method: 'DELETE',
     });
 
 /** VAT Calculation — output (2100) vs input (1310), net ZATCA payable. */
