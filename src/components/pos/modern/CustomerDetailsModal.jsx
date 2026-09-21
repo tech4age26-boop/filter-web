@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { User, Phone, Mail, Car, X, Check, Hash, Activity, ShieldCheck } from 'lucide-react';
+import { User, Phone, Mail, Car, X, Check, Hash, Activity, ShieldCheck, Ticket } from 'lucide-react';
+import { getStoredReferralCode } from '../../../utils/referralCodeCapture';
 
 const buildFormData = (initialData = {}, vehicleInfo = {}) => ({
     name: initialData.name || '',
@@ -13,6 +14,7 @@ const buildFormData = (initialData = {}, vehicleInfo = {}) => ({
     make: initialData.make || vehicleInfo.make || '',
     model: initialData.model || vehicleInfo.model || '',
     year: initialData.year || vehicleInfo.year || '',
+    referralCode: initialData.referralCode || getStoredReferralCode() || '',
     color: initialData.color || vehicleInfo.color || '',
 });
 
@@ -102,6 +104,19 @@ export default function CustomerDetailsModal({ isOpen, onClose, onSave, initialD
                                         onChange={(e) => setFormData({...formData, vatNumber: e.target.value})}
                                     />
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="input-group-minimal">
+                            <label>Referral Code (optional)</label>
+                            <div className="input-wrapper-minimal">
+                                <Ticket size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="e.g. TAHA-218U"
+                                    value={formData.referralCode}
+                                    onChange={(e) => setFormData({ ...formData, referralCode: e.target.value })}
+                                />
                             </div>
                         </div>
 

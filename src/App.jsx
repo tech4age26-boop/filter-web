@@ -41,6 +41,7 @@ const ReportingPage = lazyWithRetry(() => import('./pages/admin/ReportingPage'))
 import PortalLoginPage from './pages/PortalLoginPage';
 import PortalSignupPage from './pages/PortalSignupPage';
 import PortalHubPage from './pages/PortalHubPage';
+import PublicReferralLandingPage from './pages/PublicReferralLandingPage';
 
 import MarketingLayout from './pages/MarketingLayout';
 import { MarketingDashboard } from './pages/marketing/MarketingDashboard';
@@ -78,6 +79,7 @@ import InfluencerReferrerFormPage from './pages/marketing/InfluencerReferrerForm
 import AdPlatformConfigurePage from './pages/marketing/AdPlatformConfigurePage';
 import ReferrerFormPage from './pages/marketing/ReferrerFormPage';
 import ReferrerCommissionRuleFormPage from './pages/marketing/ReferrerCommissionRuleFormPage';
+import ReferrerBenefitRuleFormPage from './pages/marketing/ReferrerBenefitRuleFormPage';
 import ReferrerPayoutFormPage from './pages/marketing/ReferrerPayoutFormPage';
 
 const WorkshopLayout = lazyWithRetry(() => import('./pages/WorkshopLayout'));
@@ -101,12 +103,12 @@ import LockerLayout from './pages/LockerLayout';
 import POSLayout from './pages/POSLayout';
 import ReferrerLayout from './pages/ReferrerLayout';
 import ReferrerDashboard from './pages/referrer-portal/ReferrerDashboard';
-import AddReferral from './pages/referrer-portal/AddReferral';
 import MyReferrals from './pages/referrer-portal/MyReferrals';
 import ReferrerWallet from './pages/referrer-portal/ReferrerWallet';
 import ReferrerReports from './pages/referrer-portal/ReferrerReports';
 import ReferrerNotifications from './pages/referrer-portal/ReferrerNotifications';
 import ReferrerSettings from './pages/referrer-portal/ReferrerSettings';
+import ReferrerReferralDetail from './pages/referrer-portal/ReferrerReferralDetail';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
 import IdleSessionWatcher from './components/IdleSessionWatcher';
@@ -164,6 +166,7 @@ function App() {
               <AppErrorBoundaryWithRouter>
               <Routes>
             <Route path="/" element={<PortalHubPage />} />
+            <Route path="/r/:code" element={<PublicReferralLandingPage />} />
 
             <Route path="/verify/wpi/:id" element={<PublicWpiVerifyPage />} />
             <Route path="/verify/sinv/:id" element={<PublicSinvVerifyPage />} />
@@ -251,6 +254,7 @@ function App() {
                 <Route path="referrer-management/referrers/new" element={<ReferrerFormPage />} />
                 <Route path="referrer-management/referrers/:id/edit" element={<ReferrerFormPage />} />
                 <Route path="referrer-management/rules/new" element={<ReferrerCommissionRuleFormPage />} />
+                <Route path="referrer-management/benefit-rules/new" element={<ReferrerBenefitRuleFormPage />} />
                 <Route path="referrer-management/payouts/new" element={<ReferrerPayoutFormPage />} />
                 <Route path="referrer-management" element={<ReferrerManagement />} />
                 <Route path="my-wallet" element={<MyWalletPage />} />
@@ -392,6 +396,7 @@ function App() {
               <Route path="referrer-management/referrers/new" element={<ReferrerFormPage />} />
               <Route path="referrer-management/referrers/:id/edit" element={<ReferrerFormPage />} />
               <Route path="referrer-management/rules/new" element={<ReferrerCommissionRuleFormPage />} />
+              <Route path="referrer-management/benefit-rules/new" element={<ReferrerBenefitRuleFormPage />} />
               <Route path="referrer-management/payouts/new" element={<ReferrerPayoutFormPage />} />
               <Route path="referrer-management" element={<ReferrerManagement />} />
               <Route path="my-wallet" element={<MyWalletPage />} />
@@ -489,10 +494,19 @@ function App() {
               }
             />
 
-            <Route path="/referrer-portal" element={<ReferrerLayout />}>
+            <Route path="/referrer-portal/login" element={<PortalLoginPage />} />
+            <Route
+              path="/referrer-portal"
+              element={
+                <ProtectedRoute requiredType="referrer_user">
+                  <ReferrerLayout />
+                </ProtectedRoute>
+              }
+            >
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<ReferrerDashboard />} />
-              <Route path="add_referral" element={<AddReferral />} />
+              <Route path="add_referral" element={<Navigate to="my_referrals" replace />} />
+              <Route path="my_referrals/:id" element={<ReferrerReferralDetail />} />
               <Route path="my_referrals" element={<MyReferrals />} />
               <Route path="wallet" element={<ReferrerWallet />} />
               <Route path="reports" element={<ReferrerReports />} />

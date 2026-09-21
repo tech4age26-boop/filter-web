@@ -374,7 +374,8 @@ export function defaultHomePathForUser(user) {
     if (t === 'technician_user') return '/technician';
     if (t === 'cashier_user') return '/pos';
     if (t === 'marketing_user') return '/marketing/dashboard';
-    if (t === 'referrer_user' || t === 'referral_user') return '/referrer-portal';
+    if (t === 'referrer_user') return '/referrer-portal';
+    if (t === 'referral_user') return '/referral-management';
     return '/';
 }
 

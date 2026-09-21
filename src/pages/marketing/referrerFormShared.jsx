@@ -7,6 +7,8 @@ export const initialReferrerForm = {
   password: '',
   nationalId: '',
   status: 'Active',
+  referralCode: '',
+  isCommunity: false,
   bankName: '',
   iban: '',
   notes: '',
@@ -38,6 +40,8 @@ export function normalizeStatus(value) {
 }
 
 export function buildReferrerPayload(form) {
+  const community = Boolean(form.isCommunity);
+  const code = String(form.referralCode || '').trim().toUpperCase();
   return {
     name: form.fullName.trim(),
     fullName: form.fullName.trim(),
@@ -45,10 +49,18 @@ export function buildReferrerPayload(form) {
     type: form.category,
     mobile: form.mobile.trim() || undefined,
     phone: form.mobile.trim() || undefined,
-    email: form.email.trim() || undefined,
+    email: form.email.trim().toLowerCase() || undefined,
     nationalId: form.nationalId.trim() || undefined,
-    bankName: form.bankName.trim() || undefined,
-    iban: form.iban.trim() || undefined,
+    national_id: form.nationalId.trim() || undefined,
+    referralCode: code || undefined,
+    referral_code: code || undefined,
+    code: code || undefined,
+    isCommunity: community,
+    is_community: community,
+    bankName: community ? undefined : form.bankName.trim() || undefined,
+    bank_name: community ? undefined : form.bankName.trim() || undefined,
+    iban: community ? undefined : form.iban.trim() || undefined,
+    bankIban: community ? undefined : form.iban.trim() || undefined,
     status: normalizeStatus(form.status),
     notes: form.notes.trim() || undefined,
   };
@@ -61,6 +73,7 @@ export const InputField = ({
   placeholder = '',
   type = 'text',
   required = false,
+  hint = '',
 }) => (
   <div className="mk-ref-form-group">
     <label className="mk-ref-form-label">
@@ -73,7 +86,9 @@ export const InputField = ({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       className="mk-ref-input"
+      autoComplete={type === 'password' ? 'new-password' : undefined}
     />
+    {hint ? <span className="mk-ref-check-hint">{hint}</span> : null}
   </div>
 );
 

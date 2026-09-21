@@ -1,99 +1,137 @@
-import React from 'react';
-import { DollarSign, UserCheck, CreditCard, Bell } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Bell, CreditCard, DollarSign, UserPlus, Inbox } from 'lucide-react';
+import { rfT } from '../../utils/referrerPortalI18n';
+import { useReferrerPortal } from './useReferrerPortal';
+import { referrerPortalGetNotifications, referrerPortalMarkNotificationsRead } from '../../services/referrerPortalApi';
 
-const NOTIFICATIONS = [
-    { 
-        id: 1, 
-        type: 'commission', 
-        title: 'Commission Earned', 
-        text: 'You earned SAR 5,000 from Ahmed Hassan\'s franchise referral.', 
-        date: '2026-03-20', 
-        unread: true, 
-        icon: DollarSign, 
-        color: '#10b981' 
-    },
-    { 
-        id: 2, 
-        type: 'conversion', 
-        title: 'Referral Converted', 
-        text: 'Your referral for Khalid Ibrahim has been converted!', 
-        date: '2026-03-18', 
-        unread: true, 
-        icon: UserCheck, 
-        color: '#3b82f6' 
-    },
-    { 
-        id: 3, 
-        type: 'payout', 
-        title: 'Payout Approved', 
-        text: 'Your payout request of SAR 10,000 has been approved.', 
-        date: '2026-03-01', 
-        unread: false, 
-        icon: CreditCard, 
-        color: '#8b5cf6' 
-    },
-    { 
-        id: 4, 
-        type: 'commission', 
-        title: 'Commission Earned', 
-        text: 'You earned SAR 3,200 from Omar Mansour\'s corporate referral.', 
-        date: '2026-03-10', 
-        unread: false, 
-        icon: DollarSign, 
-        color: '#10b981' 
-    },
-];
+const ICONS = {
+    commission: DollarSign,
+    conversion: UserPlus,
+    payout: CreditCard,
+    payoutPending: CreditCard,
+    lead: UserPlus,
+};
+
+function typeClass(type) {
+    if (type === 'commission') return 'is-gold';
+    if (type === 'conversion') return 'is-green';
+    if (type === 'payout') return 'is-green';
+    if (type === 'payoutPending') return 'is-amber';
+    return 'is-slate';
+}
+
+function dayLabel(locale, date) {
+    const d = new Date(date);
+    const today = new Date();
+    const yday = new Date();
+    yday.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return rfT(locale, 'notif.today');
+    if (d.toDateString() === yday.toDateString()) return rfT(locale, 'notif.yesterday');
+    return d.toLocaleDateString(locale === 'ar' ? 'ar-SA' : undefined, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+    });
+}
 
 export default function ReferrerNotifications() {
-    return (
-        <div className="rf-content">
-            <header className="rf-header">
-                <div className="rf-welcome">
-                    <h1>Notifications</h1>
-                    <p>Stay updated with your latest activities.</p>
-                </div>
-            </header>
+    const { locale, reloadOverview, isCommunity } = useReferrerPortal();
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [marking, setMarking] = useState(false);
 
-            <div className="rf-notif-list" style={{ maxWidth: '800px' }}>
-                {NOTIFICATIONS.map((notif) => (
-                    <div 
-                        key={notif.id} 
-                        className="rf-card rf-notif-item" 
-                        style={{ 
-                            display: 'flex', 
-                            gap: '1.25rem', 
-                            padding: '1.5rem', 
-                            marginBottom: '1rem',
-                            borderLeft: notif.unread ? `4px solid ${notif.color}` : '1px solid var(--color-border-light)',
-                            background: notif.unread ? `${notif.color}05` : '#fff'
-                        }}
-                    >
-                        <div 
-                            style={{ 
-                                width: '48px', 
-                                height: '48px', 
-                                borderRadius: '12px', 
-                                background: `${notif.color}15`, 
-                                color: notif.color,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0
-                            }}
-                        >
-                            <notif.icon size={22} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                <h4 className="rf-notif-title" style={{ margin: 0, fontSize: '1rem' }}>{notif.title}</h4>
-                                {notif.unread && <div style={{ marginLeft: 'auto', width: '8px', height: '8px', borderRadius: '50%', background: notif.color }} />}
-                            </div>
-                            <p className="rf-notif-text" style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>{notif.text}</p>
-                            <p className="rf-notif-date" style={{ margin: 0 }}>{notif.date}</p>
-                        </div>
+    const load = () => {
+        setLoading(true);
+        return referrerPortalGetNotifications()
+            .then((res) => setItems(Array.isArray(res?.notifications) ? res.notifications : []))
+            .catch(() => setItems([]))
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        load();
+    }, []);
+
+    const unreadCount = items.filter((n) => n.unread).length;
+
+    const markRead = async () => {
+        setMarking(true);
+        try {
+            await referrerPortalMarkNotificationsRead();
+            await load();
+            await reloadOverview?.();
+        } finally {
+            setMarking(false);
+        }
+    };
+
+    const groups = useMemo(() => {
+        const map = new Map();
+        for (const item of items) {
+            const key = dayLabel(locale, item.createdAt);
+            if (!map.has(key)) map.set(key, []);
+            map.get(key).push(item);
+        }
+        return [...map.entries()];
+    }, [items, locale]);
+
+    return (
+        <div className="rf-page">
+            <div className="rf-notif-head">
+                <div>
+                    <p className="rf-page-lead" style={{ margin: 0 }}>{rfT(locale, isCommunity ? 'notif.subtitleCommunity' : 'notif.subtitle')}</p>
+                </div>
+                <div className="rf-actions-bar">
+                    {unreadCount > 0 ? (
+                        <button type="button" className="rf-btn-outline" onClick={markRead} disabled={marking}>
+                            {marking ? rfT(locale, 'list.loading') : rfT(locale, 'notif.markRead')}
+                        </button>
+                    ) : null}
+                    <div className="rf-notif-count">
+                        <Bell size={16} />
+                        {unreadCount || items.length}
                     </div>
-                ))}
+                </div>
             </div>
+
+            {loading ? <div className="rf-card rf-empty">{rfT(locale, 'list.loading')}</div> : null}
+
+            {!loading && items.length === 0 ? (
+                <div className="rf-card rf-empty rf-notif-empty">
+                    <Inbox size={36} />
+                    <h3>{rfT(locale, 'notif.empty')}</h3>
+                    <p>{rfT(locale, 'notif.emptyHint')}</p>
+                </div>
+            ) : null}
+
+            {groups.map(([day, rows]) => (
+                <section key={day} className="rf-notif-group">
+                    <h4 className="rf-notif-day">{day}</h4>
+                    <div className="rf-notif-list">
+                        {rows.map((notif) => {
+                            const Icon = ICONS[notif.type] || Bell;
+                            return (
+                                <article key={notif.id} className={`rf-card rf-notif-row ${typeClass(notif.type)} ${notif.unread ? 'is-unread' : ''}`}>
+                                    <div className={`rf-notif-icon ${typeClass(notif.type)}`}>
+                                        <Icon size={18} />
+                                    </div>
+                                    <div className="rf-notif-body">
+                                        <div className="rf-notif-top">
+                                            <h4 className="rf-notif-title">{rfT(locale, notif.titleKey)}</h4>
+                                            <time className="rf-notif-time">
+                                                {notif.createdAt
+                                                    ? new Date(notif.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                                    : ''}
+                                            </time>
+                                        </div>
+                                        <p className="rf-notif-text">{rfT(locale, notif.textKey, notif.vars)}</p>
+                                    </div>
+                                </article>
+                            );
+                        })}
+                    </div>
+                </section>
+            ))}
         </div>
     );
 }

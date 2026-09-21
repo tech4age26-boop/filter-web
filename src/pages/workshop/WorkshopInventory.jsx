@@ -776,6 +776,7 @@ function mapApiRowToInventory(row) {
         arabicName: pickArabicName(master, row),
         brand: master?.brand || '',
         sku: master?.sku || row?.sku || '',
+        barcode: String(master?.barcode || row?.barcode || '').trim(),
         departmentName:
             master?.departmentName ||
             master?.department_name ||
@@ -3521,6 +3522,11 @@ export default function WorkshopInventory({
                                                             >
                                                                 {displayName(item)}
                                                             </span>
+                                                            {item.barcode ? (
+                                                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                                                                    {t('label.barcode')}: {item.barcode}
+                                                                </span>
+                                                            ) : null}
                                                             {item.brand && (
                                                                 <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>{item.brand}</span>
                                                             )}

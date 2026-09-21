@@ -75,8 +75,10 @@ export default function ReferrerFormPage() {
             password: '',
             nationalId: item.nationalId || item.national_id || '',
             status: matchedStatus,
+            referralCode: item.referralCode || item.referral_code || item.code || '',
+            isCommunity: Boolean(item.isCommunity ?? item.is_community),
             bankName: item.bankName || item.bank_name || '',
-            iban: item.iban || '',
+            iban: item.iban || item.bankIban || item.bank_iban || '',
             notes: item.notes || '',
           });
         }
@@ -97,6 +99,10 @@ export default function ReferrerFormPage() {
       alert(t('err.nameRequired'));
       return;
     }
+    if (isEdit && !String(form.referralCode || '').trim()) {
+      alert(t('err.codeRequired'));
+      return;
+    }
 
     // Every new referrer gets a portal login, so the account also shows up under
     // Super Admin → Permissions → Users. Without one the referrer would exist in
@@ -110,6 +116,9 @@ export default function ReferrerFormPage() {
         alert(t('err.passwordRequired'));
         return;
       }
+    } else if (form.password.trim() && form.password.trim().length < 6) {
+      alert(t('err.passwordMin'));
+      return;
     }
 
     try {
@@ -117,6 +126,9 @@ export default function ReferrerFormPage() {
       const payload = buildReferrerPayload(form);
 
       if (isEdit) {
+        if (form.password.trim()) {
+          payload.portalPassword = form.password.trim();
+        }
         await marketingUpdateReferrer(form.id, payload);
         goBack();
       } else {
@@ -191,16 +203,15 @@ export default function ReferrerFormPage() {
               placeholder="email@example.com"
               required={!isEdit}
             />
-            {!isEdit && (
-              <InputField
-                label={t('form.portalPassword')}
-                type="password"
-                value={form.password}
-                onChange={(value) => setForm((prev) => ({ ...prev, password: value }))}
-                placeholder={t('form.portalPasswordPh')}
-                required
-              />
-            )}
+            <InputField
+              label={isEdit ? t('form.portalPasswordEdit') : t('form.portalPassword')}
+              type="password"
+              value={form.password}
+              onChange={(value) => setForm((prev) => ({ ...prev, password: value }))}
+              placeholder={isEdit ? t('form.portalPasswordEditPh') : t('form.portalPasswordPh')}
+              required={!isEdit}
+              hint={isEdit ? t('form.portalPasswordEditHint') : ''}
+            />
             <InputField
               label={t('form.nationalId')}
               value={form.nationalId}
@@ -216,16 +227,44 @@ export default function ReferrerFormPage() {
               }))}
             />
             <InputField
-              label={t('form.bankName')}
-              value={form.bankName}
-              onChange={(value) => setForm((prev) => ({ ...prev, bankName: value }))}
+              label={t('form.referralCode')}
+              value={form.referralCode}
+              onChange={(value) =>
+                setForm((prev) => ({ ...prev, referralCode: value.toUpperCase() }))
+              }
+              placeholder={isEdit ? t('form.referralCodeEditPh') : t('form.referralCodePh')}
+              required={isEdit}
             />
-            <InputField
-              label={t('form.iban')}
-              value={form.iban}
-              onChange={(value) => setForm((prev) => ({ ...prev, iban: value }))}
-              placeholder={t('form.ibanPh')}
-            />
+            <div className="mk-ref-form-group mk-ref-form-group-full">
+              <label className="mk-ref-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.isCommunity)}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, isCommunity: e.target.checked }))
+                  }
+                />
+                <span>
+                  <strong>{t('form.community')}</strong>
+                  <span className="mk-ref-check-hint">{t('form.communityHint')}</span>
+                </span>
+              </label>
+            </div>
+            {!form.isCommunity ? (
+              <>
+                <InputField
+                  label={t('form.bankName')}
+                  value={form.bankName}
+                  onChange={(value) => setForm((prev) => ({ ...prev, bankName: value }))}
+                />
+                <InputField
+                  label={t('form.iban')}
+                  value={form.iban}
+                  onChange={(value) => setForm((prev) => ({ ...prev, iban: value }))}
+                  placeholder={t('form.ibanPh')}
+                />
+              </>
+            ) : null}
             <TextAreaField
               label={t('form.notes')}
               value={form.notes}
