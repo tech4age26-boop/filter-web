@@ -27,6 +27,8 @@ export default function SearchableEntityCombobox({
     entityLabel = 'item',
     className = '',
     loading = false,
+    loadingHint = 'Loading…',
+    filterLocally = true,
     menuMinWidth = 280,
     portalClassName = '',
 }) {
@@ -56,13 +58,19 @@ export default function SearchableEntityCombobox({
     }, [displayText, selectedLabel]);
 
     const filtered = useMemo(
-        () => filterSearchOptions(options, searchQuery, { maxInitial, maxFiltered }),
-        [options, searchQuery, maxInitial, maxFiltered],
+        () =>
+            filterLocally
+                ? filterSearchOptions(options, searchQuery, { maxInitial, maxFiltered })
+                : options,
+        [options, searchQuery, maxInitial, maxFiltered, filterLocally],
     );
 
     const totalMatches = useMemo(
-        () => countSearchMatches(options, searchQuery),
-        [options, searchQuery],
+        () =>
+            filterLocally
+                ? countSearchMatches(options, searchQuery)
+                : options.length,
+        [options, searchQuery, filterLocally],
     );
 
     const updateMenuPosition = useCallback(() => {
@@ -199,10 +207,12 @@ export default function SearchableEntityCombobox({
     const showValue = open ? displayText : displayText || selectedLabel;
 
     const emptyMessage = loading
-        ? 'Loading employees…'
-        : options.length === 0
-          ? `No ${entityLabel}s loaded for this workshop`
-          : emptyHint || 'No matches — try another search';
+        ? loadingHint
+        : emptyHint
+          ? emptyHint
+          : options.length === 0
+            ? `No ${entityLabel}s loaded for this workshop`
+            : 'No matches — try another search';
 
     const menu =
         open && menuStyle

@@ -77,6 +77,7 @@ const WI_I18N = {
 
         'th.name': 'Name',
         'th.sku': 'SKU',
+        'label.barcode': 'Barcode',
         'th.department': 'Department',
         'th.category': 'Category',
         'th.opening': 'Opening (adoption)',
@@ -398,6 +399,7 @@ const WI_I18N = {
 
         'th.name': 'الاسم',
         'th.sku': 'رمز SKU',
+        'label.barcode': 'الباركود',
         'th.department': 'القسم',
         'th.category': 'التصنيف',
         'th.opening': 'الافتتاحي (التبنّي)',
