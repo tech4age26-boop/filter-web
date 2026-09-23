@@ -450,6 +450,15 @@ export function PaymentReceiptGrid({
         const current = (accounts || []).find((a) => String(a.id) === String(cashAccountId));
         return current ? [current, ...cashOptions] : cashOptions;
     }, [cashOptions, cashAccountId, accounts]);
+    const cashComboOptions = useMemo(
+        () =>
+            cashPickerOptions.map((account) => ({
+                id: String(account.id),
+                label: cashAccountLabel(account, locale),
+                searchText: `${account.code} ${account.name}`,
+            })),
+        [cashPickerOptions, locale],
+    );
     const [lines, setLines] = useState(() => prefillSeed.lines);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
@@ -729,11 +738,7 @@ export function PaymentReceiptGrid({
                         placeholder={tr('select.dash')}
                         entityLabel="account"
                         required
-                        options={cashPickerOptions.map((a) => ({)
-                            id: String(a.id),
-                            label: cashAccountLabel(a, locale),
-                            searchText: `${a.code} ${a.name}`,
-                        }))}
+                        options={cashComboOptions}
                     />
                 </Field>
             </div>
