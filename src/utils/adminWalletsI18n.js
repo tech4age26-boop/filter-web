@@ -232,6 +232,12 @@ const AW_I18N = {
         'proof.alt': 'Expense proof',
         'proof.title': 'Expense proof',
         'proof.altFull': 'Expense proof full size',
+        'proof.pickTitle': 'Attach receipt or proof photo',
+        'proof.pickHint': 'Camera or gallery — photo auto-resized',
+        'proof.camera': 'Camera',
+        'proof.gallery': 'Gallery',
+        'proof.optimizing': 'Optimizing photo…',
+        'proof.remove': 'Remove proof',
     },
     ar: {
         'page.title': 'محافظ المسؤولين',
@@ -465,6 +471,12 @@ const AW_I18N = {
         'proof.alt': 'إثبات المصروف',
         'proof.title': 'إثبات المصروف',
         'proof.altFull': 'إثبات المصروف بالحجم الكامل',
+        'proof.pickTitle': 'أرفق إيصال أو صورة إثبات',
+        'proof.pickHint': 'كاميرا أو المعرض — يتم تصغير الصورة تلقائياً',
+        'proof.camera': 'الكاميرا',
+        'proof.gallery': 'المعرض',
+        'proof.optimizing': 'جارٍ تحسين الصورة…',
+        'proof.remove': 'إزالة الإثبات',
     },
 };
 

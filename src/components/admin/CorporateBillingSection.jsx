@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
     ArrowLeft,
+    ArrowRightLeft,
     Building2,
     CheckCircle2,
     FileSpreadsheet,
@@ -24,7 +25,7 @@ import {
     deleteCorporateGeneratedBill,
     deleteCorporateGeneratedBills,
 } from '../../services/accountsApi';
-import { generateCorporateBill } from '../../services/superAdminApi';
+import { generateCorporateBill, transferCorporateInvoice } from '../../services/superAdminApi';
 import { openInvoiceViewAndDownloadPdf } from '../../utils/posInvoiceActions';
 import {
     exportCorporateArLedgerExcel,
@@ -38,6 +39,7 @@ import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingD
 import { cbT } from '../../utils/corporateBillingI18n';
 import CorporateGenerateBillModal from './CorporateGenerateBillModal';
 import CorporateMarkBillPaidModal from './CorporateMarkBillPaidModal';
+import CorporateTransferInvoiceModal from './CorporateTransferInvoiceModal';
 import AdminScreenShell from './AdminScreenShell';
 import '../../styles/admin/AccountingPage.css';
 
@@ -279,6 +281,9 @@ export default function CorporateBillingSection() {
     const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
     const [invoiceModalData, setInvoiceModalData] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState('');
+
+    const [transferRow, setTransferRow] = useState(null);
+    const [transferring, setTransferring] = useState(false);
 
     const loadCustomers = useCallback(async (range) => {
         const from = range?.dateFrom !== undefined ? range.dateFrom : dateFrom;
@@ -530,6 +535,29 @@ export default function CorporateBillingSection() {
             setError(e?.message || t('err.pdfExport'));
         } finally {
             setPdfExporting(false);
+        }
+    };
+
+    const handleTransferInvoice = async ({ toCorporateAccountId, reason, toCompanyName }) => {
+        if (!transferRow?.invoiceId || !toCorporateAccountId) return;
+        setTransferring(true);
+        setError('');
+        try {
+            const res = await transferCorporateInvoice({
+                invoiceId: transferRow.invoiceId,
+                toCorporateAccountId,
+                reason,
+            });
+            const no = res?.transfer?.invoiceNo || transferRow.invoiceNo || '';
+            const company = res?.transfer?.toCompanyName || toCompanyName || '';
+            setTransferRow(null);
+            await loadLedger();
+            await loadCustomers();
+            alert(t('alert.transferred', { no, company }));
+        } catch (e) {
+            setError(e?.message || t('err.transfer'));
+        } finally {
+            setTransferring(false);
         }
     };
 
@@ -895,6 +923,22 @@ export default function CorporateBillingSection() {
     const corp = ledgerDisplay?.corporateAccount ?? ledger?.corporateAccount;
     const sum = ledgerDisplay?.summary ?? ledger?.summary ?? {};
     const displayName = corp?.companyName || selectedCustomer?.companyName || t('fallback.title');
+
+    if (transferRow) {
+        return (
+            <CorporateTransferInvoiceModal
+                open
+                onClose={() => !transferring && setTransferRow(null)}
+                t={t}
+                invoiceNo={transferRow.invoiceNo}
+                fromCompanyName={displayName}
+                fromCorporateAccountId={selectedAccountId}
+                submitting={transferring}
+                submitError={error}
+                onConfirm={handleTransferInvoice}
+            />
+        );
+    }
 
     if (generateOpen) {
     return (
@@ -1535,6 +1579,7 @@ export default function CorporateBillingSection() {
                                         <tr key={row.id}>
                                             <td>{row.date}</td>
                                             <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <ClickableInvoiceNo
                                                     invoiceId={row.invoiceId}
                                                     invoiceNo={row.invoiceNo}
@@ -1542,6 +1587,22 @@ export default function CorporateBillingSection() {
                                                     loadingId={invoiceLoadingId}
                                                     onOpen={openInvoicePdf}
                                                 />
+                                                {row.type === 'Invoice' && row.invoiceId ? (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal-outline"
+                                                        style={{ padding: '2px 8px', fontSize: 12 }}
+                                                        onClick={() => {
+                                                            setError('');
+                                                            setTransferRow(row);
+                                                        }}
+                                                        title={t('btn.transfer')}
+                                                    >
+                                                        <ArrowRightLeft size={12} style={{ marginRight: 4 }} />
+                                                        {t('btn.transfer')}
+                                                    </button>
+                                                ) : null}
+                                                </div>
                                             </td>
                                             <td>
                                                 <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} rowType={row.type} />

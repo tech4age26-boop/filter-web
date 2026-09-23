@@ -732,6 +732,18 @@ export const generateCorporateBill = ({
         }),
     });
 
+export const transferCorporateInvoice = ({ invoiceId, toCorporateAccountId, reason } = {}) =>
+    apiFetch(
+        `/super-admin/corporate-billing/invoices/${encodeURIComponent(String(invoiceId))}/transfer`,
+        {
+            method: 'POST',
+            body: JSON.stringify({
+                toCorporateAccountId,
+                ...(reason ? { reason } : {}),
+            }),
+        },
+    );
+
 export const listCorporateGeneratedBills = (corporateAccountId) =>
     apiFetch(
         `/super-admin/corporate-billing/generated-bills${qs({ corporateAccountId })}`,

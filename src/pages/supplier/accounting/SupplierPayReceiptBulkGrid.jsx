@@ -411,7 +411,14 @@ export function PaymentReceiptGrid({
             ),
         [accounts],
     );
-    const cashOptions = leafAccounts.filter((a) => a.isCashEquivalent);
+    const cashOptions = useMemo(() => {
+        const leaves = leafAccounts.filter((a) => a.isCashEquivalent);
+        const currentId = String(initialPrefill?.cashAccountId || '');
+        if (!currentId) return leaves;
+        if (leaves.some((a) => String(a.id) === currentId)) return leaves;
+        const current = (accounts || []).find((a) => String(a.id) === currentId);
+        return current ? [current, ...leaves] : leaves;
+    }, [leafAccounts, accounts, initialPrefill]);
     const againstAccounts = useMemo(
         () => againstAccountsForPicker(accounts),
         [accounts],
@@ -437,6 +444,12 @@ export function PaymentReceiptGrid({
     }, []);
     const [generalNote, setGeneralNote] = useState(() => prefillSeed.generalNote);
     const [cashAccountId, setCashAccountId] = useState(() => prefillSeed.cashAccountId);
+    const cashPickerOptions = useMemo(() => {
+        if (!cashAccountId) return cashOptions;
+        if (cashOptions.some((a) => String(a.id) === String(cashAccountId))) return cashOptions;
+        const current = (accounts || []).find((a) => String(a.id) === String(cashAccountId));
+        return current ? [current, ...cashOptions] : cashOptions;
+    }, [cashOptions, cashAccountId, accounts]);
     const [lines, setLines] = useState(() => prefillSeed.lines);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
@@ -716,7 +729,7 @@ export function PaymentReceiptGrid({
                         placeholder={tr('select.dash')}
                         entityLabel="account"
                         required
-                        options={cashOptions.map((a) => ({
+                        options={cashPickerOptions.map((a) => ({)
                             id: String(a.id),
                             label: cashAccountLabel(a, locale),
                             searchText: `${a.code} ${a.name}`,
