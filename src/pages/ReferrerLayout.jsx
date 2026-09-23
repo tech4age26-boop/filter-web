@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import UserProfileMenu from '../components/UserProfileMenu';
 import { rfT } from '../utils/referrerPortalI18n';
 import { referrerPortalGetOverview } from '../services/referrerPortalApi';
+import { referrerWalletFromOverview } from './referrer-portal/useReferrerPortal';
 
 const PAGE_TITLE_KEYS = {
     dashboard: 'title.dashboard',
@@ -54,9 +55,9 @@ export default function ReferrerLayout() {
         .toUpperCase()
         .substring(0, 2) || 'RF';
 
-    const availableBalance = Number(overview?.stats?.commissionTotal || 0).toLocaleString(
+    const availableBalance = referrerWalletFromOverview(overview).unpaid.toLocaleString(
         locale === 'ar' ? 'ar-SA' : 'en-US',
-        { maximumFractionDigits: 0 },
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 },
     );
 
     const reloadOverview = useCallback(async () => {

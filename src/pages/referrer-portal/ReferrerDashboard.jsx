@@ -4,7 +4,7 @@ import { CreditCard, ChevronRight, TrendingUp, Users, Receipt, Wallet } from 'lu
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import PayoutModal from '../../components/PayoutModal';
 import { rfT, rfStatusKey } from '../../utils/referrerPortalI18n';
-import { formatRuleValue, rfBadgeClass, useReferrerPortal } from './useReferrerPortal';
+import { formatRuleValue, referrerWalletFromOverview, rfBadgeClass, useReferrerPortal } from './useReferrerPortal';
 import {
     referrerPortalCreatePayout,
     referrerPortalGetNotifications,
@@ -25,6 +25,7 @@ export default function ReferrerDashboard() {
     const [payoutAmount, setPayoutAmount] = useState('');
     const [payoutError, setPayoutError] = useState('');
     const [payoutSubmitting, setPayoutSubmitting] = useState(false);
+    const [payoutSuccess, setPayoutSuccess] = useState('');
     const [referrals, setReferrals] = useState([]);
     const [notifications, setNotifications] = useState([]);
     const [monthly, setMonthly] = useState([]);
@@ -33,6 +34,7 @@ export default function ReferrerDashboard() {
     const benefit = overview?.benefitRule;
     const iban = overview?.profile?.iban || '';
     const stats = overview?.stats || {};
+    const wallet = referrerWalletFromOverview(overview);
 
     useEffect(() => {
         referrerPortalListReferrals()
@@ -52,12 +54,17 @@ export default function ReferrerDashboard() {
             setPayoutError(rfT(locale, 'payout.amountRequired'));
             return;
         }
+        if (amount > wallet.unpaid + 0.005) {
+            setPayoutError(rfT(locale, 'payout.exceedsBalance', { amount: wallet.unpaid.toFixed(2) }));
+            return;
+        }
         setPayoutSubmitting(true);
         setPayoutError('');
         try {
             await referrerPortalCreatePayout({ amount, method: 'bank' });
             setIsPayoutModalOpen(false);
             setPayoutAmount('');
+            setPayoutSuccess(rfT(locale, 'payout.success'));
             await reloadOverview?.();
         } catch (err) {
             setPayoutError(err?.message || rfT(locale, 'payout.error'));
@@ -85,7 +92,7 @@ export default function ReferrerDashboard() {
             <PayoutModal
                 isOpen={isPayoutModalOpen}
                 onClose={() => setIsPayoutModalOpen(false)}
-                balance={Number(stats.commissionTotal || 0).toFixed(2)}
+                balance={wallet.unpaid.toFixed(2)}
                 iban={iban}
                 locale={locale}
                 amount={payoutAmount}
@@ -97,6 +104,7 @@ export default function ReferrerDashboard() {
 
             <div className="rf-welcome-row">
                 <div>
+                    {payoutSuccess ? <p className="rf-page-lead">{payoutSuccess}</p> : null}
                     <h2>
                         {firstName
                             ? rfT(locale, 'dash.welcome', { name: firstName })
