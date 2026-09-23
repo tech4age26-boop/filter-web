@@ -5,7 +5,7 @@ import {
     CheckCircle2, AlertCircle, Copy, XCircle,
     MoreVertical, Edit3, Trash2, Package, Layers,
     ChevronDown, Info, RefreshCw, Box, ShieldCheck,
-    ArrowUp, Settings, LayoutGrid, Tags
+    ArrowUp, Settings, LayoutGrid, Tags, Barcode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MasterCatalogShell from './MasterCatalogShell';
@@ -65,6 +65,7 @@ import {
     tabForMasterCatalogScreen,
 } from '../../utils/masterCatalogRoutes';
 import { mcT, MC_TAB_LABEL_KEYS } from '../../utils/masterCatalogI18n';
+import MasterCatalogBarcodeTab from './MasterCatalogBarcodeTab';
 
 const KPI_CARD_DEFS = [
     {
@@ -190,6 +191,7 @@ const MASTER_TABS = [
     { id: 'duplication',  label: 'Duplication Review',     icon: Copy,         permission: 'inventory.master-catalog.duplication.view' },
     { id: 'availability', label: 'Supplier Availability',  icon: Package,      permission: 'inventory.master-catalog.availability.view' },
     { id: 'services',     label: 'Services',               icon: Layers,       permission: 'inventory.master-catalog.services.view' },
+    { id: 'barcodes',     label: 'Barcode generator',      icon: Barcode,      permission: 'inventory.master-catalog.barcodes.view' },
 ];
 
 const parseNumberOr = parseNonNegativeNumberOr;
@@ -2791,6 +2793,12 @@ export default function MasterCatalog() {
             {activeTab === 'duplication'  && hasPermission('inventory.master-catalog.duplication.view')  && renderDuplicationReview()}
             {activeTab === 'availability' && hasPermission('inventory.master-catalog.availability.view') && renderSupplierAvailability()}
             {activeTab === 'services'     && hasPermission('inventory.master-catalog.services.view')     && renderServices()}
+            {activeTab === 'barcodes'     && hasPermission('inventory.master-catalog.barcodes.view')     && (
+                <MasterCatalogBarcodeTab
+                    locale={locale}
+                    canGenerate={hasPermission('inventory.master-catalog.barcodes.generate')}
+                />
+            )}
 
             </>
             )}

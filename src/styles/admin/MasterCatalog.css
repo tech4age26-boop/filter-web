@@ -1797,3 +1797,143 @@
 }
 
 .mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.8125rem; }
+
+.mc-barcode-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.mc-barcode-hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #6B7280;
+    line-height: 1.5;
+}
+
+.mc-barcode-search {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.mc-barcode-search .sf-entity-combobox-anchor {
+    flex: 1;
+    min-width: 0;
+}
+
+.mc-barcode-error {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #FEF2F2;
+    color: #B91C1C;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.mc-barcode-table td {
+    vertical-align: middle;
+}
+
+.mc-barcode-svg {
+    display: block;
+    max-width: 220px;
+    height: 48px;
+}
+
+.mc-barcode-remove {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px !important;
+    min-height: 0 !important;
+    font-size: 0.6875rem !important;
+    font-weight: 600 !important;
+    line-height: 1.2;
+}
+
+.mc-barcode-confirm-yes {
+    background: #B91C1C !important;
+    border-color: #B91C1C !important;
+}
+
+.mc-barcode-confirm-yes:hover {
+    background: #991B1B !important;
+    border-color: #991B1B !important;
+}
+
+.mc-barcode-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.mc-barcode-toolbar .mc-btn-ghost,
+.mc-barcode-toolbar .mc-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mc-barcode-check-col {
+    width: 40px;
+    text-align: center;
+}
+
+.mc-barcode-qty-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1200;
+    padding: 16px;
+}
+
+.mc-barcode-qty-modal {
+    width: min(420px, 100%);
+    background: #fff;
+    border-radius: 12px;
+    padding: 22px 22px 18px;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+
+.mc-barcode-qty-modal h3 {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #111827;
+}
+
+.mc-barcode-qty-modal p {
+    margin: 0 0 16px;
+    font-size: 0.8125rem;
+    color: #6B7280;
+    line-height: 1.5;
+}
+
+.mc-barcode-qty-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #4B5563;
+}
+
+.mc-barcode-qty-label input {
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+
+.mc-barcode-qty-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+

@@ -345,6 +345,22 @@ export const updateSupplier = (id, body) =>
 export const getProducts = ({ branchId, signal } = {}) =>
     apiFetch(`/super-admin/products${qs({ branchId })}`, { signal });
 
+export const searchProductsForBarcode = ({ q, limit, signal } = {}) =>
+    apiFetch(`/super-admin/products/barcode-search${qs({ q, limit })}`, { signal });
+
+export const listBarcodedProducts = ({ signal } = {}) =>
+    apiFetch('/super-admin/products/with-barcode', { signal });
+
+export const generateProductBarcode = (id) =>
+    apiFetch(`/super-admin/products/${encodeURIComponent(String(id))}/generate-barcode`, {
+        method: 'POST',
+    });
+
+export const clearProductBarcode = (id) =>
+    apiFetch(`/super-admin/products/${encodeURIComponent(String(id))}/clear-barcode`, {
+        method: 'POST',
+    });
+
 export const getProduct = (id) =>
     apiFetch(`/super-admin/products/${id}`);
 
