@@ -247,8 +247,13 @@ export const SACC_I18N = {
         'logs.err.load': 'Failed to load entries',
         'logs.err.detail': 'Failed to load entry',
         'logs.err.void': 'Void failed',
+        'logs.err.delete': 'Delete failed',
         'logs.confirm.void':
             'Void this entry? This marks it as void; balances remove the journal lines.',
+        'logs.confirm.delete':
+            'Delete this document? The whole journal and its lines will be removed from every linked ledger, Chart of Accounts, and this log.',
+        'logs.btn.delete': 'Delete',
+        'logs.deleting': 'Deleting…',
         'logs.detail.entry': 'Entry',
         'logs.detail.date': 'Date',
         'logs.detail.source': 'Source',
@@ -874,8 +879,13 @@ export const SACC_I18N = {
         'logs.err.load': 'فشل تحميل القيود',
         'logs.err.detail': 'فشل تحميل القيد',
         'logs.err.void': 'فشل الإلغاء',
+        'logs.err.delete': 'فشل الحذف',
         'logs.confirm.void':
             'إلغاء هذا القيد؟ يُعلَّم كملغى؛ تُزال بنود اليومية من الأرصدة.',
+        'logs.confirm.delete':
+            'حذف هذا المستند؟ تُحذف اليومية بالكامل وبنودها من كل دفتر مرتبط ودفتر الحسابات وهذا السجل.',
+        'logs.btn.delete': 'حذف',
+        'logs.deleting': 'جارٍ الحذف…',
         'logs.detail.entry': 'القيد',
         'logs.detail.date': 'التاريخ',
         'logs.detail.source': 'المصدر',

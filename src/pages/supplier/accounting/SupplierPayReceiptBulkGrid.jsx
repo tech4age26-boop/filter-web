@@ -38,7 +38,15 @@ const PAY_TYPE_KEYS = [
     { value: 'others', key: 'hub.payType.others' },
 ];
 
-export function emptyPayReceiptLine(headerDate, variant = 'payment', accounts = []) {
+function voucherPrefixForVariant(variant) {
+    return variant === 'payment' ? 'PE' : 'RC';
+}
+
+function fallbackVoucher(variant, idx) {
+    return `${voucherPrefixForVariant(variant)}${String(idx + 1).padStart(4, '0')}`;
+}
+
+export function emptyPayReceiptLine(headerDate, variant = 'payment', accounts = [], voucher = '') {
     const row = {
         lineDate: headerDate || todayISO(),
         payType: variant === 'receipt' ? 'customer' : 'super_supplier',
@@ -50,6 +58,7 @@ export function emptyPayReceiptLine(headerDate, variant = 'payment', accounts = 
         notes: '',
         allocatedInvoiceId: '',
         allocatedPurchaseId: '',
+        voucher: voucher || '',
     };
     return { ...row, ...suggestAgainstPatch(row, accounts, row.payType, row.payeeValue) };
 }
@@ -385,6 +394,7 @@ export function journalToMoneyPrefill(journal, variant) {
             amount: String(Number(variant === 'receipt' ? l.credit : l.debit) || ''),
             lineReference: '',
             notes: l.description || '',
+            voucher: journal.reference || '',
         })),
     };
 }
@@ -464,6 +474,42 @@ export function PaymentReceiptGrid({
     const [err, setErr] = useState('');
     const prefillAppliedRef = useRef(null);
     const cashTouchedRef = useRef(false);
+    const editingJournalIdRef = useRef(editingJournalId);
+    editingJournalIdRef.current = editingJournalId;
+    const voucherPrefix = voucherPrefixForVariant(variant);
+    const [voucherPool, setVoucherPool] = useState([`${voucherPrefix}0001`]);
+
+    const loadVoucherPool = useCallback(async (need = 1) => {
+        const kind = variant === 'payment' ? 'payment' : 'receipt';
+        try {
+            const res = await getSupplierHubNextReference(kind, Math.max(need + 3, 5));
+            const pool = Array.isArray(res?.vouchers) && res.vouchers.length
+                ? res.vouchers
+                : res?.reference
+                    ? [res.reference]
+                    : [];
+            if (!pool.length) return voucherPool;
+            setVoucherPool(pool);
+            if (!editingJournalIdRef.current) {
+                setLines((prev) =>
+                    prev.map((row, idx) => ({
+                        ...row,
+                        voucher: pool[idx] || row.voucher || fallbackVoucher(variant, idx),
+                    })),
+                );
+            }
+            return pool;
+        } catch {
+            return voucherPool;
+        }
+    }, [variant, voucherPool]);
+
+    useEffect(() => {
+        if (editingJournalIdRef.current) return;
+        loadVoucherPool(1);
+        // Seed next RC/PE from last saved receipt/payment.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [variant]);
 
     useEffect(() => {
         if (cashTouchedRef.current) return;
@@ -552,7 +598,13 @@ export function PaymentReceiptGrid({
 
     function addLine() {
         setLines((ls) => {
-            const next = [...ls, emptyPayReceiptLine(headerDate, variant, accounts)];
+            const next = [
+                ...ls,
+                emptyPayReceiptLine(headerDate, variant, accounts, voucherPool[ls.length]),
+            ];
+            if (next.length > voucherPool.length) {
+                loadVoucherPool(next.length);
+            }
             const targetRow = next.length;
             queueMicrotask(() => {
                 document
@@ -621,7 +673,7 @@ export function PaymentReceiptGrid({
                     date: clean[0].lineDate || headerDate,
                     cashAccountId,
                     description: generalNote.trim() || undefined,
-                    reference: headerRef.trim() || undefined,
+                    reference: headerRef.trim() || clean[0].voucher || undefined,
                     lines: clean.map(toLineBody),
                 };
                 const res =
@@ -635,7 +687,7 @@ export function PaymentReceiptGrid({
                         date: l.lineDate || headerDate,
                         cashAccountId,
                         description: generalNote.trim() || undefined,
-                        reference: headerRef.trim() || undefined,
+                        reference: l.voucher?.trim() || headerRef.trim() || undefined,
                         lines: [toLineBody(l)],
                     };
                     const res =
@@ -648,10 +700,13 @@ export function PaymentReceiptGrid({
             onPosted?.(posted);
             setEditingJournalId('');
             setEditingEntry('');
-            setLines([emptyPayReceiptLine(headerDate, variant, accounts)]);
             setGeneralNote('');
             setHeaderRef('');
             setRefAutoGenerate(false);
+            const pool = await loadVoucherPool(1);
+            setLines([
+                emptyPayReceiptLine(headerDate, variant, accounts, pool?.[0] || fallbackVoucher(variant, 0)),
+            ]);
         } catch (ex) {
             setErr(ex?.message || tr('hub.err.save'));
         } finally {
@@ -679,9 +734,18 @@ export function PaymentReceiptGrid({
                         onClick={() => {
                             setEditingJournalId('');
                             setEditingEntry('');
-                            setLines([emptyPayReceiptLine(headerDate, variant, accounts)]);
                             setHeaderRef('');
                             setGeneralNote('');
+                            loadVoucherPool(1).then((pool) => {
+                                setLines([
+                                    emptyPayReceiptLine(
+                                        headerDate,
+                                        variant,
+                                        accounts,
+                                        pool?.[0] || fallbackVoucher(variant, 0),
+                                    ),
+                                ]);
+                            });
                         }}
                     >
                         Cancel edit
@@ -775,8 +839,7 @@ export function PaymentReceiptGrid({
                                             fontSize: 12,
                                         }}
                                     >
-                                        {variant === 'payment' ? 'PE' : 'RC'}
-                                        {String(idx + 1).padStart(4, '0')}
+                                        {l.voucher || fallbackVoucher(variant, idx)}
                                     </span>
                                 </td>
                                 <td>
