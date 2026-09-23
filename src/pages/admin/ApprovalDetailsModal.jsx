@@ -1590,6 +1590,34 @@ function MarketingCampaignBody({ data }) {
     );
 }
 
+function MarketingReferrerPayoutBody({ data }) {
+    const row = data ?? {};
+    const amount = Number(row.amount ?? 0);
+
+    return (
+        <>
+            <Section title="Referrer commission payout">
+                <KVGrid>
+                    <Field label="Payout #" kind="id" value={row.requestId ?? row.id} />
+                    <Field label="Status" value={row.payoutStatus ?? row.status} />
+                    <Field label="Referrer" value={row.referrerName} />
+                    <Field label="Referral code" value={row.referralCode} />
+                    <Field label="Amount" value={`SAR ${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                    <Field label="Method" value={row.method} />
+                    <Field label="Bank" value={row.bankName} />
+                    <Field label="IBAN" value={row.iban} />
+                    <Field label="Email" value={row.referrerEmail} />
+                    <Field label="Phone" value={row.referrerPhone} />
+                    <Field label="Submitted by" value={row.submittedBy} />
+                    <Field label="Submitted" kind="date" value={row.createdAt} />
+                    <Field label="Notes" value={row.notes} span2 />
+                    <Field label="Rejection reason" value={row.rejectionReason} span2 />
+                </KVGrid>
+            </Section>
+        </>
+    );
+}
+
 function renderBody(entityType, data) {
     switch (entityType) {
         case 'workshop_registration':  return <WorkshopBody data={data} />;
@@ -1609,6 +1637,8 @@ function renderBody(entityType, data) {
             return <MarketingBudgetRequestBody data={data} />;
         case 'marketing_expense':
             return <MarketingExpenseBody data={data} />;
+        case 'marketing_referrer_payout':
+            return <MarketingReferrerPayoutBody data={data} />;
         case 'marketing_campaign':
             return <MarketingCampaignBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
@@ -1619,9 +1649,46 @@ function renderBody(entityType, data) {
 /*  Main modal                                                       */
 /* ---------------------------------------------------------------- */
 
+function detailsFromListItem(entityType, id, item) {
+    if (!item) return null;
+    const raw = item.raw || {};
+    const meta = item.meta || {};
+    if (entityType !== 'marketing_referrer_payout') {
+        return {
+            ...raw,
+            entityType,
+            requestId: String(id),
+            status: item.status || raw.status || 'pending',
+            title: item.title,
+            meta,
+        };
+    }
+    const amount = Number(meta.amount ?? raw.amount ?? 0);
+    const payoutStatus = meta.payoutStatus ?? raw.status ?? item.status ?? 'pending';
+    return {
+        entityType,
+        requestId: String(id),
+        status: item.status || 'pending',
+        payoutStatus,
+        title: item.title,
+        referrerName: meta.referrerName ?? raw.referrerName,
+        referralCode: meta.referralCode ?? raw.referralCode,
+        amount,
+        method: meta.method ?? raw.method,
+        bankName: meta.bankName ?? raw.bankName,
+        iban: meta.iban ?? raw.iban,
+        referrerEmail: raw.referrerEmail,
+        referrerPhone: raw.referrerPhone,
+        submittedBy: item.submittedBy ?? raw.requestedByName ?? raw.referrerName,
+        createdAt: item.date ?? raw.createdAt,
+        notes: meta.notes ?? raw.notes,
+        rejectionReason: meta.rejectionReason ?? raw.rejectionReason,
+    };
+}
+
 export default function ApprovalDetailsModal({
     entityType, id, onClose, onApprove, onReject, actionDisabled = false,
-    canApprove = true, canReject = true, asPage = false,
+    canApprove = true, canReject = true, asPage = false, initialData = null,
 }) {
     const outletCtx = useOutletContext() || {};
     const locale = outletCtx.locale
@@ -1648,11 +1715,18 @@ export default function ApprovalDetailsModal({
             })
             .catch((e) => {
                 if (cancelled) return;
+                const fallback = detailsFromListItem(entityType, id, initialData);
+                if (fallback) {
+                    setData(fallback);
+                    setError(null);
+                    setLoading(false);
+                    return;
+                }
                 setError(e.message || t('failed'));
                 setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [entityType, id, t]);
+    }, [entityType, id, t, initialData]);
 
     const rawStatus = data?.status ?? data?.approvalStatus ?? 'pending';
     const statusClass = String(rawStatus).toLowerCase().replace(/\s+/g, '_');

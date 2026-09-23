@@ -34,7 +34,6 @@ import {
   marketingListCommissionRules,
   marketingListReferrerPayoutRequests,
   marketingListReferrers,
-  marketingUpdateReferrerPayoutRequest,
 } from '../../services/superAdminMarketingApi';
 import {
   mktRefCategoryLabel,
@@ -456,18 +455,6 @@ export const ReferrerManagement = () => {
       await loadReferrerManagement();
     } catch (err) {
       alert(err?.message || t('err.deleteRule'));
-    } finally {
-      setActionLoadingId('');
-    }
-  };
-
-  const updatePayoutStatus = async (item, status) => {
-    try {
-      setActionLoadingId(`p-${item.id}`);
-      await marketingUpdateReferrerPayoutRequest(item.id, { status });
-      await loadReferrerManagement();
-    } catch (err) {
-      alert(err?.message || t('err.load'));
     } finally {
       setActionLoadingId('');
     }
@@ -967,24 +954,7 @@ export const ReferrerManagement = () => {
                     </td>
                     <td>
                       {pending ? (
-                        <div className="mk-ref-actions">
-                          <button
-                            type="button"
-                            className="mk-ref-primary-btn"
-                            disabled={actionLoadingId === `p-${item.id}`}
-                            onClick={() => updatePayoutStatus(item, 'approved')}
-                          >
-                            {t('btn.approve')}
-                          </button>
-                          <button
-                            type="button"
-                            className="mk-ref-secondary-btn"
-                            disabled={actionLoadingId === `p-${item.id}`}
-                            onClick={() => updatePayoutStatus(item, 'rejected')}
-                          >
-                            {t('btn.reject')}
-                          </button>
-                        </div>
+                        t('payout.awaitingAdmin')
                       ) : (
                         t('dash')
                       )}

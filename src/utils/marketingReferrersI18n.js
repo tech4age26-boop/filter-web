@@ -108,7 +108,8 @@ const MKT_REF_I18N = {
 
     'payout.title': 'Payout Queue',
     'payout.subtitle':
-      'Requests from the referrer portal. Approve or reject them here.',
+      'Requests from the referrer portal. Super Admin reviews them under Approvals.',
+    'payout.awaitingAdmin': 'Awaiting Super Admin',
     'btn.newPayout': 'New Payout Request',
     'th.payoutNo': 'Payout #',
     'th.amount': 'Amount',
@@ -465,7 +466,8 @@ const MKT_REF_I18N = {
 
     'payout.title': 'قائمة المدفوعات',
     'payout.subtitle':
-      'طلبات من بوابة المُحيل. اعتمدها أو ارفضها من هنا.',
+      'طلبات من بوابة المُحيل. يراجعها المشرف العام من صفحة الموافقات.',
+    'payout.awaitingAdmin': 'بانتظار المشرف العام',
     'btn.newPayout': 'طلب دفع جديد',
     'th.payoutNo': 'رقم الدفع',
     'th.amount': 'المبلغ',

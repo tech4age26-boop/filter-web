@@ -9,6 +9,7 @@ const ICONS = {
     conversion: UserPlus,
     payout: CreditCard,
     payoutPending: CreditCard,
+    payoutRejected: CreditCard,
     lead: UserPlus,
 };
 
@@ -17,6 +18,7 @@ function typeClass(type) {
     if (type === 'conversion') return 'is-green';
     if (type === 'payout') return 'is-green';
     if (type === 'payoutPending') return 'is-amber';
+    if (type === 'payoutRejected') return 'is-red';
     return 'is-slate';
 }
 
