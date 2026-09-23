@@ -3,6 +3,7 @@ const CUST_I18N = {
     en: {
         'sub.all': 'All Customers',
         'sub.billing': 'Corporate Billing',
+        'btn.transferInvoice': 'Transfer invoice',
         'shell.back': 'Back to All Customers',
         'stat.total': 'Total Customers',
         'stat.corporate': 'Corporate',
@@ -110,6 +111,7 @@ const CUST_I18N = {
     ar: {
         'sub.all': 'جميع العملاء',
         'sub.billing': 'الفواتير المؤسسية',
+        'btn.transferInvoice': 'نقل الفاتورة',
         'shell.back': 'العودة إلى جميع العملاء',
         'stat.total': 'إجمالي العملاء',
         'stat.corporate': 'شركات',

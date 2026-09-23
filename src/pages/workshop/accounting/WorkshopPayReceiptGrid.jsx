@@ -33,6 +33,12 @@ import {
     todayIsoDate,
 } from './workshopAccountingShared';
 import { ALL_COMBO, accountComboLabel, cashAccountLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
+import {
+    accountById,
+    controlKind,
+    partyOptionsForKind,
+    payeeTypeForKind,
+} from './workshopControlAccounts';
 
 function payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment) {
     if (!editRow?.id) return null;
@@ -52,7 +58,7 @@ function payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment) {
     };
 }
 
-function PayeeCell({ row, payees, onChange, t }) {
+function PayeeCell({ row, payees, options: optionsOverride, onChange, t }) {
     if (row.type === 'Other') {
         return (
             <input
@@ -63,7 +69,7 @@ function PayeeCell({ row, payees, onChange, t }) {
             />
         );
     }
-    const options = payeesForTypeList(row.type, payees);
+    const options = optionsOverride || payeesForTypeList(row.type, payees);
     return (
         <SupplierAccountingCombobox
             value={row.payeeId}
@@ -217,14 +223,31 @@ export default function WorkshopPayReceiptGrid({
         setRows((prev) => prev.map((r) => {
             if (r.id !== id) return r;
             let next = { ...r, ...patch };
+            if ('accountId' in patch && !('type' in patch)) {
+                const kind = controlKind(accountById(accounts, next.accountId));
+                const lockedType = payeeTypeForKind(kind);
+                if (lockedType) {
+                    next.type = lockedType;
+                    const allowed = partyOptionsForKind(kind, payees);
+                    if (!allowed.some((o) => String(o.id) === String(next.payeeId))) {
+                        next.payeeId = '';
+                        next.payeeName = '';
+                    }
+                }
+            }
             if ('type' in patch) {
-                next.payeeId = '';
-                next.payeeName = '';
-                const suggested = sharedPayeeDefaultAccountId(
-                    payeesForTypeList(next.type, payees),
-                );
-                next.accountId = suggested;
-                next.accountAutoFilled = suggested;
+                const kind = controlKind(accountById(accounts, next.accountId));
+                if (kind) {
+                    next.type = payeeTypeForKind(kind) || next.type;
+                } else {
+                    next.payeeId = '';
+                    next.payeeName = '';
+                    const suggested = sharedPayeeDefaultAccountId(
+                        payeesForTypeList(next.type, payees),
+                    );
+                    next.accountId = suggested;
+                    next.accountAutoFilled = suggested;
+                }
             }
             return next;
         }));
@@ -310,6 +333,13 @@ export default function WorkshopPayReceiptGrid({
         }
         if (!validRows.length) {
             setErr(t('tx.err.row'));
+            return;
+        }
+        if (validRows.some((r) => {
+            const kind = controlKind(accountById(accounts, r.accountId));
+            return kind && !String(r.payeeId || '').trim();
+        })) {
+            setErr(t('tx.je.needParty'));
             return;
         }
         setSaving(true);
@@ -533,12 +563,16 @@ export default function WorkshopPayReceiptGrid({
                                         value={row.type}
                                         onChange={(v) => {
                                             if (!PAYEE_TYPES.includes(v)) return;
+                                            if (controlKind(accountById(accounts, row.accountId))) return;
                                             updateRow(row.id, { type: v });
                                         }}
                                         placeholder={t('tx.type.search')}
                                         entityLabel="type"
                                         menuMinWidth={200}
-                                        options={PAYEE_TYPES.map((p) => ({
+                                        options={(controlKind(accountById(accounts, row.accountId))
+                                            ? [row.type]
+                                            : PAYEE_TYPES
+                                        ).map((p) => ({
                                             id: p,
                                             label: t(`tx.payee.${p}`),
                                             searchText: t(`tx.payee.${p}`),
@@ -546,7 +580,20 @@ export default function WorkshopPayReceiptGrid({
                                     />
                                 </td>
                                 <td>
-                                    <PayeeCell row={row} payees={payees} onChange={updateRow} t={t} />
+                                    <PayeeCell
+                                        row={row}
+                                        payees={payees}
+                                        options={
+                                            controlKind(accountById(accounts, row.accountId))
+                                                ? partyOptionsForKind(
+                                                    controlKind(accountById(accounts, row.accountId)),
+                                                    payees,
+                                                )
+                                                : undefined
+                                        }
+                                        onChange={updateRow}
+                                        t={t}
+                                    />
                                 </td>
                                 <td>
                                     <SupplierAccountingCombobox

@@ -12,9 +12,18 @@ import SupplierAccountingCombobox from '../../supplier/accounting/SupplierAccoun
 import { blankJournalRow, todayIsoDate } from './workshopAccountingShared';
 import { ALL_COMBO, accountComboLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
 import { ledgerRowDescriptionAndReference } from '../../../utils/accountLedgerStatementUtils';
+import {
+    accountById,
+    controlKind,
+    partyOptionsForKind,
+    partyPayloadFromKind,
+    payeeIdFromJournalLine,
+    payeeTypeForKind,
+} from './workshopControlAccounts';
 
 export default function WorkshopJournalGrid({
     accounts = [],
+    payees = { supplier: [], employee: [], customer: [] },
     branches = [],
     defaultBranchId = '',
     isAdminHqBooks = false,
@@ -45,6 +54,7 @@ export default function WorkshopJournalGrid({
             ? editEntry.lines.map((l, i) => ({
                 id: `j-edit-${l.id || i}`,
                 accountId: l.accountId ? String(l.accountId) : '',
+                payeeId: payeeIdFromJournalLine(l),
                 description: l.description || '',
                 debit: Number(l.debit) ? String(l.debit) : '',
                 credit: Number(l.credit) ? String(l.credit) : '',
@@ -107,6 +117,14 @@ export default function WorkshopJournalGrid({
             setErr(t('tx.err.jeLines'));
             return;
         }
+        const missingParty = lines.find((l) => {
+            const kind = controlKind(accountById(accounts, l.accountId));
+            return kind && !String(l.payeeId || '').trim();
+        });
+        if (missingParty) {
+            setErr(t('tx.je.needParty'));
+            return;
+        }
         if (!totals.canPost) {
             setErr(t('tx.err.jeBalance', {
                 debit: totals.debit.toFixed(2),
@@ -126,6 +144,10 @@ export default function WorkshopJournalGrid({
                     description: l.description || undefined,
                     debit: Number(l.debit) || 0,
                     credit: Number(l.credit) || 0,
+                    ...partyPayloadFromKind(
+                        controlKind(accountById(accounts, l.accountId)),
+                        l.payeeId,
+                    ),
                 })),
             };
             const res = editEntry?.id
@@ -238,10 +260,11 @@ export default function WorkshopJournalGrid({
             </div>
 
             <div style={{ overflowX: 'auto' }}>
-                <table className="ws-table" style={{ width: '100%', minWidth: 860 }}>
+                <table className="ws-table" style={{ width: '100%', minWidth: 1080 }}>
                     <thead>
                         <tr>
                             <th style={{ minWidth: 260 }}>{t('tx.th.account')}</th>
+                            <th style={{ minWidth: 220 }}>{t('tx.th.party')}</th>
                             <th>{t('tx.th.lineDesc')}</th>
                             <th style={{ width: 140, textAlign: 'right' }}>{t('tx.th.debit')}</th>
                             <th style={{ width: 140, textAlign: 'right' }}>{t('tx.th.credit')}</th>
@@ -249,12 +272,16 @@ export default function WorkshopJournalGrid({
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((row, idx) => (
+                        {rows.map((row, idx) => {
+                            const kind = controlKind(accountById(accounts, row.accountId));
+                            const partyOpts = partyOptionsForKind(kind, payees);
+                            const partyType = payeeTypeForKind(kind);
+                            return (
                             <tr key={row.id} data-ws-je-row={idx + 1}>
                                 <td data-ws-je-focus="account">
                                     <SupplierAccountingCombobox
                                         value={row.accountId}
-                                        onChange={(v) => updateRow(row.id, { accountId: v })}
+                                        onChange={(v) => updateRow(row.id, { accountId: v, payeeId: '' })}
                                         placeholder={t('tx.selectAccount')}
                                         entityLabel="account"
                                         emptyHint={t('tx.selectAccount')}
@@ -265,6 +292,24 @@ export default function WorkshopJournalGrid({
                                             subtitle: a.type,
                                         }))}
                                     />
+                                </td>
+                                <td>
+                                    {kind ? (
+                                        <SupplierAccountingCombobox
+                                            value={row.payeeId}
+                                            onChange={(v) => updateRow(row.id, { payeeId: v })}
+                                            placeholder={partyType === 'Supplier' ? t('tx.selectSupplier') : t('tx.selectCustomer')}
+                                            entityLabel={partyType === 'Supplier' ? 'supplier' : 'customer'}
+                                            emptyHint={partyType === 'Supplier' ? t('tx.selectSupplier') : t('tx.selectCustomer')}
+                                            options={partyOpts.map((o) => ({
+                                                id: String(o.id),
+                                                label: o.sublabel ? `${o.name} — ${o.sublabel}` : o.name,
+                                                searchText: `${o.name || ''} ${o.sublabel || ''}`,
+                                            }))}
+                                        />
+                                    ) : (
+                                        <span style={{ color: '#94A3B8' }}>{t('emdash') || '—'}</span>
+                                    )}
                                 </td>
                                 <td>
                                     <input
@@ -316,9 +361,10 @@ export default function WorkshopJournalGrid({
                                     </button>
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                         <tr>
-                            <td colSpan={2} style={{ fontWeight: 800 }}>{t('tx.totals')}</td>
+                            <td colSpan={3} style={{ fontWeight: 800 }}>{t('tx.totals')}</td>
                             <td style={{ textAlign: 'right', fontWeight: 800 }}>{moneySar(totals.debit)}</td>
                             <td style={{ textAlign: 'right', fontWeight: 800 }}>{moneySar(totals.credit)}</td>
                             <td />

@@ -235,6 +235,7 @@ export default function WorkshopTransactionEntryPage({
                         <WorkshopJournalGrid
                             key={editJournal?.id ? `je-edit-${editJournal.id}` : 'je-new'}
                             accounts={coaAll}
+                            payees={payees}
                             branches={branches}
                             defaultBranchId={selectedBranchId}
                             isAdminHqBooks={isAdminHqBooks}

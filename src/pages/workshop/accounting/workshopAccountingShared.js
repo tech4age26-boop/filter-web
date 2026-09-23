@@ -113,6 +113,7 @@ export const blankReceiptRow = (i, voucher) => ({
 export const blankJournalRow = (i) => ({
     id: `j-${Date.now()}-${i}`,
     accountId: '',
+    payeeId: '',
     description: '',
     debit: '',
     credit: '',
