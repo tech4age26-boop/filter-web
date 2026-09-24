@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Eye, FileDown, FileSpreadsheet, Pencil, X } from 'lucide-react';
+import { Eye, FileDown, FileSpreadsheet, Pencil, Trash2, X } from 'lucide-react';
 import {
+    deleteSupplierJournal,
     getSupplierJournalById,
     listSupplierGeneralJournals,
     listSupplierJournalsAll,
@@ -19,6 +20,7 @@ import {
     inputStyle,
     JournalStatusBadge,
     money,
+    dangerBtnStyle,
     outlineBtnStyle,
     Pager,
     primaryBtnStyle,
@@ -67,6 +69,18 @@ const TAB_KEYS = {
 };
 
 const PAGE_SIZE = 25;
+
+function canDeleteHubJournal(j) {
+    if (!j) return false;
+    const src = String(j.source || '');
+    return (
+        src === 'receipt' ||
+        src === 'payment' ||
+        src === 'manual_journal' ||
+        j.type === 'Receipt' ||
+        j.type === 'Payment'
+    );
+}
 
 function listColumnsForTab(tab, t) {
     if (tab === 'payments') {
@@ -143,6 +157,7 @@ function DetailDrawer({ id, onClose, locale, t, onEdit }) {
     const [data, setData] = useState(null);
     const [err, setErr] = useState('');
     const [voiding, setVoiding] = useState(false);
+    const [deleting, setDeleting] = useState(false);
     const em = t('emdash');
     const m = (v) => money(v, 'SAR', { locale });
 
@@ -173,6 +188,19 @@ function DetailDrawer({ id, onClose, locale, t, onEdit }) {
             alert(e?.message || t('logs.err.void'));
         } finally {
             setVoiding(false);
+        }
+    }
+
+    async function handleDelete() {
+        if (!confirm(t('logs.confirm.delete'))) return;
+        setDeleting(true);
+        try {
+            await deleteSupplierJournal(id);
+            onClose(true);
+        } catch (e) {
+            alert(e?.message || t('logs.err.delete'));
+        } finally {
+            setDeleting(false);
         }
     }
 
@@ -245,9 +273,14 @@ function DetailDrawer({ id, onClose, locale, t, onEdit }) {
                                             Edit transaction
                                         </button>
                                     ) : null}
-                                    <button type="button" style={outlineBtnStyle} disabled={voiding} onClick={handleVoid}>
+                                    <button type="button" style={outlineBtnStyle} disabled={voiding || deleting} onClick={handleVoid}>
                                         {voiding ? t('logs.voiding') : t('logs.voidEntry')}
                                     </button>
+                                    {canDeleteHubJournal(data) ? (
+                                        <button type="button" style={dangerBtnStyle} disabled={deleting || voiding} onClick={handleDelete}>
+                                            <Trash2 size={14} /> {deleting ? t('logs.deleting') : t('logs.btn.delete')}
+                                        </button>
+                                    ) : null}
                                 </div>
                             ) : null}
                         </div>
@@ -369,6 +402,18 @@ export function LogTab({
             onEdit(full);
         } catch (ex) {
             alert(ex?.message || t('logs.err.detail'));
+        }
+    }
+
+    async function handleDeleteRow(e, j) {
+        e.stopPropagation();
+        if (!canDeleteHubJournal(j)) return;
+        if (!confirm(t('logs.confirm.delete'))) return;
+        try {
+            await deleteSupplierJournal(j.id);
+            load();
+        } catch (ex) {
+            alert(ex?.message || t('logs.err.delete'));
         }
     }
 
@@ -523,6 +568,11 @@ export function LogTab({
                                                 {onEdit && j.status !== 'void' && (j.source === 'receipt' || j.source === 'payment' || j.source === 'manual_journal' || j.type === 'Receipt' || j.type === 'Payment') ? (
                                                     <button type="button" style={outlineBtnStyle} onClick={(e) => handleEditRow(e, j.id)}>
                                                         <Pencil size={14} /> {t('logs.btn.edit')}
+                                                    </button>
+                                                ) : null}
+                                                {canDeleteHubJournal(j) ? (
+                                                    <button type="button" style={dangerBtnStyle} onClick={(e) => handleDeleteRow(e, j)}>
+                                                        <Trash2 size={14} /> {t('logs.btn.delete')}
                                                     </button>
                                                 ) : null}
                                             </div>

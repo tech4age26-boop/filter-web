@@ -1,6 +1,8 @@
-import React, { useRef, useState } from 'react';
-import { ImagePlus, Loader2, X } from 'lucide-react';
+import React, { useCallback, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
+import { Camera, ImagePlus, Loader2, Upload, X } from 'lucide-react';
 import { compressExpenseProofFile } from '../../utils/expenseProofImage';
+import { awT } from '../../utils/adminWalletsI18n';
 
 export const EXPENSE_PROOF_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif';
 
@@ -13,14 +15,42 @@ export function readExpenseProofFile(file, { onReady, onError, onBusyChange } = 
         .finally(() => onBusyChange?.(false));
 }
 
+function useProofCopy(tProp) {
+    const outletCtx = useOutletContext() || {};
+    const locale =
+        outletCtx.locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    const fallback = useCallback((key, vars) => awT(locale, key, vars), [locale]);
+    return tProp || fallback;
+}
+
+const sourceBtnStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: '8px 12px',
+    borderRadius: 8,
+    border: '1px solid #CBD5E1',
+    background: '#fff',
+    color: '#0F172A',
+    fontSize: '0.8125rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+};
+
 export default function ExpenseProofPicker({
     preview,
     onChange,
     label = 'Expense proof *',
     id = 'expense-proof',
     disabled = false,
+    t: tProp,
 }) {
-    const inputRef = useRef(null);
+    const t = useProofCopy(tProp);
+    const galleryRef = useRef(null);
+    const cameraRef = useRef(null);
     const [processing, setProcessing] = useState(false);
 
     const handlePick = (e) => {
@@ -35,13 +65,24 @@ export default function ExpenseProofPicker({
     };
 
     const isDisabled = disabled || processing;
+    const openGallery = () => !isDisabled && galleryRef.current?.click();
+    const openCamera = () => !isDisabled && cameraRef.current?.click();
 
     return (
         <div className="form-group form-group-full">
-            <label className="form-label" htmlFor={id}>{label}</label>
+            <label className="form-label" htmlFor={`${id}-gallery`}>{label}</label>
             <input
-                id={id}
-                ref={inputRef}
+                id={`${id}-gallery`}
+                ref={galleryRef}
+                type="file"
+                accept={EXPENSE_PROOF_ACCEPT}
+                style={{ display: 'none' }}
+                disabled={isDisabled}
+                onChange={handlePick}
+            />
+            <input
+                id={`${id}-camera`}
+                ref={cameraRef}
                 type="file"
                 accept={EXPENSE_PROOF_ACCEPT}
                 capture="environment"
@@ -50,21 +91,11 @@ export default function ExpenseProofPicker({
                 onChange={handlePick}
             />
             <div
-                role="button"
-                tabIndex={isDisabled ? -1 : 0}
-                onClick={() => !isDisabled && !preview && inputRef.current?.click()}
-                onKeyDown={(e) => {
-                    if (!isDisabled && !preview && (e.key === 'Enter' || e.key === ' ')) {
-                        e.preventDefault();
-                        inputRef.current?.click();
-                    }
-                }}
                 style={{
                     border: `1.5px dashed ${preview ? '#16a34a' : '#cbd5e1'}`,
                     borderRadius: 10,
                     padding: preview ? 8 : 16,
                     background: preview ? '#fff' : '#FAFBFC',
-                    cursor: isDisabled ? 'wait' : preview ? 'default' : 'pointer',
                     minHeight: preview ? 120 : 88,
                     display: 'flex',
                     alignItems: 'center',
@@ -75,13 +106,13 @@ export default function ExpenseProofPicker({
                 {processing ? (
                     <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
                         <Loader2 size={22} className="spin" style={{ marginBottom: 6 }} />
-                        <div>Optimizing photo…</div>
+                        <div>{t('proof.optimizing')}</div>
                     </div>
                 ) : preview ? (
                     <>
                         <img
                             src={preview}
-                            alt="Expense proof preview"
+                            alt={t('proof.alt')}
                             style={{
                                 maxWidth: '100%',
                                 maxHeight: 160,
@@ -92,11 +123,8 @@ export default function ExpenseProofPicker({
                         {!disabled ? (
                             <button
                                 type="button"
-                                aria-label="Remove proof"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onChange?.(null);
-                                }}
+                                aria-label={t('proof.remove')}
+                                onClick={() => onChange?.(null)}
                                 style={{
                                     position: 'absolute',
                                     top: 8,
@@ -120,13 +148,33 @@ export default function ExpenseProofPicker({
                 ) : (
                     <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.875rem' }}>
                         <ImagePlus size={22} style={{ marginBottom: 6, opacity: 0.7 }} />
-                        <div>Tap to upload receipt or proof photo</div>
+                        <div>{t('proof.pickTitle')}</div>
                         <div style={{ fontSize: '0.75rem', marginTop: 4 }}>
-                            Any phone photo — auto-optimized up to 5 MB
+                            {t('proof.pickHint')}
                         </div>
                     </div>
                 )}
             </div>
+            {!preview && !processing ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                    <button
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={openCamera}
+                        style={sourceBtnStyle}
+                    >
+                        <Camera size={14} /> {t('proof.camera')}
+                    </button>
+                    <button
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={openGallery}
+                        style={sourceBtnStyle}
+                    >
+                        <Upload size={14} /> {t('proof.gallery')}
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
 }

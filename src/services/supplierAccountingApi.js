@@ -96,8 +96,8 @@ export const postSupplierGeneralJournal = (body) =>
         body: JSON.stringify(body),
     });
 
-export const getSupplierHubNextReference = (kind) =>
-    apiFetch(withQuery(`${BASE}/hub/next-reference`, { kind }));
+export const getSupplierHubNextReference = (kind, count) =>
+    apiFetch(withQuery(`${BASE}/hub/next-reference`, { kind, count }));
 
 export const checkSupplierHubReferenceExists = (reference, excludeJournalId) =>
     apiFetch(
@@ -135,6 +135,11 @@ export const updateSupplierJournal = (id, body) =>
 export const voidSupplierJournal = (id) =>
     apiFetch(`${BASE}/journals/${encodeURIComponent(id)}/void`, {
         method: 'PATCH',
+    });
+
+export const deleteSupplierJournal = (id) =>
+    apiFetch(`${BASE}/journals/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
     });
 
 // ---------------------------------------------------------------------------
