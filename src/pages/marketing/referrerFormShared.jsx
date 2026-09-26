@@ -74,6 +74,7 @@ export const InputField = ({
   type = 'text',
   required = false,
   hint = '',
+  disabled = false,
 }) => (
   <div className="mk-ref-form-group">
     <label className="mk-ref-form-label">
@@ -83,9 +84,11 @@ export const InputField = ({
     <input
       type={type}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => onChange?.(e.target.value)}
       placeholder={placeholder}
       className="mk-ref-input"
+      disabled={disabled}
+      readOnly={disabled}
       autoComplete={type === 'password' ? 'new-password' : undefined}
     />
     {hint ? <span className="mk-ref-check-hint">{hint}</span> : null}

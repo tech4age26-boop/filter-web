@@ -96,12 +96,25 @@ export default function ReferrerBenefitRuleFormPage() {
       <div className="mkp-form-page-body" dir={locale === 'ar' ? 'rtl' : undefined}>
         {error ? <div className="mk-error-text">{error}</div> : null}
 
+        <div className="mk-ref-info-banner">
+          <strong>{t('benefitForm.newOnly')}</strong>
+          {' '}
+          {t('benefitForm.newOnlyHint')}
+        </div>
+
         <div className="mk-ref-form-grid">
           <SelectField
             label={t('benefitForm.referrer')}
             value={form.referrer}
             onChange={(value) => setForm((prev) => ({ ...prev, referrer: value }))}
             options={referrerOptions}
+          />
+          <InputField
+            label={t('benefitForm.newOnly')}
+            value={t('benefitForm.newOnlyValue')}
+            required
+            disabled
+            hint={t('benefitForm.newOnlyHint')}
           />
           <SelectField
             label={t('benefitForm.once')}
