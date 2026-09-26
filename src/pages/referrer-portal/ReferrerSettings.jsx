@@ -57,14 +57,14 @@ export default function ReferrerSettings() {
     }, [profile]);
 
     useEffect(() => {
-        if (!shareUrl) {
+        if (!referralCode) {
             setQrSrc('');
             return;
         }
-        QRCode.toDataURL(shareUrl, { width: 168, margin: 1, errorCorrectionLevel: 'M' })
+        QRCode.toDataURL(String(referralCode), { width: 168, margin: 1, errorCorrectionLevel: 'M' })
             .then(setQrSrc)
             .catch(() => setQrSrc(''));
-    }, [shareUrl]);
+    }, [referralCode]);
 
     const selectTab = (id) => {
         setTab(id);
@@ -201,7 +201,7 @@ export default function ReferrerSettings() {
                         <div className="rf-qr-wrap">
                             <img src={qrSrc} alt={rfT(locale, 'set.shareQr')} width={140} height={140} />
                             <p className="rf-muted">
-                                <QrCode size={14} /> {rfT(locale, 'set.shareQr')}
+                                <QrCode size={14} /> {rfT(locale, 'set.qrHint')}
                             </p>
                         </div>
                     ) : null}
@@ -398,6 +398,10 @@ export default function ReferrerSettings() {
                                     <div>
                                         <p className="k">{rfT(locale, 'set.minOrder')}</p>
                                         <p className="v">{Number(benefit.minOrderValue || 0).toFixed(2)} SAR</p>
+                                    </div>
+                                    <div>
+                                        <p className="k">{rfT(locale, 'set.newOnly')}</p>
+                                        <p className="v">{rfT(locale, 'yes')}</p>
                                     </div>
                                     <div>
                                         <p className="k">{rfT(locale, 'set.once')}</p>

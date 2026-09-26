@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Copy, QrCode, Ticket } from 'lucide-react';
 import QRCode from 'qrcode';
 import { apiFetch } from '../services/api';
-import { persistReferralCode, publicReferralSharePath } from '../utils/referralCodeCapture';
+import { persistReferralCode } from '../utils/referralCodeCapture';
 
 export default function PublicReferralLandingPage() {
   const { code: rawCode } = useParams();
@@ -31,18 +31,14 @@ export default function PublicReferralLandingPage() {
 
   const displayCode = info?.referralCode || scanned;
   const valid = info?.found === true;
-  const shareUrl =
-    typeof window !== 'undefined' && displayCode
-      ? `${window.location.origin}${publicReferralSharePath(displayCode)}`
-      : '';
 
   useEffect(() => {
-    if (!shareUrl) {
+    if (!displayCode) {
       setQrSrc('');
       return;
     }
     let cancelled = false;
-    QRCode.toDataURL(shareUrl, { width: 220, margin: 1, errorCorrectionLevel: 'M' })
+    QRCode.toDataURL(String(displayCode), { width: 220, margin: 1, errorCorrectionLevel: 'M' })
       .then((src) => {
         if (!cancelled) setQrSrc(src);
       })
@@ -52,7 +48,7 @@ export default function PublicReferralLandingPage() {
     return () => {
       cancelled = true;
     };
-  }, [shareUrl]);
+  }, [displayCode]);
 
   const copy = async () => {
     if (!displayCode) return;
@@ -88,7 +84,7 @@ export default function PublicReferralLandingPage() {
           <div style={styles.qrWrap}>
             <img src={qrSrc} alt={`QR code for ${displayCode}`} width={180} height={180} />
             <p style={styles.qrHint}>
-              <QrCode size={14} /> Scan to open this referral link
+              <QrCode size={14} /> Scan to read the referral code
             </p>
           </div>
         ) : null}

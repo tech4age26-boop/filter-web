@@ -94,14 +94,15 @@ const MKT_REF_I18N = {
 
     'benefits.title': 'Referral Rules',
     'benefits.subtitle':
-      'What the referred customer gets — discount, once-per-customer, minimum order. Specific referrer rules override global rules.',
+      'What the referred customer gets — new customers only (phone), discount, once-per-customer, minimum order. Specific referrer rules override global rules.',
     'btn.addBenefit': 'Add Referral Rule',
     'benefits.priority': 'Customer benefit:',
     'benefits.priorityBody':
-      ' The person the referrer brings in is the referral. That customer receives this discount. A rule for one referrer overrides the global rule.',
+      ' The person the referrer brings in is the referral. Only new customers (no prior invoices, verified by phone) receive this discount. A rule for one referrer overrides the global rule.',
     'th.scope': 'Applies to',
     'th.discount': 'Discount',
     'th.minOrder': 'Min. order',
+    'th.newOnly': 'New customers only',
     'th.once': 'Once per customer',
     'empty.benefits': 'No referral (customer discount) rules yet.',
     'err.saveBenefit': 'Failed to save referral rule.',
@@ -219,6 +220,10 @@ const MKT_REF_I18N = {
       'Discount for the customer the referrer brings in (the referral).',
     'benefitForm.back': 'Back to Referral Rules',
     'benefitForm.referrer': 'Specific Referrer (optional)',
+    'benefitForm.newOnly': 'New customers only',
+    'benefitForm.newOnlyValue': 'Required — verified by phone number',
+    'benefitForm.newOnlyHint':
+      'Only a customer with no previous invoices at this workshop can use the referral code. We verify that with their phone number.',
     'benefitForm.once': 'Once per customer',
     'benefitForm.onceYes': 'Yes — one discount per customer',
     'benefitForm.onceNo': 'No — can apply more than once',
@@ -452,14 +457,15 @@ const MKT_REF_I18N = {
 
     'benefits.title': 'قواعد الإحالة',
     'benefits.subtitle':
-      'ما يحصل عليه العميل المُحال — خصم، مرة واحدة لكل عميل، حد أدنى للطلب. قاعدة المُحيل المحدد تتجاوز القاعدة العامة.',
+      'ما يحصل عليه العميل المُحال — عملاء جدد فقط (بالهاتف)، خصم، مرة واحدة لكل عميل، حد أدنى للطلب. قاعدة المُحيل المحدد تتجاوز القاعدة العامة.',
     'btn.addBenefit': 'إضافة قاعدة إحالة',
     'benefits.priority': 'منفعة العميل:',
     'benefits.priorityBody':
-      ' العميل الذي يحضره المُحيل هو الإحالة. يحصل ذلك العميل على هذا الخصم. القاعدة الخاصة بمُحيل واحد تتجاوز القاعدة العامة.',
+      ' العميل الذي يحضره المُحيل هو الإحالة. يحصل على هذا الخصم العملاء الجدد فقط (بدون فواتير سابقة، يُتحقق بالهاتف). القاعدة الخاصة بمُحيل واحد تتجاوز القاعدة العامة.',
     'th.scope': 'تُطبَّق على',
     'th.discount': 'الخصم',
     'th.minOrder': 'الحد الأدنى للطلب',
+    'th.newOnly': 'عملاء جدد فقط',
     'th.once': 'مرة لكل عميل',
     'empty.benefits': 'لا توجد قواعد إحالة (خصم العميل) بعد.',
     'err.saveBenefit': 'تعذّر حفظ قاعدة الإحالة.',
@@ -577,6 +583,10 @@ const MKT_REF_I18N = {
       'خصم للعميل الذي يحضره المُحيل (الإحالة).',
     'benefitForm.back': 'العودة إلى قواعد الإحالة',
     'benefitForm.referrer': 'مُحيل محدد (اختياري)',
+    'benefitForm.newOnly': 'عملاء جدد فقط',
+    'benefitForm.newOnlyValue': 'إلزامي — يُتحقق منه برقم الهاتف',
+    'benefitForm.newOnlyHint':
+      'يمكن لعميل جديد فقط استخدام رمز الإحالة: من ليس لديه فواتير سابقة في هذه الورشة. نتحقق من ذلك برقم الهاتف.',
     'benefitForm.once': 'مرة لكل عميل',
     'benefitForm.onceYes': 'نعم — خصم واحد لكل عميل',
     'benefitForm.onceNo': 'لا — يمكن تطبيقه أكثر من مرة',

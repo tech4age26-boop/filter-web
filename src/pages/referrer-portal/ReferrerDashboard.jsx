@@ -149,6 +149,8 @@ export default function ReferrerDashboard() {
                     </p>
                     {benefit ? (
                         <p className="rf-muted">
+                            {rfT(locale, 'set.newOnly')}
+                            {' · '}
                             {rfT(locale, 'set.minOrder')}: {Number(benefit.minOrderValue || 0).toFixed(2)} SAR
                             {benefit.oncePerCustomer ? ` · ${rfT(locale, 'set.once')}` : ''}
                         </p>

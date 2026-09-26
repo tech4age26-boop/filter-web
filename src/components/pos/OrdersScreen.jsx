@@ -5,6 +5,7 @@ import {
     unwrapCashierTechniciansResponse,
 } from '../../utils/cashierTechnicians.util';
 import { apiFetch } from '../../services/api';
+import { extractReferralCodeFromInput } from '../../utils/referralCodeCapture';
 import { resolvePlateDisplay } from '../../utils/formatPlate';
 import { usePOS } from '../../context/POSContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1063,7 +1064,7 @@ export default function OrdersScreen({ onNewOrder, autoSelectOrderId, onAutoSele
                                 ...(String(data.vatNumber || '').trim()
                                     ? { vatNumber: String(data.vatNumber).trim() }
                                     : {}),
-                                referralCode: data.referralCode || undefined,
+                                referralCode: extractReferralCodeFromInput(data.referralCode) || undefined,
                                 vehicleNumber: data.vehicleNumber,
                                 make: data.make,
                                 model: data.model,
