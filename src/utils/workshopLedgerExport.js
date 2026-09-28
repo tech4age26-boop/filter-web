@@ -248,6 +248,8 @@ export function exportWorkshopGlLedgerExcel({
 
     const headingName = header?.partyLabel || header?.companyName || accountLabel;
     const aoa = [
+        ['FILTER · Filter Car Services'],
+        ['Statement of Account / كشف حساب'],
         [headingName || 'FILTER'],
         [accountLabel],
         ['General Ledger Statement'],

@@ -163,7 +163,9 @@ export function parseWorkshopLedgerAccountIdFromPath(pathname) {
 export const WORKSHOP_COA_CONTROL_BADGES = {
     1000: { label: 'Folder', background: '#FEF3C7', color: '#92400E' },
     1010: { label: 'Folder', background: '#FEF3C7', color: '#92400E' },
+    1250: { label: 'Control Account', background: '#FEF3C7', color: '#92400E' },
     1280: { label: 'Folder', background: '#EDE9FE', color: '#5B21B6' },
+    2200: { label: 'Control Account', background: '#FEF3C7', color: '#92400E' },
     6100: { label: 'Folder', background: '#EDE9FE', color: '#5B21B6' },
 };
 

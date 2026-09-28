@@ -208,3 +208,13 @@ export const restoreWorkshopPeriodClose = (id, params = {}) =>
         ),
         { method: 'POST' },
     );
+
+/** Signed +/− COA adjustment vs a user-picked contra account. */
+export const adjustWorkshopCoaAccount = (accountId, body) =>
+    apiFetch(
+        `/workshop-accounting/accounts/${encodeURIComponent(String(accountId))}/adjust`,
+        {
+            method: 'POST',
+            body: JSON.stringify(mergeAccountingScopeBody(body)),
+        },
+    );

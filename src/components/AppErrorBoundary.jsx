@@ -24,7 +24,7 @@ export function SectionErrorBoundary({ children, resetKey }) {
 export default class AppErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
-        this.state = { error: null };
+        this.state = { error: null, componentStack: '' };
     }
 
     static getDerivedStateFromError(error) {
@@ -33,11 +33,12 @@ export default class AppErrorBoundary extends React.Component {
 
     componentDidUpdate(prevProps) {
         if (this.state.error && this.props.resetKey !== prevProps.resetKey) {
-            this.setState({ error: null });
+            this.setState({ error: null, componentStack: '' });
         }
     }
 
     componentDidCatch(error, info) {
+        this.setState({ componentStack: info?.componentStack || '' });
         console.error('[AppErrorBoundary]', error, info);
         // Stale lazy chunk after a deploy: reload once to pull the fresh files.
         // reloadOnceForStaleChunk is loop-safe (only one reload per session), so
@@ -94,6 +95,9 @@ export default class AppErrorBoundary extends React.Component {
                         }}
                         >
                             {String(this.state.error?.message || this.state.error)}
+                            {isDev && this.state.componentStack
+                                ? `\n${this.state.componentStack}`
+                                : ''}
                         </pre>
                         <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                         <button

@@ -7,7 +7,10 @@ import {
     listAvailableAffiliatedSuppliers,
     addAffiliatedSuppliers,
     updateAffiliatedSupplier,
+    adjustAffiliatedSupplier,
 } from '../../services/workshopSuppliersApi';
+import { listCoaAccounts } from '../../services/workshopAccountingApi';
+import WorkshopCoaAdjustModal from '../../components/accounting/WorkshopCoaAdjustModal';
 import { useAuth } from '../../context/AuthContext';
 import { wasT } from '../../utils/workshopAffiliatedSuppliersI18n';
 
@@ -390,6 +393,10 @@ export default function WorkshopAffiliatedSuppliers({
     const [showAdd, setShowAdd] = useState(false);
     const [savingAdd, setSavingAdd] = useState(false);
     const [error, setError] = useState('');
+    const [adjustTarget, setAdjustTarget] = useState(null);
+    const [adjustAccounts, setAdjustAccounts] = useState([]);
+    const [adjustError, setAdjustError] = useState('');
+    const [adjustSubmitting, setAdjustSubmitting] = useState(false);
     const dash = t('emdash');
 
     const loadList = useCallback(async () => {
@@ -422,6 +429,50 @@ export default function WorkshopAffiliatedSuppliers({
             await loadList();
         } finally {
             setSavingAdd(false);
+        }
+    };
+
+    const openAdjust = async (row) => {
+        setAdjustError('');
+        setAdjustTarget(row);
+        try {
+            const res = await listCoaAccounts('all');
+            setAdjustAccounts(Array.isArray(res?.accounts) ? res.accounts : []);
+        } catch {
+            setAdjustAccounts([]);
+        }
+    };
+
+    const handleAdjust = async ({ amount, entryDate, contraAccountId, reason }) => {
+        if (!adjustTarget?.supplierId) return;
+        const delta = Number(amount);
+        if (!Number.isFinite(delta) || delta === 0) {
+            setAdjustError(t('coa.adjust.err.amount'));
+            return;
+        }
+        if (!contraAccountId) {
+            setAdjustError(t('coa.adjust.err.contra'));
+            return;
+        }
+        if (!String(reason || '').trim()) {
+            setAdjustError(t('coa.adjust.err.reason'));
+            return;
+        }
+        setAdjustSubmitting(true);
+        setAdjustError('');
+        try {
+            await adjustAffiliatedSupplier(adjustTarget.supplierId, {
+                amount: delta,
+                contraAccountId,
+                entryDate,
+                reason: String(reason).trim(),
+            });
+            setAdjustTarget(null);
+            await loadList();
+        } catch (e) {
+            setAdjustError(e?.message || t('coa.adjust.err.failed'));
+        } finally {
+            setAdjustSubmitting(false);
         }
     };
 
@@ -528,20 +579,31 @@ export default function WorkshopAffiliatedSuppliers({
                                         </label>
                                     </td>
                                     <td style={{ padding: 12 }}>
-                                        <button
-                                            type="button"
-                                            className="btn-portal-outline ws-suppliers-ledger-btn"
-                                            onClick={() =>
-                                                onTabChange?.('supplier-ledger', {
-                                                    type: 'affiliated',
-                                                    id: r.supplierId,
-                                                    name: r.supplierName,
-                                                })
-                                            }
-                                        >
-                                            <FileText size={12} />
-                                            {t('btn.openLedger')}
-                                        </button>
+                                        <div className="ws-suppliers-row-actions">
+                                            <button
+                                                type="button"
+                                                className="btn-portal-outline ws-suppliers-ledger-btn"
+                                                onClick={() =>
+                                                    onTabChange?.('supplier-ledger', {
+                                                        type: 'affiliated',
+                                                        id: r.supplierId,
+                                                        name: r.supplierName,
+                                                    })
+                                                }
+                                            >
+                                                <FileText size={12} />
+                                                {t('btn.openLedger')}
+                                            </button>
+                                            {canEdit ? (
+                                                <button
+                                                    type="button"
+                                                    className="btn-portal-outline ws-suppliers-ledger-btn"
+                                                    onClick={() => openAdjust(r)}
+                                                >
+                                                    {t('btn.adjust')}
+                                                </button>
+                                            ) : null}
+                                        </div>
                                     </td>
                                 </tr>
                             ))
@@ -554,6 +616,23 @@ export default function WorkshopAffiliatedSuppliers({
             {error && (
                 <p className="ws-suppliers-error">{error}</p>
             )}
+
+            {adjustTarget ? (
+                <WorkshopCoaAdjustModal
+                    title={`${t('coa.adjust.title')} — ${adjustTarget.supplierName}`}
+                    currentBalance={Number(adjustTarget.finalBalance || 0)}
+                    accounts={adjustAccounts}
+                    t={t}
+                    submitting={adjustSubmitting}
+                    error={adjustError}
+                    onClose={() => {
+                        if (adjustSubmitting) return;
+                        setAdjustTarget(null);
+                        setAdjustError('');
+                    }}
+                    onSubmit={handleAdjust}
+                />
+            ) : null}
 
             {showAdd && (
                 <AddAffiliatedSupplierModal

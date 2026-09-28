@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "server": "npm run start --prefix server",
-    "build": "vite build",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "build": "node scripts/check-i18n.mjs && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

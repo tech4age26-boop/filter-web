@@ -82,6 +82,34 @@ export function mergePayeeDefaultAccountOptions(accountOptions, extraPayees) {
     return opts;
 }
 
+/**
+ * Cash/bank + COA visibility for the payment/receipt branch header.
+ * Selected branch → that branch's registers/accounts + workshop-wide (null branch).
+ * All branches → everything.
+ */
+export function filterAccountsForBranch(list, branchId) {
+    const bid = String(branchId || '').trim();
+    if (!bid) return Array.isArray(list) ? list : [];
+    return (list || []).filter((a) => {
+        const aBranch = a?.branchId != null && String(a.branchId).trim() !== ''
+            ? String(a.branchId)
+            : '';
+        return !aBranch || aBranch === bid;
+    });
+}
+
+/** Payees already typed; optionally keep only this branch (+ workshop-wide). */
+export function filterPayeesForBranch(list, branchId) {
+    const bid = String(branchId || '').trim();
+    if (!bid) return Array.isArray(list) ? list : [];
+    return (list || []).filter((p) => {
+        const pBranch = p?.branchId != null && String(p.branchId).trim() !== ''
+            ? String(p.branchId)
+            : '';
+        return !pBranch || pBranch === bid;
+    });
+}
+
 export const blankPaymentRow = (i, voucher) => ({
     id: `p-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
     voucher: voucher ?? `PE${String(i + 1).padStart(4, '0')}`,

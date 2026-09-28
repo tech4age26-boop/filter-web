@@ -499,10 +499,20 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             const res = await getAccountLedger(accountId, {
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
-                limit: 10000,
+                limit: 100000,
             });
             setLedger(res);
             setPage(1);
+            if (res?.truncated) {
+                setError(
+                    t('ledger.truncated', {
+                        returned: res.returnedLines ?? res.lines?.length ?? 0,
+                        total: res.totalLines ?? 0,
+                        defaultValue:
+                            `Showing ${res.returnedLines ?? 0} of ${res.totalLines ?? 0} lines — narrow the date range to see the rest.`,
+                    }),
+                );
+            }
 
             if (corpParty.startsWith(CORP_PREFIX)) {
                 const corpId = corpParty.slice(CORP_PREFIX.length);
@@ -895,7 +905,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                     lines: corpLedgerRaw.lines ?? [],
                 });
             } else if (isApSupplierView && apLedgerRaw) {
-                exportSupplierLedgerPdf(buildApExportPayload());
+                await exportSupplierLedgerPdf(buildApExportPayload());
             } else {
                 await exportWorkshopGlLedgerPdf({
                     header: exportHeader,

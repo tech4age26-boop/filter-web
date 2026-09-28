@@ -298,6 +298,8 @@ export function exportCashBankRegisterExcel({ header, summary, lines }) {
     const exportRows = buildExportRows(lines);
 
     const aoa = [
+        ['FILTER · Filter Car Services'],
+        ['Statement of Account / كشف حساب'],
         [company],
         [registerTitle],
         ['Cash & Bank Register Statement'],

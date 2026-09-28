@@ -92,3 +92,15 @@ export const getSupplierLedger = (type, id, params = {}) =>
             params,
         ),
     );
+
+export const adjustLocalSupplier = (id, body) =>
+    apiFetch(`/workshop-suppliers/local/${encodeURIComponent(String(id))}/adjust`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
+
+export const adjustAffiliatedSupplier = (id, body) =>
+    apiFetch(`/workshop-suppliers/affiliated/${encodeURIComponent(String(id))}/adjust`, {
+        method: 'POST',
+        body: JSON.stringify(body ?? {}),
+    });
