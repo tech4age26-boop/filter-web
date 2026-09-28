@@ -857,6 +857,7 @@ export const ReferrerManagement = () => {
               <th>{t('th.scope')}</th>
               <th>{t('th.discount')}</th>
               <th>{t('th.minOrder')}</th>
+              <th>{t('th.newOnly')}</th>
               <th>{t('th.once')}</th>
               <th>{t('th.status')}</th>
               <th>{t('th.actions')}</th>
@@ -865,7 +866,7 @@ export const ReferrerManagement = () => {
           <tbody>
             {benefitRules.length === 0 ? (
               <tr>
-                <td colSpan="6" className="mk-ref-empty-table">
+                <td colSpan="7" className="mk-ref-empty-table">
                   {t('empty.benefits')}
                 </td>
               </tr>
@@ -877,6 +878,7 @@ export const ReferrerManagement = () => {
                   </td>
                   <td>{moneyKindLabel(locale, item.discountType, item.discountValue)}</td>
                   <td>{formatSar(item.minOrderValue)}</td>
+                  <td>{t('yes')}</td>
                   <td>{item.oncePerCustomer ? t('yes') : t('no')}</td>
                   <td>
                     <span className={`mk-ref-status-badge ${item.isActive ? 'active' : 'inactive'}`}>

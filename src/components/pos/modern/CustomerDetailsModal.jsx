@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Phone, Mail, Car, X, Check, Hash, Activity, ShieldCheck, Ticket } from 'lucide-react';
-import { getStoredReferralCode } from '../../../utils/referralCodeCapture';
+import { extractReferralCodeFromInput, getStoredReferralCode } from '../../../utils/referralCodeCapture';
 
 const buildFormData = (initialData = {}, vehicleInfo = {}) => ({
     name: initialData.name || '',
@@ -115,7 +115,7 @@ export default function CustomerDetailsModal({ isOpen, onClose, onSave, initialD
                                     type="text"
                                     placeholder="e.g. TAHA-218U"
                                     value={formData.referralCode}
-                                    onChange={(e) => setFormData({ ...formData, referralCode: e.target.value })}
+                                    onChange={(e) => setFormData({ ...formData, referralCode: extractReferralCodeFromInput(e.target.value) })}
                                 />
                             </div>
                         </div>
