@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Camera, Plus, Search, Edit2, Trash2, X, Eye,
-  Video, Radio, Car, Clock, CheckCircle, AlertTriangle,
+  Camera, Plus, Search, Edit2, Trash2, X,
+  Video, Radio, Car,
   ChevronRight, RefreshCw, Building, Layers,
 } from 'lucide-react';
 import {
   listCameras, createCamera, updateCamera, deleteCamera,
   listAiOrders, listStaffVehicles, createStaffVehicle, deleteStaffVehicle,
 } from '../../services/aiCameraApi';
+import {
+  getWorkshopOptions,
+  getBranches,
+  getDepartments,
+} from '../../services/superAdminApi';
+import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import '../../components/SearchableEntityCombobox.css';
 
 const STATUS_COLORS = {
   VEHICLE_ENTERED: { bg: '#FFF3CD', color: '#856404', label: 'Vehicle Entered' },
@@ -29,12 +36,158 @@ const TABS = [
 // ────────────────────────────────────────────────────────────────
 const CameraFormModal = ({ isOpen, onClose, onSave, camera }) => {
   const [form, setForm] = useState({
-    workshopId: '', branchId: '', name: '', cameraType: 'ENTRANCE',
-    departmentId: '', streamUrl: '', deviceId: '', isActive: true,
+    workshopId: '',
+    branchId: '',
+    name: '',
+    cameraType: 'ENTRANCE',
+    departmentId: '',
+    streamUrl: '',
+    deviceId: '',
+    isActive: true,
   });
   const [saving, setSaving] = useState(false);
 
+  const [workshops, setWorkshops] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [loadingWorkshops, setLoadingWorkshops] = useState(false);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [loadingDepartments, setLoadingDepartments] = useState(false);
+
+  const [workshopDisplay, setWorkshopDisplay] = useState('');
+  const [branchDisplay, setBranchDisplay] = useState('');
+  const [typeDisplay, setTypeDisplay] = useState('');
+
+  // Type key: "ENTRANCE" or "DEPT:{id}"
+  const typeKey = form.cameraType === 'ENTRANCE'
+    ? 'ENTRANCE'
+    : form.departmentId
+      ? `DEPT:${form.departmentId}`
+      : '';
+
+  const workshopOptions = useMemo(
+    () => workshops.map((w) => ({ id: String(w.id), label: w.name || `Workshop ${w.id}` })),
+    [workshops],
+  );
+
+  const branchOptions = useMemo(
+    () => branches.map((b) => ({ id: String(b.id), label: b.name || `Branch ${b.id}` })),
+    [branches],
+  );
+
+  const typeOptions = useMemo(() => {
+    const opts = [{ id: 'ENTRANCE', label: 'Entrance' }];
+    departments.forEach((d) => {
+      opts.push({
+        id: `DEPT:${d.id}`,
+        label: d.name || `Department ${d.id}`,
+      });
+    });
+    return opts;
+  }, [departments]);
+
+  // Load workshops + departments when modal opens
   useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoadingWorkshops(true);
+      try {
+        const res = await getWorkshopOptions();
+        const list = Array.isArray(res?.workshops)
+          ? res.workshops
+          : Array.isArray(res?.data?.workshops)
+            ? res.data.workshops
+            : Array.isArray(res)
+              ? res
+              : [];
+        if (!cancelled) {
+          setWorkshops(
+            list.map((w) => ({
+              id: String(w.id),
+              name: String(w.name || '').trim() || 'Workshop',
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setWorkshops([]);
+      } finally {
+        if (!cancelled) setLoadingWorkshops(false);
+      }
+    })();
+
+    (async () => {
+      setLoadingDepartments(true);
+      try {
+        const res = await getDepartments();
+        const list = Array.isArray(res?.departments)
+          ? res.departments
+          : Array.isArray(res)
+            ? res
+            : [];
+        if (!cancelled) {
+          setDepartments(
+            list
+              .filter((d) => d && (d.isActive !== false))
+              .map((d) => ({
+                id: String(d.id),
+                name: String(d.name || '').trim() || `Department ${d.id}`,
+              })),
+          );
+        }
+      } catch {
+        if (!cancelled) setDepartments([]);
+      } finally {
+        if (!cancelled) setLoadingDepartments(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  // Load branches when workshop changes
+  useEffect(() => {
+    if (!isOpen || !form.workshopId) {
+      setBranches([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingBranches(true);
+      try {
+        const res = await getBranches({ workshopId: form.workshopId });
+        const list = Array.isArray(res?.branches)
+          ? res.branches
+          : Array.isArray(res?.data?.branches)
+            ? res.data.branches
+            : Array.isArray(res)
+              ? res
+              : [];
+        if (!cancelled) {
+          setBranches(
+            list.map((b) => ({
+              id: String(b.id),
+              name: String(b.name || '').trim() || 'Branch',
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setBranches([]);
+      } finally {
+        if (!cancelled) setLoadingBranches(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, form.workshopId]);
+
+  // Reset / hydrate form when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
     if (camera) {
       setForm({
         workshopId: String(camera.workshopId ?? ''),
@@ -46,18 +199,71 @@ const CameraFormModal = ({ isOpen, onClose, onSave, camera }) => {
         deviceId: camera.deviceId || '',
         isActive: camera.isActive ?? true,
       });
+      setWorkshopDisplay('');
+      setBranchDisplay('');
+      setTypeDisplay('');
     } else {
-      setForm({ workshopId: '', branchId: '', name: '', cameraType: 'ENTRANCE', departmentId: '', streamUrl: '', deviceId: '', isActive: true });
+      setForm({
+        workshopId: '',
+        branchId: '',
+        name: '',
+        cameraType: 'ENTRANCE',
+        departmentId: '',
+        streamUrl: '',
+        deviceId: '',
+        isActive: true,
+      });
+      setWorkshopDisplay('');
+      setBranchDisplay('');
+      setTypeDisplay('');
     }
   }, [camera, isOpen]);
 
   if (!isOpen) return null;
 
+  const handleTypeSelect = (opt) => {
+    const id = String(opt?.id || '');
+    setTypeDisplay('');
+    if (id === 'ENTRANCE') {
+      setForm((f) => ({ ...f, cameraType: 'ENTRANCE', departmentId: '' }));
+      return;
+    }
+    if (id.startsWith('DEPT:')) {
+      const deptId = id.slice(5);
+      setForm((f) => ({
+        ...f,
+        cameraType: 'SERVICE_BAY',
+        departmentId: deptId,
+      }));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!form.workshopId) {
+      alert('Please select a workshop');
+      return;
+    }
+    if (!form.branchId) {
+      alert('Please select a branch');
+      return;
+    }
+    if (form.cameraType === 'SERVICE_BAY' && !form.departmentId) {
+      alert('Please select a department (service bay)');
+      return;
+    }
     setSaving(true);
     try {
-      await onSave(form);
+      await onSave({
+        workshopId: form.workshopId,
+        branchId: form.branchId,
+        name: form.name,
+        cameraType: form.cameraType,
+        departmentId: form.cameraType === 'SERVICE_BAY' ? form.departmentId : undefined,
+        streamUrl: form.streamUrl || undefined,
+        deviceId: form.deviceId || undefined,
+        isActive: form.isActive,
+      });
       onClose();
     } catch (err) {
       alert(err.message);
@@ -73,62 +279,115 @@ const CameraFormModal = ({ isOpen, onClose, onSave, camera }) => {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="modal-content"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 520 }}
       >
         <div className="modal-header-content">
           <h3>{camera ? 'Edit Camera' : 'Add Camera'}</h3>
-          <button className="close-btn" onClick={onClose}><X size={20} /></button>
+          <button type="button" className="close-btn" onClick={onClose}><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body-content" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group">
-                <label className="form-label">Workshop ID *</label>
-                <input className="form-input-field" value={form.workshopId}
-                  onChange={e => setForm(f => ({ ...f, workshopId: e.target.value }))} required />
+                <label className="form-label">Workshop *</label>
+                <SearchableEntityCombobox
+                  options={workshopOptions}
+                  value={form.workshopId}
+                  displayText={workshopDisplay}
+                  onDisplayTextChange={setWorkshopDisplay}
+                  onSelect={(opt) => {
+                    setForm((f) => ({
+                      ...f,
+                      workshopId: String(opt?.id || ''),
+                      branchId: '',
+                    }));
+                    setWorkshopDisplay('');
+                    setBranchDisplay('');
+                  }}
+                  placeholder="Search workshop…"
+                  entityLabel="workshop"
+                  loading={loadingWorkshops}
+                  required
+                  menuMinWidth={240}
+                />
               </div>
               <div className="form-group">
-                <label className="form-label">Branch ID *</label>
-                <input className="form-input-field" value={form.branchId}
-                  onChange={e => setForm(f => ({ ...f, branchId: e.target.value }))} required />
+                <label className="form-label">Branch *</label>
+                <SearchableEntityCombobox
+                  options={branchOptions}
+                  value={form.branchId}
+                  displayText={branchDisplay}
+                  onDisplayTextChange={setBranchDisplay}
+                  onSelect={(opt) => {
+                    setForm((f) => ({ ...f, branchId: String(opt?.id || '') }));
+                    setBranchDisplay('');
+                  }}
+                  placeholder={form.workshopId ? 'Search branch…' : 'Select workshop first'}
+                  entityLabel="branch"
+                  loading={loadingBranches}
+                  disabled={!form.workshopId}
+                  required
+                  menuMinWidth={240}
+                />
               </div>
             </div>
+
             <div className="form-group">
               <label className="form-label">Camera Name *</label>
-              <input className="form-input-field" placeholder="e.g. Gate A Entrance Camera" value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+              <input
+                className="form-input-field"
+                placeholder="e.g. Gate A Entrance Camera"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="form-group">
-                <label className="form-label">Type *</label>
-                <select className="form-input-field" value={form.cameraType}
-                  onChange={e => setForm(f => ({ ...f, cameraType: e.target.value }))}>
-                  <option value="ENTRANCE">Entrance</option>
-                  <option value="SERVICE_BAY">Service Bay</option>
-                </select>
-              </div>
-              {form.cameraType === 'SERVICE_BAY' && (
-                <div className="form-group">
-                  <label className="form-label">Department ID *</label>
-                  <input className="form-input-field" value={form.departmentId}
-                    onChange={e => setForm(f => ({ ...f, departmentId: e.target.value }))} required />
-                </div>
-              )}
+
+            <div className="form-group">
+              <label className="form-label">Type *</label>
+              <SearchableEntityCombobox
+                options={typeOptions}
+                value={typeKey}
+                displayText={typeDisplay}
+                onDisplayTextChange={setTypeDisplay}
+                onSelect={handleTypeSelect}
+                placeholder="Entrance or search department…"
+                entityLabel="type"
+                loading={loadingDepartments}
+                required
+                menuMinWidth={280}
+                emptyHint="No departments found"
+              />
+              <p style={{ margin: '6px 0 0', fontSize: 11, color: '#6C757D' }}>
+                Choose <strong>Entrance</strong> for gate cameras, or a <strong>department</strong> for service-bay cameras.
+              </p>
             </div>
+
             <div className="form-group">
               <label className="form-label">Device ID (Pi camera-id)</label>
-              <input className="form-input-field" placeholder="e.g. PI-001-CAM-A" value={form.deviceId}
-                onChange={e => setForm(f => ({ ...f, deviceId: e.target.value }))} />
+              <input
+                className="form-input-field"
+                placeholder="e.g. PI-001-CAM-A"
+                value={form.deviceId}
+                onChange={(e) => setForm((f) => ({ ...f, deviceId: e.target.value }))}
+              />
             </div>
             <div className="form-group">
               <label className="form-label">Stream URL</label>
-              <input className="form-input-field" placeholder="rtsp://admin:pass@192.168.1.10:554/stream1" value={form.streamUrl}
-                onChange={e => setForm(f => ({ ...f, streamUrl: e.target.value }))} />
+              <input
+                className="form-input-field"
+                placeholder="rtsp://admin:pass@192.168.1.10:554/stream1"
+                value={form.streamUrl}
+                onChange={(e) => setForm((f) => ({ ...f, streamUrl: e.target.value }))}
+              />
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.isActive}
-                onChange={e => setForm(f => ({ ...f, isActive: e.target.checked }))} />
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+              />
               <span style={{ fontSize: 13, fontWeight: 600 }}>Active</span>
             </label>
           </div>
@@ -238,6 +497,9 @@ export default function AiCameraPage() {
   // Staff vehicle form
   const [svForm, setSvForm] = useState({ workshopId: '', plateNumber: '', staffName: '' });
   const [svFormOpen, setSvFormOpen] = useState(false);
+  const [svWorkshopDisplay, setSvWorkshopDisplay] = useState('');
+  const [svWorkshops, setSvWorkshops] = useState([]);
+  const [svWorkshopsLoading, setSvWorkshopsLoading] = useState(false);
 
   // Order filters
   const [orderPage, setOrderPage] = useState(1);
@@ -276,6 +538,37 @@ export default function AiCameraPage() {
     if (tab === 'staff-vehicles') loadStaffVehicles();
   }, [tab, loadCameras, loadOrders, loadStaffVehicles]);
 
+  useEffect(() => {
+    if (!svFormOpen) return;
+    let cancelled = false;
+    (async () => {
+      setSvWorkshopsLoading(true);
+      try {
+        const res = await getWorkshopOptions();
+        const list = Array.isArray(res?.workshops)
+          ? res.workshops
+          : Array.isArray(res?.data?.workshops)
+            ? res.data.workshops
+            : Array.isArray(res)
+              ? res
+              : [];
+        if (!cancelled) {
+          setSvWorkshops(
+            list.map((w) => ({
+              id: String(w.id),
+              label: String(w.name || '').trim() || `Workshop ${w.id}`,
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setSvWorkshops([]);
+      } finally {
+        if (!cancelled) setSvWorkshopsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [svFormOpen]);
+
   const handleSaveCamera = async (form) => {
     if (editCamera) {
       await updateCamera(String(editCamera.id), form);
@@ -293,10 +586,15 @@ export default function AiCameraPage() {
 
   const handleAddStaffVehicle = async (e) => {
     e.preventDefault();
+    if (!svForm.workshopId) {
+      alert('Please select a workshop');
+      return;
+    }
     try {
       await createStaffVehicle(svForm);
       setSvFormOpen(false);
       setSvForm({ workshopId: '', plateNumber: '', staffName: '' });
+      setSvWorkshopDisplay('');
       loadStaffVehicles();
     } catch (err) { alert(err.message); }
   };
@@ -562,10 +860,23 @@ export default function AiCameraPage() {
           {svFormOpen && (
             <div style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
               <form onSubmit={handleAddStaffVehicle} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <div className="form-group" style={{ flex: 1, minWidth: 100 }}>
-                  <label className="form-label">Workshop ID *</label>
-                  <input className="form-input-field" value={svForm.workshopId}
-                    onChange={e => setSvForm(f => ({ ...f, workshopId: e.target.value }))} required />
+                <div className="form-group" style={{ flex: 1, minWidth: 180 }}>
+                  <label className="form-label">Workshop *</label>
+                  <SearchableEntityCombobox
+                    options={svWorkshops}
+                    value={svForm.workshopId}
+                    displayText={svWorkshopDisplay}
+                    onDisplayTextChange={setSvWorkshopDisplay}
+                    onSelect={(opt) => {
+                      setSvForm((f) => ({ ...f, workshopId: String(opt?.id || '') }));
+                      setSvWorkshopDisplay('');
+                    }}
+                    placeholder="Search workshop…"
+                    entityLabel="workshop"
+                    loading={svWorkshopsLoading}
+                    required
+                    menuMinWidth={220}
+                  />
                 </div>
                 <div className="form-group" style={{ flex: 1, minWidth: 120 }}>
                   <label className="form-label">Plate Number *</label>
