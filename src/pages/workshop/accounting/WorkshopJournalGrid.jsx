@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { createJournalEntry as createAcctJournalEntry, updateJournalEntry as updateAcctJournalEntry } from '../../../services/workshopAccountingApi';
+import {
+    createJournalEntry as createAcctJournalEntry,
+    listCoaAccounts as listAcctCoa,
+    listPayees as listAcctPayees,
+    updateJournalEntry as updateAcctJournalEntry,
+} from '../../../services/workshopAccountingApi';
 import {
     AcctError,
     Field,
@@ -9,7 +14,12 @@ import {
     primaryBtnStyle,
 } from '../../supplier/accounting/SupplierAccountingShared';
 import SupplierAccountingCombobox from '../../supplier/accounting/SupplierAccountingCombobox';
-import { blankJournalRow, todayIsoDate } from './workshopAccountingShared';
+import {
+    blankJournalRow,
+    filterAccountsForBranch,
+    filterPayeesForBranch,
+    todayIsoDate,
+} from './workshopAccountingShared';
 import { ALL_COMBO, accountComboLabel, fmtDateYmd, moneySar } from './workshopTransactionUi';
 import { ledgerRowDescriptionAndReference } from '../../../utils/accountLedgerStatementUtils';
 import {
@@ -20,10 +30,21 @@ import {
     payeeIdFromJournalLine,
     payeeTypeForKind,
 } from './workshopControlAccounts';
+import { commitMathFieldValue } from '../../../utils/evalMathExpression';
+
+const EMPTY_ACCOUNTS = [];
+const EMPTY_PAYEES = { supplier: [], employee: [], customer: [] };
+
+/** Keep options already referenced by rows (edit mode) even if outside the branch scope. */
+function withReferenced(scoped, full, ids) {
+    const have = new Set(scoped.map((o) => String(o.id)));
+    const extra = full.filter((o) => ids.has(String(o.id)) && !have.has(String(o.id)));
+    return extra.length ? [...scoped, ...extra] : scoped;
+}
 
 export default function WorkshopJournalGrid({
-    accounts = [],
-    payees = { supplier: [], employee: [], customer: [] },
+    accounts: allAccounts = EMPTY_ACCOUNTS,
+    payees: allPayees = EMPTY_PAYEES,
     branches = [],
     defaultBranchId = '',
     isAdminHqBooks = false,
@@ -42,6 +63,90 @@ export default function WorkshopJournalGrid({
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
     const [okMsg, setOkMsg] = useState('');
+    const [branchLookups, setBranchLookups] = useState(null);
+
+    // Selected branch → that branch's accounts / parties (+ workshop-wide). All = full lists.
+    useEffect(() => {
+        if (isAdminHqBooks || !headerBranchId) {
+            setBranchLookups(null);
+            return undefined;
+        }
+        let cancelled = false;
+        const params = { branchId: headerBranchId };
+        setBranchLookups({
+            branchId: headerBranchId,
+            accounts: filterAccountsForBranch(allAccounts, headerBranchId),
+            payees: {
+                supplier: filterPayeesForBranch(allPayees?.supplier, headerBranchId),
+                employee: filterPayeesForBranch(allPayees?.employee, headerBranchId),
+                customer: filterPayeesForBranch(allPayees?.customer, headerBranchId),
+            },
+        });
+        (async () => {
+            try {
+                const [coa, sup, emp, cust] = await Promise.all([
+                    listAcctCoa('all', params),
+                    listAcctPayees('supplier', params),
+                    listAcctPayees('employee', params),
+                    listAcctPayees('customer', params),
+                ]);
+                if (cancelled) return;
+                setBranchLookups({
+                    branchId: headerBranchId,
+                    accounts: coa?.accounts ?? [],
+                    payees: {
+                        supplier: filterPayeesForBranch(sup?.payees ?? [], headerBranchId),
+                        employee: filterPayeesForBranch(emp?.payees ?? [], headerBranchId),
+                        customer: filterPayeesForBranch(cust?.payees ?? [], headerBranchId),
+                    },
+                });
+            } catch {
+                /* keep the client-side filtered fallback */
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [headerBranchId, isAdminHqBooks, allAccounts, allPayees]);
+
+    const accounts = useMemo(() => {
+        const scoped = branchLookups?.accounts ?? allAccounts;
+        const ids = new Set(rows.map((r) => String(r.accountId || '')).filter(Boolean));
+        return withReferenced(scoped, allAccounts, ids);
+    }, [branchLookups, allAccounts, rows]);
+
+    const payees = useMemo(() => {
+        const scoped = branchLookups?.payees ?? allPayees;
+        const ids = new Set(rows.map((r) => String(r.payeeId || '')).filter(Boolean));
+        return {
+            supplier: withReferenced(scoped.supplier || [], allPayees?.supplier || [], ids),
+            employee: withReferenced(scoped.employee || [], allPayees?.employee || [], ids),
+            customer: withReferenced(scoped.customer || [], allPayees?.customer || [], ids),
+        };
+    }, [branchLookups, allPayees, rows]);
+
+    // Branch changed on a new entry: clear lines that belong to another branch.
+    useEffect(() => {
+        if (editEntry?.id || !branchLookups?.branchId) return;
+        const okAccounts = new Set(branchLookups.accounts.map((a) => String(a.id)));
+        const okPayees = new Set(
+            [...branchLookups.payees.supplier, ...branchLookups.payees.employee, ...branchLookups.payees.customer]
+                .map((p) => String(p.id)),
+        );
+        setRows((prev) => {
+            let changed = false;
+            const next = prev.map((r) => {
+                if (r.accountId && !okAccounts.has(String(r.accountId))) {
+                    changed = true;
+                    return { ...r, accountId: '', payeeId: '' };
+                }
+                if (r.payeeId && !okPayees.has(String(r.payeeId))) {
+                    changed = true;
+                    return { ...r, payeeId: '' };
+                }
+                return r;
+            });
+            return changed ? next : prev;
+        });
+    }, [branchLookups, editEntry?.id]);
 
     useEffect(() => {
         if (!editEntry?.id) return;
@@ -112,23 +217,34 @@ export default function WorkshopJournalGrid({
         e.preventDefault();
         setErr('');
         setOkMsg('');
-        const lines = rows.filter((r) => r.accountId && (Number(r.debit) > 0 || Number(r.credit) > 0));
+        // Resolve any pending math expressions before totals / validation.
+        const resolvedRows = rows.map((r) => ({
+            ...r,
+            debit: commitMathFieldValue(r.debit),
+            credit: commitMathFieldValue(r.credit),
+        }));
+        setRows(resolvedRows);
+        const lines = resolvedRows.filter((r) => r.accountId && (Number(r.debit) > 0 || Number(r.credit) > 0));
         if (lines.length < 2) {
             setErr(t('tx.err.jeLines'));
             return;
         }
         const missingParty = lines.find((l) => {
-            const kind = controlKind(accountById(accounts, l.accountId));
+            const kind = controlKind(accountById(accounts, l.accountId), accounts);
             return kind && !String(l.payeeId || '').trim();
         });
         if (missingParty) {
             setErr(t('tx.je.needParty'));
             return;
         }
-        if (!totals.canPost) {
+        const debit = resolvedRows.reduce((sum, row) => sum + (parseFloat(row.debit) || 0), 0);
+        const credit = resolvedRows.reduce((sum, row) => sum + (parseFloat(row.credit) || 0), 0);
+        const isBalanced = Math.abs(debit - credit) < 0.005;
+        const canPost = isBalanced && debit > 0;
+        if (!canPost) {
             setErr(t('tx.err.jeBalance', {
-                debit: totals.debit.toFixed(2),
-                credit: totals.credit.toFixed(2),
+                debit: debit.toFixed(2),
+                credit: credit.toFixed(2),
             }));
             return;
         }
@@ -145,7 +261,7 @@ export default function WorkshopJournalGrid({
                     debit: Number(l.debit) || 0,
                     credit: Number(l.credit) || 0,
                     ...partyPayloadFromKind(
-                        controlKind(accountById(accounts, l.accountId)),
+                        controlKind(accountById(accounts, l.accountId), accounts),
                         l.payeeId,
                     ),
                 })),
@@ -167,8 +283,8 @@ export default function WorkshopJournalGrid({
             setHeaderRef('');
             setOkMsg(t('tx.ok.journal', {
                 code: res?.entry?.entryNumber || t('tx.tab.journal'),
-                dr: res?.entry?.totalDebit?.toFixed?.(2) ?? totals.debit.toFixed(2),
-                cr: res?.entry?.totalCredit?.toFixed?.(2) ?? totals.credit.toFixed(2),
+                dr: res?.entry?.totalDebit?.toFixed?.(2) ?? debit.toFixed(2),
+                cr: res?.entry?.totalCredit?.toFixed?.(2) ?? credit.toFixed(2),
             }));
             onPosted?.(res);
         } catch (ex) {
@@ -273,7 +389,7 @@ export default function WorkshopJournalGrid({
                     </thead>
                     <tbody>
                         {rows.map((row, idx) => {
-                            const kind = controlKind(accountById(accounts, row.accountId));
+                            const kind = controlKind(accountById(accounts, row.accountId), accounts);
                             const partyOpts = partyOptionsForKind(kind, payees);
                             const partyType = payeeTypeForKind(kind);
                             return (
@@ -321,31 +437,69 @@ export default function WorkshopJournalGrid({
                                 </td>
                                 <td>
                                     <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
+                                        type="text"
+                                        inputMode="decimal"
+                                        autoComplete="off"
                                         style={{ ...inputStyle, textAlign: 'right' }}
                                         value={row.debit}
                                         onChange={(e) => updateRow(row.id, {
                                             debit: e.target.value,
                                             credit: e.target.value ? '' : row.credit,
                                         })}
+                                        onBlur={(e) => {
+                                            const v = commitMathFieldValue(e.target.value);
+                                            if (v !== e.target.value) {
+                                                updateRow(row.id, {
+                                                    debit: v,
+                                                    credit: v ? '' : row.credit,
+                                                });
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key !== 'Enter') return;
+                                            e.preventDefault();
+                                            const v = commitMathFieldValue(e.currentTarget.value);
+                                            updateRow(row.id, {
+                                                debit: v,
+                                                credit: v ? '' : row.credit,
+                                            });
+                                        }}
                                         placeholder="0.00"
                                     />
                                 </td>
                                 <td>
                                     <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
+                                        type="text"
+                                        inputMode="decimal"
+                                        autoComplete="off"
                                         style={{ ...inputStyle, textAlign: 'right' }}
                                         value={row.credit}
                                         onChange={(e) => updateRow(row.id, {
                                             credit: e.target.value,
                                             debit: e.target.value ? '' : row.debit,
                                         })}
+                                        onBlur={(e) => {
+                                            const v = commitMathFieldValue(e.target.value);
+                                            if (v !== e.target.value) {
+                                                updateRow(row.id, {
+                                                    credit: v,
+                                                    debit: v ? '' : row.debit,
+                                                });
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const v = commitMathFieldValue(e.currentTarget.value);
+                                                updateRow(row.id, {
+                                                    credit: v,
+                                                    debit: v ? '' : row.debit,
+                                                });
+                                                return;
+                                            }
+                                            handleLastFieldKeyDown(idx, rows.length)(e);
+                                        }}
                                         placeholder="0.00"
-                                        onKeyDown={handleLastFieldKeyDown(idx, rows.length)}
                                     />
                                 </td>
                                 <td style={{ textAlign: 'right' }}>

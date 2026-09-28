@@ -10,6 +10,7 @@ import {
     Pencil,
     Printer,
     Plus,
+    SlidersHorizontal,
     RefreshCw,
     Search,
     Trash2,
@@ -28,8 +29,11 @@ import {
 } from '../../services/accountsApi';
 import {
     listWorkshopPeriodCloses,
+    listCoaAccounts,
+    adjustWorkshopCoaAccount,
     runWorkshopPeriodClose,
 } from '../../services/workshopAccountingApi';
+import WorkshopCoaAdjustModal from './WorkshopCoaAdjustModal';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import {
     buildWorkshopCoaAccountCreateUrl,
@@ -169,6 +173,28 @@ function filterTreeForSearch(nodes = [], q = '') {
         .filter(Boolean);
 }
 
+function isCoaZeroBalance(acc) {
+    const dr = Math.abs(Number(acc?.closingDebit || 0));
+    const cr = Math.abs(Number(acc?.closingCredit || 0));
+    return dr < 0.005 && cr < 0.005;
+}
+
+/** When showZero is false, drop leaf/heading accounts whose closing balance is zero
+ *  (parents stay if any non-zero descendant remains). */
+function filterTreeForZeroBalance(nodes = [], showZero = true) {
+    if (showZero) return nodes;
+    return nodes
+        .map((node) => {
+            const children = filterTreeForZeroBalance(node.children || [], false);
+            if (children.length > 0) {
+                return { ...node, children };
+            }
+            if (isCoaZeroBalance(node)) return null;
+            return { ...node, children: [] };
+        })
+        .filter(Boolean);
+}
+
 /** Visible rows for Manager-style folder COA (expand/collapse). */
 function stampTreeBalances(nodes, byId) {
     return (nodes || []).map((node) => {
@@ -278,6 +304,8 @@ export default function WorkshopCOAView({
     const [reloadTick, setReloadTick] = useState(0);
 
     const [search, setSearch] = useState('');
+    /** Checked = include zero-balance accounts; unchecked = hide them. */
+    const [showZeroBalanceAccounts, setShowZeroBalanceAccounts] = useState(true);
     const initialCoaRange = (() => {
         const shared = loadWorkshopAdminDatetimeRange();
         if (shared?.dateFrom && shared?.dateTo) {
@@ -297,6 +325,10 @@ export default function WorkshopCOAView({
     const [bsTypeFilter, setBsTypeFilter] = useState('');
     const [plTypeFilter, setPlTypeFilter] = useState('');
 
+    const [adjustTarget, setAdjustTarget] = useState(null);
+    const [adjustAccounts, setAdjustAccounts] = useState([]);
+    const [adjustError, setAdjustError] = useState('');
+    const [adjustSubmitting, setAdjustSubmitting] = useState(false);
     const [pendingDeleteId, setPendingDeleteId] = useState('');
     const [deleteLoadingId, setDeleteLoadingId] = useState('');
     const [deleteError, setDeleteError] = useState('');
@@ -464,6 +496,10 @@ export default function WorkshopCOAView({
     useEffect(() => {
         const next = plBranchFromLayout(selectedBranchId);
         setDraftBranch((prev) => (prev === next ? prev : next));
+        setAppliedBranch((prev) => (prev === next ? prev : next));
+        setPlFilters((p) => (p.branchId === next ? p : { ...p, branchId: next }));
+        setTbFilters((p) => (p.branchId === next ? p : { ...p, branchId: next }));
+        setBsFilters((p) => (p.branchId === next ? p : { ...p, branchId: next }));
     }, [selectedBranchId]);
 
     const applyLiveBooksRange = useCallback((periodEndYmd) => {
@@ -598,10 +634,10 @@ export default function WorkshopCOAView({
     }, [accounts]);
 
     const searchQ = search.trim().toLowerCase();
-    const filteredTree = useMemo(
-        () => filterTreeForSearch(treeAccounts, searchQ),
-        [treeAccounts, searchQ],
-    );
+    const filteredTree = useMemo(() => {
+        const byBalance = filterTreeForZeroBalance(treeAccounts, showZeroBalanceAccounts);
+        return filterTreeForSearch(byBalance, searchQ);
+    }, [treeAccounts, searchQ, showZeroBalanceAccounts]);
 
     const visibleTreeRows = useMemo(
         () => flattenVisibleTree(filteredTree, expandedIds, Boolean(searchQ)),
@@ -683,6 +719,65 @@ export default function WorkshopCOAView({
     const openEdit = (acc) => {
         if (!acc?.id) return;
         navigate(buildWorkshopCoaAccountEditUrl(acc.id));
+    };
+
+    const signedCoaBalance = (acc) => {
+        const type = String(acc?.type || '').toUpperCase();
+        const dr = Number(acc?.closingDebit || 0);
+        const cr = Number(acc?.closingCredit || 0);
+        return type === 'LIABILITY' || type === 'EQUITY' || type === 'INCOME'
+            ? cr - dr
+            : dr - cr;
+    };
+
+    const openAdjust = async (acc) => {
+        if (!acc?.id || acc.hasChildren || acc._hasChildren) return;
+        setAdjustError('');
+        setAdjustTarget({
+            ...acc,
+            currentBalance: signedCoaBalance(acc),
+        });
+        try {
+            const res = await listCoaAccounts('all', appliedBranch ? { branchId: appliedBranch } : {});
+            const list = Array.isArray(res?.accounts) ? res.accounts : [];
+            setAdjustAccounts(list);
+        } catch {
+            setAdjustAccounts([]);
+        }
+    };
+
+    const handleAdjust = async ({ amount, entryDate, contraAccountId, reason }) => {
+        if (!adjustTarget?.id) return;
+        const delta = Number(amount);
+        if (!Number.isFinite(delta) || delta === 0) {
+            setAdjustError(t('coa.adjust.err.amount'));
+            return;
+        }
+        if (!contraAccountId) {
+            setAdjustError(t('coa.adjust.err.contra'));
+            return;
+        }
+        if (!String(reason || '').trim()) {
+            setAdjustError(t('coa.adjust.err.reason'));
+            return;
+        }
+        setAdjustSubmitting(true);
+        setAdjustError('');
+        try {
+            await adjustWorkshopCoaAccount(adjustTarget.id, {
+                amount: delta,
+                contraAccountId,
+                entryDate,
+                reason: String(reason).trim(),
+                branchId: appliedBranch || undefined,
+            });
+            setAdjustTarget(null);
+            setReloadTick((x) => x + 1);
+        } catch (e) {
+            setAdjustError(e?.message || t('coa.adjust.err.failed'));
+        } finally {
+            setAdjustSubmitting(false);
+        }
     };
 
     const onConfirmDelete = async (id) => {
@@ -1601,6 +1696,22 @@ export default function WorkshopCOAView({
                                                             </div>
                                                         ) : (
                                                             <div style={{ display: 'flex', gap: 8 }}>
+                                                                {!hasChildren ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openAdjust(acc)}
+                                                                        style={{
+                                                                            border: 'none',
+                                                                            background: 'transparent',
+                                                                            color: palette.edit,
+                                                                            cursor: 'pointer',
+                                                                            padding: 0,
+                                                                        }}
+                                                                        title={t('coa.adjust.title')}
+                                                                    >
+                                                                        <SlidersHorizontal size={16} />
+                                                                    </button>
+                                                                ) : null}
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => openEdit(acc)}
@@ -1868,6 +1979,32 @@ export default function WorkshopCOAView({
                                 </button>
                             ))}
                         </div>
+                        <label
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                whiteSpace: 'nowrap',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: palette.textPrimary,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                border: `1px solid ${palette.border}`,
+                                borderRadius: 8,
+                                padding: '8px 12px',
+                                background: '#fff',
+                            }}
+                            title={t('coa.showZeroBalanceHint')}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={showZeroBalanceAccounts}
+                                onChange={(e) => setShowZeroBalanceAccounts(e.target.checked)}
+                                style={{ width: 16, height: 16, cursor: 'pointer' }}
+                            />
+                            {t('coa.showZeroBalance')}
+                        </label>
                         <button
                             type="button"
                             className="btn-portal-outline"
@@ -2291,6 +2428,24 @@ export default function WorkshopCOAView({
                     </div>
                 </div>
             )}
+
+            {adjustTarget ? (
+                <WorkshopCoaAdjustModal
+                    title={`${t('coa.adjust.title')} — ${adjustTarget.code} ${adjustTarget.name}`}
+                    currentBalance={adjustTarget.currentBalance}
+                    accounts={adjustAccounts}
+                    excludeAccountId={adjustTarget.id}
+                    t={t}
+                    submitting={adjustSubmitting}
+                    error={adjustError}
+                    onClose={() => {
+                        if (adjustSubmitting) return;
+                        setAdjustTarget(null);
+                        setAdjustError('');
+                    }}
+                    onSubmit={handleAdjust}
+                />
+            ) : null}
 
         </div>
     );

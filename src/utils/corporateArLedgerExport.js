@@ -1781,7 +1781,9 @@ export function exportCorporateArLedgerExcel({ header, summary, lines }) {
         ? `[${header.accountCode}] ${header.accountName || ''}`.trim()
         : (header?.accountName || '');
     const aoa = [
-        ['Corporate AR Ledger Statement — كشف حساب'],
+        ['FILTER · Filter Car Services'],
+        ['Statement of Account / كشف حساب'],
+        ['Corporate AR Ledger Statement — كشف حساب العملاء الشركات'],
         [english || header?.companyName || ''],
         ...(arabic ? [[arabic]] : []),
         ...(accountLabel ? [[`Account: ${accountLabel}`]] : []),

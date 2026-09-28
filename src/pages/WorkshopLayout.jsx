@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { SectionErrorBoundary } from '../components/AppErrorBoundary';
 import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
@@ -9,40 +9,8 @@ import {
 import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROUTE_REDIRECTS } from './workshop/staff-app/constants';
 import { staffAppT, NAV_LABEL_KEYS as STAFF_APP_NAV_LABEL_KEYS } from '../utils/staffAppI18n';
 import { accT } from '../utils/accountingI18n';
-import StaffAppPage from './workshop/staff-app/StaffAppPage';
-import WorkshopEmployees from './workshop/WorkshopEmployees';
-import WorkshopApprovals from './workshop/WorkshopApprovals';
-import WorkshopMyPettyCash from './workshop/WorkshopMyPettyCash';
-import WorkshopDashboard from './workshop/WorkshopDashboard';
-import WorkshopDepartments from './workshop/WorkshopDepartments';
-import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
-import WorkshopPurchases from './workshop/WorkshopPurchases';
-import WorkshopSalesReturns from './workshop/WorkshopSalesReturns';
-import WorkshopPurchaseReturns from './workshop/WorkshopPurchaseReturns';
-import WorkshopPurchaseQuotesPage from './workshop/WorkshopPurchaseQuotesPage';
-import WorkshopPurchaseOrdersPage from './workshop/WorkshopPurchaseOrdersPage';
-import WorkshopDiscounts from './workshop/WorkshopDiscounts';
-import WorkshopSuppliers from './workshop/WorkshopSuppliers';
-import WorkshopReports from './workshop/WorkshopReports';
-import AdvancedReportsPage from './advanced-reports/AdvancedReportsPage';
-import AdvancedReportDrilldownPage from './advanced-reports/AdvancedReportDrilldownPage';
-import WorkshopPosMonitoring from './workshop/WorkshopPosMonitoring';
-import WorkshopLogs from './workshop/WorkshopLogs';
-import WorkshopLockerManagement from './workshop/WorkshopLockerManagement';
-import WorkshopPromoCodes from './workshop/WorkshopPromoCodes';
-import WorkshopCorporateManagement from './workshop/WorkshopCorporateManagement';
-import WorkshopBranches from './workshop/WorkshopBranches';
-import WorkshopCommissions from './workshop/WorkshopCommissions';
-import WorkshopInventory from './workshop/WorkshopInventory';
-import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
-import WorkshopAccountLedgerPage from './workshop/accounting/WorkshopAccountLedgerPage';
-import WorkshopCoaAccountPage from './workshop/accounting/WorkshopCoaAccountPage';
 import { parseWorkshopCoaAccountFormFromPath } from './workshop/workshopCoaAccountRouting';
-import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
-import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
-import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
-import WorkshopPlatformChatPage from './workshop/WorkshopPlatformChatPage';
-import MyWalletPage from './admin/MyWalletPage';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
 import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
 import { isPlatformChatNavId } from '../utils/platformChatForUser';
@@ -63,6 +31,50 @@ import { wsDashT } from '../utils/workshopDashboardI18n';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
+
+const StaffAppPage = lazyWithRetry(() => import('./workshop/staff-app/StaffAppPage'));
+const WorkshopEmployees = lazyWithRetry(() => import('./workshop/WorkshopEmployees'));
+const WorkshopApprovals = lazyWithRetry(() => import('./workshop/WorkshopApprovals'));
+const WorkshopMyPettyCash = lazyWithRetry(() => import('./workshop/WorkshopMyPettyCash'));
+const WorkshopDashboard = lazyWithRetry(() => import('./workshop/WorkshopDashboard'));
+const WorkshopDepartments = lazyWithRetry(() => import('./workshop/WorkshopDepartments'));
+const WorkshopCatalogNew = lazyWithRetry(() => import('./workshop/WorkshopCatalogNew'));
+const WorkshopPurchases = lazyWithRetry(() => import('./workshop/WorkshopPurchases'));
+const WorkshopSalesReturns = lazyWithRetry(() => import('./workshop/WorkshopSalesReturns'));
+const WorkshopPurchaseReturns = lazyWithRetry(() => import('./workshop/WorkshopPurchaseReturns'));
+const WorkshopPurchaseQuotesPage = lazyWithRetry(() => import('./workshop/WorkshopPurchaseQuotesPage'));
+const WorkshopPurchaseOrdersPage = lazyWithRetry(() => import('./workshop/WorkshopPurchaseOrdersPage'));
+const WorkshopDiscounts = lazyWithRetry(() => import('./workshop/WorkshopDiscounts'));
+const WorkshopSuppliers = lazyWithRetry(() => import('./workshop/WorkshopSuppliers'));
+const WorkshopReports = lazyWithRetry(() => import('./workshop/WorkshopReports'));
+const AdvancedReportsPage = lazyWithRetry(() => import('./advanced-reports/AdvancedReportsPage'));
+const AdvancedReportDrilldownPage = lazyWithRetry(() => import('./advanced-reports/AdvancedReportDrilldownPage'));
+const WorkshopPosMonitoring = lazyWithRetry(() => import('./workshop/WorkshopPosMonitoring'));
+const WorkshopLogs = lazyWithRetry(() => import('./workshop/WorkshopLogs'));
+const WorkshopLockerManagement = lazyWithRetry(() => import('./workshop/WorkshopLockerManagement'));
+const WorkshopPromoCodes = lazyWithRetry(() => import('./workshop/WorkshopPromoCodes'));
+const WorkshopCorporateManagement = lazyWithRetry(() => import('./workshop/WorkshopCorporateManagement'));
+const WorkshopBranches = lazyWithRetry(() => import('./workshop/WorkshopBranches'));
+const WorkshopCommissions = lazyWithRetry(() => import('./workshop/WorkshopCommissions'));
+const WorkshopInventory = lazyWithRetry(() => import('./workshop/WorkshopInventory'));
+const WorkshopAccountingPage = lazyWithRetry(() => import('./workshop/WorkshopAccountingPage'));
+const WorkshopAccountLedgerPage = lazyWithRetry(() => import('./workshop/accounting/WorkshopAccountLedgerPage'));
+const WorkshopCoaAccountPage = lazyWithRetry(() => import('./workshop/accounting/WorkshopCoaAccountPage'));
+const WorkshopAffiliatedSuppliers = lazyWithRetry(() => import('./workshop/WorkshopAffiliatedSuppliers'));
+const WorkshopNonAffiliatedSuppliers = lazyWithRetry(() => import('./workshop/WorkshopNonAffiliatedSuppliers'));
+const WorkshopSupplierLedger = lazyWithRetry(() => import('./workshop/WorkshopSupplierLedger'));
+const WorkshopPlatformChatPage = lazyWithRetry(() => import('./workshop/WorkshopPlatformChatPage'));
+const MyWalletPage = lazyWithRetry(() => import('./admin/MyWalletPage'));
+
+function WorkshopTabFallback() {
+    return (
+        <div className="ws-global-loader" role="status" aria-live="polite">
+            <div className="ws-global-loader__inner">
+                <div className="ws-global-loader__spinner" aria-hidden="true" />
+            </div>
+        </div>
+    );
+}
 
 /** Tabs reachable by in-app navigation but not listed in the sidebar. */
 const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement', 'acc-coa-account', 'advanced-reports-drilldown']);
@@ -779,7 +791,11 @@ export default function WorkshopLayout() {
     if (activeTab === 'platform-chat') {
         return (
             <div className="portal-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
-                <WorkshopPlatformChatPage />
+                <SectionErrorBoundary resetKey="platform-chat">
+                    <Suspense fallback={<WorkshopTabFallback />}>
+                        <WorkshopPlatformChatPage />
+                    </Suspense>
+                </SectionErrorBoundary>
             </div>
         );
     }
@@ -965,7 +981,9 @@ export default function WorkshopLayout() {
                 )}
                 <main className={`ws-content${isWalletTab ? ' ws-content--my-wallet' : ''}`}>
                     <SectionErrorBoundary resetKey={activeTab}>
-                        {renderContent()}
+                        <Suspense fallback={<WorkshopTabFallback />}>
+                            {renderContent()}
+                        </Suspense>
                     </SectionErrorBoundary>
                 </main>
             </div>

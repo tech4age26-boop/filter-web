@@ -95,7 +95,8 @@ export default function WorkshopAdvances({
 
     const statusLabel = useCallback((status) => {
         const s = String(status || '').toLowerCase();
-        if (s === 'pending' || s === 'approved' || s === 'repaid' || s === 'rejected') {
+        if (s === 'settled') return t('adv.status.repaid');
+        if (s === 'pending' || s === 'approved' || s === 'repaid' || s === 'rejected' || s === 'partial') {
             return t(`adv.status.${s}`);
         }
         return status || '—';
@@ -607,7 +608,7 @@ export default function WorkshopAdvances({
                                         <td className="table-cell">SAR {fmt(a.repaidAmount)}</td>
                                         <td className="table-cell">SAR {fmt(a.balance)}</td>
                                         <td className="table-cell">
-                                            <span className={`status-badge ${(a.status || '').toLowerCase() === 'approved' ? 'approved' : 'pending'}`}>
+                                            <span className={`status-badge ${['approved', 'partial', 'settled', 'repaid'].includes((a.status || '').toLowerCase()) ? 'approved' : 'pending'}`}>
                                                 {statusLabel(a.status)}
                                             </span>
                                         </td>

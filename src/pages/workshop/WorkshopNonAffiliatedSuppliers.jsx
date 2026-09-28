@@ -6,7 +6,10 @@ import {
     listLocalSuppliers,
     createLocalSupplier,
     updateLocalSupplier,
+    adjustLocalSupplier,
 } from '../../services/workshopSuppliersApi';
+import { listCoaAccounts } from '../../services/workshopAccountingApi';
+import WorkshopCoaAdjustModal from '../../components/accounting/WorkshopCoaAdjustModal';
 import { useAuth } from '../../context/AuthContext';
 import { wnasT } from '../../utils/workshopNonAffiliatedSuppliersI18n';
 
@@ -183,6 +186,10 @@ export default function WorkshopNonAffiliatedSuppliers({
     const [editTarget, setEditTarget] = useState(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [adjustTarget, setAdjustTarget] = useState(null);
+    const [adjustAccounts, setAdjustAccounts] = useState([]);
+    const [adjustError, setAdjustError] = useState('');
+    const [adjustSubmitting, setAdjustSubmitting] = useState(false);
 
     const loadList = useCallback(async () => {
         setLoading(true);
@@ -238,6 +245,50 @@ export default function WorkshopNonAffiliatedSuppliers({
             alert(e?.message || t('err.save'));
         } finally {
             setSaving(false);
+        }
+    };
+
+    const openAdjust = async (row) => {
+        setAdjustError('');
+        setAdjustTarget(row);
+        try {
+            const res = await listCoaAccounts('all');
+            setAdjustAccounts(Array.isArray(res?.accounts) ? res.accounts : []);
+        } catch {
+            setAdjustAccounts([]);
+        }
+    };
+
+    const handleAdjust = async ({ amount, entryDate, contraAccountId, reason }) => {
+        if (!adjustTarget?.id) return;
+        const delta = Number(amount);
+        if (!Number.isFinite(delta) || delta === 0) {
+            setAdjustError(t('coa.adjust.err.amount'));
+            return;
+        }
+        if (!contraAccountId) {
+            setAdjustError(t('coa.adjust.err.contra'));
+            return;
+        }
+        if (!String(reason || '').trim()) {
+            setAdjustError(t('coa.adjust.err.reason'));
+            return;
+        }
+        setAdjustSubmitting(true);
+        setAdjustError('');
+        try {
+            await adjustLocalSupplier(adjustTarget.id, {
+                amount: delta,
+                contraAccountId,
+                entryDate,
+                reason: String(reason).trim(),
+            });
+            setAdjustTarget(null);
+            await loadList();
+        } catch (e) {
+            setAdjustError(e?.message || t('coa.adjust.err.failed'));
+        } finally {
+            setAdjustSubmitting(false);
         }
     };
 
@@ -367,17 +418,26 @@ export default function WorkshopNonAffiliatedSuppliers({
                                                 {t('btn.ledger')}
                                             </button>
                                             {canEdit && (
-                                                <button
-                                                    type="button"
-                                                    className="btn-portal-outline ws-suppliers-ledger-btn"
-                                                    onClick={() => {
-                                                        setEditTarget(r);
-                                                        setShowForm(true);
-                                                    }}
-                                                >
-                                                    <Edit size={12} />
-                                                    {t('btn.edit')}
-                                                </button>
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal-outline ws-suppliers-ledger-btn"
+                                                        onClick={() => openAdjust(r)}
+                                                    >
+                                                        {t('btn.adjust')}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal-outline ws-suppliers-ledger-btn"
+                                                        onClick={() => {
+                                                            setEditTarget(r);
+                                                            setShowForm(true);
+                                                        }}
+                                                    >
+                                                        <Edit size={12} />
+                                                        {t('btn.edit')}
+                                                    </button>
+                                                </>
                                             )}
                                         </div>
                                     </td>
@@ -392,6 +452,23 @@ export default function WorkshopNonAffiliatedSuppliers({
             {error && (
                 <p className="ws-suppliers-error">{error}</p>
             )}
+
+            {adjustTarget ? (
+                <WorkshopCoaAdjustModal
+                    title={`${t('coa.adjust.title')} — ${adjustTarget.name}`}
+                    currentBalance={Number(adjustTarget.finalBalance || 0)}
+                    accounts={adjustAccounts}
+                    t={t}
+                    submitting={adjustSubmitting}
+                    error={adjustError}
+                    onClose={() => {
+                        if (adjustSubmitting) return;
+                        setAdjustTarget(null);
+                        setAdjustError('');
+                    }}
+                    onSubmit={handleAdjust}
+                />
+            ) : null}
 
             {showForm && (
                 <LocalSupplierFormModal

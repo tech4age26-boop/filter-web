@@ -174,7 +174,7 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
             ...(apiFrom && isLedgerDateTimeBound(String(apiFrom)) ? { startDate: apiFrom } : {}),
             ...(apiTo && isLedgerDateTimeBound(String(apiTo)) ? { endDate: apiTo } : {}),
             ...(isPlProof ? { selfOnly: 'true' } : {}),
-            limit: 10000,
+            limit: 100000,
             ...(!topupsOnlyParam && categoryParam ? { expenseCategory: categoryParam } : {}),
             ...(walletUserParam ? { walletUserId: walletUserParam } : {}),
             ...(topupsOnlyParam ? { topupsOnly: 'true' } : {}),
@@ -221,7 +221,7 @@ export default function WorkshopAccountLedgerPage({ locale: localeProp } = {}) {
             ...(apiFrom && isLedgerDateTimeBound(String(apiFrom)) ? { startDate: apiFrom } : {}),
             ...(apiTo && isLedgerDateTimeBound(String(apiTo)) ? { endDate: apiTo } : {}),
             ...(isPlProof ? { selfOnly: 'true' } : {}),
-            limit: 10000,
+            limit: 100000,
             ...(expenseCategoryFilter && !topupsOnly
                 ? { expenseCategory: expenseCategoryFilter }
                 : {}),

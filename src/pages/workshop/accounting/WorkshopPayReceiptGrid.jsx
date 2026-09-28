@@ -4,6 +4,9 @@ import VoucherRefField from '../../../components/accounting/VoucherRefField';
 import {
     createPayments as createAcctPayments,
     createReceipts as createAcctReceipts,
+    listCashBankAccounts as listAcctCashBank,
+    listCoaAccounts as listAcctCoa,
+    listPayees as listAcctPayees,
     listPayments as listAcctPayments,
     listReceipts as listAcctReceipts,
     previewNextVouchers as previewAcctNextVouchers,
@@ -24,6 +27,8 @@ import {
     blankPaymentRow,
     blankReceiptRow,
     buildRowsFromVoucherPool,
+    filterAccountsForBranch,
+    filterPayeesForBranch,
     mergePayeeDefaultAccountOptions,
     normalizePayeeType,
     payeesForTypeList,
@@ -39,6 +44,7 @@ import {
     partyOptionsForKind,
     payeeTypeForKind,
 } from './workshopControlAccounts';
+import { commitMathFieldValue } from '../../../utils/evalMathExpression';
 
 function payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment) {
     if (!editRow?.id) return null;
@@ -133,8 +139,22 @@ export default function WorkshopPayReceiptGrid({
     const [err, setErr] = useState('');
     const [okMsg, setOkMsg] = useState('');
     const cashTouchedRef = useRef(Boolean(editRow?.id));
+    const branchTouchedRef = useRef(Boolean(editRow?.branchId));
     const editingIdRef = useRef(editRow?.id || null);
     editingIdRef.current = editRow?.id || null;
+
+    /** Branch-scoped lookup slices (re-fetched when header branch changes). */
+    const [scopedCashBank, setScopedCashBank] = useState(() =>
+        filterAccountsForBranch(cashBankAccounts, headerBranchId),
+    );
+    const [scopedAccounts, setScopedAccounts] = useState(() =>
+        filterAccountsForBranch(accounts, headerBranchId),
+    );
+    const [scopedPayees, setScopedPayees] = useState(() => ({
+        supplier: filterPayeesForBranch(payees?.supplier, headerBranchId),
+        employee: filterPayeesForBranch(payees?.employee, headerBranchId),
+        customer: filterPayeesForBranch(payees?.customer, headerBranchId),
+    }));
 
     const reloadVouchers = useCallback(async (count = 1) => {
         const need = Math.max(count + 3, 5);
@@ -193,14 +213,98 @@ export default function WorkshopPayReceiptGrid({
     useEffect(() => {
         if (cashTouchedRef.current) return;
         if (cashAccountId) return;
-        if (cashBankAccounts[0]?.id) setCashAccountId(String(cashBankAccounts[0].id));
-    }, [cashBankAccounts, cashAccountId]);
+        if (scopedCashBank[0]?.id) setCashAccountId(String(scopedCashBank[0].id));
+    }, [scopedCashBank, cashAccountId]);
 
+    // When Paid From / Received Into is chosen while Branch = All, adopt that register's branch.
     useEffect(() => {
-        if (!cashAccountId || isAdminHqBooks) return;
-        const acc = cashBankAccounts.find((a) => String(a.id) === String(cashAccountId));
+        if (!cashAccountId || isAdminHqBooks || branchTouchedRef.current) return;
+        if (headerBranchId) return;
+        const acc = scopedCashBank.find((a) => String(a.id) === String(cashAccountId))
+            || cashBankAccounts.find((a) => String(a.id) === String(cashAccountId));
         if (acc?.branchId) setHeaderBranchId(String(acc.branchId));
-    }, [cashAccountId, cashBankAccounts, isAdminHqBooks]);
+    }, [cashAccountId, scopedCashBank, cashBankAccounts, isAdminHqBooks, headerBranchId]);
+
+    // Re-load cash / COA / payees for the selected branch (All = full workshop lists).
+    useEffect(() => {
+        let cancelled = false;
+        const branchParam = headerBranchId || undefined;
+        const coaKind = isPayment ? 'payable_expense' : 'receivable_revenue';
+
+        (async () => {
+            try {
+                const [cb, coa, sup, emp, cust] = await Promise.all([
+                    listAcctCashBank({
+                        excludeCashierTills: '1',
+                        ...(branchParam ? { branchId: branchParam } : {}),
+                    }),
+                    listAcctCoa(coaKind, branchParam ? { branchId: branchParam } : {}),
+                    listAcctPayees('supplier', branchParam ? { branchId: branchParam } : {}),
+                    listAcctPayees('employee', branchParam ? { branchId: branchParam } : {}),
+                    listAcctPayees('customer', branchParam ? { branchId: branchParam } : {}),
+                ]);
+                if (cancelled) return;
+                const nextCash = cb?.accounts ?? [];
+                const nextAccounts = coa?.accounts ?? [];
+                const nextPayees = {
+                    supplier: filterPayeesForBranch(sup?.payees ?? [], branchParam),
+                    employee: filterPayeesForBranch(emp?.payees ?? [], branchParam),
+                    customer: filterPayeesForBranch(cust?.payees ?? [], branchParam),
+                };
+                setScopedCashBank(nextCash);
+                setScopedAccounts(nextAccounts);
+                setScopedPayees(nextPayees);
+
+                // Drop selections that are no longer valid for this branch.
+                setCashAccountId((prev) => {
+                    if (!prev) return prev;
+                    return nextCash.some((a) => String(a.id) === String(prev)) ? prev : '';
+                });
+                setRows((prev) => prev.map((r) => {
+                    let next = { ...r };
+                    const typeList = payeesForTypeList(next.type, nextPayees);
+                    if (next.payeeId && !typeList.some((p) => String(p.id) === String(next.payeeId))) {
+                        next.payeeId = '';
+                        next.payeeName = '';
+                    }
+                    if (
+                        next.accountId
+                        && !nextAccounts.some((a) => String(a.id) === String(next.accountId))
+                    ) {
+                        next.accountId = '';
+                        next.accountAutoFilled = '';
+                    }
+                    return next;
+                }));
+            } catch {
+                if (cancelled) return;
+                // Fall back to client-side filter of parent props.
+                setScopedCashBank(filterAccountsForBranch(cashBankAccounts, branchParam));
+                setScopedAccounts(filterAccountsForBranch(accounts, branchParam));
+                setScopedPayees({
+                    supplier: filterPayeesForBranch(payees?.supplier, branchParam),
+                    employee: filterPayeesForBranch(payees?.employee, branchParam),
+                    customer: filterPayeesForBranch(payees?.customer, branchParam),
+                });
+            }
+        })();
+
+        return () => { cancelled = true; };
+        // Intentionally keyed on branch + variant; parent prop refresh is handled below.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [headerBranchId, isPayment]);
+
+    // Keep scoped lists in sync when parent reloads lookups and branch is All.
+    useEffect(() => {
+        if (headerBranchId) return;
+        setScopedCashBank(cashBankAccounts);
+        setScopedAccounts(accounts);
+        setScopedPayees({
+            supplier: payees?.supplier || [],
+            employee: payees?.employee || [],
+            customer: payees?.customer || [],
+        });
+    }, [cashBankAccounts, accounts, payees, headerBranchId]);
 
     const fetchNextHeaderRef = useCallback(async () => {
         const res = await previewAcctNextVouchers(prefix, 1);
@@ -224,11 +328,11 @@ export default function WorkshopPayReceiptGrid({
             if (r.id !== id) return r;
             let next = { ...r, ...patch };
             if ('accountId' in patch && !('type' in patch)) {
-                const kind = controlKind(accountById(accounts, next.accountId));
+                const kind = controlKind(accountById(scopedAccounts, next.accountId), scopedAccounts);
                 const lockedType = payeeTypeForKind(kind);
                 if (lockedType) {
                     next.type = lockedType;
-                    const allowed = partyOptionsForKind(kind, payees);
+                    const allowed = partyOptionsForKind(kind, scopedPayees);
                     if (!allowed.some((o) => String(o.id) === String(next.payeeId))) {
                         next.payeeId = '';
                         next.payeeName = '';
@@ -236,14 +340,14 @@ export default function WorkshopPayReceiptGrid({
                 }
             }
             if ('type' in patch) {
-                const kind = controlKind(accountById(accounts, next.accountId));
+                const kind = controlKind(accountById(scopedAccounts, next.accountId), scopedAccounts);
                 if (kind) {
                     next.type = payeeTypeForKind(kind) || next.type;
                 } else {
                     next.payeeId = '';
                     next.payeeName = '';
                     const suggested = sharedPayeeDefaultAccountId(
-                        payeesForTypeList(next.type, payees),
+                        payeesForTypeList(next.type, scopedPayees),
                     );
                     next.accountId = suggested;
                     next.accountAutoFilled = suggested;
@@ -260,15 +364,15 @@ export default function WorkshopPayReceiptGrid({
             const suggested = r.payeeId
                 ? (suggestPayeeAccountPatch(
                     { ...r, accountId: r.accountAutoFilled || '' },
-                    payees,
+                    scopedPayees,
                     r.type,
                     r.payeeId,
                 ).accountId || '')
-                : sharedPayeeDefaultAccountId(payeesForTypeList(r.type, payees));
+                : sharedPayeeDefaultAccountId(payeesForTypeList(r.type, scopedPayees));
             if (!suggested || String(r.accountId || '') === suggested) return r;
             return { ...r, accountId: suggested, accountAutoFilled: suggested };
         }));
-    }, [payees]);
+    }, [scopedPayees]);
 
     const addRow = () => {
         setRows((prev) => {
@@ -311,32 +415,38 @@ export default function WorkshopPayReceiptGrid({
     const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
 
     const effectLines = useMemo(() => {
-        const cash = cashBankAccounts.find((a) => String(a.id) === String(cashAccountId));
+        const cash = scopedCashBank.find((a) => String(a.id) === String(cashAccountId));
         const cashLbl = cash ? cashAccountLabel(cash) : '—';
         return validRows.map((r) => {
-            const against = accountComboLabel(accounts.find((a) => String(a.id) === String(r.accountId))) || '—';
+            const against = accountComboLabel(scopedAccounts.find((a) => String(a.id) === String(r.accountId))) || '—';
             const party = r.payeeName ? ` · ${r.payeeName}` : '';
             const amt = moneySar(r.amount);
             return isPayment
                 ? t('tx.effect.payment', { cash: cashLbl, against, amount: amt, party })
                 : t('tx.effect.receipt', { cash: cashLbl, against, amount: amt, party });
         });
-    }, [accounts, cashAccountId, cashBankAccounts, isPayment, t, validRows]);
+    }, [scopedAccounts, cashAccountId, scopedCashBank, isPayment, t, validRows]);
 
     const handleSave = async (e) => {
         e.preventDefault();
         setErr('');
         setOkMsg('');
+        const resolvedRows = rows.map((r) => ({
+            ...r,
+            amount: commitMathFieldValue(r.amount),
+        }));
+        setRows(resolvedRows);
+        const readyRows = resolvedRows.filter((r) => Number(r.amount) > 0 && r.accountId);
         if (!cashAccountId) {
             setErr(isPayment ? t('tx.err.paidFrom') : t('tx.err.receivedInto'));
             return;
         }
-        if (!validRows.length) {
+        if (!readyRows.length) {
             setErr(t('tx.err.row'));
             return;
         }
-        if (validRows.some((r) => {
-            const kind = controlKind(accountById(accounts, r.accountId));
+        if (readyRows.some((r) => {
+            const kind = controlKind(accountById(scopedAccounts, r.accountId), scopedAccounts);
             return kind && !String(r.payeeId || '').trim();
         })) {
             setErr(t('tx.je.needParty'));
@@ -344,7 +454,7 @@ export default function WorkshopPayReceiptGrid({
         }
         setSaving(true);
         try {
-            const rowPayload = validRows.map((r) => ({
+            const rowPayload = readyRows.map((r) => ({
                 voucherHint: r.voucher,
                 date: r.date || headerDate,
                 payeeType: r.type,
@@ -481,7 +591,10 @@ export default function WorkshopPayReceiptGrid({
                         <SupplierAccountingCombobox
                             className="acct-table-combobox acct-filter-combobox"
                             value={headerBranchId || ALL_COMBO}
-                            onChange={(id) => setHeaderBranchId(id === ALL_COMBO ? '' : String(id || ''))}
+                            onChange={(id) => {
+                                branchTouchedRef.current = true;
+                                setHeaderBranchId(id === ALL_COMBO ? '' : String(id || ''));
+                            }}
                             placeholder={t('tx.allBranches')}
                             entityLabel="branch"
                             options={[
@@ -502,7 +615,7 @@ export default function WorkshopPayReceiptGrid({
                         placeholder={isPayment ? t('tx.selectCb') : t('tx.selectDeposit')}
                         entityLabel="account"
                         required
-                        options={cashBankAccounts.map((a) => ({
+                        options={scopedCashBank.map((a) => ({
                             id: String(a.id),
                             label: cashAccountLabel(a),
                             searchText: `${a.name || ''} ${a.type || ''} ${a.kind || ''} locker`,
@@ -563,13 +676,13 @@ export default function WorkshopPayReceiptGrid({
                                         value={row.type}
                                         onChange={(v) => {
                                             if (!PAYEE_TYPES.includes(v)) return;
-                                            if (controlKind(accountById(accounts, row.accountId))) return;
+                                            if (controlKind(accountById(scopedAccounts, row.accountId), scopedAccounts)) return;
                                             updateRow(row.id, { type: v });
                                         }}
                                         placeholder={t('tx.type.search')}
                                         entityLabel="type"
                                         menuMinWidth={200}
-                                        options={(controlKind(accountById(accounts, row.accountId))
+                                        options={(controlKind(accountById(scopedAccounts, row.accountId), scopedAccounts)
                                             ? [row.type]
                                             : PAYEE_TYPES
                                         ).map((p) => ({
@@ -582,14 +695,14 @@ export default function WorkshopPayReceiptGrid({
                                 <td>
                                     <PayeeCell
                                         row={row}
-                                        payees={payees}
+                                        payees={scopedPayees}
                                         options={
-                                            controlKind(accountById(accounts, row.accountId))
+                                            controlKind(accountById(scopedAccounts, row.accountId), scopedAccounts)
                                                 ? partyOptionsForKind(
-                                                    controlKind(accountById(accounts, row.accountId)),
-                                                    payees,
+                                                    controlKind(accountById(scopedAccounts, row.accountId), scopedAccounts),
+                                                    scopedPayees,
                                                 )
-                                                : undefined
+                                                : payeesForTypeList(row.type, scopedPayees)
                                         }
                                         onChange={updateRow}
                                         t={t}
@@ -603,24 +716,34 @@ export default function WorkshopPayReceiptGrid({
                                         entityLabel="account"
                                         emptyHint={t('tx.selectAccount')}
                                         options={mergePayeeDefaultAccountOptions(
-                                            accounts.map((a) => ({
+                                            scopedAccounts.map((a) => ({
                                                 id: String(a.id),
                                                 label: accountComboLabel(a),
                                                 searchText: `${a.code || ''} ${a.name || ''} ${a.label || ''}`,
                                                 subtitle: a.type,
                                             })),
-                                            payeesForTypeList(row.type, payees),
+                                            payeesForTypeList(row.type, scopedPayees),
                                         )}
                                     />
                                 </td>
                                 <td>
                                     <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
+                                        type="text"
+                                        inputMode="decimal"
+                                        autoComplete="off"
                                         style={{ ...inputStyle, textAlign: 'right' }}
                                         value={row.amount}
                                         onChange={(e) => updateRow(row.id, { amount: e.target.value })}
+                                        onBlur={(e) => {
+                                            const v = commitMathFieldValue(e.target.value);
+                                            if (v !== e.target.value) updateRow(row.id, { amount: v });
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key !== 'Enter') return;
+                                            e.preventDefault();
+                                            const v = commitMathFieldValue(e.currentTarget.value);
+                                            updateRow(row.id, { amount: v });
+                                        }}
                                         placeholder="0.00"
                                     />
                                 </td>
