@@ -10,6 +10,7 @@ import {
     Landmark, FileText, Car, Warehouse, Box, ShoppingCart, UserPlus, Globe, Megaphone,
     Menu, X, Percent, Wrench, GitBranch, Radio, BarChart2, ClipboardList, CreditCard,
     FlaskConical, Smartphone, MessageCircle, Wallet, CircleDollarSign, ScrollText, Sparkles,
+    Camera,
 } from 'lucide-react';
 import '../styles/AdminLayout.css';
 import '../styles/admin/PlatformChat.css';
@@ -79,6 +80,7 @@ const TRANSLATIONS = {
             'softpos-settlement': 'SoftPOS Settlement',
             marketing: 'Marketing',
             'fleet-management': 'Fleet Management', 'warehouse-portal': 'Warehouse Portal', 'locker-management': 'Locker Management',
+            'ai-camera': 'AI Camera',
             'workshop-portal': 'Filter Admin Workshop Portal', 'locker-portal': 'Filter Locker Portal', 'supplier-portal': 'Filter Supplier Portal', 'corporate-portal': 'Filter Corporate Portal', 'referrer-portal': 'Filter Referrer Portal', 'technician-app': 'Filter Technician Portal', 'pos-portal': 'Filter POS Portal'
         },
         logoDesc: 'FILTER ERP',
@@ -116,6 +118,7 @@ const TRANSLATIONS = {
             'softpos-settlement': 'تسوية SoftPOS',
             marketing: 'التسويق',
             'fleet-management': 'إدارة الأسطول', 'warehouse-portal': 'بوابة المستودع', 'locker-management': 'إدارة الخزائن',
+            'ai-camera': 'كاميرا ذكية',
             'workshop-portal': 'بوابة فلتر لورشة العمل', 'locker-portal': 'بوابة فلتر للخزائن', 'supplier-portal': 'بوابة فلتر للموردين', 'corporate-portal': 'بوابة فلتر للمؤسسات', 'referrer-portal': 'بوابة فلتر للإحالة', 'technician-app': 'بوابة فلتر للفنيين', 'pos-portal': 'بوابة فلتر لنقاط البيع'
         },
         logoDesc: 'فلتر ERP — وحدة المشرف الأعلى',
@@ -173,6 +176,7 @@ const NAV_CONFIG = [
             { label: 'Branches', path: 'branches', icon: Building },
             { label: 'Workshop', path: 'workshop', icon: Wrench },
             { label: 'Staff App', path: 'staff-app', icon: Smartphone },
+            { label: 'AI Camera', path: 'ai-camera', icon: Camera },
         ],
     },
     {
