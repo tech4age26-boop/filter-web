@@ -561,7 +561,15 @@ function WorkshopEmployees({
                         }
                         : prev,
                 );
-                setForm((f) => ({
+                setForm((f) => {
+                    const listPct = Number(emp.commission_percent ?? 0);
+                    const listSal =
+                        emp.basic_salary !== '' && emp.basic_salary != null
+                            ? String(emp.basic_salary)
+                            : '';
+                    const userChangedPct = Number(f.commission_percent) !== listPct;
+                    const userChangedSal = String(f.basic_salary ?? '') !== listSal;
+                    return {
                     ...f,
                     full_name: n.name && n.name !== '—' ? n.name : f.full_name,
                     mobile: n.phone || f.mobile,
@@ -582,14 +590,22 @@ function WorkshopEmployees({
                         source === 'technician' ? !!n.workshop_duty : f.workshop_duty,
                     oncall_available:
                         source === 'technician' ? !!n.oncall_available : f.oncall_available,
-                    basic_salary:
-                        n.basic_salary !== '' && n.basic_salary != null ? n.basic_salary : f.basic_salary,
-                    commission_percent: n.commission_percent ?? f.commission_percent,
+                    basic_salary: userChangedSal
+                        ? f.basic_salary
+                        : n.basic_salary !== '' && n.basic_salary != null
+                          ? n.basic_salary
+                          : f.basic_salary,
+                    // Do not wipe a % the user just typed while detail GET was in flight
+                    // (0 ?? x === 0, so the old `??` merge always overwrote edits).
+                    commission_percent: userChangedPct
+                        ? f.commission_percent
+                        : n.commission_percent ?? f.commission_percent,
                     commission_type: n.commission_type
                         ? normalizeCommissionType(n.commission_type)
                         : f.commission_type,
                     status: n.status || f.status,
-                }));
+                };
+                });
             } catch {
                 /* List row is enough if GET :id is missing or restricted */
             }

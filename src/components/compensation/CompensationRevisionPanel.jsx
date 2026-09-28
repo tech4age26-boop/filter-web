@@ -15,7 +15,7 @@ import './CompensationRevisionPanel.css';
 const COPY = {
     en: {
         title: 'Compensation revision',
-        lead: 'Set the new salary and commission, choose Effective from, then Apply. Unpaid accrued commissions from that date update in one step. Paid slips stay frozen. Chart of accounts 6000 / 2200 adjust with a single journal.',
+        lead: 'Set the new salary and commission above, choose Effective from, then Apply. Unpaid accrued commissions from that date update in one step — including jobs that had 0% (no ledger row yet). Paid slips stay frozen. Chart of accounts 6000 / 2200 adjust with a single journal.',
         effectiveFrom: 'Effective from',
         apply: 'Apply compensation',
         applying: 'Applying…',
@@ -24,7 +24,9 @@ const COPY = {
         confirm: 'Confirm apply',
         history: 'Revision history',
         empty: 'No revisions yet. Apply whenever a rate should change.',
+        rates: 'Rates to apply',
         unpaid: 'Unpaid lines to revise',
+        created: 'New lines to create',
         paidSkip: 'Paid lines skipped',
         ruleSkip: 'Rule-based lines skipped',
         oldMix: 'Current accrued total',
@@ -39,7 +41,7 @@ const COPY = {
     },
     ar: {
         title: 'مراجعة التعويض',
-        lead: 'حدد الراتب والعمولة الجديدة وتاريخ السريان ثم اضغط تطبيق. العمولات المستحقة غير المدفوعة من ذلك التاريخ تُحدَّث دفعة واحدة. القسائم المدفوعة تبقى كما هي. الحسابات 6000 / 2200 تُعدَّل بقيد واحد.',
+        lead: 'حدد الراتب والعمولة الجديدة أعلاه وتاريخ السريان ثم اضغط تطبيق. العمولات المستحقة غير المدفوعة من ذلك التاريخ تُحدَّث دفعة واحدة — بما في ذلك الوظائف التي كانت بنسبة 0٪. القسائم المدفوعة تبقى كما هي. الحسابات 6000 / 2200 تُعدَّل بقيد واحد.',
         effectiveFrom: 'يسري من',
         apply: 'تطبيق التعويض',
         applying: 'جارٍ التطبيق…',
@@ -48,7 +50,9 @@ const COPY = {
         confirm: 'تأكيد التطبيق',
         history: 'سجل المراجعات',
         empty: 'لا توجد مراجعات بعد. استخدم التطبيق عند تغيير النسبة أو الراتب.',
+        rates: 'النسب المُطبَّقة',
         unpaid: 'بنود غير مدفوعة ستُراجع',
+        created: 'بنود جديدة ستُنشأ',
         paidSkip: 'بنود مدفوعة تم تجاوزها',
         ruleSkip: 'بنود بقواعد عمولة تم تجاوزها',
         oldMix: 'إجمالي المستحق الحالي',
@@ -75,6 +79,12 @@ function money(n) {
     return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function toFiniteNumber(value, fallback = 0) {
+    if (value === '' || value == null || value === undefined) return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
 export default function CompensationRevisionPanel({
     locale = 'en',
     api = 'workshop',
@@ -90,6 +100,7 @@ export default function CompensationRevisionPanel({
     const [revisions, setRevisions] = useState([]);
     const [currentRates, setCurrentRates] = useState({ basicSalary: 0, commissionPercent: 0 });
     const [preview, setPreview] = useState(null);
+    const [pendingBody, setPendingBody] = useState(null);
     const [busy, setBusy] = useState(false);
     const [loadingList, setLoadingList] = useState(false);
     const [error, setError] = useState('');
@@ -127,24 +138,29 @@ export default function CompensationRevisionPanel({
         loadHistory();
     }, [loadHistory]);
 
-    const resolvedSalary =
-        basicSalary === '' || basicSalary == null || basicSalary === undefined
-            ? currentRates.basicSalary
-            : Number(basicSalary);
-    const resolvedPct =
-        commissionPercent === '' || commissionPercent == null || commissionPercent === undefined
-            ? currentRates.commissionPercent
-            : Number(commissionPercent);
-    const body = {
-        basicSalary: Number.isFinite(resolvedSalary) ? resolvedSalary : 0,
-        commissionPercent: Number.isFinite(resolvedPct) ? resolvedPct : 0,
-        effectiveFrom,
-        recordType,
-    };
+    const buildBody = useCallback(() => {
+        const salary =
+            basicSalary === '' || basicSalary == null || basicSalary === undefined
+                ? currentRates.basicSalary
+                : toFiniteNumber(basicSalary, currentRates.basicSalary);
+        const pct =
+            commissionPercent === '' || commissionPercent == null || commissionPercent === undefined
+                ? currentRates.commissionPercent
+                : toFiniteNumber(commissionPercent, currentRates.commissionPercent);
+        return {
+            basicSalary: salary,
+            basic_salary: salary,
+            commissionPercent: pct,
+            commission_percent: pct,
+            effectiveFrom,
+            recordType,
+        };
+    }, [basicSalary, commissionPercent, currentRates, effectiveFrom, recordType]);
 
     const runPreview = async () => {
         setError('');
         setNotice('');
+        const body = buildBody();
         setBusy(true);
         try {
             const res =
@@ -158,9 +174,12 @@ export default function CompensationRevisionPanel({
                               body,
                           }),
                       );
+            setPendingBody(body);
             setPreview(res);
         } catch (e) {
             setError(e?.message || t.previewErr);
+            setPreview(null);
+            setPendingBody(null);
         } finally {
             setBusy(false);
         }
@@ -168,20 +187,28 @@ export default function CompensationRevisionPanel({
 
     const runApply = async () => {
         setError('');
+        // Always re-read salary/% from the live form fields so Confirm cannot
+        // apply a stale 0% snapshot while the input shows 5.
+        const live = buildBody();
+        const payload = {
+            ...live,
+            effectiveFrom: pendingBody?.effectiveFrom || live.effectiveFrom,
+        };
         setBusy(true);
         try {
             const res =
                 api === 'admin'
-                    ? unwrap(await applyTechnicianCompensation(recordId, body))
+                    ? unwrap(await applyTechnicianCompensation(recordId, payload))
                     : unwrap(
                           await applyCompensationRevision({
                               recordId,
                               recordType,
                               workshopId,
-                              body,
+                              body: payload,
                           }),
                       );
             setPreview(null);
+            setPendingBody(null);
             setNotice(t.done);
             await loadHistory();
             onApplied?.(res);
@@ -193,6 +220,13 @@ export default function CompensationRevisionPanel({
     };
 
     if (!recordId) return null;
+
+    const previewPct =
+        preview?.newCommissionPercent ?? pendingBody?.commissionPercent ?? toFiniteNumber(commissionPercent, currentRates.commissionPercent);
+    const previewOldPct = preview?.oldCommissionPercent ?? currentRates.commissionPercent;
+    const previewSal =
+        preview?.newBasicSalary ?? pendingBody?.basicSalary ?? toFiniteNumber(basicSalary, currentRates.basicSalary);
+    const previewOldSal = preview?.oldBasicSalary ?? currentRates.basicSalary;
 
     return (
         <div className="cx-comp">
@@ -222,7 +256,20 @@ export default function CompensationRevisionPanel({
                     <p className="cx-comp__preview-title">{t.preview}</p>
                     <ul>
                         <li>
+                            {t.rates}:{' '}
+                            <b>
+                                {money(previewOldSal)} → {money(previewSal)} SAR · {previewOldPct}% →{' '}
+                                {previewPct}%
+                            </b>
+                        </li>
+                        <li>
                             {t.unpaid}: <b>{preview.unpaidLines ?? 0}</b>
+                            {preview.linesCreated != null ? (
+                                <>
+                                    {' '}
+                                    ({t.created}: <b>{preview.linesCreated}</b>)
+                                </>
+                            ) : null}
                         </li>
                         <li>
                             {t.paidSkip}: <b>{preview.skippedPaidCount ?? 0}</b>
@@ -244,7 +291,7 @@ export default function CompensationRevisionPanel({
                         </li>
                     </ul>
                     <div className="cx-comp__actions">
-                        <button type="button" onClick={() => setPreview(null)} disabled={busy}>
+                        <button type="button" onClick={() => { setPreview(null); setPendingBody(null); }} disabled={busy}>
                             {t.cancel}
                         </button>
                         <button type="button" className="cx-comp__apply" onClick={runApply} disabled={busy}>
