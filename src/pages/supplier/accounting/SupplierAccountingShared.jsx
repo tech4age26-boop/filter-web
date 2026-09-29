@@ -48,6 +48,52 @@ export function fmtDate(value) {
     }
 }
 
+export function fmtDateTime(value, locale = 'en') {
+    if (!value) return '—';
+    try {
+        const d = value instanceof Date ? value : new Date(value);
+        if (isNaN(d.getTime())) return String(value);
+        return d.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    } catch {
+        return String(value);
+    }
+}
+
+export function JournalStatusBadge({ journal, locale = 'en', t }) {
+    const tr = t || ((key, vars) => saccT(locale, key, vars));
+    const status = String(journal?.status || '');
+    if (status === 'void') {
+        return <span className="ws-badge ws-badge--red">{status}</span>;
+    }
+    if (journal?.lastEditedAt) {
+        const who = journal.lastEditedByName || tr('logs.edited.unknown');
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.35 }}>
+                <span className="ws-badge" style={{ background: '#FEF3C7', color: '#92400E', width: 'fit-content' }}>
+                    {tr('logs.status.edited')}
+                </span>
+                <span style={{ fontSize: 11, color: '#334155', fontWeight: 600 }}>
+                    {fmtDateTime(journal.lastEditedAt, locale)}
+                </span>
+                <span style={{ fontSize: 11, color: '#64748B' }}>
+                    {tr('logs.edited.by', { name: who })}
+                </span>
+            </div>
+        );
+    }
+    return (
+        <span className={`ws-badge ${status === 'posted' ? 'ws-badge--green' : ''}`}>
+            {status || tr('emdash')}
+        </span>
+    );
+}
+
 /** ISO date for today (yyyy-mm-dd). */
 export function todayISO() {
     const d = new Date();

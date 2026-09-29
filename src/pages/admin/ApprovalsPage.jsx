@@ -51,6 +51,8 @@ import {
     marketingRejectExpense,
     marketingPayExpense,
     marketingListWalletCashAccounts,
+    marketingListReferrerPayoutRequests,
+    marketingUpdateReferrerPayoutRequest,
 } from '../../services/superAdminMarketingApi';
 import ApprovalShell from '../../components/admin/ApprovalShell';
 import ApprovalDetailsModal from './ApprovalDetailsModal';
@@ -85,6 +87,7 @@ const APPROVAL_TYPE_TO_PERMISSION_SUFFIX = {
     marketing_promotion: 'marketing-promotion',
     marketing_campaign: 'marketing-campaign',
     marketing_expense: 'marketing-expense',
+    marketing_referrer_payout: 'marketing-referrer-payout',
 };
 
 function approvalPermission(entityType, action) {
@@ -356,6 +359,65 @@ function approvalItemKey(item) {
     return `${item.entityType ?? 'unknown'}:${item.id}`;
 }
 
+function unwrapReferrerPayoutRequests(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.payouts)) return payload.payouts;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.data?.payouts)) return payload.data.payouts;
+    if (Array.isArray(payload?.data?.items)) return payload.data.items;
+    if (Array.isArray(payload?.data)) return payload.data;
+    return [];
+}
+
+function referrerPayoutUiStatus(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'rejected') return 'rejected';
+    if (s === 'paid' || s === 'approved') return 'approved';
+    return 'pending';
+}
+
+function referrerPayoutMatchesTab(row, tabStatus) {
+    const ui = referrerPayoutUiStatus(row?.status);
+    if (!tabStatus || !['pending', 'approved', 'rejected'].includes(tabStatus)) {
+        return true;
+    }
+    return ui === tabStatus;
+}
+
+function mapMarketingReferrerPayoutRow(r) {
+    const amount = Number(r.amount ?? 0);
+    const amountLabel = `SAR ${amount.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+    const dbStatus = String(r.status || 'pending').toLowerCase();
+    return {
+        id: String(r.id),
+        entityType: 'marketing_referrer_payout',
+        type: 'marketing_referrer_payout',
+        typeLabel: 'Referrer commission payout',
+        status: referrerPayoutUiStatus(dbStatus),
+        title: `Referrer payout · ${r.referrerName || r.id}`,
+        meta: {
+            referrerName: r.referrerName,
+            referralCode: r.referralCode,
+            amount,
+            amountLabel,
+            method: r.method || 'bank',
+            notes: r.notes,
+            rejectionReason: r.rejectionReason,
+            bankName: r.bankName,
+            iban: r.iban,
+            payoutStatus: dbStatus,
+        },
+        submittedBy: r.requestedByName || r.referrerName || null,
+        reviewer: null,
+        date: r.createdAt ?? r.created_at ?? '',
+        reference: r.id,
+        raw: r,
+    };
+}
+
 function mapMarketingBudgetRequestRow(r) {
     const amount = Number(r.amount ?? 0);
     const currency = r.currencyCode ?? r.currency_code ?? 'SAR';
@@ -407,6 +469,7 @@ const ENTITY_TYPES = [
     { value: 'marketing_promotion', label: 'Marketing promotion' },
     { value: 'marketing_campaign', label: 'Marketing campaign' },
     { value: 'marketing_expense', label: 'Marketing expense' },
+    { value: 'marketing_referrer_payout', label: 'Referrer commission payout' },
     { value: 'marketing_promo_code', label: 'Marketing promo code' },
     { value: 'locker_expense', label: 'Locker expense' },
     { value: 'technician_registration', label: 'Technician' },
@@ -620,8 +683,16 @@ function buildMetaChips(item) {
             push('Company', m.companyName);
             push('Bill', m.billNo);
             push('Method', m.paymentMethod);
-            push('Received', m.receivedDate);
-            push('Balance', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            push('Date received', m.receivedDate);
+            push('Balance due', m.amount != null ? `SAR ${Number(m.amount).toFixed(2)}` : null);
+            push(
+                'Received amount',
+                m.receivedAmount != null
+                    ? `SAR ${Number(m.receivedAmount).toFixed(2)}`
+                    : m.amount != null
+                      ? `SAR ${Number(m.amount).toFixed(2)}`
+                      : null,
+            );
             if (m.rejectionReason) push('Reason', m.rejectionReason);
             break;
         case 'corporate_generated_bill_deletion':
@@ -677,6 +748,13 @@ function buildMetaChips(item) {
             push('Amount', m.amountLabel);
             push('Campaign', m.campaignName);
             push('Date', m.expenseDate);
+            break;
+        case 'marketing_referrer_payout':
+            push('Referrer', m.referrerName);
+            push('Amount', m.amountLabel ?? (m.amount != null ? `SAR ${m.amount}` : null));
+            push('Method', m.method);
+            push('Bank', m.bankName);
+            push('IBAN', m.iban);
             break;
         case 'locker_expense':
             push('Workshop', m.workshopName);
@@ -2510,8 +2588,15 @@ function GeneratedBillApprovalDetailsModal({ id, item, onClose, onApprove, onRej
                             <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Bill</p>
                             <p style={{ margin: '4px 0 0', fontWeight: 700 }}>{data.billNo ?? '—'}</p>
                             <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#64748b' }}>
-                                Balance: SAR {Number(data.balance || 0).toFixed(2)}
+                                Balance due: SAR {Number(data.balance || 0).toFixed(2)}
                             </p>
+                            {kind === 'payment' ? (
+                                <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#0f172a' }}>
+                                    Received amount: SAR {Number(
+                                        data.receivedAmount != null ? data.receivedAmount : data.balance || 0,
+                                    ).toFixed(2)}
+                                </p>
+                            ) : null}
                         </div>
                         {kind === 'payment' ? (
                             <>
@@ -3322,6 +3407,8 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             !entityTypeFilter || entityTypeFilter === 'marketing_promotion';
         const wantMarketingPromoCodes =
             !entityTypeFilter || entityTypeFilter === 'marketing_promo_code';
+        const wantReferrerPayouts =
+            !entityTypeFilter || entityTypeFilter === 'marketing_referrer_payout';
 
         // When the filter is narrowed to a type handled by a dedicated API, skip std approvals.
         const stdReq = entityTypeFilter === 'corporate_payment_approval'
@@ -3414,6 +3501,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                                   companyName: r.corporate?.companyName,
                                   billNo: r.billNo,
                                   amount: r.balance,
+                                  receivedAmount: r.receivedAmount,
                                   paymentMethod: r.paymentMethod,
                                   receivedDate: r.receivedDate,
                                   previousStatus: r.previousStatus,
@@ -3511,11 +3599,25 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                   })
             : Promise.resolve([]);
 
-        Promise.all([stdReq, cpaReq, gbaReq, srReq, mbrReq, mprReq, mpcReq])
-            .then(([stdItems, cpaItems, gbaItems, srItems, mbrItems, mprItems, mpcItems]) => {
+        const mrpReq = wantReferrerPayouts && canViewType('marketing_referrer_payout')
+            ? marketingListReferrerPayoutRequests()
+                .then((res) =>
+                    unwrapReferrerPayoutRequests(res)
+                        .filter((row) => referrerPayoutMatchesTab(row, status))
+                        .map(mapMarketingReferrerPayoutRow),
+                )
+                .catch((err) => {
+                    console.error('Referrer payout approval load failed:', err);
+                    return [];
+                })
+            : Promise.resolve([]);
+
+        Promise.all([stdReq, cpaReq, gbaReq, srReq, mbrReq, mprReq, mpcReq, mrpReq])
+            .then(([stdItems, cpaItems, gbaItems, srItems, mbrItems, mprItems, mpcItems, mrpItems]) => {
                 if (cancelled) return;
                 const seen = new Set();
                 const merged = [
+                    ...mrpItems,
                     ...mpcItems,
                     ...mprItems,
                     ...mbrItems,
@@ -3556,6 +3658,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
     const isMarketingPromotion = (et) => et === 'marketing_promotion';
     const isMarketingPromoCode = (et) => et === 'marketing_promo_code';
     const isMarketingExpense = (et) => et === 'marketing_expense';
+    const isMarketingReferrerPayout = (et) => et === 'marketing_referrer_payout';
 
     useEffect(() => {
         if (
@@ -3602,6 +3705,12 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     paymentAccountId: payload.paymentAccountId,
                     paymentAccountName: payload.paymentAccountName,
                 });
+            } else if (isMarketingReferrerPayout(item.entityType)) {
+                try {
+                    await approveApi(item.entityType, item.id, payload);
+                } catch {
+                    await marketingUpdateReferrerPayoutRequest(item.id, { status: 'paid' });
+                }
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await approveSuperAdminCorporatePriceQuotation(item.id);
             } else {
@@ -3625,7 +3734,9 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                     ? t('toast.postedCoa')
                     : (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request')
                         ? t('toast.approvedPosted')
-                        : t('toast.approved'),
+                        : item.entityType === 'marketing_referrer_payout'
+                            ? t('toast.payoutPaid')
+                            : t('toast.approved'),
             );
         } catch (err) {
             if (item.entityType === 'admin_wallet_fund_request' || item.entityType === 'admin_wallet_expense_request') {
@@ -3657,6 +3768,15 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 await marketingRejectPromoCode(item.id, { reason: reason ?? '' });
             } else if (isMarketingExpense(item.entityType)) {
                 await marketingRejectExpense(item.id, { rejectionReason: reason ?? '' });
+            } else if (isMarketingReferrerPayout(item.entityType)) {
+                try {
+                    await rejectApi(item.entityType, item.id, reason);
+                } catch {
+                    await marketingUpdateReferrerPayoutRequest(item.id, {
+                        status: 'rejected',
+                        reason: reason ?? '',
+                    });
+                }
             } else if (isCorporatePriceQuotation(item.entityType)) {
                 await rejectSuperAdminCorporatePriceQuotation(item.id, { reason });
             } else {
@@ -3742,6 +3862,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
             case 'marketing_promotion':
             case 'marketing_campaign':
             case 'marketing_expense':
+            case 'marketing_referrer_payout':
             case 'marketing_promo_code':
             case 'marketing_budget_request':
             case 'admin_wallet_fund_request':
@@ -4021,6 +4142,7 @@ export default function ApprovalsPage({ isTab = false, onlySettings = false }) {
                 asPage
                 entityType={routeEntityType}
                 id={routeRequestId}
+                initialData={routeItem}
                 onClose={goToApprovalsList}
                 actionDisabled={busy}
                 canApprove={canApproveType(routeEntityType)}

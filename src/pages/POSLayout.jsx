@@ -292,8 +292,10 @@ function POSContent() {
                     <CorporateBookings
                         onBack={goHome}
                         onApproveAndEdit={(booking) => {
+                            const bookedDept = { id: 'direct', name: 'Booked Service' };
                             setOrderInfo({ type: 'corporate', customer: { id: booking.customerId, name: booking.customerName, customer_type: 'corporate' }, vehicle: {} });
-                            setSelectedDept({ id: 'direct', name: 'Booked Service' });
+                            setActiveDept(bookedDept);
+                            setSelectedDepts([bookedDept]);
                             setScreen('order_builder');
                         }}
                     />

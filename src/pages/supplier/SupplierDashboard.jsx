@@ -101,7 +101,11 @@ export default function SupplierDashboard({ onTabChange, locale: localeProp }) {
 
     const totalAR = dataReady ? Number(dashboardData.receivables?.total ?? 0) : null;
     const totalAP = dataReady
-        ? Number(dashboardData.reports?.summary?.totalPayables ?? 0)
+        ? Number(
+              dashboardData.payables?.total ??
+                  dashboardData.reports?.summary?.totalPayables ??
+                  0,
+          )
         : null;
 
     const totalCash =

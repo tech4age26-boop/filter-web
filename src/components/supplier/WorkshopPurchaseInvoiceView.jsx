@@ -671,14 +671,49 @@ function formatPortalPaymentMethodLabel(raw) {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function isDateOnlyValue(raw) {
+    return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim());
+}
+
 function formatInvoiceDateTime(inv, row) {
-    const raw =
-        pick(inv, 'createdAt', 'created_at', 'updatedAt', 'updated_at', 'issueDate', 'issue_date') ??
-        row?.date;
-    if (!raw && raw !== 0) return '—';
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return String(raw).slice(0, 19);
+    const instant =
+        pick(inv, 'workshopReviewedAt', 'workshop_reviewed_at', 'displayDateTime', 'display_date_time') ??
+        pick(inv, 'createdAt', 'created_at') ??
+        row?.workshopReviewedAt ??
+        row?.createdAt;
+    if (instant && !isDateOnlyValue(instant)) {
+        const d = new Date(instant);
+        if (!Number.isNaN(d.getTime())) {
+            return d.toLocaleString('en-GB', {
+                timeZone: 'Asia/Riyadh',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+            });
+        }
+    }
+    const dateOnly =
+        pick(inv, 'issueDate', 'issue_date', 'invoiceDate', 'invoice_date') ?? row?.date;
+    if (!dateOnly && dateOnly !== 0) return '—';
+    if (isDateOnlyValue(dateOnly)) {
+        const d = new Date(`${String(dateOnly).trim()}T12:00:00+03:00`);
+        if (!Number.isNaN(d.getTime())) {
+            return d.toLocaleDateString('en-GB', {
+                timeZone: 'Asia/Riyadh',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+            });
+        }
+        return String(dateOnly);
+    }
+    const d = new Date(dateOnly);
+    if (Number.isNaN(d.getTime())) return String(dateOnly).slice(0, 19);
     return d.toLocaleString('en-GB', {
+        timeZone: 'Asia/Riyadh',
         day: '2-digit',
         month: 'short',
         year: 'numeric',
@@ -865,7 +900,9 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
           ) ??
           inv?.branch?.vatNumber ??
           inv?.branch?.vat_number ??
+          inv?.branch?.vatId ??
           inv?.workshop?.vatNumber ??
+          inv?.workshop?.taxId ??
           '';
 
     const supplierVat =
@@ -1363,7 +1400,9 @@ const WorkshopPurchaseInvoiceView = forwardRef(function WorkshopPurchaseInvoiceV
                             </div>
                             <div className="wpi-view__details-grid">
                                 <div className="wpi-view__field">
-                                    <span className="wpi-view__field-label">Issue date</span>
+                                    <span className="wpi-view__field-label">
+                                        {isSuperSupplier ? 'Purchase date' : 'Issue date'}
+                                    </span>
                                     <div className="wpi-view__field-value">{issueDate || '—'}</div>
                                 </div>
                                 <div className="wpi-view__field">

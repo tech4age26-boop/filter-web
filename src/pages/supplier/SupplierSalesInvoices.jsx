@@ -27,8 +27,10 @@ import {
     createSupplierInvoice,
     deleteSupplierInvoice,
     getSupplierInvoice,
+    fetchAllSupplierStockBalances,
     getSupplierInventoryStockBalances,
     getSupplierSalesInvoiceCustomerBranches,
+    searchSupplierInvoicePickerProducts,
     listSupplierInvoices,
     listSupplierInvoiceReturns,
     createSupplierInvoiceReturn,
@@ -173,6 +175,10 @@ function mapSupplierSalesInvoiceToWorkshopDetail(inv) {
         supplierLegalName: inv.supplierName,
         supplierName: inv.supplierName,
         supplierVatNumber: inv.supplierVatNumber,
+        workshopVatNumber: inv.workshopVatNumber,
+        createdAt: inv.createdAt ?? inv.displayDateTime ?? null,
+        workshopReviewedAt: inv.workshopReviewedAt ?? null,
+        displayDateTime: inv.displayDateTime ?? null,
         subtotalExVat: inv.subtotal,
         subtotal: inv.subtotal,
         vatAmount: inv.vatAmount,
@@ -649,6 +655,33 @@ function reconstructSalesInvoiceUnitPriceInput(it, amountsTaxInclusive, taxCode)
     return String(roundMoney2(grossInclBeforeDisc / qty));
 }
 
+function normalizeInvoicePickerApiRow(raw, t) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (raw.productName || raw.currentBalanceWarehouse != null) {
+        return normalizeStockCatalogRow(raw, t);
+    }
+    const mid = String(raw.masterProductId || raw.id || '').trim();
+    const supplierId = raw.supplierProductId != null ? String(raw.supplierProductId).trim() : '';
+    if (!mid && !supplierId) return null;
+    const warehouseUnit = String(raw.warehouseUnit || raw.unitCode || raw.unit || 'pcs').trim() || 'pcs';
+    return {
+        id: supplierId || mid,
+        masterProductId: mid || null,
+        name: raw.name || t('fallback.product'),
+        sku: String(raw.sku || '').trim(),
+        price: Math.max(0, Number(raw.salePrice ?? raw.purchasePrice ?? 0) || 0),
+        unit: warehouseUnit,
+        warehouseUnit,
+        workshopUnit: String(raw.workshopUnit || 'pcs').trim() || 'pcs',
+        conversionFactor: Number(raw.conversionFactor) || 1,
+        warehouseStockQty: 0,
+        itemType: 'Product',
+        supplierStockProductId: supplierId || null,
+        catalogProductResolved: Boolean(supplierId),
+        stockHint: '',
+    };
+}
+
 function mergeInventoryLists(stockRows, fallback) {
     const map = new Map();
     (stockRows || []).forEach((entry) => {
@@ -782,12 +815,17 @@ const lastSaleMeta =
 
         /** Aggregate warehouse bucket qty (supplier stock units before workshop conversion). */
         warehouseStockQty: Number(item.currentBalanceWarehouse ?? 0),
+        pendingWorkshopReceiveWarehouse: Number(
+            item.pendingWorkshopReceiveWarehouse ?? 0,
+        ),
+        pendingWorkshopReceiveWorkshop: Number(
+            item.pendingWorkshopReceiveWorkshop ?? 0,
+        ),
         conversionFactor,
 
-        stockQtyWorkshop:
-            Number.isFinite(stockQtyWorkshop) && stockQtyWorkshop >= 0
-                ? stockQtyWorkshop
-                : null,
+        stockQtyWorkshop: Number.isFinite(stockQtyWorkshop)
+            ? stockQtyWorkshop
+            : null,
 
     lastPrice: displaySalePrice,
     lastSaleMeta,
@@ -832,7 +870,8 @@ function maxSellableQtyWorkshopForLine(line, lines, inventoryItems) {
     if (!inv || inv.stockQtyWorkshop == null || !Number.isFinite(inv.stockQtyWorkshop)) {
         return null;
     }
-    const cap = Number(inv.stockQtyWorkshop);
+    const reserved = Number(inv.pendingWorkshopReceiveWorkshop ?? 0);
+    const cap = Math.max(0, Number(inv.stockQtyWorkshop) - reserved);
     const key = salesLineStockKey(line);
     if (!key) return null;
     let otherSum = 0;
@@ -860,7 +899,8 @@ function maxSellableQtyWarehouseForLine(line, lines, inventoryItems) {
     if (!inv || !Number.isFinite(Number(inv.warehouseStockQty))) {
         return null;
     }
-    const cap = Number(inv.warehouseStockQty);
+    const reserved = Number(inv.pendingWorkshopReceiveWarehouse ?? 0);
+    const cap = Math.max(0, Number(inv.warehouseStockQty) - reserved);
     const key = salesLineStockKey(line);
     if (!key) return null;
     let otherSum = 0;
@@ -882,18 +922,26 @@ function maxSellableQtyForLine(line, lines, inventoryItems) {
 }
 
 /** Lines where invoice qty exceeds on-hand supplier stock (incl. zero stock). */
-function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItems) {
+function collectInsufficientStockLines(
+    lineItems,
+    normalizedLines,
+    inventoryItems,
+    t = (k, v) => ssiT('en', k, v),
+) {
     const out = [];
     for (let i = 0; i < lineItems.length; i++) {
         const row = lineItems[i];
-        const maxCap = maxSellableQtyForLine(row, lineItems, inventoryItems);
-        if (maxCap == null || !Number.isFinite(maxCap)) continue;
-        const qNum = normalizedLines[i]?.qty ?? 0;
-        if (qNum <= maxCap + 1e-6) continue;
         const productId = String(
-            row.supplierProductId ?? row.supplierStockProductId ?? '',
+            row.supplierStockProductId ?? row.supplierProductId ?? '',
         ).trim();
         if (!productId) continue;
+        const maxCap = maxSellableQtyForLine(row, lineItems, inventoryItems);
+        const qNum = normalizedLines[i]?.qty ?? 0;
+        const short =
+            maxCap == null ||
+            !Number.isFinite(maxCap) ||
+            qNum > maxCap + 1e-6;
+        if (!short) continue;
         out.push({
             productId,
             name:
@@ -901,7 +949,7 @@ function collectInsufficientStockLines(lineItems, normalizedLines, inventoryItem
                 row.item ||
                 t('fallback.product'),
             requestedQty: qNum,
-            availableQty: maxCap,
+            availableQty: Number.isFinite(maxCap) ? maxCap : 0,
             unit: normalizedLines[i]?.unit || row.uom || 'pcs',
         });
     }
@@ -1894,6 +1942,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 lineItems,
                 normalizedLines,
                 inventoryItems,
+                t,
             );
             if (insufficientStock.length > 0 && !invoiceFromQuoteRef.current) {
                 const detail = insufficientStock
@@ -1912,16 +1961,22 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             lineItems,
             normalizedLines,
             inventoryItems,
+            t,
         ).map((row) => row.productId);
+        const allLineProductIds = lineItems
+            .map((row) =>
+                String(row.supplierStockProductId ?? row.supplierProductId ?? '').trim(),
+            )
+            .filter(Boolean);
         const quoteLineIds = invoiceFromQuoteRef.current
             ? lineItems
                   .map((row) =>
-                      String(row.supplierProductId ?? row.supplierStockProductId ?? '').trim(),
+                      String(row.supplierStockProductId ?? row.supplierProductId ?? '').trim(),
                   )
                   .filter(Boolean)
             : [];
         const allowInsufficientStockProductIds = !isDraftSave
-            ? [...new Set([...insufficientIds, ...quoteLineIds])]
+            ? [...new Set([...allLineProductIds, ...insufficientIds, ...quoteLineIds])]
             : [];
         setSavingAction(isDraftSave ? 'draft' : 'issue');
         const due =
@@ -2018,9 +2073,8 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     setEditingInvoiceStatus('pending_payment');
                 }
             } else {
-                const prefix = isDraftSave ? 'DRAFT' : 'WPI-SI';
                 let invoiceNo = (refNo && String(refNo).trim()) || '';
-                if (refAutoGenerate) {
+                if (refAutoGenerate || !invoiceNo) {
                     try {
                         const next = await getNextSupplierSalesInvoiceReference();
                         if (next) {
@@ -2035,8 +2089,6 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                             'Could not generate a unique invoice number. Try Auto-generate again.',
                         );
                     }
-                } else if (!invoiceNo) {
-                    invoiceNo = `${prefix}-${Date.now().toString(36).toUpperCase()}`;
                 }
                 const res = await createSupplierInvoice({
                     invoiceNo,
@@ -2856,7 +2908,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
             setListError('');
             try {
                 const [stockRes, branchesRes, invRes] = await Promise.all([
-                    getSupplierInventoryStockBalances({ limit: CATALOG_STOCK_BALANCES_LIMIT }),
+                    fetchAllSupplierStockBalances({ pageSize: CATALOG_STOCK_BALANCES_LIMIT }),
                     getSupplierSalesInvoiceCustomerBranches().catch((be) => {
                         console.error('Supplier customer-branches failed:', be);
                         return { __error: be, branches: [] };
@@ -3037,10 +3089,12 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                     ? String(selectedCustomer.branchId)
                     : '';
                 if (bid) params.branchId = bid;
-                const stockRes = await getSupplierInventoryStockBalances(params);
+                const pickerRes = await searchSupplierInvoicePickerProducts({ q });
                 if (cancelled) return;
-                const rows = Array.isArray(stockRes?.items)
-                    ? stockRes.items.map((raw) => normalizeStockCatalogRow(raw, t))
+                const rows = Array.isArray(pickerRes?.products)
+                    ? pickerRes.products
+                          .map((raw) => normalizeInvoicePickerApiRow(raw, t))
+                          .filter(Boolean)
                     : [];
                 setCatalogSearchRemote(rows);
             } catch (err) {

@@ -131,7 +131,9 @@ const SM_I18N = {
         'err.loadLedger': 'Could not load the movement ledger.',
         'err.loadHistory': 'Could not load stock history.',
         'err.selectReason': 'Select a reason for the adjustment.',
-        'err.validQtyGte0': 'Enter a valid quantity ≥ 0.',
+        'err.validQtyGte0': 'Enter the counted stock (0 or more). Minus running stock can be corrected.',
+        'modal.adjustFromMinus':
+            'Current stock is negative (sales exceeded stock). Enter the counted available quantity (usually 0 or more) and apply — that posts the running-balance adjustment.',
         'err.qtyUnchanged': 'New quantity matches current stock — no change needed.',
         'err.saveAdjustment': 'Could not save adjustment.',
         'adj.intro': 'Branch-wise manual adjustments for',
@@ -334,7 +336,9 @@ const SM_I18N = {
         'err.loadLedger': 'تعذر تحميل سجل الحركات.',
         'err.loadHistory': 'تعذر تحميل سجل المخزون.',
         'err.selectReason': 'اختر سببًا للتعديل.',
-        'err.validQtyGte0': 'أدخل كمية صالحة ≥ 0.',
+        'err.validQtyGte0': 'أدخل المخزون المعدود (0 أو أكثر). يمكن تصحيح المخزون السالب.',
+        'modal.adjustFromMinus':
+            'المخزون الحالي سالب (المبيعات تجاوزت المخزون). أدخل الكمية المتاحة المعدودة (عادة 0 أو أكثر) ثم طبّق — يُرحَّل تعديل الرصيد الجاري.',
         'err.qtyUnchanged': 'الكمية الجديدة تطابق المخزون الحالي — لا تغيير مطلوب.',
         'err.saveAdjustment': 'تعذر حفظ التعديل.',
         'adj.intro': 'تعديلات يدوية حسب الفرع لـ',

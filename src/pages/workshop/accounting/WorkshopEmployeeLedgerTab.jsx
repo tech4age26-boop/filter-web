@@ -17,6 +17,8 @@ import {
 
     unwrapWorkshopEmployeesList,
 
+    workshopStaffRoleLabel,
+
     workshopStaffSelectValue,
 
 } from '../../../services/workshopStaffApi';
@@ -54,6 +56,8 @@ const TYPE_LABELS = {
     advance_issued: 'Advance issued',
 
     advance_deducted: 'Advance deducted',
+
+    advance_repaid: 'Advance repaid',
 
     penalty: 'Penalty',
 
@@ -426,10 +430,7 @@ export default function WorkshopEmployeeLedgerTab({
                 .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
                 .map((e) => {
                     const selectKey = workshopStaffSelectValue(e);
-                    const typeLabel =
-                        e.recordType && e.recordType !== 'employee'
-                            ? String(e.recordType).replace(/_/g, ' ')
-                            : 'Employee';
+                    const typeLabel = workshopStaffRoleLabel(e);
                     const branchName = e.branch?.name || '';
                     return {
                         id: selectKey,
@@ -1023,15 +1024,19 @@ export default function WorkshopEmployeeLedgerTab({
 
                                                 style={{
 
-                                                    color: r.advance > 0 ? '#C2410C' : undefined,
+                                                    color: r.advance > 0 ? '#C2410C' : r.advance < 0 ? '#047857' : undefined,
 
-                                                    fontWeight: r.advance > 0 ? 600 : 400,
+                                                    fontWeight: r.advance !== 0 ? 600 : 400,
 
                                                 }}
 
                                             >
 
-                                                {r.advance > 0 ? `SAR ${fmt(r.advance)}` : '—'}
+                                                {r.advance > 0
+                                                    ? `SAR ${fmt(r.advance)}`
+                                                    : r.advance < 0
+                                                      ? `−SAR ${fmt(-r.advance)}`
+                                                      : '—'}
 
                                             </td>
 

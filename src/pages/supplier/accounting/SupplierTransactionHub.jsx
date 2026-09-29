@@ -5,9 +5,12 @@ import {
     getSupplierAccounts,
     listSupplierPayments,
     listSupplierReceipts,
+    checkSupplierHubReferenceExists,
+    getSupplierHubNextReference,
     postSupplierGeneralJournal,
     unwrapSupplierAccountingList,
 } from '../../../services/supplierAccountingApi';
+import VoucherRefField from '../../../components/accounting/VoucherRefField';
 import {
     listSupplierAffiliatedWorkshops,
     listSupplierExternalParties,
@@ -29,6 +32,7 @@ import {
 } from './SupplierAccountingShared';
 import { saccT } from '../../../utils/supplierAccountingI18n';
 import { PaymentReceiptGrid, buildCustomerOptions } from './SupplierPayReceiptBulkGrid';
+import { againstAccountsForPicker } from './supplierControlAccounts';
 
 const TRANSACTION_HUB_RECEIPT_PREFILL_KEY = 'transactionHubReceiptPrefill';
 
@@ -50,12 +54,7 @@ function GeneralJournalGrid({ accounts, headerDate, headerRef, generalNote, onPo
     const tr = t || ((key, vars) => saccT(locale, key, vars));
     const m = (v) => money(v, 'SAR', { locale });
     const leafAccounts = useMemo(
-        () =>
-            (accounts || []).filter(
-                (a) =>
-                    !a.hasChildren &&
-                    String(a.status || 'active').toLowerCase() !== 'inactive',
-            ),
+        () => againstAccountsForPicker(accounts),
         [accounts],
     );
     const [lines, setLines] = useState(() => [emptyJournalLine(), emptyJournalLine()]);
@@ -284,6 +283,15 @@ export default function SupplierTransactionHub({ locale: localeProp }) {
 
     const [gjDate, setGjDate] = useState(todayISO());
     const [gjRef, setGjRef] = useState('');
+    const [gjRefAuto, setGjRefAuto] = useState(false);
+    const fetchNextGjRef = useCallback(async () => {
+        const res = await getSupplierHubNextReference('journal');
+        return res?.reference || '';
+    }, []);
+    const checkGjRefDuplicate = useCallback(async (value) => {
+        const res = await checkSupplierHubReferenceExists(value);
+        return Boolean(res?.exists);
+    }, []);
     const [gjNote, setGjNote] = useState('');
 
     const customerOptions = useMemo(
@@ -489,9 +497,19 @@ export default function SupplierTransactionHub({ locale: localeProp }) {
                                             required
                                         />
                                     </Field>
-                                    <Field label={t('hub.field.ref')}>
-                                        <input style={inputStyle} value={gjRef} onChange={(e) => setGjRef(e.target.value)} />
-                                    </Field>
+                                    <VoucherRefField
+                                        label={t('hub.field.ref')}
+                                        placeholder={t('hub.field.refPh')}
+                                        autoGenerateLabel={t('hub.field.autoRef')}
+                                        generatingLabel={t('hub.field.generating')}
+                                        duplicateMessage={t('hub.field.refDup')}
+                                        value={gjRef}
+                                        onChange={setGjRef}
+                                        autoGenerate={gjRefAuto}
+                                        onAutoGenerateChange={setGjRefAuto}
+                                        fetchNextReference={fetchNextGjRef}
+                                        checkDuplicate={checkGjRefDuplicate}
+                                    />
                                     <Field label={t('hub.field.note')}>
                                         <input style={inputStyle} value={gjNote} onChange={(e) => setGjNote(e.target.value)} />
                                     </Field>

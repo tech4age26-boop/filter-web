@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
-import { marketingListReferrers } from '../../services/superAdminMarketingApi';
+import {
+  marketingCreateCommissionRule,
+  marketingListReferrers,
+} from '../../services/superAdminMarketingApi';
 import { mktRefCategoryLabel, mktRefT } from '../../utils/marketingReferrersI18n';
 import { MarketingFormShell } from './MarketingFormShell';
 import { marketingSectionPath } from './marketingRouteUtils';
@@ -8,6 +11,9 @@ import { InputField, SelectField, TextAreaField } from './referrerFormShared';
 import './MarketingUniversal.css';
 
 const CATEGORY_VALUES = ['Individual', 'Corporate', 'Technician', 'Employee'];
+const ALL_REFERRERS = 'All Referrers';
+const ALL_CATEGORIES = 'All Categories';
+const ALL_CUSTOMERS = 'All Customers';
 
 export default function ReferrerCommissionRuleFormPage() {
   const navigate = useNavigate();
@@ -22,13 +28,15 @@ export default function ReferrerCommissionRuleFormPage() {
   const listPath = `${marketingSectionPath(location.pathname, 'referrer-management')}?tab=rules`;
 
   const [referrers, setReferrers] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const [form, setForm] = useState({
-    referrer: 'All Referrers',
-    category: 'All Categories',
-    customerType: 'All Customers',
+    referrer: ALL_REFERRERS,
+    category: ALL_CATEGORIES,
+    customerType: ALL_CUSTOMERS,
     service: '',
-    commissionType: 'Percentage (%)',
-    value: '0',
+    commissionType: 'percentage',
+    value: '',
     effectiveFrom: '',
     effectiveTo: '',
     notes: '',
@@ -50,12 +58,41 @@ export default function ReferrerCommissionRuleFormPage() {
   }, []);
 
   const referrerOptions = [
-    { label: t('ruleForm.allReferrers'), value: 'All Referrers' },
+    { label: t('ruleForm.allReferrers'), value: ALL_REFERRERS },
     ...referrers.map((item) => ({
       label: item.name || item.fullName || t('fallback.referrer'),
       value: String(item.id),
     })),
   ];
+
+  const save = async () => {
+    const value = Number(form.value);
+    if (!Number.isFinite(value) || value <= 0) {
+      setError(t('ruleForm.valueRequired'));
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      await marketingCreateCommissionRule({
+        referrerId: form.referrer === ALL_REFERRERS ? null : form.referrer,
+        category: form.category === ALL_CATEGORIES ? null : form.category,
+        customerType: form.customerType === ALL_CUSTOMERS ? null : form.customerType,
+        service: form.service.trim() || null,
+        commissionType: form.commissionType,
+        value,
+        effectiveFrom: form.effectiveFrom || null,
+        effectiveTo: form.effectiveTo || null,
+        notes: form.notes.trim() || null,
+      });
+      goBack();
+    } catch (err) {
+      setError(err?.message || t('err.saveRule'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <MarketingFormShell
@@ -66,6 +103,8 @@ export default function ReferrerCommissionRuleFormPage() {
       className="mk-page mkp-form-page"
     >
       <div className="mkp-form-page-body" dir={locale === 'ar' ? 'rtl' : undefined}>
+        {error ? <div className="mk-error-text">{error}</div> : null}
+
         <div className="mk-ref-form-grid">
           <SelectField
             label={t('ruleForm.referrer')}
@@ -78,7 +117,7 @@ export default function ReferrerCommissionRuleFormPage() {
             value={form.category}
             onChange={(value) => setForm((prev) => ({ ...prev, category: value }))}
             options={[
-              { value: 'All Categories', label: t('ruleForm.allCategories') },
+              { value: ALL_CATEGORIES, label: t('ruleForm.allCategories') },
               ...CATEGORY_VALUES.map((value) => ({
                 value,
                 label: mktRefCategoryLabel(locale, value),
@@ -89,7 +128,7 @@ export default function ReferrerCommissionRuleFormPage() {
             label={t('ruleForm.customerType')}
             value={form.customerType}
             onChange={(value) => setForm((prev) => ({ ...prev, customerType: value }))}
-            options={[{ value: 'All Customers', label: t('ruleForm.allCustomers') }]}
+            options={[{ value: ALL_CUSTOMERS, label: t('ruleForm.allCustomers') }]}
           />
           <InputField
             label={t('ruleForm.service')}
@@ -101,25 +140,29 @@ export default function ReferrerCommissionRuleFormPage() {
             label={t('ruleForm.commissionType')}
             value={form.commissionType}
             onChange={(value) => setForm((prev) => ({ ...prev, commissionType: value }))}
-            options={[{ value: 'Percentage (%)', label: t('ruleForm.percentage') }]}
+            options={[
+              { value: 'percentage', label: t('ruleForm.percentage') },
+              { value: 'fixed', label: t('ruleForm.fixed') },
+            ]}
           />
           <InputField
-            label={t('ruleForm.value')}
+            label={form.commissionType === 'fixed' ? t('ruleForm.valueSar') : t('ruleForm.value')}
             value={form.value}
-            onChange={(value) => setForm((prev) => ({ ...prev, value: value }))}
+            onChange={(value) => setForm((prev) => ({ ...prev, value }))}
             placeholder={t('ruleForm.valuePh')}
+            type="number"
           />
           <InputField
             label={t('ruleForm.from')}
             value={form.effectiveFrom}
             onChange={(value) => setForm((prev) => ({ ...prev, effectiveFrom: value }))}
-            placeholder={t('ruleForm.datePh')}
+            type="date"
           />
           <InputField
             label={t('ruleForm.to')}
             value={form.effectiveTo}
             onChange={(value) => setForm((prev) => ({ ...prev, effectiveTo: value }))}
-            placeholder={t('ruleForm.datePh')}
+            type="date"
           />
           <TextAreaField
             label={t('form.notes')}
@@ -129,18 +172,11 @@ export default function ReferrerCommissionRuleFormPage() {
         </div>
 
         <div className="mkp-form-page-footer">
-          <button type="button" className="mk-ref-secondary-btn" onClick={goBack}>
+          <button type="button" className="mk-ref-secondary-btn" onClick={goBack} disabled={saving}>
             {t('form.cancel')}
           </button>
-          <button
-            type="button"
-            className="mk-ref-primary-btn"
-            onClick={() => {
-              alert(t('ruleForm.notExposed'));
-              goBack();
-            }}
-          >
-            {t('ruleForm.save')}
+          <button type="button" className="mk-ref-primary-btn" onClick={save} disabled={saving}>
+            {saving ? t('form.saving') : t('ruleForm.save')}
           </button>
         </div>
       </div>

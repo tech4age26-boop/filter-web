@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { SectionErrorBoundary } from '../components/AppErrorBoundary';
 import { Building2, LogOut, AlertTriangle, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -8,38 +9,8 @@ import {
 import { STAFF_APP_TAB_SLUG, STAFF_APP_PERMISSION_FALLBACK, STAFF_APP_LEGACY_ROUTE_REDIRECTS } from './workshop/staff-app/constants';
 import { staffAppT, NAV_LABEL_KEYS as STAFF_APP_NAV_LABEL_KEYS } from '../utils/staffAppI18n';
 import { accT } from '../utils/accountingI18n';
-import StaffAppPage from './workshop/staff-app/StaffAppPage';
-import WorkshopEmployees from './workshop/WorkshopEmployees';
-import WorkshopApprovals from './workshop/WorkshopApprovals';
-import WorkshopMyPettyCash from './workshop/WorkshopMyPettyCash';
-import WorkshopDashboard from './workshop/WorkshopDashboard';
-import WorkshopDepartments from './workshop/WorkshopDepartments';
-import WorkshopCatalogNew from './workshop/WorkshopCatalogNew';
-import WorkshopPurchases from './workshop/WorkshopPurchases';
-import WorkshopSalesReturns from './workshop/WorkshopSalesReturns';
-import WorkshopPurchaseReturns from './workshop/WorkshopPurchaseReturns';
-import WorkshopPurchaseQuotesPage from './workshop/WorkshopPurchaseQuotesPage';
-import WorkshopPurchaseOrdersPage from './workshop/WorkshopPurchaseOrdersPage';
-import WorkshopDiscounts from './workshop/WorkshopDiscounts';
-import WorkshopSuppliers from './workshop/WorkshopSuppliers';
-import WorkshopReports from './workshop/WorkshopReports';
-import AdvancedReportsPage from './advanced-reports/AdvancedReportsPage';
-import AdvancedReportDrilldownPage from './advanced-reports/AdvancedReportDrilldownPage';
-import WorkshopPosMonitoring from './workshop/WorkshopPosMonitoring';
-import WorkshopLogs from './workshop/WorkshopLogs';
-import WorkshopLockerManagement from './workshop/WorkshopLockerManagement';
-import WorkshopPromoCodes from './workshop/WorkshopPromoCodes';
-import WorkshopCorporateManagement from './workshop/WorkshopCorporateManagement';
-import WorkshopBranches from './workshop/WorkshopBranches';
-import WorkshopCommissions from './workshop/WorkshopCommissions';
-import WorkshopInventory from './workshop/WorkshopInventory';
-import WorkshopAccountingPage from './workshop/WorkshopAccountingPage';
-import WorkshopAccountLedgerPage from './workshop/accounting/WorkshopAccountLedgerPage';
-import WorkshopAffiliatedSuppliers from './workshop/WorkshopAffiliatedSuppliers';
-import WorkshopNonAffiliatedSuppliers from './workshop/WorkshopNonAffiliatedSuppliers';
-import WorkshopSupplierLedger from './workshop/WorkshopSupplierLedger';
-import WorkshopPlatformChatPage from './workshop/WorkshopPlatformChatPage';
-import MyWalletPage from './admin/MyWalletPage';
+import { parseWorkshopCoaAccountFormFromPath } from './workshop/workshopCoaAccountRouting';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
 import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
 import { isPlatformChatNavId } from '../utils/platformChatForUser';
@@ -55,13 +26,58 @@ import {
 } from '../services/workshopStaffApi';
 import { useAuth } from '../context/AuthContext';
 import { firstVisibleWorkshopPath, workshopTabToPath } from '../utils/permissions';
+import { canAccessFilterConnect } from '../utils/filterConnectAccess';
 import { wsDashT } from '../utils/workshopDashboardI18n';
 import './workshop/Workshop.css';
 import '../styles/admin/AccountingPage.css';
 import '../styles/admin/ApprovalsPage.css';
 
+const StaffAppPage = lazyWithRetry(() => import('./workshop/staff-app/StaffAppPage'));
+const WorkshopEmployees = lazyWithRetry(() => import('./workshop/WorkshopEmployees'));
+const WorkshopApprovals = lazyWithRetry(() => import('./workshop/WorkshopApprovals'));
+const WorkshopMyPettyCash = lazyWithRetry(() => import('./workshop/WorkshopMyPettyCash'));
+const WorkshopDashboard = lazyWithRetry(() => import('./workshop/WorkshopDashboard'));
+const WorkshopDepartments = lazyWithRetry(() => import('./workshop/WorkshopDepartments'));
+const WorkshopCatalogNew = lazyWithRetry(() => import('./workshop/WorkshopCatalogNew'));
+const WorkshopPurchases = lazyWithRetry(() => import('./workshop/WorkshopPurchases'));
+const WorkshopSalesReturns = lazyWithRetry(() => import('./workshop/WorkshopSalesReturns'));
+const WorkshopPurchaseReturns = lazyWithRetry(() => import('./workshop/WorkshopPurchaseReturns'));
+const WorkshopPurchaseQuotesPage = lazyWithRetry(() => import('./workshop/WorkshopPurchaseQuotesPage'));
+const WorkshopPurchaseOrdersPage = lazyWithRetry(() => import('./workshop/WorkshopPurchaseOrdersPage'));
+const WorkshopDiscounts = lazyWithRetry(() => import('./workshop/WorkshopDiscounts'));
+const WorkshopSuppliers = lazyWithRetry(() => import('./workshop/WorkshopSuppliers'));
+const WorkshopReports = lazyWithRetry(() => import('./workshop/WorkshopReports'));
+const AdvancedReportsPage = lazyWithRetry(() => import('./advanced-reports/AdvancedReportsPage'));
+const AdvancedReportDrilldownPage = lazyWithRetry(() => import('./advanced-reports/AdvancedReportDrilldownPage'));
+const WorkshopPosMonitoring = lazyWithRetry(() => import('./workshop/WorkshopPosMonitoring'));
+const WorkshopLogs = lazyWithRetry(() => import('./workshop/WorkshopLogs'));
+const WorkshopLockerManagement = lazyWithRetry(() => import('./workshop/WorkshopLockerManagement'));
+const WorkshopPromoCodes = lazyWithRetry(() => import('./workshop/WorkshopPromoCodes'));
+const WorkshopCorporateManagement = lazyWithRetry(() => import('./workshop/WorkshopCorporateManagement'));
+const WorkshopBranches = lazyWithRetry(() => import('./workshop/WorkshopBranches'));
+const WorkshopCommissions = lazyWithRetry(() => import('./workshop/WorkshopCommissions'));
+const WorkshopInventory = lazyWithRetry(() => import('./workshop/WorkshopInventory'));
+const WorkshopAccountingPage = lazyWithRetry(() => import('./workshop/WorkshopAccountingPage'));
+const WorkshopAccountLedgerPage = lazyWithRetry(() => import('./workshop/accounting/WorkshopAccountLedgerPage'));
+const WorkshopCoaAccountPage = lazyWithRetry(() => import('./workshop/accounting/WorkshopCoaAccountPage'));
+const WorkshopAffiliatedSuppliers = lazyWithRetry(() => import('./workshop/WorkshopAffiliatedSuppliers'));
+const WorkshopNonAffiliatedSuppliers = lazyWithRetry(() => import('./workshop/WorkshopNonAffiliatedSuppliers'));
+const WorkshopSupplierLedger = lazyWithRetry(() => import('./workshop/WorkshopSupplierLedger'));
+const WorkshopPlatformChatPage = lazyWithRetry(() => import('./workshop/WorkshopPlatformChatPage'));
+const MyWalletPage = lazyWithRetry(() => import('./admin/MyWalletPage'));
+
+function WorkshopTabFallback() {
+    return (
+        <div className="ws-global-loader" role="status" aria-live="polite">
+            <div className="ws-global-loader__inner">
+                <div className="ws-global-loader__spinner" aria-hidden="true" />
+            </div>
+        </div>
+    );
+}
+
 /** Tabs reachable by in-app navigation but not listed in the sidebar. */
-const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement', 'advanced-reports-drilldown']);
+const WORKSHOP_INTERNAL_TABS = new Set(['supplier-ledger', 'acc-ledger-statement', 'acc-coa-account', 'advanced-reports-drilldown']);
 
 function parseLedgerTabStateFromSearch(search) {
     const params = new URLSearchParams(search || '');
@@ -79,7 +95,7 @@ function parseLedgerTabStateFromSearch(search) {
 export default function WorkshopLayout() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { logout, hasPermission, user } = useAuth();
+    const { logout, hasPermission, user, permissions } = useAuth();
     const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
 
     useEffect(() => {
@@ -141,14 +157,18 @@ export default function WorkshopLayout() {
                     });
                     return visibleSubs.length > 0 ? { ...item, subItems: visibleSubs } : null;
                 }
+                if (item.id === 'filter-connect') {
+                    return canAccessFilterConnect(user, permissions) ? item : null;
+                }
                 if (item.walletRequired) {
                     return user?.walletEnabled ? item : null;
                 }
-                if (item.permission && !hasPermission(item.permission)) return null;
+                if (!item.permission) return null;
+                if (!hasPermission(item.permission)) return null;
                 return item;
             })
             .filter(Boolean),
-        [hasPermission, user?.walletEnabled],
+        [hasPermission, permissions, user, user?.walletEnabled],
     );
 
     const handleLogout = async () => {
@@ -174,6 +194,9 @@ export default function WorkshopLayout() {
         if (main === 'accounting' && sub) {
             if (sub === 'ledger' && parts[3]) {
                 return 'acc-ledger-statement';
+            }
+            if (sub === 'chart-of-accounts' && (parts[3] === 'new' || parts[4] === 'edit')) {
+                return 'acc-coa-account'; // full-page create/edit
             }
             const mapping = {
                 'chart-of-accounts': 'acc-chart',
@@ -527,6 +550,7 @@ export default function WorkshopLayout() {
             case 'acc-vat':
                 return <WorkshopAccountingPage activeTab={activeTab} selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'acc-ledger-statement': return <WorkshopAccountLedgerPage locale={locale} />;
+            case 'acc-coa-account': return <WorkshopCoaAccountPage locale={locale} selectedBranchId={selectedBranch} />;
             case 'sap-overview':
             case 'sap-expenses':
             case 'sap-requests':
@@ -722,7 +746,7 @@ export default function WorkshopLayout() {
         if (id === 'commissions') return lt('nav.commissions');
         if (id === 'branches') return lt('nav.branches');
         if (id === 'accounting') return lt('nav.accounting');
-        if (id === 'acc-chart') return accT(locale, 'tab.coa');
+        if (id === 'acc-chart' || id === 'acc-coa-account') return accT(locale, 'tab.coa');
         if (id === 'acc-cash') return accT(locale, 'tab.cashBank');
         if (id === 'acc-transactions') return accT(locale, 'tab.transactions');
         if (id === 'acc-journal') return accT(locale, 'tab.journal');
@@ -742,6 +766,12 @@ export default function WorkshopLayout() {
             ? lt('nav.supplierLedger')
             : activeTab === 'acc-ledger-statement'
                 ? accT(locale, 'tab.ledger')
+                : activeTab === 'acc-coa-account'
+                ? `${accT(locale, 'tab.coa')} — ${
+                    parseWorkshopCoaAccountFormFromPath(location.pathname)?.mode === 'edit'
+                        ? accT(locale, 'coa.page.editTitle')
+                        : accT(locale, 'coa.page.newTitle')
+                }`
                 : activeTab.startsWith('sap-')
                 ? `${lt('nav.staffApp')} — ${navLabelFor(activeTab, '')}`
                 : activeTab.startsWith('acc-')
@@ -761,7 +791,11 @@ export default function WorkshopLayout() {
     if (activeTab === 'platform-chat') {
         return (
             <div className="portal-layout--chat-fullscreen" dir={locale === 'ar' ? 'rtl' : 'ltr'}>
-                <WorkshopPlatformChatPage />
+                <SectionErrorBoundary resetKey="platform-chat">
+                    <Suspense fallback={<WorkshopTabFallback />}>
+                        <WorkshopPlatformChatPage />
+                    </Suspense>
+                </SectionErrorBoundary>
             </div>
         );
     }
@@ -812,7 +846,9 @@ export default function WorkshopLayout() {
                     {visibleNavItems.map((item) => {
                         const hasSub = item.subItems?.length > 0;
                         const isOpen = openMenus[item.id];
-                        const isActiveParent = activeTab === item.id || (hasSub && item.subItems.some(s => s.id === activeTab));
+                        const isActiveParent = activeTab === item.id
+                            || (hasSub && item.subItems.some((s) => s.id === activeTab))
+                            || (item.id === 'accounting' && activeTab === 'acc-coa-account');
                         
                         return (
                             <div key={item.id} className="ws-nav-item-group">
@@ -847,26 +883,30 @@ export default function WorkshopLayout() {
                                                 exit={{ height: 0, opacity: 0 }}
                                                 style={{ overflow: 'hidden', paddingLeft: '28px', display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '2px' }}
                                             >
-                                                {item.subItems.map(sub => (
+                                                {item.subItems.map(sub => {
+                                                    const subActive = activeTab === sub.id
+                                                        || (sub.id === 'acc-chart' && activeTab === 'acc-coa-account');
+                                                    return (
                                                     <button
                                                         key={sub.id}
-                                                        className={`ws-nav-btn ws-nav-sub-btn ${activeTab === sub.id ? 'active' : ''}`}
+                                                        className={`ws-nav-btn ws-nav-sub-btn ${subActive ? 'active' : ''}`}
                                                         onClick={() => handleTabChange(sub.id)}
                                                         style={{
                                                             padding: '10px 12px',
                                                             fontSize: '0.875rem',
-                                                            textDecoration: activeTab === sub.id ? 'underline' : 'none',
+                                                            textDecoration: subActive ? 'underline' : 'none',
                                                             border: 'none',
                                                             borderRadius: '6px',
                                                             textAlign: 'left',
                                                             cursor: 'pointer',
                                                             display: 'block',
-                                                            opacity: activeTab === sub.id ? 1 : 0.7
+                                                            opacity: subActive ? 1 : 0.7
                                                         }}
                                                     >
                                                         {navLabelFor(sub.id, sub.label)}
                                                     </button>
-                                                ))}
+                                                    );
+                                                })}
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
@@ -940,7 +980,11 @@ export default function WorkshopLayout() {
                     </div>
                 )}
                 <main className={`ws-content${isWalletTab ? ' ws-content--my-wallet' : ''}`}>
-                    {renderContent()}
+                    <SectionErrorBoundary resetKey={activeTab}>
+                        <Suspense fallback={<WorkshopTabFallback />}>
+                            {renderContent()}
+                        </Suspense>
+                    </SectionErrorBoundary>
                 </main>
             </div>
             <PlatformChatFab

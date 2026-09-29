@@ -12,10 +12,19 @@ export function AppErrorBoundaryWithRouter({ children }) {
     );
 }
 
+/** Keeps portal chrome (sidebar/tabs) when a single page or tab throws. */
+export function SectionErrorBoundary({ children, resetKey }) {
+    return (
+        <AppErrorBoundary resetKey={resetKey} variant="section">
+            {children}
+        </AppErrorBoundary>
+    );
+}
+
 export default class AppErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
-        this.state = { error: null };
+        this.state = { error: null, componentStack: '' };
     }
 
     static getDerivedStateFromError(error) {
@@ -24,11 +33,12 @@ export default class AppErrorBoundary extends React.Component {
 
     componentDidUpdate(prevProps) {
         if (this.state.error && this.props.resetKey !== prevProps.resetKey) {
-            this.setState({ error: null });
+            this.setState({ error: null, componentStack: '' });
         }
     }
 
     componentDidCatch(error, info) {
+        this.setState({ componentStack: info?.componentStack || '' });
         console.error('[AppErrorBoundary]', error, info);
         // Stale lazy chunk after a deploy: reload once to pull the fresh files.
         // reloadOnceForStaleChunk is loop-safe (only one reload per session), so
@@ -42,9 +52,10 @@ export default class AppErrorBoundary extends React.Component {
         if (this.state.error) {
             const staleChunk = isChunkLoadError(this.state.error);
             const isDev = import.meta.env.DEV;
+            const section = this.props.variant === 'section';
             return (
                 <div style={{
-                    minHeight: '100vh',
+                    minHeight: section ? 240 : '100vh',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -84,6 +95,9 @@ export default class AppErrorBoundary extends React.Component {
                         }}
                         >
                             {String(this.state.error?.message || this.state.error)}
+                            {isDev && this.state.componentStack
+                                ? `\n${this.state.componentStack}`
+                                : ''}
                         </pre>
                         <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                         <button

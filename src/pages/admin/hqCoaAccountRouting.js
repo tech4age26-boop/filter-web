@@ -1,10 +1,19 @@
 import {
     buildBnplSettlementControlUrl,
-    buildCorporateArControlUrl,
     buildMonitorLedgerUrl,
     isBnplSettlementControlAccount,
-    isCorporateArControlAccount,
-} from './saAccountingDateRange';
+} from './saAccountingDateRange.js';
+
+/** 1110 heading or per-customer 1111–1209 child — full-page ledger, not a modal. */
+export function isCorporateArLedgerClickable(account) {
+    const code = String(account?.code ?? '').trim();
+    if (code === '1110') return true;
+    const parentCode = String(account?.parentCode ?? account?.parent?.code ?? '').trim();
+    if (parentCode === '1110') return true;
+    const n = Number.parseInt(code, 10);
+    if (Number.isInteger(n) && n >= 1111 && n <= 1209) return true;
+    return /corporate-ar:\d+/i.test(String(account?.description ?? ''));
+}
 
 function accountCode(account) {
     return String(account?.code ?? '').trim();
@@ -35,6 +44,7 @@ export function isCashOrBankCoaAccount(account) {
     const code = accountCode(account);
     if (!code || code === '1000' || code === '1010') return false;
     if (code === '1004') return false;
+    if (/^CB[-_]/i.test(code)) return true;
     if (/^100\d/i.test(code)) return true;
     if (/^101\d/i.test(code)) return true;
     return false;
@@ -55,9 +65,6 @@ function withDateParams(basePath, dateRange, extra = {}) {
  * HQ Chart of Accounts row navigation — control registers vs generic ledger.
  */
 export function buildHqCoaNavigationUrl(account, dateRange) {
-    if (isCorporateArControlAccount(account)) {
-        return buildCorporateArControlUrl(dateRange);
-    }
     if (isBnplSettlementControlAccount(account)) {
         return buildBnplSettlementControlUrl(dateRange);
     }

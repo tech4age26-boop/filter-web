@@ -23,6 +23,8 @@ export default defineConfig([
       },
     },
     rules: {
+      // Catch missing imports / leftover identifiers before they white-screen portals in production.
+      'no-undef': 'error',
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
     },
   },

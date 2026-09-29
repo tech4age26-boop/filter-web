@@ -43,7 +43,7 @@ export default function AddNewOrder({ onBack, onProceed, prefilledCustomer }) {
                 id: prefilledCustomer?.id || null,
                 name: prefilledCustomer?.name || prefilledCustomer?.fullName || '',
                 mobile: prefilledCustomer?.mobile || prefilledCustomer?.phone || '',
-                vatNumber: prefilledCustomer?.vatNumber || '',
+                vatNumber: prefilledCustomer?.vatNumber || prefilledCustomer?.taxId || undefined,
             },
             vehicle: {
                 plateNumber: walkin.plate.trim(),
@@ -64,7 +64,7 @@ export default function AddNewOrder({ onBack, onProceed, prefilledCustomer }) {
                 name: selectedCorp.companyName || selectedCorp.name || '',
                 companyName: selectedCorp.companyName || selectedCorp.name || '',
                 mobile: selectedCorp.mobile || selectedCorp.phone || '',
-                vatNumber: selectedCorp.vatNumber || '',
+                vatNumber: selectedCorp.vatNumber || selectedCorp.taxId || undefined,
                 billingAddress: selectedCorp.billingAddress || selectedCorp.address || '',
             },
             vehicle: {
@@ -180,7 +180,7 @@ export default function AddNewOrder({ onBack, onProceed, prefilledCustomer }) {
                             <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
                                 <SectionHeader icon={FileText} title="Company Details" subtitle="Auto-filled from the selected account" />
                                 <ReadOnlyField icon={Building2} label="Company Name" value={selectedCorp.companyName || selectedCorp.name || '-'} />
-                                <ReadOnlyField icon={FileText} label="VAT Number" value={selectedCorp.vatNumber || '-'} />
+                                <ReadOnlyField icon={FileText} label="VAT Number" value={selectedCorp.vatNumber || selectedCorp.taxId || '-'} />
                                 <ReadOnlyField icon={MapPin} label="Billing Address" value={selectedCorp.billingAddress || selectedCorp.address || '-'} multiline />
                             </div>
                         </div>

@@ -3,6 +3,7 @@ const CUST_I18N = {
     en: {
         'sub.all': 'All Customers',
         'sub.billing': 'Corporate Billing',
+        'btn.transferInvoice': 'Transfer invoice',
         'shell.back': 'Back to All Customers',
         'stat.total': 'Total Customers',
         'stat.corporate': 'Corporate',
@@ -92,6 +93,9 @@ const CUST_I18N = {
         'picker.selected': '{n} branch selected',
         'picker.selectedPlural': '{n} branches selected',
         'picker.noWorkshops': 'No workshops available.',
+        'picker.searchPh': 'Search workshop or branch…',
+        'picker.empty': 'No matching workshops or branches',
+        'picker.clear': 'Clear',
         'fallback.workshop': 'Workshop {id}',
         'fallback.branch': 'Unnamed branch',
         'err.createRequired':
@@ -107,6 +111,7 @@ const CUST_I18N = {
     ar: {
         'sub.all': 'جميع العملاء',
         'sub.billing': 'الفواتير المؤسسية',
+        'btn.transferInvoice': 'نقل الفاتورة',
         'shell.back': 'العودة إلى جميع العملاء',
         'stat.total': 'إجمالي العملاء',
         'stat.corporate': 'شركات',
@@ -196,6 +201,9 @@ const CUST_I18N = {
         'picker.selected': '{n} فرع محدد',
         'picker.selectedPlural': '{n} فروع محددة',
         'picker.noWorkshops': 'لا توجد ورش متاحة.',
+        'picker.searchPh': 'ابحث عن الورشة أو الفرع…',
+        'picker.empty': 'لا توجد ورش أو فروع مطابقة',
+        'picker.clear': 'مسح',
         'fallback.workshop': 'ورشة {id}',
         'fallback.branch': 'فرع بلا اسم',
         'err.createRequired':

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { SectionErrorBoundary } from '../components/AppErrorBoundary';
 import UserProfileMenu from '../components/UserProfileMenu';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -16,6 +17,11 @@ import '../styles/admin/PlatformChat.css';
 import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
 import { usePlatformChatUnread } from '../context/PlatformChatUnreadContext';
 import { loadSaAccountingScope, isHqAccountingScope } from './admin/saAccountingScope';
+import { useAuth } from '../context/AuthContext';
+import { AdminPageMetaProvider, useAdminPageMeta } from '../context/AdminPageMetaContext';
+import { canAccessFilterConnect } from '../utils/filterConnectAccess';
+import { firstVisibleAdminPath } from '../utils/permissions';
+import { adminViewPermissionForNav, canVisitAdminPath } from '../utils/adminPageAccess';
 
 const ACCOUNTING_MONITOR_SUB_ITEMS = [
     { label: 'Chart of Accounts', path: 'chart-of-accounts', icon: FileSpreadsheet },
@@ -206,44 +212,14 @@ const getNavLabel = (path, locale) => TRANSLATIONS[locale]?.nav[path] ?? TRANSLA
 
 /**
  * Permission code for a nav item (matches backend `<tabKey>.view`).
- *   Top-level item: `${path}.view`        e.g. dashboard.view
- *   Sub item:       `${parent}.${sub}.view` e.g. inventory.master-catalog.view
- *
- * Items not listed in the permissions tree (external portal shortcuts,
- * pages we haven't catalogued yet) return null and stay ungated.
+ * Fail-closed: unknown pages resolve to `<path>.view` and stay hidden unless
+ * that code was granted. My Wallet is wallet-flagged, not a role permission.
  */
-const PERMISSION_KEY_FOR = {
-    // CONTROL
-    dashboard: 'dashboard.view',
-    approvals: 'approvals.view',
-    'zone-management': 'zone-management.view',
-    'tier-management': 'tier-management.view',
-    'tax-codes': 'tax-codes.view',
-    marketing: 'marketing.view',
-    permissions: 'permissions.view',
-    'admin-wallets': 'admin-wallets.view',
-    chat: 'chat.view',
-    'demo-invoices': 'demo-invoices.view',
-    // OPERATIONS
-    suppliers: 'suppliers.view',
-    'storage-facility': 'storage-facility.view',
-    employees: 'employees.view',
-    branches: 'branches.view',
-    workshop: 'workshop.view',
-    'staff-app': 'workshop.staff-app.overview.view',
-    // FINANCE top-level
-    accounting: 'accounting.monitor.view',
-    'softpos-settlement': 'softpos-settlement.view',
-};
-
 function permissionCodeFor(parentPath, subPath) {
-    if (subPath) {
-        return `${parentPath}.${subPath}.view`;
-    }
-    return PERMISSION_KEY_FOR[parentPath] ?? null;
+    return adminViewPermissionForNav(parentPath, subPath);
 }
 
-const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
+const SidebarNavItem = ({ item, basePath, locale, hasPermission, canSeeConnect }) => {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();
     const { totalUnread } = usePlatformChatUnread();
@@ -260,14 +236,15 @@ const SidebarNavItem = ({ item, basePath, locale, hasPermission }) => {
             );
         }
         const code = permissionCodeFor(item.path, sub.path);
-        return code ? hasPermission(code) : true;
+        return hasPermission(code);
     });
     const hasSub = visibleSubItems.length > 0;
 
-    // For non-sub items, gate the whole item.
-    if (!item.subItems?.length && !item.externalPath) {
+    // For non-sub items (including FILTER CONNECT), gate the whole item.
+    if (!item.subItems?.length) {
+        if (item.path === 'filter-connect' && !canSeeConnect) return null;
         const code = permissionCodeFor(item.path);
-        if (code && !hasPermission(code)) return null;
+        if (!hasPermission(code)) return null;
     }
     // If the item HAS subItems but all were filtered out → hide parent too.
     if (item.subItems?.length && !hasSub) return null;
@@ -348,13 +325,11 @@ const getPageTitle = (pathname, locale) => {
     return getNavLabel(last, locale);
 };
 
-import { useAuth } from '../context/AuthContext';
-import { AdminPageMetaProvider, useAdminPageMeta } from '../context/AdminPageMetaContext';
-
 function AdminLayoutShell() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { logout, user, hasPermission } = useAuth();
+    const { logout, user, hasPermission, permissions } = useAuth();
+    const canSeeConnect = canAccessFilterConnect(user, permissions);
     const { pageTitle: pageTitleOverride, clearPageTitle } = useAdminPageMeta();
     const [locale, setLocale] = useState(() => localStorage.getItem('portal-locale') || 'en');
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -383,10 +358,18 @@ function AdminLayoutShell() {
         }));
     }, [accountingScope, location.pathname]);
 
-    // Close mobile menu on route change
     useEffect(() => {
         setIsMobileMenuOpen(false);
     }, [location.pathname]);
+
+    useEffect(() => {
+        if (!canVisitAdminPath(location.pathname, { user, hasPermission })) {
+            const home = firstVisibleAdminPath(user);
+            if (home && location.pathname !== home) {
+                navigate(home, { replace: true });
+            }
+        }
+    }, [location.pathname, user, hasPermission, navigate]);
 
     useEffect(() => {
         if (!location.pathname.startsWith('/admin/storage-facility/')) {
@@ -448,15 +431,20 @@ function AdminLayoutShell() {
                         // Render section only if at least one visible item remains.
                         const visibleItems = sec.items.filter((item) => {
                             if (item.walletRequired && !user?.walletEnabled) return false;
-                            if (item.externalPath) return true; // portal shortcuts ungated
+                            if (item.path === 'filter-connect') return canSeeConnect;
                             if (item.subItems?.length) {
                                 return item.subItems.some((sub) => {
-                                    const code = permissionCodeFor(item.path, sub.path);
-                                    return code ? hasPermission(code) : true;
+                                    if (item.path === 'sales' && sub.path === 'advanced-reports') {
+                                        return (
+                                            hasPermission('sales.advanced-reports.view')
+                                            || hasPermission('sales.sales-reports.view')
+                                        );
+                                    }
+                                    return hasPermission(permissionCodeFor(item.path, sub.path));
                                 });
                             }
                             const code = permissionCodeFor(item.path);
-                            return code ? hasPermission(code) : true;
+                            return hasPermission(code);
                         });
                         if (visibleItems.length === 0) return null;
                         return (
@@ -469,6 +457,7 @@ function AdminLayoutShell() {
                                         basePath="/admin"
                                         locale={locale}
                                         hasPermission={hasPermission}
+                                        canSeeConnect={canSeeConnect}
                                     />
                                 ))}
                             </div>
@@ -526,7 +515,9 @@ function AdminLayoutShell() {
                         </div>
                     </div>
                 </header>
-                <Outlet context={{ locale }} />
+                <SectionErrorBoundary resetKey={location.pathname + location.search}>
+                    <Outlet context={{ locale }} />
+                </SectionErrorBoundary>
             </main>
             {!location.pathname.startsWith('/admin/chat') && hasPermission('chat.view') && (
                 <PlatformChatFab onClick={() => navigate('/admin/chat')} />

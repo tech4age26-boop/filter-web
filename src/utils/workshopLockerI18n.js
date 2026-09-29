@@ -29,7 +29,7 @@ export const WLOCK_I18N = {
         'kpi.openShiftVariance': 'Open-shift variance',
         'kpi.openShiftVarianceHint': 'Sum of |cashDiff| on open shifts',
         'kpi.vaultBalance': 'Locker vault balance',
-        'kpi.vaultHint': '1004 Cash in Transit — Locker',
+        'kpi.vaultHint': '1004 Locker Cash',
 
         'section.supervisors': 'Locker supervisors',
         'section.collectors': 'Collection officers',
@@ -103,7 +103,7 @@ export const WLOCK_I18N = {
         'kpi.openShiftVariance': 'فرق الوردية المفتوحة',
         'kpi.openShiftVarianceHint': 'مجموع |فرق النقد| في الورديات المفتوحة',
         'kpi.vaultBalance': 'رصيد صندوق الخزنة',
-        'kpi.vaultHint': '1004 نقد قيد النقل — الخزنة',
+        'kpi.vaultHint': '1004 نقد الخزنة',
 
         'section.supervisors': 'مشرفو الخزنة',
         'section.collectors': 'موظفو التحصيل',

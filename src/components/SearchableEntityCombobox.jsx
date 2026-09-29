@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import { countSearchMatches, filterSearchOptions } from '../utils/entitySearchUtils';
+import { stepComboHighlightIdx } from './multiSelectMenuPlacement';
 import './SearchableEntityCombobox.css';
 
 /**
@@ -20,12 +21,14 @@ export default function SearchableEntityCombobox({
     disabled = false,
     id,
     required = false,
-    maxInitial = 100,
-    maxFiltered = 200,
+    maxInitial = 0,
+    maxFiltered = 0,
     emptyHint,
     entityLabel = 'item',
     className = '',
     loading = false,
+    loadingHint = 'Loading…',
+    filterLocally = true,
     menuMinWidth = 280,
     portalClassName = '',
 }) {
@@ -40,8 +43,7 @@ export default function SearchableEntityCombobox({
     const blurTimerRef = useRef(null);
 
     const selectedLabel = useMemo(() => {
-        if (value == null || value === '') return '';
-        const o = options.find((x) => String(x.id) === String(value));
+        const o = options.find((x) => String(x.id ?? '') === String(value ?? ''));
         return o?.label || '';
     }, [options, value]);
 
@@ -55,13 +57,19 @@ export default function SearchableEntityCombobox({
     }, [displayText, selectedLabel]);
 
     const filtered = useMemo(
-        () => filterSearchOptions(options, searchQuery, { maxInitial, maxFiltered }),
-        [options, searchQuery, maxInitial, maxFiltered],
+        () =>
+            filterLocally
+                ? filterSearchOptions(options, searchQuery, { maxInitial, maxFiltered })
+                : options,
+        [options, searchQuery, maxInitial, maxFiltered, filterLocally],
     );
 
     const totalMatches = useMemo(
-        () => countSearchMatches(options, searchQuery),
-        [options, searchQuery],
+        () =>
+            filterLocally
+                ? countSearchMatches(options, searchQuery)
+                : options.length,
+        [options, searchQuery, filterLocally],
     );
 
     const updateMenuPosition = useCallback(() => {
@@ -136,7 +144,7 @@ export default function SearchableEntityCombobox({
 
     const pick = useCallback(
         (opt, advance) => {
-            if (!opt?.id) return;
+            if (opt == null || opt.id == null) return;
             onSelect?.(opt);
             setOpen(false);
             setHighlightIdx(0);
@@ -145,26 +153,41 @@ export default function SearchableEntityCombobox({
         [onSelect, onTabAdvance],
     );
 
+    useEffect(() => {
+        if (!open) return undefined;
+        const onKey = (e) => {
+            const active = document.activeElement;
+            if (!wrapRef.current?.contains(active) && !portalRef.current?.contains(active)) {
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                e.stopPropagation();
+                clearBlurTimer();
+                setHighlightIdx((i) => stepComboHighlightIdx(i, 1, filtered.length));
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                e.stopPropagation();
+                clearBlurTimer();
+                setHighlightIdx((i) => stepComboHighlightIdx(i, -1, filtered.length));
+            } else if (e.key === 'Enter' && filtered.length > 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                pick(filtered[highlightIdx] ?? filtered[0], false);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [open, filtered, highlightIdx, pick, clearBlurTimer]);
+
     const onKeyDown = (e) => {
-        if (e.key === 'ArrowDown') {
-            e.preventDefault();
-            clearBlurTimer();
-            setOpen(true);
-            setHighlightIdx((i) =>
-                filtered.length === 0 ? 0 : Math.min(i + 1, filtered.length - 1),
-            );
-            return;
-        }
-        if (e.key === 'ArrowUp') {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
             clearBlurTimer();
             if (!open) setOpen(true);
-            setHighlightIdx((i) => Math.max(i - 1, 0));
-            return;
-        }
-        if (e.key === 'Enter' && filtered.length > 0) {
-            e.preventDefault();
-            pick(filtered[highlightIdx] ?? filtered[0], false);
             return;
         }
         if (e.key === 'Tab' && !e.shiftKey && filtered.length > 0 && open) {
@@ -183,10 +206,12 @@ export default function SearchableEntityCombobox({
     const showValue = open ? displayText : displayText || selectedLabel;
 
     const emptyMessage = loading
-        ? 'Loading employees…'
-        : options.length === 0
-          ? `No ${entityLabel}s loaded for this workshop`
-          : emptyHint || 'No matches — try another search';
+        ? loadingHint
+        : emptyHint
+          ? emptyHint
+          : options.length === 0
+            ? `No ${entityLabel}s loaded for this workshop`
+            : 'No matches — try another search';
 
     const menu =
         open && menuStyle

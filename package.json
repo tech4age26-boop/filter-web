@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "server": "npm run start --prefix server",
-    "build": "vite build",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "build": "node scripts/check-i18n.mjs && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -14,6 +15,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.34.3",
     "html-to-image": "^1.11.13",
+    "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.575.0",

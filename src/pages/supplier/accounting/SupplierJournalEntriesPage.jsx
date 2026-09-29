@@ -5,9 +5,12 @@ import {
     getSupplierAccounts,
     getSupplierJournalById,
     listSupplierJournalsAll,
+    checkSupplierHubReferenceExists,
+    getSupplierHubNextReference,
     postSupplierGeneralJournal,
     updateSupplierJournal,
 } from '../../../services/supplierAccountingApi';
+import VoucherRefField from '../../../components/accounting/VoucherRefField';
 import {
     listSupplierAffiliatedWorkshops,
     listSupplierExternalParties,
@@ -22,11 +25,13 @@ import {
     Field,
     fmtDate,
     inputStyle,
+    JournalStatusBadge,
     money,
     outlineBtnStyle,
     primaryBtnStyle,
     todayISO,
 } from './SupplierAccountingShared';
+import { againstAccountsForPicker } from './supplierControlAccounts';
 import {
     accountsFrom,
     canEditManualJournal,
@@ -38,8 +43,29 @@ import {
 import { buildCustomerOptions } from './SupplierPayReceiptBulkGrid';
 import SupplierAccountingCombobox, { toComboOptions } from './SupplierAccountingCombobox';
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const DEFAULT_PAGE_SIZE = 25;
+const JOURNAL_FETCH_LIMIT = 5000;
+
 function emptyLine() {
     return { accountId: '', partyKey: '', debit: '', credit: '', description: '' };
+}
+
+function sliceJournalPage(rows, page, pageSize) {
+    const list = Array.isArray(rows) ? rows : [];
+    const size = Math.max(1, Number(pageSize) || DEFAULT_PAGE_SIZE);
+    const total = list.length;
+    const pages = Math.max(1, Math.ceil(total / size) || 1);
+    const safePage = Math.min(Math.max(1, Number(page) || 1), pages);
+    const start = (safePage - 1) * size;
+    return {
+        rows: list.slice(start, start + size),
+        page: safePage,
+        pages,
+        from: total === 0 ? 0 : start + 1,
+        to: Math.min(start + size, total),
+        total,
+    };
 }
 
 export function controlKind(account) {
@@ -92,6 +118,8 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [search, setSearch] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
     const [loading, setLoading] = useState(true);
     const [listLoading, setListLoading] = useState(true);
     const [err, setErr] = useState('');
@@ -101,17 +129,20 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
     const [editingEntry, setEditingEntry] = useState('');
     const [date, setDate] = useState(todayISO());
     const [reference, setReference] = useState('');
+    const [refAutoGenerate, setRefAutoGenerate] = useState(false);
+    const fetchNextJournalRef = useCallback(async () => {
+        const res = await getSupplierHubNextReference('journal');
+        return res?.reference || '';
+    }, []);
+    const checkJournalRefDuplicate = useCallback(async (value, excludeJournalId) => {
+        const res = await checkSupplierHubReferenceExists(value, excludeJournalId);
+        return Boolean(res?.exists);
+    }, []);
     const [narration, setNarration] = useState('');
     const [lines, setLines] = useState([emptyLine(), emptyLine()]);
 
     const nonCash = useMemo(
-        () =>
-            accounts.filter(
-                (a) =>
-                    !a.hasChildren &&
-                    !a.isCashEquivalent &&
-                    String(a.status || 'active').toLowerCase() !== 'inactive',
-            ),
+        () => againstAccountsForPicker(accounts),
         [accounts],
     );
 
@@ -160,7 +191,7 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
         setListErr('');
         try {
             const list = await listSupplierJournalsAll({
-                limit: '80',
+                limit: String(JOURNAL_FETCH_LIMIT),
                 ...(origin === 'all' ? {} : { origin }),
                 ...(dateFrom ? { dateFrom } : {}),
                 ...(dateTo ? { dateTo } : {}),
@@ -181,6 +212,18 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
     useEffect(() => {
         loadJournals();
     }, [loadJournals]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [origin, dateFrom, dateTo, search]);
+
+    const paged = useMemo(
+        () => sliceJournalPage(journals, page, pageSize),
+        [journals, page, pageSize],
+    );
+    useEffect(() => {
+        if (page !== paged.page) setPage(paged.page);
+    }, [page, paged.page]);
 
     const totals = useMemo(
         () => journalBalance(
@@ -226,6 +269,7 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
         setEditingEntry('');
         setLines([emptyLine(), emptyLine()]);
         setReference('');
+        setRefAutoGenerate(false);
         setNarration('');
         setDate(todayISO());
         setSearchParams({}, { replace: true });
@@ -350,9 +394,20 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
                                 <Field label={t('hub.field.date')} required>
                                     <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} required />
                                 </Field>
-                                <Field label={t('hub.field.ref')}>
-                                    <input style={inputStyle} value={reference} onChange={(e) => setReference(e.target.value)} placeholder={t('hub.field.refPh')} />
-                                </Field>
+                                <VoucherRefField
+                                    label={t('hub.field.ref')}
+                                    placeholder={t('hub.field.refPh')}
+                                    autoGenerateLabel={t('hub.field.autoRef')}
+                                    generatingLabel={t('hub.field.generating')}
+                                    duplicateMessage={t('hub.field.refDup')}
+                                    value={reference}
+                                    onChange={setReference}
+                                    autoGenerate={refAutoGenerate}
+                                    onAutoGenerateChange={setRefAutoGenerate}
+                                    fetchNextReference={fetchNextJournalRef}
+                                    checkDuplicate={checkJournalRefDuplicate}
+                                    excludeJournalId={editingId}
+                                />
                             </div>
                             <Field label={t('mgr.je.narration')}>
                                 <input style={inputStyle} value={narration} onChange={(e) => setNarration(e.target.value)} placeholder={t('mgr.je.narrationPh')} />
@@ -545,6 +600,7 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
                             setDateTo('');
                             setSearch('');
                             setOrigin('all');
+                            setPage(1);
                         }}
                     >
                         {t('btn.clear')}
@@ -572,16 +628,12 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {journals.map((j) => {
+                                {paged.rows.map((j) => {
                                     const bal = journalBalance(j.totalDebit, j.totalCredit);
                                     const balanced = j.isBalanced === true || bal.balanced;
                                     const voided = String(j.status || '') === 'void';
                                     return (
-                                        <tr
-                                            key={j.id}
-                                            style={{ cursor: 'pointer' }}
-                                            onClick={() => openVoucher(j.id)}
-                                        >
+                                        <tr key={j.id}>
                                             <td>{fmtDate(j.date)}</td>
                                             <td>{j.entryNumber}</td>
                                             <td>{j.type}</td>
@@ -590,7 +642,9 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
                                             <td style={{ textAlign: 'right' }}>{money(j.totalDebit, 'SAR', { locale })}</td>
                                             <td style={{ textAlign: 'right' }}>{money(j.totalCredit, 'SAR', { locale })}</td>
                                             <td>
-                                                {voided ? (
+                                                {j.lastEditedAt ? (
+                                                    <JournalStatusBadge journal={j} locale={locale} t={t} />
+                                                ) : voided ? (
                                                     <span style={{ color: '#B91C1C', fontWeight: 700 }}>{j.status}</span>
                                                 ) : (
                                                     <span style={{ color: balanced ? '#065F46' : '#B45309', fontWeight: 700 }}>
@@ -599,7 +653,7 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
                                                     </span>
                                                 )}
                                             </td>
-                                            <td onClick={(e) => e.stopPropagation()}>
+                                            <td>
                                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                                     <button type="button" style={outlineBtnStyle} onClick={() => openVoucher(j.id)}>
                                                         <Eye size={14} /> {t('mgr.je.view')}
@@ -618,6 +672,67 @@ export default function SupplierJournalEntriesPage({ locale = 'en' }) {
                         </table>
                     </div>
                 )}
+                {paged.total > 0 ? (
+                    <div className="journal-log-pager">
+                        <span>
+                            {t('logs.pager.range', { from: paged.from, to: paged.to, total: paged.total })}
+                        </span>
+                        <label>
+                            {t('logs.pager.rows')}
+                            <select
+                                value={pageSize}
+                                onChange={(e) => {
+                                    setPageSize(Number(e.target.value) || DEFAULT_PAGE_SIZE);
+                                    setPage(1);
+                                }}
+                            >
+                                {PAGE_SIZE_OPTIONS.map((n) => (
+                                    <option key={n} value={n}>{n}</option>
+                                ))}
+                            </select>
+                        </label>
+                        <span>{t('pager.page', { page: paged.page, pages: paged.pages, total: paged.total })}</span>
+                        <button type="button" className="btn-portal-outline" disabled={paged.page <= 1} onClick={() => setPage(paged.page - 1)}>
+                            {t('btn.prev')}
+                        </button>
+                        <button type="button" className="btn-portal-outline" disabled={paged.page >= paged.pages} onClick={() => setPage(paged.page + 1)}>
+                            {t('btn.next')}
+                        </button>
+                    </div>
+                ) : null}
+                <style>{`
+                    .journal-log-pager {
+                        display: flex;
+                        flex-wrap: wrap;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 12px 16px;
+                        margin-top: 16px;
+                        padding: 10px 12px 8px;
+                        font-size: 0.8125rem;
+                        color: #64748b;
+                        text-align: center;
+                    }
+                    .journal-log-pager label {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                    }
+                    .journal-log-pager select {
+                        height: 36px;
+                        min-width: 72px;
+                        padding: 0 8px;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        background: #fff;
+                        font-weight: 600;
+                    }
+                    .journal-log-pager .btn-portal-outline {
+                        height: 36px;
+                        min-height: 36px;
+                        padding: 0 12px;
+                    }
+                `}</style>
             </AcctCard>
         </div>
     );

@@ -325,8 +325,17 @@ function isTopUpRequest(row) {
     return k === 'fund_request' || k === 'fund' || k === 'top_up' || k === 'topup' || k === 'reload';
 }
 
+function isNoCashRequest(row) {
+    if (isSupplierSalesInvoiceRow(row)) return false;
+    const payFrom = String(row?.payFrom ?? row?.pay_from ?? '').trim().toLowerCase();
+    const payTo = String(row?.payToType ?? row?.pay_to_type ?? '').trim().toLowerCase();
+    const k = requestKindKey(row);
+    return k === 'no_cash' || k === 'nocash' || payFrom === 'no_cash' || payTo === 'no_cash';
+}
+
 function isExpenseRequest(row) {
     if (isSupplierSalesInvoiceRow(row)) return false;
+    if (isNoCashRequest(row)) return true;
     const k = requestKindKey(row);
     return k === 'expense' || k === 'expenses';
 }
@@ -338,12 +347,10 @@ function formatRequestKindLabel(row, t) {
     if (isAdminWalletFundRow(row)) return t('type.platformAdminFund');
     if (isAdminWalletExpenseRow(row)) return t('type.platformAdminExpense');
     if (isLockerExpenseRow(row)) return t('type.lockerExpense');
+    if (isNoCashRequest(row)) return t('type.nonCash');
     const kind = row?.kind ?? row?.type;
-    const k = String(kind || '')
-        .trim()
-        .toLowerCase();
     if (isTopUpRequest({ kind })) return t('type.topUp');
-    if (isExpenseRequest({ kind })) return t('type.expense');
+    if (isExpenseRequest(row)) return t('type.expense');
     if (!kind) return t('emdash');
     return String(kind).replace(/_/g, ' ');
 }
@@ -450,6 +457,8 @@ export default function WorkshopApprovals({
     const [siApproveModal, setSiApproveModal] = useState(null);
     const [siCriticalStock, setSiCriticalStock] = useState({});
     const [siReceivedQty, setSiReceivedQty] = useState({});
+    const [siReceiverName, setSiReceiverName] = useState('');
+    const [siAdminPassword, setSiAdminPassword] = useState('');
     const [fundApproveModal, setFundApproveModal] = useState(null);
     const [expenseApproveModal, setExpenseApproveModal] = useState(null);
     const [fundApproveError, setFundApproveError] = useState('');
@@ -746,6 +755,7 @@ export default function WorkshopApprovals({
     }, [approvals, requestTypeFilter, canViewType]);
     const typeColors = {
         expense: 'ws-badge--yellow',
+        no_cash: 'ws-badge--yellow',
         fund_request: 'ws-badge--blue',
         payment: 'ws-badge--green',
         advance: 'ws-badge--purple',
@@ -1052,6 +1062,14 @@ export default function WorkshopApprovals({
                 criticalStockByProductId[pid] = n;
             }
         }
+        if (!siReceiverName.trim()) {
+            setLoadError(t('siApprove.err.receiverName'));
+            return;
+        }
+        if (!siAdminPassword.trim()) {
+            setLoadError(t('siApprove.err.adminPassword'));
+            return;
+        }
         setActionLoadingId(`approve-si-${sid}`);
         setLoadError('');
         try {
@@ -1067,11 +1085,15 @@ export default function WorkshopApprovals({
                         receiveLines,
                         siReceivedQty,
                     ),
+                    receiverName: siReceiverName.trim(),
+                    adminPassword: siAdminPassword,
                 }),
             });
             setSiApproveModal(null);
             setSiCriticalStock({});
             setSiReceivedQty({});
+            setSiReceiverName('');
+            setSiAdminPassword('');
             await loadApprovals();
             window.dispatchEvent(new Event('workshop-approvals-updated'));
             window.dispatchEvent(
@@ -1371,6 +1393,51 @@ export default function WorkshopApprovals({
                                 </table>
                             </div>
                         ) : null}
+                        <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
+                            <label style={{ display: 'block' }}>
+                                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
+                                    {t('siApprove.receiverName')}
+                                </span>
+                                <input
+                                    type="text"
+                                    autoComplete="name"
+                                    placeholder={t('siApprove.receiverNamePh')}
+                                    value={siReceiverName}
+                                    onChange={(e) => setSiReceiverName(e.target.value)}
+                                    disabled={actionLoadingId !== null}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid #cbd5e1',
+                                    }}
+                                />
+                                <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#64748b' }}>
+                                    {t('siApprove.receiverNameHint')}
+                                </span>
+                            </label>
+                            <label style={{ display: 'block' }}>
+                                <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: 6 }}>
+                                    {t('siApprove.adminPassword')}
+                                </span>
+                                <input
+                                    type="password"
+                                    autoComplete="current-password"
+                                    value={siAdminPassword}
+                                    onChange={(e) => setSiAdminPassword(e.target.value)}
+                                    disabled={actionLoadingId !== null}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        borderRadius: 8,
+                                        border: '1px solid #cbd5e1',
+                                    }}
+                                />
+                                <span style={{ display: 'block', marginTop: 6, fontSize: '0.75rem', color: '#64748b' }}>
+                                    {t('siApprove.adminPasswordHint')}
+                                </span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </WorkshopSubScreen>

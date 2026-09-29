@@ -297,6 +297,43 @@ export const marketingDeleteReferrer = (id) =>
     method: 'DELETE',
   });
 
+export const marketingListCommissionRules = () =>
+  apiFetch(`${ROOT}/referrers/commission-rules`);
+
+export const marketingCreateCommissionRule = (body) =>
+  apiFetch(`${ROOT}/referrers/commission-rules`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingDeleteCommissionRule = (id) =>
+  apiFetch(`${ROOT}/referrers/commission-rules/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+  });
+
+export const marketingListBenefitRules = () =>
+  apiFetch(`${ROOT}/referrers/benefit-rules`);
+
+export const marketingCreateBenefitRule = (body) =>
+  apiFetch(`${ROOT}/referrers/benefit-rules`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const marketingDeleteBenefitRule = (id) =>
+  apiFetch(`${ROOT}/referrers/benefit-rules/${encodeURIComponent(String(id))}`, {
+    method: 'DELETE',
+  });
+
+export const marketingListReferrerPayoutRequests = () =>
+  apiFetch(`${ROOT}/referrers/payout-requests`);
+
+export const marketingUpdateReferrerPayoutRequest = (id, body) =>
+  apiFetch(`${ROOT}/referrers/payout-requests/${encodeURIComponent(String(id))}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
 /* =========================
    Loyalty APIs
 ========================= */

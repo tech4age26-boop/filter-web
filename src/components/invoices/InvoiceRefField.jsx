@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 
 /**
- * Ref # field with optional auto-generate (SI-### / PI-### from API).
+ * Ref # field with optional auto-generate (WSI-INV-#### / PI-### from API).
  */
 export default function InvoiceRefField({
     label = 'Ref # (Optional)',
@@ -16,6 +16,8 @@ export default function InvoiceRefField({
     disabled = false,
     readOnly = false,
     className = 'pi-field',
+    isDuplicate = false,
+    duplicateMessage = 'This reference number is already used.',
 }) {
     const [loading, setLoading] = useState(false);
 
@@ -71,7 +73,16 @@ export default function InvoiceRefField({
                     readOnly={inputLocked}
                     disabled={disabled}
                     onChange={handleInputChange}
-                    style={inputLocked ? { background: '#f1f5f9', cursor: 'default' } : undefined}
+                    style={{
+                        ...(inputLocked ? { background: '#f1f5f9', cursor: 'default' } : undefined),
+                        ...(isDuplicate
+                            ? {
+                                  borderColor: '#dc2626',
+                                  boxShadow: '0 0 0 3px rgba(220, 38, 38, 0.15)',
+                                  background: '#FEF2F2',
+                              }
+                            : undefined),
+                    }}
                 />
                 {!readOnly && !disabled ? (
                     <label
@@ -97,6 +108,11 @@ export default function InvoiceRefField({
                 ) : null}
                 {refError ? (
                     <span style={{ fontSize: '0.75rem', color: '#b91c1c' }}>{refError}</span>
+                ) : null}
+                {!refError && isDuplicate ? (
+                    <span style={{ fontSize: '0.75rem', color: '#b91c1c', fontWeight: 700 }}>
+                        {duplicateMessage}
+                    </span>
                 ) : null}
             </div>
         </div>

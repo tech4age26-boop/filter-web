@@ -311,6 +311,21 @@ export const createTechnician = (body) =>
 export const updateTechnician = (id, body) =>
     apiFetch(`/super-admin/technicians/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+export const listTechnicianCompensationRevisions = (id) =>
+    apiFetch(`/super-admin/technicians/${id}/compensation/revisions`);
+
+export const previewTechnicianCompensation = (id, body) =>
+    apiFetch(`/super-admin/technicians/${id}/compensation/preview`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const applyTechnicianCompensation = (id, body) =>
+    apiFetch(`/super-admin/technicians/${id}/compensation/apply`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 
 export const getSuppliers = ({ workshopId, limit, offset } = {}) =>
@@ -329,6 +344,22 @@ export const updateSupplier = (id, body) =>
 
 export const getProducts = ({ branchId, signal } = {}) =>
     apiFetch(`/super-admin/products${qs({ branchId })}`, { signal });
+
+export const searchProductsForBarcode = ({ q, limit, signal } = {}) =>
+    apiFetch(`/super-admin/products/barcode-search${qs({ q, limit })}`, { signal });
+
+export const listBarcodedProducts = ({ signal } = {}) =>
+    apiFetch('/super-admin/products/with-barcode', { signal });
+
+export const generateProductBarcode = (id) =>
+    apiFetch(`/super-admin/products/${encodeURIComponent(String(id))}/generate-barcode`, {
+        method: 'POST',
+    });
+
+export const clearProductBarcode = (id) =>
+    apiFetch(`/super-admin/products/${encodeURIComponent(String(id))}/clear-barcode`, {
+        method: 'POST',
+    });
 
 export const getProduct = (id) =>
     apiFetch(`/super-admin/products/${id}`);
@@ -717,6 +748,18 @@ export const generateCorporateBill = ({
         }),
     });
 
+export const transferCorporateInvoice = ({ invoiceId, toCorporateAccountId, reason } = {}) =>
+    apiFetch(
+        `/super-admin/corporate-billing/invoices/${encodeURIComponent(String(invoiceId))}/transfer`,
+        {
+            method: 'POST',
+            body: JSON.stringify({
+                toCorporateAccountId,
+                ...(reason ? { reason } : {}),
+            }),
+        },
+    );
+
 export const listCorporateGeneratedBills = (corporateAccountId) =>
     apiFetch(
         `/super-admin/corporate-billing/generated-bills${qs({ corporateAccountId })}`,
@@ -750,6 +793,7 @@ export const markGeneratedBillPaid = ({
     id,
     cashBankAccountId,
     receivedDate,
+    receivedAmount,
     proofImage,
     proofMimeType,
     proofFileName,
@@ -759,6 +803,7 @@ export const markGeneratedBillPaid = ({
         body: JSON.stringify({
             cashBankAccountId,
             receivedDate,
+            receivedAmount,
             proofImage,
             proofMimeType,
             proofFileName,

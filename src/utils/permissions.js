@@ -1,4 +1,8 @@
 import { NAV_ITEMS } from '../pages/workshop/constants';
+export {
+    FILTER_CONNECT_PERMISSION_CODES,
+    canAccessFilterConnect,
+} from './filterConnectAccess';
 
 /**
  * Pure helpers for the Roles & Permissions UI.
@@ -92,7 +96,7 @@ export function codesToActionsByTab(codes) {
  * Each entry: `{ path, permission }`. The first path the user is allowed to view
  * is what we redirect them to on login or when they hit `/admin` index.
  *
- * If a path has no `permission`, it's always visible (e.g., legacy ungated tabs).
+ * If a path has no `permission`, it is skipped (never used as a landing route).
  */
 const ADMIN_SIDEBAR_ORDER = [
     // CONTROL
@@ -100,6 +104,8 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/approvals',        permission: 'approvals.view' },
     { path: '/admin/zone-management',  permission: 'zone-management.view' },
     { path: '/admin/tax-codes',        permission: 'tax-codes.view' },
+    { path: '/admin/legal-pages',      permission: 'legal-pages.view' },
+    { path: '/admin/mobile-app-menu',  permission: 'mobile-app-menu.view' },
     { path: '/admin/marketing',        permission: 'marketing.view' },
     { path: '/admin/permissions',      permission: 'permissions.view' },
     { path: '/admin/admin-wallets',    permission: 'admin-wallets.view' },
@@ -117,12 +123,15 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/employees', permission: 'employees.view' },
     { path: '/admin/branches',  permission: 'branches.view' },
     { path: '/admin/workshop',  permission: 'workshop.view' },
+    { path: '/admin/staff-app', permission: 'workshop.staff-app.overview.view' },
     // FINANCE
     { path: '/admin/sales/sales-reports',       permission: 'sales.sales-reports.view' },
+    { path: '/admin/sales/advanced-reports',    permission: 'sales.advanced-reports.view' },
     { path: '/admin/sales/sales-orders',        permission: 'sales.sales-orders.view' },
     { path: '/admin/sales/workshop-sales',      permission: 'sales.workshop-sales.view' },
     { path: '/admin/sales/suppliers-warehouse-sales', permission: 'sales.suppliers-warehouse-sales.view' },
     { path: '/admin/sales/corporate-transactions', permission: 'sales.corporate-transactions.view' },
+    { path: '/admin/sales/sales-returns',       permission: 'sales.sales-returns.view' },
     { path: '/admin/sales/receipts',            permission: 'sales.receipts.view' },
     { path: '/admin/accounting/chart-of-accounts',     permission: 'accounting.chart-of-accounts.view' },
     { path: '/admin/accounting/cash-bank',             permission: 'accounting.cash-bank.view' },
@@ -144,7 +153,7 @@ const ADMIN_SIDEBAR_ORDER = [
 function adminSidebarEntryAllowed(user, codes, entry) {
     if (entry.walletRequired) return Boolean(user?.walletEnabled);
     if (entry.permission) return codes.has(entry.permission);
-    return true;
+    return false;
 }
 
 /**
@@ -365,7 +374,8 @@ export function defaultHomePathForUser(user) {
     if (t === 'technician_user') return '/technician';
     if (t === 'cashier_user') return '/pos';
     if (t === 'marketing_user') return '/marketing/dashboard';
-    if (t === 'referrer_user' || t === 'referral_user') return '/referrer-portal';
+    if (t === 'referrer_user') return '/referrer-portal';
+    if (t === 'referral_user') return '/referral-management';
     return '/';
 }
 

@@ -43,6 +43,25 @@ export function listAdminWalletTransactions(userId, { limit, offset } = {}) {
     );
 }
 
+/** Super Admin only — update the same posted document (no new journal). */
+export function editAdminWalletTransaction(userId, transactionId, payload) {
+    return apiFetch(
+        `/super-admin/admin-wallets/${encodeURIComponent(userId)}/transactions/${encodeURIComponent(transactionId)}`,
+        {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        },
+    );
+}
+
+/** Super Admin only — delete the posted tx, journals, and document number. */
+export function deleteAdminWalletTransaction(userId, transactionId) {
+    return apiFetch(
+        `/super-admin/admin-wallets/${encodeURIComponent(userId)}/transactions/${encodeURIComponent(transactionId)}`,
+        { method: 'DELETE' },
+    );
+}
+
 // ───────── My Wallet (wallet-enabled platform admin) ─────────
 
 export function createMyWalletApi(basePath) {
