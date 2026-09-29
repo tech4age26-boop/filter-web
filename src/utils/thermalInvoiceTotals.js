@@ -221,19 +221,36 @@ export function computeThermalInvoiceTotals(invoice) {
     }
   }
 
-  let totalDiscountLine = thermalR2(itemDiscountsTotal + invoiceDiscount + promoDiscount);
+  let referralDiscount = thermalR2(
+    parseFloat(invoice.referralDiscountAmount ?? invoice.referral_discount_amount) || 0,
+  );
+  const totalApi = parseFloat(invoice.totalAmount ?? invoice.total_amount) || 0;
+  const vatApi = parseFloat(invoice.vatAmount ?? invoice.vat_amount) || 0;
+  if (referralDiscount < 0.001 && subtotalApi > 0.001 && totalApi > 0.001) {
+    const preDue = vatApi > 0.001 ? thermalR2(subtotalApi + vatApi) : thermalR2(subtotalApi * 1.15);
+    const gap = thermalR2(preDue - totalApi);
+    if (gap > 0.05) referralDiscount = thermalR2(gap / 1.15);
+  }
+
+  let totalDiscountLine = thermalR2(
+    itemDiscountsTotal + invoiceDiscount + promoDiscount + referralDiscount,
+  );
   const discountApi = parseFloat(invoice.discountAmount ?? invoice.discount_amount) || 0;
   if (discountApi > 0.001) totalDiscountLine = thermalR2(discountApi);
 
   let totalTaxableAmount = thermalR2(
-    grossAmountExclVat - itemDiscountsTotal - invoiceDiscount - promoDiscount,
+    grossAmountExclVat - itemDiscountsTotal - invoiceDiscount - promoDiscount - referralDiscount,
   );
 
-  // Prefer authoritative taxable from API when present, then always charge VAT
-  // on that post-discount taxable amount (never on pre-promo gross).
-  if (subtotalApi > 0.001) totalTaxableAmount = thermalR2(subtotalApi);
-  const vatAmount = thermalR2(totalTaxableAmount * 0.15);
-  const totalInvoiceAmount = thermalR2(totalTaxableAmount + vatAmount);
+  if (subtotalApi > 0.001) {
+    totalTaxableAmount = thermalR2(Math.max(0, subtotalApi - referralDiscount));
+  }
+  let vatAmount = thermalR2(totalTaxableAmount * 0.15);
+  let totalInvoiceAmount = thermalR2(totalTaxableAmount + vatAmount);
+  if (totalApi > 0.001) {
+    totalInvoiceAmount = thermalR2(totalApi);
+    vatAmount = thermalR2(Math.max(0, totalInvoiceAmount - totalTaxableAmount));
+  }
 
   const grossExVatBeforeDiscount =
     grossAmountExclVat > 0.001
@@ -245,6 +262,7 @@ export function computeThermalInvoiceTotals(invoice) {
     itemDiscountsTotal,
     invoiceDiscount,
     promoDiscount,
+    referralDiscount,
     totalDiscountLine,
     grossExVatBeforeDiscount,
     totalTaxableAmount,
@@ -307,6 +325,9 @@ export function normalizeCashierInvoice(raw) {
     subtotal: raw.subtotal,
     vatAmount: raw.vatAmount ?? raw.vat_amount,
     discountAmount: raw.discountAmount ?? raw.discount_amount,
+    referralCode: raw.referralCode || raw.referral_code || order.referralCode || null,
+    referralDiscountAmount:
+      raw.referralDiscountAmount ?? raw.referral_discount_amount ?? 0,
     totalAmount: raw.totalAmount ?? raw.total_amount ?? raw.grandTotal,
     branchName: raw.branchName || branch.name,
     branchVatId: raw.branchVatId || branch.vatId || branch.vat_id,

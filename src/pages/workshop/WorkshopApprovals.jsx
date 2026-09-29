@@ -325,8 +325,17 @@ function isTopUpRequest(row) {
     return k === 'fund_request' || k === 'fund' || k === 'top_up' || k === 'topup' || k === 'reload';
 }
 
+function isNoCashRequest(row) {
+    if (isSupplierSalesInvoiceRow(row)) return false;
+    const payFrom = String(row?.payFrom ?? row?.pay_from ?? '').trim().toLowerCase();
+    const payTo = String(row?.payToType ?? row?.pay_to_type ?? '').trim().toLowerCase();
+    const k = requestKindKey(row);
+    return k === 'no_cash' || k === 'nocash' || payFrom === 'no_cash' || payTo === 'no_cash';
+}
+
 function isExpenseRequest(row) {
     if (isSupplierSalesInvoiceRow(row)) return false;
+    if (isNoCashRequest(row)) return true;
     const k = requestKindKey(row);
     return k === 'expense' || k === 'expenses';
 }
@@ -338,12 +347,10 @@ function formatRequestKindLabel(row, t) {
     if (isAdminWalletFundRow(row)) return t('type.platformAdminFund');
     if (isAdminWalletExpenseRow(row)) return t('type.platformAdminExpense');
     if (isLockerExpenseRow(row)) return t('type.lockerExpense');
+    if (isNoCashRequest(row)) return t('type.nonCash');
     const kind = row?.kind ?? row?.type;
-    const k = String(kind || '')
-        .trim()
-        .toLowerCase();
     if (isTopUpRequest({ kind })) return t('type.topUp');
-    if (isExpenseRequest({ kind })) return t('type.expense');
+    if (isExpenseRequest(row)) return t('type.expense');
     if (!kind) return t('emdash');
     return String(kind).replace(/_/g, ' ');
 }
@@ -748,6 +755,7 @@ export default function WorkshopApprovals({
     }, [approvals, requestTypeFilter, canViewType]);
     const typeColors = {
         expense: 'ws-badge--yellow',
+        no_cash: 'ws-badge--yellow',
         fund_request: 'ws-badge--blue',
         payment: 'ws-badge--green',
         advance: 'ws-badge--purple',

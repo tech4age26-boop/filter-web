@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Clock, CheckCircle2, Receipt, RefreshCw, Package, Plus, Minus, Trash2, Check, X, Banknote, CreditCard, Building2 } from 'lucide-react';
 import { apiFetch, clientUtcOffsetMinutes } from '../../services/api';
+import { sortCashierOrdersOldestFirst } from '../../context/POSContext';
 
 const WF_LABELS = {
     draft:              { label: 'Draft — Add items & proceed', color: '#f1f5f9', textColor: '#475569' },
@@ -56,18 +57,7 @@ export default function ActiveOrdersManager() {
                 jobs: o.jobs || [],
                 createdAt: o.createdAt,
             }));
-            mapped.sort((a, b) => {
-                try {
-                    const ai = BigInt(String(a.id ?? '0'));
-                    const bi = BigInt(String(b.id ?? '0'));
-                    if (ai < bi) return -1;
-                    if (ai > bi) return 1;
-                    return 0;
-                } catch {
-                    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
-                }
-            });
-            setOrders(mapped);
+            setOrders(sortCashierOrdersOldestFirst(mapped));
         } catch {
             setOrders([]);
         } finally {
