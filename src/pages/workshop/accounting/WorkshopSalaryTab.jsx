@@ -65,7 +65,8 @@ const resolveRowEmployee = (row) => {
 };
 
 const isNonTechnicianStaff = (recordType, employeeType) => {
-    if (recordType === 'cashier' || recordType === 'portal_user') return true;
+    if (recordType === 'portal_user') return true;
+    if (recordType === 'cashier') return false;
     const et = String(employeeType || '').trim().toLowerCase();
     return Boolean(et) && et !== 'technician';
 };
