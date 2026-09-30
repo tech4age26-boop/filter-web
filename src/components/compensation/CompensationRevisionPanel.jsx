@@ -16,6 +16,8 @@ const COPY = {
     en: {
         title: 'Compensation revision',
         lead: 'Set the new salary and commission above, choose Effective from, then Apply. Unpaid accrued commissions from that date update in one step — including jobs that had 0% (no ledger row yet). Paid slips stay frozen. Chart of accounts 6000 / 2200 adjust with a single journal.',
+        leadCashier:
+            'Set the new salary and commission above, choose Effective from, then Apply. Closed POS counter-closing commissions from that date are recalculated from shift sales × the new %. Profile rate updates for future closings. No COA journal here — payroll reads closing snapshots later.',
         effectiveFrom: 'Effective from',
         apply: 'Apply compensation',
         applying: 'Applying…',
@@ -32,16 +34,21 @@ const COPY = {
         oldMix: 'Current accrued total',
         newMix: 'Revised accrued total',
         delta: 'COA adjustment',
+        deltaClosing: 'Closing commission change',
         accounts: 'Accounts',
         journal: 'Journal',
         none: 'No journal (delta is 0)',
+        noneCashier: 'No COA journal (closing snapshots only)',
         err: 'Could not apply compensation.',
         previewErr: 'Could not preview this change.',
         done: 'Applied. Salary tab and the technician app will use these figures.',
+        doneCashier: 'Applied. Counter closings from Effective from and future POS closes use these figures.',
     },
     ar: {
         title: 'مراجعة التعويض',
         lead: 'حدد الراتب والعمولة الجديدة أعلاه وتاريخ السريان ثم اضغط تطبيق. العمولات المستحقة غير المدفوعة من ذلك التاريخ تُحدَّث دفعة واحدة — بما في ذلك الوظائف التي كانت بنسبة 0٪. القسائم المدفوعة تبقى كما هي. الحسابات 6000 / 2200 تُعدَّل بقيد واحد.',
+        leadCashier:
+            'حدد الراتب والعمولة الجديدة أعلاه وتاريخ السريان ثم اضغط تطبيق. عمولات إغلاق صندوق نقطة البيع من ذلك التاريخ تُعاد حسابها من مبيعات الوردية × النسبة الجديدة. تُحدَّث نسبة الملف للإغلاقات القادمة. لا قيد محاسبي هنا — الرواتب تقرأ لقطات الإغلاق لاحقاً.',
         effectiveFrom: 'يسري من',
         apply: 'تطبيق التعويض',
         applying: 'جارٍ التطبيق…',
@@ -58,12 +65,15 @@ const COPY = {
         oldMix: 'إجمالي المستحق الحالي',
         newMix: 'إجمالي المستحق بعد المراجعة',
         delta: 'تسوية دليل الحسابات',
+        deltaClosing: 'تغير عمولة الإغلاق',
         accounts: 'الحسابات',
         journal: 'القيد',
         none: 'لا قيد (الفرق صفر)',
+        noneCashier: 'لا قيد محاسبي (لقطات الإغلاق فقط)',
         err: 'تعذر تطبيق التعويض.',
         previewErr: 'تعذر معاينة هذا التغيير.',
         done: 'تم التطبيق. تبويب الراتب وتطبيق الفني سيستخدمان هذه الأرقام.',
+        doneCashier: 'تم التطبيق. إغلاقات الصندوق من تاريخ السريان والإغلاقات القادمة تستخدم هذه الأرقام.',
     },
 };
 
@@ -96,6 +106,7 @@ export default function CompensationRevisionPanel({
     onApplied,
 }) {
     const t = COPY[locale] || COPY.en;
+    const isCashier = recordType === 'cashier';
     const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
     const [revisions, setRevisions] = useState([]);
     const [currentRates, setCurrentRates] = useState({ basicSalary: 0, commissionPercent: 0 });
@@ -209,7 +220,7 @@ export default function CompensationRevisionPanel({
                       );
             setPreview(null);
             setPendingBody(null);
-            setNotice(t.done);
+            setNotice(isCashier || res?.skipCoaJournal ? t.doneCashier : t.done);
             await loadHistory();
             onApplied?.(res);
         } catch (e) {
@@ -227,12 +238,14 @@ export default function CompensationRevisionPanel({
     const previewSal =
         preview?.newBasicSalary ?? pendingBody?.basicSalary ?? toFiniteNumber(basicSalary, currentRates.basicSalary);
     const previewOldSal = preview?.oldBasicSalary ?? currentRates.basicSalary;
+    const skipCoa =
+        Boolean(preview?.skipCoaJournal) || isCashier;
 
     return (
         <div className="cx-comp">
             <div className="cx-comp__head">
                 <strong>{t.title}</strong>
-                <p>{t.lead}</p>
+                <p>{isCashier ? t.leadCashier : t.lead}</p>
             </div>
             <div className="cx-comp__row">
                 <label>
@@ -284,7 +297,7 @@ export default function CompensationRevisionPanel({
                             {t.newMix}: <b>{money(preview.newCommissionTotal)} SAR</b>
                         </li>
                         <li>
-                            {t.delta}: <b>{money(preview.deltaSar)} SAR</b>
+                            {skipCoa ? t.deltaClosing : t.delta}: <b>{money(preview.deltaSar)} SAR</b>
                         </li>
                         <li>
                             {t.accounts}: {preview.accounts?.expense} · {preview.accounts?.payable}
@@ -332,7 +345,7 @@ export default function CompensationRevisionPanel({
                                     </td>
                                     <td>{r.lineCount}</td>
                                     <td>{money(r.deltaSar)}</td>
-                                    <td>{r.journalEntryNumber || t.none}</td>
+                                    <td>{r.journalEntryNumber || (isCashier ? t.noneCashier : t.none)}</td>
                                 </tr>
                             ))}
                         </tbody>
