@@ -1,6 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Search, RefreshCw, Eye, FileText, Book, CheckCircle, AlertTriangle, Printer, Trash2 } from 'lucide-react';
+import {
+    Search,
+    RefreshCw,
+    Eye,
+    FileText,
+    Book,
+    CheckCircle,
+    AlertTriangle,
+    Printer,
+    Trash2,
+    ChevronLeft,
+    ChevronRight,
+} from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../../components/Modal';
 import { accT } from '../../../utils/accountingI18n';
@@ -10,6 +22,8 @@ import {
 } from '../../../services/workshopAccountingApi';
 import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
 import '../../../styles/admin/AccountingPage.css';
+
+const PAGE_SIZE_OPTIONS = [25, 50, 75, 100, 200];
 
 export default function WorkshopGeneralJournalPage() {
     const { isAdminHqBooks } = useHqAdminBooksScope();
@@ -22,35 +36,73 @@ export default function WorkshopGeneralJournalPage() {
     const [viewJEOpen, setViewJEOpen] = useState(false);
     const [selectedJE, setSelectedJE] = useState(null);
     const [entries, setEntries] = useState([]);
+    const [total, setTotal] = useState(0);
     const [summary, setSummary] = useState({ totalEntries: 0, postedCount: 0, balancedCount: 0, totalDebit: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
+    const reloadSeq = useRef(0);
+
+    useEffect(() => {
+        const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+        return () => clearTimeout(id);
+    }, [search]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [debouncedSearch, typeFilter, pageSize]);
+
+    const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages);
+    }, [page, totalPages]);
+
+    const pageMeta = useMemo(() => {
+        const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+        const to = Math.min(page * pageSize, total);
+        return { from, to };
+    }, [page, pageSize, total]);
 
     const reload = useCallback(async () => {
-        setLoading(true); setError('');
+        const seq = ++reloadSeq.current;
+        setLoading(true);
+        setError('');
         try {
-            const params = { limit: 200 };
-            if (search) params.q = search;
+            const params = {
+                limit: pageSize,
+                offset: (page - 1) * pageSize,
+            };
+            if (debouncedSearch) params.q = debouncedSearch;
             if (typeFilter) params.type = typeFilter;
             const res = await listAcctJournalEntries(params);
+            if (seq !== reloadSeq.current) return;
+            const nextTotal = Number(res?.total ?? res?.summary?.totalEntries ?? 0);
+            setTotal(nextTotal);
             setEntries(res?.entries ?? []);
             setSummary({
-                totalEntries: Number(res?.summary?.totalEntries ?? 0),
+                totalEntries: Number(res?.summary?.totalEntries ?? nextTotal),
                 postedCount: Number(res?.summary?.postedCount ?? 0),
                 balancedCount: Number(res?.summary?.balancedCount ?? 0),
                 totalDebit: Number(res?.summary?.totalDebit ?? 0),
             });
         } catch (e) {
+            if (seq !== reloadSeq.current) return;
             setError(e?.message || t('gj.loadFailed'));
             setEntries([]);
+            setTotal(0);
         } finally {
-            setLoading(false);
+            if (seq === reloadSeq.current) setLoading(false);
         }
-    }, [search, typeFilter, t]);
+    }, [debouncedSearch, typeFilter, page, pageSize, t]);
 
-    useEffect(() => { reload(); }, [reload]);
+    useEffect(() => {
+        reload();
+    }, [reload]);
 
     const fmtMoney = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const fmtDate = (d) => { try { return new Date(d).toLocaleDateString(); } catch { return String(d || '—'); } };
@@ -332,6 +384,59 @@ export default function WorkshopGeneralJournalPage() {
                     </tbody>
                 </table>
             </section>
+
+            <div
+                className="jr-pagination"
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                    padding: '16px 8px 8px',
+                }}
+            >
+                <label
+                    className="form-label"
+                    style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#475569' }}
+                >
+                    {t('gj.pageSize')}
+                    <select
+                        className="jr-type-select"
+                        style={{ width: 'auto', minWidth: 72 }}
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value) || 25)}
+                    >
+                        {PAGE_SIZE_OPTIONS.map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                        ))}
+                    </select>
+                </label>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>
+                    {t('gj.showing', { from: pageMeta.from, to: pageMeta.to, total })}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                    {t('gj.pageOf', { page, pages: totalPages })}
+                </span>
+                <button
+                    type="button"
+                    className="btn-date-range"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                    <ChevronLeft size={16} /> {t('gj.prev')}
+                </button>
+                <button
+                    type="button"
+                    className="btn-date-range"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                    {t('gj.next')} <ChevronRight size={16} />
+                </button>
+            </div>
 
             <AnimatePresence>
                 {viewJEOpen && selectedJE && (
