@@ -9,7 +9,7 @@ import { getWorkshopCommissionsEmployees } from '../../../services/workshopCommi
 
 import {
 
-    getWorkshopEmployees,
+    getAllWorkshopEmployees,
 
     indexWorkshopStaffBySelectValue,
 
@@ -248,9 +248,8 @@ export default function WorkshopEmployeeLedgerTab({
 
         (async () => {
             try {
-                const scope = { ...branchParams, limit: 500 };
                 const [staffRes, commissionRes] = await Promise.all([
-                    getWorkshopEmployees(scope, { explicitScope: true }),
+                    getAllWorkshopEmployees(branchParams, { explicitScope: true }),
                     getWorkshopCommissionsEmployees({
                         workshopId,
                         ...(branchFilter ? { branchId: branchFilter } : { allBranches: true }),

@@ -57,6 +57,7 @@ import {
 } from '../../services/workshopStaffApi';
 import { formatPlateLettersFirst } from '../../utils/formatPlate';
 import { wrColT, wrT } from '../../utils/workshopReportsI18n';
+import { formatTransferDate, transferPlaceLabel } from '../../utils/staffTransfer';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -1341,6 +1342,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             completedJobs: toNumber(e.completed_jobs ?? e.totalJobs ?? e.orders),
             commission: toNumber(e.commission_sar ?? e.commission),
             revenue: toNumber(e.revenue_sar ?? e.revenue),
+            transfer: e.transfer ?? null,
         }));
 
         const kpiProof = r.kpi_proof ?? r.kpiProof ?? null;
@@ -2123,6 +2125,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             >
                                                 <td>
                                                     <strong>{tech.name}</strong>
+                                                    {tech.transfer ? (
+                                                        <div>
+                                                            <span
+                                                                className="ws-badge ws-badge--yellow"
+                                                                style={{ marginTop: 4, fontSize: '0.6875rem' }}
+                                                                title={t('transfer.tagTitle', {
+                                                                    to: transferPlaceLabel(tech.transfer, 'to') || t('fallback.unknown'),
+                                                                })}
+                                                            >
+                                                                {t('transfer.tag', {
+                                                                    from: tech.transfer.from_branch_name || t('fallback.unknown'),
+                                                                    date: formatTransferDate(tech.transfer.date, locale),
+                                                                })}
+                                                            </span>
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td>{tech.completedJobs}</td>
                                                 <td className="ws-font-bold">{t('money.sar', { amount: tech.revenue.toLocaleString() })}</td>

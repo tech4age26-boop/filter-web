@@ -27,7 +27,7 @@ import {
 } from '../../../services/advancesApi';
 import { listCashBankAccounts } from '../../../services/workshopAccountingApi';
 import {
-    getWorkshopEmployees,
+    getAllWorkshopEmployees,
     indexWorkshopStaffBySelectValue,
     parseWorkshopStaffSelectValue,
     unwrapWorkshopEmployeesList,
@@ -168,13 +168,13 @@ export default function WorkshopAdvances({
                 getWorkshopAdvancesStats(branchParams),
                 getWorkshopAdvancesOverview({ ...branchParams, search: search.trim() || undefined }),
                 getWorkshopAdvancesList({ ...branchParams, ...(filter !== 'All' ? { status: filter.toLowerCase() } : {}) }),
-                getWorkshopEmployees({ ...branchParams, limit: 200 }).catch(() => ({ employees: [] })),
+                getAllWorkshopEmployees(branchParams).catch(() => ({ employees: [] })),
                 listCashBankAccounts(branchParams).catch(() => ({ accounts: [] })),
             ]);
             setStats(s || { totalAdvancesPaid: 0, outstandingBalance: 0, pendingCount: 0, controlAccount: null });
             setOverview(ov || { employees: [], branches: [] });
             setAdvances(Array.isArray(adv) ? adv : []);
-            const empItems = unwrapWorkshopEmployeesList(emps);
+            const empItems = unwrapWorkshopEmployeesList(emps).filter((e) => !e.transferPlaceholder);
             const ovById = Object.fromEntries((ov?.employees ?? []).map((e) => [String(e.employeeId), e]));
             setEmployees(
                 empItems.map((e) => ({

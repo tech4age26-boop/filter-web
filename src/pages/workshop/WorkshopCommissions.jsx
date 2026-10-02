@@ -9,6 +9,7 @@ import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
 import { useAuth } from '../../context/AuthContext';
 import { wcomT } from '../../utils/workshopCommissionsI18n';
+import { formatTransferDate, transferPlaceLabel } from '../../utils/staffTransfer';
 import { riyadhDatetimeLocalToEpochMs } from '../../utils/riyadhBusinessRange';
 import { loadWorkshopAdminDatetimeRange } from './workshopAdminDatetimeRange';
 
@@ -149,6 +150,23 @@ function mapCommissionRow(raw) {
     };
 }
 
+/** Read-only lines from earlier workshops (cross-workshop transfer), only sent when filtered to one employee. */
+function parseCommissionHistory(res) {
+    const src = res?.history_items ? res : res?.data;
+    const items = Array.isArray(src?.history_items) ? src.history_items : [];
+    if (items.length === 0) return null;
+    return {
+        items: items.map((raw) => ({
+            ...mapCommissionRow(raw),
+            workshopName: raw?.workshop_name ?? '',
+        })),
+        total: Number(src.history_total ?? items.length) || items.length,
+        accrued: Number(src.history_summary?.accrued ?? 0) || 0,
+        paid: Number(src.history_summary?.paid ?? 0) || 0,
+        transfers: Array.isArray(src.transfers) ? src.transfers : [],
+    };
+}
+
 /** settled order: summary, pending-by-employee, employees, list */
 function applyCommissionDashboardSettled(settled, setters, t) {
     const errMsgs = [];
@@ -159,6 +177,7 @@ function applyCommissionDashboardSettled(settled, setters, t) {
         setFilterEmployees,
         setCommissionRows,
         setListTotal,
+        setCommissionHistory,
     } = setters;
 
     if (sumRes.status === 'fulfilled') {
@@ -182,6 +201,7 @@ function applyCommissionDashboardSettled(settled, setters, t) {
         const { items, total } = parseCommissionList(listRes.value);
         setCommissionRows(items.map(mapCommissionRow));
         setListTotal(total);
+        setCommissionHistory?.(parseCommissionHistory(listRes.value));
     } else if (listRes.reason?.name !== 'AbortError') {
         errMsgs.push(listRes.reason?.message || t('err.listFailed'));
     }
@@ -198,6 +218,14 @@ export default function WorkshopCommissions({
 }) {
     const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
     const t = useCallback((key, vars) => wcomT(locale, key, vars), [locale]);
+    const transferTagText = useCallback(
+        (tr) =>
+            t(tr?.direction === 'in' ? 'transfer.tagIn' : 'transfer.tag', {
+                from: transferPlaceLabel(tr, 'from') || '—',
+                date: formatTransferDate(tr?.date, locale),
+            }),
+        [t, locale],
+    );
     const { hasPermission } = useAuth();
     const visibleCommissionTabs = adminMode
         ? COMMISSIONS_TABS
@@ -213,6 +241,7 @@ export default function WorkshopCommissions({
     const [pendingByEmployee, setPendingByEmployee] = useState([]);
     const [commissionRows, setCommissionRows] = useState([]);
     const [listTotal, setListTotal] = useState(0);
+    const [commissionHistory, setCommissionHistory] = useState(null);
     const [filterEmployees, setFilterEmployees] = useState([]);
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterEmployeeId, setFilterEmployeeId] = useState('');
@@ -262,13 +291,15 @@ export default function WorkshopCommissions({
                 const id = e.employee_id ?? e.employeeId;
                 const nm = e.name ?? '';
                 const lc = e.line_count ?? e.lineCount;
+                const entries = lc != null ? t('employee.entries', { count: lc }) : '';
+                const tag = e.transfer ? transferTagText(e.transfer) : '';
                 return {
                     id: String(id),
                     label: nm || t('employee.fallback'),
-                    subtitle: lc != null ? t('employee.entries', { count: lc }) : '',
+                    subtitle: [entries, tag].filter(Boolean).join(' · '),
                 };
             }),
-        [filterEmployees, t],
+        [filterEmployees, t, transferTagText],
     );
 
     const displayedPendingEmployees = useMemo(() => {
@@ -359,6 +390,7 @@ export default function WorkshopCommissions({
                     setFilterEmployees,
                     setCommissionRows,
                     setListTotal,
+                    setCommissionHistory,
                 }, t);
                 if (!cancelled) {
                     const listRes = settled[3];
@@ -507,6 +539,7 @@ export default function WorkshopCommissions({
                 setFilterEmployees,
                 setCommissionRows,
                 setListTotal,
+                setCommissionHistory,
             }, t);
             if (refreshErrs.length) {
                 setLoadError(
@@ -970,6 +1003,19 @@ export default function WorkshopCommissions({
                                                         </div>
                                                         <span>{name}</span>
                                                     </button>
+                                                    {emp.transfer ? (
+                                                        <span
+                                                            className="ws-badge ws-badge--yellow"
+                                                            style={{ marginInlineStart: 6, fontSize: '0.6875rem' }}
+                                                            title={
+                                                                emp.transfer.direction === 'in'
+                                                                    ? t('transfer.tagInTitle', { from: transferPlaceLabel(emp.transfer, 'from') })
+                                                                    : t('transfer.tagTitle', { to: transferPlaceLabel(emp.transfer, 'to') })
+                                                            }
+                                                        >
+                                                            {transferTagText(emp.transfer)}
+                                                        </span>
+                                                    ) : null}
                                                 </td>
                                                 <td style={{ textAlign: 'right' }}>
                                                     <span className="ws-text-dim">{entryCount}</span>
@@ -1242,6 +1288,71 @@ export default function WorkshopCommissions({
                     >
                         {t('btn.next')}
                     </button>
+                </div>
+            )}
+
+            {commissionHistory && commissionHistory.items.length > 0 && (
+                <div className="ws-commissions-table-wrapper" style={{ marginTop: 20 }}>
+                    <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--color-border)' }}>
+                        <strong>{t('history.title')}</strong>
+                        <div className="ws-text-dim" style={{ fontSize: '0.8125rem', marginTop: 4 }}>
+                            {t('history.subtitle', {
+                                accrued: money(commissionHistory.accrued),
+                                paid: money(commissionHistory.paid),
+                            })}
+                        </div>
+                        {commissionHistory.transfers
+                            .filter((tr) => tr.cross_workshop)
+                            .map((tr) => (
+                                <div key={tr.id} className="ws-text-dim" style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                                    {t('history.earnedAt', {
+                                        place: transferPlaceLabel(tr, 'from'),
+                                        date: formatTransferDate(tr.date, locale),
+                                    })}
+                                </div>
+                            ))}
+                    </div>
+                    <WsTableScroll>
+                        <table className="ws-table">
+                            <thead>
+                                <tr>
+                                    <th>{t('history.thWorkshop')}</th>
+                                    <th>{t('th.employee')}</th>
+                                    <th>{t('th.service')}</th>
+                                    <th>{t('th.date')}</th>
+                                    <th>{t('th.rate')}</th>
+                                    <th>{t('th.amount')}</th>
+                                    <th>{t('th.status')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {commissionHistory.items.map((c) => (
+                                    <tr key={`h-${c.id}`} style={{ opacity: 0.85 }}>
+                                        <td>
+                                            <span className="ws-text-dim">
+                                                {[c.workshopName, c.branchName].filter(Boolean).join(' — ') || t('emDash')}
+                                            </span>
+                                        </td>
+                                        <td>{c.employee}</td>
+                                        <td><span className="ws-text-dim">{c.service}</span></td>
+                                        <td><span className="ws-text-dim">{c.date}</span></td>
+                                        <td><span className="ws-text-dim">{c.rate ?? t('emDash')}</span></td>
+                                        <td className="ws-font-bold">{money(c.amount)}</td>
+                                        <td>
+                                            <span className={`ws-badge ${c.status === 'accrued' ? 'bg-orange-light text-orange' : 'bg-green-light text-green'}`}>
+                                                {statusLabel(c.status)}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </WsTableScroll>
+                    {commissionHistory.total > commissionHistory.items.length && (
+                        <div className="ws-text-dim" style={{ fontSize: '0.75rem', padding: '8px 14px' }}>
+                            {t('history.truncated', { shown: commissionHistory.items.length, total: commissionHistory.total })}
+                        </div>
+                    )}
                 </div>
             )}
 

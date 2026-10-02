@@ -254,6 +254,7 @@ function formatFinalBalance(acc, t) {
 
 function CoaVatBasisBadge({ account, t }) {
     const basis = vatBasisForCoaAccount(account);
+    if (!basis) return null;
     return (
         <span
             className={`coa-vat-badge coa-vat-badge--${basis}`}

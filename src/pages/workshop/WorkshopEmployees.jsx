@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff, ShieldCheck, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Users, Wrench, Radio, Plus, Pencil, Trash2, Loader, Eye, EyeOff, ShieldCheck, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import '../../styles/RowActionsMenu.css';
 import { useAuth } from '../../context/AuthContext';
@@ -31,9 +32,18 @@ import {
     filterPortalVisibleBranches,
     normalizeWorkshopEmployee,
     buildPortalStaffPatchPayload,
+    getStaffTransferTargets,
+    getStaffTransferPreview,
+    transferStaff,
 } from '../../services/workshopStaffApi';
+import { formatTransferDate, transferPlaceLabel, staffTransferKind } from '../../utils/staffTransfer';
 import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
 import CompensationRevisionPanel from '../../components/compensation/CompensationRevisionPanel';
+
+const EMPLOYEE_PAGE_SIZES = [20, 40, 60, 80, 100];
+const SEARCH_SUGGESTION_LIMIT = 8;
+
+const employeeRowKey = (emp) => emp.staffKey || `${emp._source}-${emp.id}`;
 
 const isTechnicianRole = (r) => r === 'technician';
 
@@ -152,10 +162,12 @@ function WorkshopEmployees({
 }) {
     const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
     const t = useCallback((key, vars) => wempT(locale, key, vars), [locale]);
-    const { hasPermission } = useAuth();
+    const { hasPermission, user: authUser } = useAuth();
     const canCreate = hasPermission('workshop.employees.create');
     const canEdit   = hasPermission('workshop.employees.edit');
     const canDelete = hasPermission('workshop.employees.delete');
+    const canTransfer =
+        hasPermission('workshop.employees.transfer') || authUser?.userType === 'workshop_owner';
     // Gate the Roles & Permissions panel + per-employee actions.
     const canManagePermissions = hasPermission('workshop.permissions.view');
     const canCreateRoles       = hasPermission('workshop.permissions.create');
@@ -176,6 +188,7 @@ function WorkshopEmployees({
     const [roleEditTarget, setRoleEditTarget] = useState(null); // null = closed; {} = create; {...} = edit
     const [portalAccessTarget, setPortalAccessTarget] = useState(null); // employee row
     const [permissionsTarget, setPermissionsTarget] = useState(null); // employee row
+    const [transferTarget, setTransferTarget] = useState(null); // employee row
     const loadWorkshopRoles = useCallback(async () => {
         try {
             const res = await workshopPermsApi.listRoles();
@@ -334,6 +347,8 @@ function WorkshopEmployees({
         if (!selectedBranchId || selectedBranchId === 'all') return employees;
         const sid = String(selectedBranchId);
         return employees.filter((e) => {
+            // Moved-away rows carry their new branch but still belong on the old branch's list.
+            if (e.transfer?.direction === 'out' && String(e.transfer.from_branch_id ?? '') === sid) return true;
             const scopeIds =
                 Array.isArray(e.effectiveBranchIds) && e.effectiveBranchIds.length > 0
                     ? e.effectiveBranchIds.map(String)
@@ -424,6 +439,11 @@ function WorkshopEmployees({
 
     const getEmployeeBranchNames = useCallback(
         (emp) => {
+            if (emp.currentPlacement) {
+                const { workshop_name: ws, branch_name: br } = emp.currentPlacement;
+                const label = ws && br ? `${ws} — ${br}` : br || ws;
+                if (label) return [label];
+            }
             const ids =
                 Array.isArray(emp.effectiveBranchIds) && emp.effectiveBranchIds.length > 0
                     ? emp.effectiveBranchIds.map(String)
@@ -450,28 +470,71 @@ function WorkshopEmployees({
         [branchList],
     );
 
-    // --- Search over the employees/technicians list ---
+    // --- Search over the whole list (every page), then paginate the result ---
     const [empSearch, setEmpSearch] = useState('');
+    /** Row picked from the search suggestions; the table then shows just that person. */
+    const [pickedKey, setPickedKey] = useState(null);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(EMPLOYEE_PAGE_SIZES[0]);
+    const tableTopRef = useRef(null);
+
+    const searchIndex = useMemo(
+        () =>
+            displayedEmployees.map((e) => ({
+                emp: e,
+                name: String(e.name || '').toLowerCase(),
+                hay: [
+                    e.name,
+                    e.phone,
+                    e.email,
+                    e.iqama,
+                    String(e.role || '').replace(/_/g, ' '),
+                    ...getEmployeeBranchNames(e),
+                    ...getEmployeeDepartmentNames(e),
+                    e.permissionRole?.name,
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase(),
+            })),
+        [displayedEmployees, getEmployeeBranchNames, getEmployeeDepartmentNames],
+    );
+
+    /** Every word must match somewhere; rows whose name starts with the query come first. */
+    const searchMatches = useMemo(() => {
+        const q = empSearch.trim().toLowerCase();
+        if (!q) return [];
+        const words = q.split(/\s+/).filter(Boolean);
+        const rank = (x) => (x.name.startsWith(q) ? 0 : x.name.includes(q) ? 1 : 2);
+        return searchIndex
+            .filter((x) => words.every((w) => x.hay.includes(w)))
+            .sort((a, b) => rank(a) - rank(b))
+            .map((x) => x.emp);
+    }, [searchIndex, empSearch]);
 
     const searchedEmployees = useMemo(() => {
-        const q = empSearch.trim().toLowerCase();
-        if (!q) return displayedEmployees;
-        return displayedEmployees.filter((e) => {
-            const hay = [
-                e.name,
-                e.phone,
-                e.email,
-                String(e.role || '').replace(/_/g, ' '),
-                ...getEmployeeBranchNames(e),
-                ...getEmployeeDepartmentNames(e),
-                e.permissionRole?.name,
-            ]
-                .filter(Boolean)
-                .join(' ')
-                .toLowerCase();
-            return hay.includes(q);
-        });
-    }, [displayedEmployees, empSearch, getEmployeeBranchNames, getEmployeeDepartmentNames]);
+        if (pickedKey) {
+            const hit = displayedEmployees.filter((e) => employeeRowKey(e) === pickedKey);
+            if (hit.length) return hit;
+        }
+        return empSearch.trim() ? searchMatches : displayedEmployees;
+    }, [pickedKey, displayedEmployees, empSearch, searchMatches]);
+
+    const pageCount = Math.max(1, Math.ceil(searchedEmployees.length / pageSize));
+    const currentPage = Math.min(page, pageCount);
+    const pagedEmployees = useMemo(
+        () => searchedEmployees.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+        [searchedEmployees, currentPage, pageSize],
+    );
+
+    useEffect(() => {
+        setPage(1);
+    }, [selectedBranchId]);
+
+    const goToPage = useCallback((p) => {
+        setPage(p);
+        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
 
     const openAdd = () => {
         setEditing(null);
@@ -971,6 +1034,22 @@ function WorkshopEmployees({
         );
     }
 
+    if (transferTarget) {
+        return (
+            <StaffTransferScreen
+                employee={transferTarget}
+                t={t}
+                locale={locale}
+                onBack={() => setTransferTarget(null)}
+                onDone={async (message) => {
+                    setTransferTarget(null);
+                    await loadEmployees();
+                    if (message) alert(message);
+                }}
+            />
+        );
+    }
+
     if (modalOpen) {
         return (
             <WorkshopSubScreen
@@ -1052,6 +1131,8 @@ function WorkshopEmployees({
                                         })()}
                                         <select
                                             value={form.branchId}
+                                            disabled={!!(editing && editing.branchId)}
+                                            title={editing && editing.branchId ? t('transfer.branchLockedHint') : undefined}
                                             onChange={(e) => {
                                                 const v = e.target.value;
                                                 setForm((f) => ({
@@ -1073,6 +1154,11 @@ function WorkshopEmployees({
                                                 </option>
                                             ))}
                                         </select>
+                                        {editing && editing.branchId ? (
+                                            <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                                {t('transfer.branchLockedHint')}
+                                            </small>
+                                        ) : null}
                                     </div>
                                     <div className="ws-field">
                                         <label>{t('form.role')}</label>
@@ -1456,7 +1542,7 @@ function WorkshopEmployees({
                 <div className="ws-kpi-card">
                     <div>
                         <p className="ws-kpi-label">{t('kpi.totalStaff')}</p>
-                        <p className="ws-kpi-value">{displayedEmployees.length}</p>
+                        <p className="ws-kpi-value">{displayedEmployees.filter((e) => !e.transferPlaceholder).length}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--blue">
                         <Users size={22} />
@@ -1481,17 +1567,32 @@ function WorkshopEmployees({
                     </div>
                 </div>
             </div>
-            <div className="ws-section" style={{ position: 'relative' }}>
-                <div className="ws-emp-search">
-                    <Search size={16} />
-                    <input
-                        type="text"
-                        value={empSearch}
-                        onChange={(e) => setEmpSearch(e.target.value)}
-                        placeholder={t('search.placeholder')}
-                        aria-label={t('search.aria')}
-                    />
-                </div>
+            <div className="ws-section" style={{ position: 'relative' }} ref={tableTopRef}>
+                <EmployeeSearchBox
+                    t={t}
+                    value={empSearch}
+                    onChange={(v) => {
+                        setEmpSearch(v);
+                        setPickedKey(null);
+                        setPage(1);
+                    }}
+                    matches={pickedKey ? [] : searchMatches}
+                    describe={(emp) =>
+                        [jobRoleLabel(t, emp.role), getEmployeeBranchNames(emp).join(', '), emp.phone]
+                            .filter(Boolean)
+                            .join(' · ')
+                    }
+                    onPick={(emp) => {
+                        setEmpSearch(emp.name || '');
+                        setPickedKey(employeeRowKey(emp));
+                        setPage(1);
+                    }}
+                    onClear={() => {
+                        setEmpSearch('');
+                        setPickedKey(null);
+                        setPage(1);
+                    }}
+                />
                 {!loading && empSearch.trim() && (
                     <p className="ws-emp-search-count">
                         {searchedEmployees.length === 1
@@ -1530,10 +1631,34 @@ function WorkshopEmployees({
                                 </tr>
                             </thead>
                             <tbody>
-                                {searchedEmployees.map((emp) => (
-                                    <tr key={`${emp._source}-${emp.id}`}>
+                                {pagedEmployees.map((emp) => (
+                                    <tr key={employeeRowKey(emp)}>
                                         <td>
                                             <strong>{emp.name}</strong>
+                                            {emp.transfer ? (
+                                                <div>
+                                                    <span
+                                                        className={`ws-badge ${emp.transfer.direction === 'out' ? 'ws-badge--yellow' : 'ws-badge--gray'}`}
+                                                        style={{ marginTop: 4, fontSize: '0.6875rem' }}
+                                                        title={
+                                                            emp.transfer.direction === 'out'
+                                                                ? t('transfer.badgeOutTitle', {
+                                                                    to: transferPlaceLabel(emp.transfer, 'to'),
+                                                                    date: formatTransferDate(emp.transfer.date, locale),
+                                                                })
+                                                                : t('transfer.badgeInTitle', {
+                                                                    from: transferPlaceLabel(emp.transfer, 'from'),
+                                                                    date: formatTransferDate(emp.transfer.date, locale),
+                                                                })
+                                                        }
+                                                    >
+                                                        {t(emp.transfer.direction === 'out' ? 'transfer.badgeOut' : 'transfer.badgeIn', {
+                                                            from: transferPlaceLabel(emp.transfer, 'from') || t('emdash'),
+                                                            date: formatTransferDate(emp.transfer.date, locale),
+                                                        })}
+                                                    </span>
+                                                </div>
+                                            ) : null}
                                         </td>
                                         <td>{jobRoleLabel(t, emp.role) || t('emdash')}</td>
                                         <td>
@@ -1600,6 +1725,9 @@ function WorkshopEmployees({
                                             </span>
                                         </td>
                                         <td onClick={(e) => e.stopPropagation()}>
+                                            {emp.transferReadOnly ? (
+                                                <span style={{ color: '#94a3b8' }}>{t('emdash')}</span>
+                                            ) : (
                                             <RowActionsMenu
                                                 disabled={saving}
                                                 ariaLabel={t('aria.actionsFor', { name: emp.name || t('aria.employeeFallback') })}
@@ -1625,6 +1753,13 @@ function WorkshopEmployees({
                                                         onClick: () => setPermissionsTarget(emp),
                                                     },
                                                     {
+                                                        id: 'internal-transfer',
+                                                        label: t('btn.internalTransfer'),
+                                                        title: t('btn.internalTransferTitle'),
+                                                        hidden: !(canTransfer && emp.status !== 'inactive'),
+                                                        onClick: () => setTransferTarget(emp),
+                                                    },
+                                                    {
                                                         id: 'delete',
                                                         label: t('btn.delete'),
                                                         danger: true,
@@ -1633,6 +1768,7 @@ function WorkshopEmployees({
                                                     },
                                                 ]}
                                             />
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -1641,12 +1777,138 @@ function WorkshopEmployees({
                         </WsTableScroll>
                     )
                 )}
+                {!loading && searchedEmployees.length > 0 && (
+                    <WsTablePagination
+                        page={currentPage}
+                        pageCount={pageCount}
+                        pageSize={pageSize}
+                        pageSizes={EMPLOYEE_PAGE_SIZES}
+                        total={searchedEmployees.length}
+                        onPageChange={goToPage}
+                        onPageSizeChange={(n) => {
+                            setPageSize(n);
+                            setPage(1);
+                        }}
+                        labels={{
+                            prev: t('pager.prev'),
+                            next: t('pager.next'),
+                            rowsPerPage: t('pager.rowsPerPage'),
+                            showing: (from, to, total) => t('pager.showing', { from, to, total }),
+                            page: (n) => t('pager.page', { page: n }),
+                        }}
+                    />
+                )}
             </div>
         </div>
     );
 }
 
 export default WorkshopEmployees;
+
+/** Search input with a suggestion list built from every loaded row (all pages). */
+function EmployeeSearchBox({ t, value, onChange, matches, describe, onPick, onClear }) {
+    const [open, setOpen] = useState(false);
+    const [highlight, setHighlight] = useState(-1);
+    const closeTimer = useRef(null);
+    const listId = 'ws-emp-search-suggestions';
+
+    const suggestions = matches.slice(0, SEARCH_SUGGESTION_LIMIT);
+    const showList = open && value.trim() !== '';
+
+    useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+    const pick = (emp) => {
+        onPick(emp);
+        setOpen(false);
+    };
+
+    const onKeyDown = (e) => {
+        if (e.key === 'ArrowDown' && suggestions.length) {
+            e.preventDefault();
+            setOpen(true);
+            setHighlight((h) => (h + 1) % suggestions.length);
+        } else if (e.key === 'ArrowUp' && suggestions.length) {
+            e.preventDefault();
+            setOpen(true);
+            setHighlight((h) => (h <= 0 ? suggestions.length - 1 : h - 1));
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (showList && highlight >= 0 && suggestions[highlight]) pick(suggestions[highlight]);
+            else setOpen(false);
+        } else if (e.key === 'Escape') {
+            setOpen(false);
+        }
+    };
+
+    return (
+        <div className="ws-emp-search">
+            <Search size={16} />
+            <input
+                type="text"
+                value={value}
+                onChange={(e) => {
+                    onChange(e.target.value);
+                    setHighlight(-1);
+                    setOpen(true);
+                }}
+                onFocus={() => {
+                    window.clearTimeout(closeTimer.current);
+                    setOpen(true);
+                }}
+                onBlur={() => {
+                    closeTimer.current = window.setTimeout(() => setOpen(false), 150);
+                }}
+                onKeyDown={onKeyDown}
+                placeholder={t('search.placeholder')}
+                aria-label={t('search.aria')}
+                role="combobox"
+                aria-expanded={showList}
+                aria-controls={listId}
+                aria-autocomplete="list"
+                autoComplete="off"
+            />
+            {value ? (
+                <button
+                    type="button"
+                    className="ws-emp-search-clear"
+                    onClick={onClear}
+                    aria-label={t('search.clear')}
+                    title={t('search.clear')}
+                >
+                    <X size={14} />
+                </button>
+            ) : null}
+            {showList && (
+                <div className="ws-emp-suggest" id={listId} role="listbox" onMouseDown={(e) => e.preventDefault()}>
+                    {suggestions.length === 0 ? (
+                        <div className="ws-emp-suggest__empty">{t('empty.noMatch', { query: value.trim() })}</div>
+                    ) : (
+                        <>
+                            {suggestions.map((emp, i) => (
+                                <div
+                                    key={employeeRowKey(emp)}
+                                    role="option"
+                                    aria-selected={i === highlight}
+                                    className={`ws-emp-suggest__item${i === highlight ? ' is-active' : ''}`}
+                                    onMouseEnter={() => setHighlight(i)}
+                                    onClick={() => pick(emp)}
+                                >
+                                    <div className="ws-emp-suggest__name">{emp.name || t('emdash')}</div>
+                                    <div className="ws-emp-suggest__meta">{describe(emp)}</div>
+                                </div>
+                            ))}
+                            <div className="ws-emp-suggest__footer">
+                                {matches.length > suggestions.length
+                                    ? t('search.suggestMore', { shown: suggestions.length, count: matches.length })
+                                    : t('search.suggestHint')}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Workshop Roles Panel — lists this workshop's custom roles                */
@@ -2035,6 +2297,241 @@ function SectionCard({ section, perms, t, onToggleAction, onToggleTab }) {
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Portal Access Screen — per employee                                        */
 /* ────────────────────────────────────────────────────────────────────────── */
+
+function StaffTransferScreen({ employee, t, locale, onBack, onDone }) {
+    const kind = staffTransferKind(employee);
+    const [targets, setTargets] = useState([]);
+    const [currentWorkshopId, setCurrentWorkshopId] = useState('');
+    const [preview, setPreview] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [toWorkshopId, setToWorkshopId] = useState('');
+    const [toBranchId, setToBranchId] = useState('');
+    const [note, setNote] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        Promise.all([getStaffTransferTargets(), getStaffTransferPreview(kind, employee.id)])
+            .then(([tg, pv]) => {
+                if (cancelled) return;
+                const list = Array.isArray(tg?.workshops) ? tg.workshops : [];
+                const current = tg?.current_workshop_id ? String(tg.current_workshop_id) : '';
+                list.sort((a, b) => (a.is_current === b.is_current ? 0 : a.is_current ? -1 : 1));
+                setTargets(list);
+                setCurrentWorkshopId(current);
+                setToWorkshopId(current);
+                setPreview(pv || null);
+            })
+            .catch((e) => {
+                if (!cancelled) setError(e?.message || t('transfer.errSelect'));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [kind, employee.id, t]);
+
+    const selectedWorkshop = targets.find((w) => String(w.id) === String(toWorkshopId));
+    const currentBranchId = preview?.branch_id ? String(preview.branch_id) : String(employee.branchId || '');
+    const branchOptions = (selectedWorkshop?.branches ?? []).filter(
+        (b) => !(selectedWorkshop?.is_current && String(b.id) === currentBranchId),
+    );
+    const crossWorkshop = !!toWorkshopId && String(toWorkshopId) !== String(currentWorkshopId);
+    const blockers = Array.isArray(preview?.blockers) ? preview.blockers : [];
+    const history = Array.isArray(preview?.history) ? preview.history : [];
+    const fmtAmount = (v) => Number(v || 0).toFixed(2);
+
+    const handleConfirm = async () => {
+        setError('');
+        if (!toWorkshopId || !toBranchId) {
+            setError(t('transfer.errSelect'));
+            return;
+        }
+        if (!crossWorkshop && String(toBranchId) === currentBranchId) {
+            setError(t('transfer.errSameBranch'));
+            return;
+        }
+        if (crossWorkshop) {
+            const branchName = branchOptions.find((b) => String(b.id) === String(toBranchId))?.name || '';
+            const ok = window.confirm(
+                t('transfer.confirmCross', {
+                    name: employee.name || '',
+                    workshop: selectedWorkshop?.name || '',
+                    branch: branchName,
+                }),
+            );
+            if (!ok) return;
+        }
+        setSaving(true);
+        try {
+            const res = await transferStaff(kind, employee.id, {
+                toWorkshopId: String(toWorkshopId),
+                toBranchId: String(toBranchId),
+                note: note.trim() || undefined,
+            });
+            onDone?.(res?.message || t('transfer.done'));
+        } catch (e) {
+            setError(e?.message || t('transfer.errSelect'));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const fieldStyle = { width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' };
+
+    return (
+        <WorkshopSubScreen
+            title={t('transfer.title', { name: employee.name || t('emdash') })}
+            subtitle={t('transfer.subtitle')}
+            backLabel={t('back.employees')}
+            onBack={onBack}
+            backDisabled={saving}
+            size="form"
+            footer={(
+                <>
+                    <button className="btn-portal-outline" onClick={onBack} disabled={saving}>{t('btn.cancel')}</button>
+                    <button
+                        className="btn-portal"
+                        onClick={handleConfirm}
+                        disabled={saving || loading || blockers.length > 0 || !toWorkshopId || !toBranchId}
+                    >
+                        {saving ? t('btn.transferring') : t('btn.confirmTransfer')}
+                    </button>
+                </>
+            )}
+        >
+            <div className="ws-section" style={{ padding: 20, fontSize: '0.875rem' }}>
+                {loading ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b' }}>
+                        <Loader size={16} style={{ animation: 'ws-spin 0.8s linear infinite' }} />
+                        {t('transfer.loading')}
+                    </div>
+                ) : (
+                    <>
+                        <div style={{ padding: 12, background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 10, marginBottom: 14 }}>
+                            <strong>{employee.name || t('emdash')}</strong>
+                            <div style={{ color: '#64748b', fontSize: '0.8125rem' }}>
+                                {t('transfer.current')}: {preview?.workshop_name || t('emdash')} — {preview?.branch_name || employee.branch || t('emdash')}
+                            </div>
+                            <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap', fontSize: '0.8125rem' }}>
+                                <span>
+                                    {t('transfer.unpaidCommission')}: <strong>{fmtAmount(preview?.unpaid_commission)}</strong>{' '}
+                                    <span style={{ color: '#64748b' }}>
+                                        ({t('transfer.unpaidCommissionLines', { count: preview?.unpaid_commission_lines ?? 0 })})
+                                    </span>
+                                </span>
+                                <span>
+                                    {t('transfer.advances')}: <strong>{fmtAmount(preview?.advances_total)}</strong>
+                                </span>
+                            </div>
+                        </div>
+
+                        {error && (
+                            <div style={{ marginBottom: 12, padding: 10, background: '#fef2f2', color: '#991b1b', borderRadius: 8 }}>{error}</div>
+                        )}
+
+                        {blockers.length > 0 && (
+                            <div style={{ marginBottom: 12, padding: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 8 }}>
+                                <strong>{t('transfer.blockersTitle')}</strong>
+                                <ul style={{ margin: '6px 0 0', paddingInlineStart: 18 }}>
+                                    {blockers.map((b) => <li key={b}>{b}</li>)}
+                                </ul>
+                            </div>
+                        )}
+
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('transfer.workshop')} *</label>
+                            <select
+                                value={toWorkshopId}
+                                onChange={(e) => { setToWorkshopId(e.target.value); setToBranchId(''); }}
+                                style={fieldStyle}
+                                disabled={saving}
+                            >
+                                <option value="">{t('transfer.selectWorkshop')}</option>
+                                {targets.map((w) => (
+                                    <option key={w.id} value={String(w.id)}>
+                                        {w.name}{w.is_current ? t('transfer.currentWorkshopSuffix') : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('transfer.branch')} *</label>
+                            <select
+                                value={toBranchId}
+                                onChange={(e) => setToBranchId(e.target.value)}
+                                style={fieldStyle}
+                                disabled={saving || !toWorkshopId}
+                            >
+                                <option value="">
+                                    {toWorkshopId ? t('transfer.selectBranch') : t('transfer.selectWorkshopFirst')}
+                                </option>
+                                {branchOptions.map((b) => (
+                                    <option key={b.id} value={String(b.id)}>{b.name}</option>
+                                ))}
+                            </select>
+                            {toWorkshopId && branchOptions.length === 0 && (
+                                <small style={{ color: '#92400e', fontSize: '0.75rem' }}>{t('transfer.noBranches')}</small>
+                            )}
+                        </div>
+
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('transfer.note')}</label>
+                            <input
+                                value={note}
+                                onChange={(e) => setNote(e.target.value)}
+                                placeholder={t('transfer.notePh')}
+                                maxLength={500}
+                                style={fieldStyle}
+                                disabled={saving}
+                            />
+                        </div>
+
+                        <div style={{
+                            padding: '10px 12px', background: '#eff6ff', border: '1px solid #bfdbfe',
+                            borderRadius: 8, fontSize: '0.75rem', color: '#1e40af', marginBottom: crossWorkshop ? 8 : 0,
+                        }}>
+                            {t('transfer.keepsHistory')}
+                        </div>
+                        {crossWorkshop && (
+                            <div style={{
+                                padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a',
+                                borderRadius: 8, fontSize: '0.75rem', color: '#92400e',
+                            }}>
+                                {t('transfer.crossWorkshopInfo', {
+                                    amount: fmtAmount(preview?.unpaid_commission),
+                                    workshop: preview?.workshop_name || '',
+                                })}
+                            </div>
+                        )}
+
+                        {history.length > 0 && (
+                            <div style={{ marginTop: 14 }}>
+                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('transfer.history')}</div>
+                                <ul style={{ margin: 0, paddingInlineStart: 18, color: '#475569', fontSize: '0.8125rem' }}>
+                                    {history.map((h) => (
+                                        <li key={h.id}>
+                                            {t('transfer.historyRow', {
+                                                date: formatTransferDate(h.date, locale),
+                                                from: transferPlaceLabel(h, 'from') || t('emdash'),
+                                                to: transferPlaceLabel(h, 'to') || t('emdash'),
+                                            })}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        </WorkshopSubScreen>
+    );
+}
 
 function PortalAccessScreen({ employee, roles, t, onBack, onSaved }) {
     const [portal, setPortal] = useState('workshop');
