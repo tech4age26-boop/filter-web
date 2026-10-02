@@ -2438,13 +2438,18 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
         setReturnSubmitting(true);
         setReturnModalErr('');
         try {
-            await createSupplierInvoiceReturn(returnModalRow.id, {
+            const res = await createSupplierInvoiceReturn(returnModalRow.id, {
                 lines,
                 ...(returnNotes.trim() ? { notes: returnNotes.trim() } : {}),
             });
             await loadInvoiceList({ silent: true });
             setReturnSubmitting(false);
             closeReturnModal();
+            window.alert(
+                res?.pendingWorkshopApproval
+                    ? t('msg.returnPendingWorkshop', { no: res?.returnNo || '' })
+                    : t('msg.returnPosted', { no: res?.returnNo || '' }),
+            );
         } catch (err) {
             console.error('Create return failed:', err);
             setReturnModalErr(err?.message || t('err.saveReturn'));

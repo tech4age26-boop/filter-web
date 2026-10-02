@@ -7,7 +7,7 @@ import {
 } from '../../../services/advancesApi';
 import { listCashBankAccounts } from '../../../services/workshopAccountingApi';
 import {
-    getWorkshopEmployees,
+    getAllWorkshopEmployees,
     indexWorkshopStaffBySelectValue,
     parseWorkshopStaffSelectValue,
     unwrapWorkshopEmployeesList,
@@ -18,6 +18,7 @@ import {
     exportSalaryPaymentsExcel,
     exportSalaryPaymentsPdf,
 } from './workshopSalaryPaymentsExport';
+import WsStaffPicker from '../../../components/workshop/WsStaffPicker';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -47,6 +48,26 @@ const ackBadge = (status, ackAt) => {
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const staffName = (e) => e?.name || 'Unnamed';
+
+const staffMeta = (e) =>
+    [workshopStaffRoleLabel(e), e?.branch?.name, e?.phone].filter(Boolean).join(' · ');
+
+const staffSearchText = (e) =>
+    [
+        e?.name,
+        e?.phone,
+        e?.email,
+        e?.iqama,
+        workshopStaffRoleLabel(e),
+        String(e?.employeeType || '').replace(/_/g, ' '),
+        String(e?.technicianType || '').replace(/_/g, ' '),
+        e?.branch?.name,
+        ...(e?.departments ?? []).map((d) => d?.name),
+    ]
+        .filter(Boolean)
+        .join(' ');
 
 const listBasicSalary = (emp) => {
     if (!emp) return '';
@@ -196,14 +217,19 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
         [employees],
     );
 
+    const chosenStaffKeys = useMemo(
+        () => new Set(rows.map((r) => r.employeeSelectKey).filter(Boolean)),
+        [rows],
+    );
+
     const loadLookups = useCallback(async () => {
         setLoadingLookups(true);
         try {
             const [empRes, cashRes] = await Promise.all([
-                getWorkshopEmployees({ ...branchParams, limit: 200 }).catch(() => ({ employees: [] })),
+                getAllWorkshopEmployees(branchParams).catch(() => ({ employees: [] })),
                 listCashBankAccounts(branchParams).catch(() => ({ accounts: [] })),
             ]);
-            setEmployees(unwrapWorkshopEmployeesList(empRes));
+            setEmployees(unwrapWorkshopEmployeesList(empRes).filter((e) => !e.transferPlaceholder));
             setAccounts(cashRes?.accounts ?? cashRes?.items ?? []);
         } catch (e) {
             setError(e?.message || 'Could not load salary data.');
@@ -491,29 +517,19 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                 >
                     <div style={{ minWidth: 0, marginBottom: r.employeeSelectKey ? 12 : 0 }}>
                         <label className="form-label">Employee / Technician *</label>
-                        <select
-                            className="form-input-field"
+                        <WsStaffPicker
+                            options={sortedEmployees}
                             value={r.employeeSelectKey}
-                            title={
-                                r.employeeName
-                                    ? `${r.employeeName} — ${workshopStaffRoleLabel(staffBySelectKey[r.employeeSelectKey] || { recordType: r.recordType })}`
-                                    : undefined
-                            }
-                            onChange={(e) => handleEmployeeChange(idx, e.target.value)}
-                            style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        >
-                            <option value="">Select…</option>
-                            {sortedEmployees.map((e) => {
-                                const selectKey = workshopStaffSelectValue(e);
-                                const role = workshopStaffRoleLabel(e);
-                                const branch = e.branch?.name ? ` · ${e.branch.name}` : '';
-                                return (
-                                <option key={selectKey} value={selectKey}>
-                                    {e.name} — {role}{branch}
-                                </option>
-                                );
-                            })}
-                        </select>
+                            onChange={(key) => handleEmployeeChange(idx, key)}
+                            getKey={workshopStaffSelectValue}
+                            getLabel={staffName}
+                            getMeta={staffMeta}
+                            getSearchText={staffSearchText}
+                            disabledKeys={chosenStaffKeys}
+                            disabledHint="Already in this payroll"
+                            placeholder={loadingLookups ? 'Loading staff…' : 'Search name, phone, role or branch…'}
+                            emptyText="No employee or technician matches"
+                        />
                         {r.employeeSelectKey ? (
                             <p className="form-help-text" style={{ margin: '6px 0 0', fontSize: 12 }}>
                                 {workshopStaffRoleLabel(staffBySelectKey[r.employeeSelectKey] || { recordType: r.recordType })}
