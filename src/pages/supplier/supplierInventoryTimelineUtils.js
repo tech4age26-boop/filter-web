@@ -92,6 +92,17 @@ function readMetaQty(meta, ...keys) {
     return null;
 }
 
+/** Product-wide From/To — totals win over a single-location snapshot. */
+function readProductRunningPair(meta) {
+    const prev =
+        readMetaQty(meta, 'previousTotalWarehouseQty') ??
+        readMetaQty(meta, 'previousQuantity', 'previousQty');
+    const next =
+        readMetaQty(meta, 'newTotalWarehouseQty') ??
+        readMetaQty(meta, 'newQuantity', 'newQty');
+    return { prev, next };
+}
+
 function readMetaStr(meta, ...keys) {
     for (const key of keys) {
         if (meta[key] == null) continue;
@@ -203,8 +214,7 @@ export function normalizeSupplierTimelineEntry(h) {
     ) {
         source = 'super_supplier_purchase';
         reference = superSupplierPurchaseRef(h, meta);
-        const purchasePrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
-        const purchaseNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        const { prev: purchasePrev, next: purchaseNext } = readProductRunningPair(meta);
         if (purchasePrev != null && purchaseNext != null) {
             delta = purchaseNext - purchasePrev;
         } else {
@@ -226,8 +236,7 @@ export function normalizeSupplierTimelineEntry(h) {
     } else if (type === 'inventory_out_super_supplier_debit_note') {
         source = 'super_supplier_debit_note';
         reference = superSupplierDebitNoteRef(h, meta);
-        const dnPrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
-        const dnNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        const { prev: dnPrev, next: dnNext } = readProductRunningPair(meta);
         if (dnPrev != null && dnNext != null) {
             delta = dnNext - dnPrev;
         } else {
@@ -277,8 +286,7 @@ export function normalizeSupplierTimelineEntry(h) {
     } else if (type === 'inventory_out_sales_invoice') {
         source = 'sales_invoice';
         reference = invoiceRef(h);
-        const salePrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
-        const saleNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        const { prev: salePrev, next: saleNext } = readProductRunningPair(meta);
         if (salePrev != null && saleNext != null) {
             delta = saleNext - salePrev;
         } else {
@@ -289,8 +297,7 @@ export function normalizeSupplierTimelineEntry(h) {
     } else if (type === 'inventory_in_sales_return') {
         source = 'sales_invoice';
         reference = invoiceRef(h);
-        const retPrev = readMetaQty(meta, 'previousQuantity', 'previousQty');
-        const retNext = readMetaQty(meta, 'newQuantity', 'newQty');
+        const { prev: retPrev, next: retNext } = readProductRunningPair(meta);
         if (retPrev != null && retNext != null) {
             delta = retNext - retPrev;
         } else {
@@ -346,10 +353,13 @@ export function normalizeSupplierTimelineEntry(h) {
         if (q != null && q !== 0) delta = q;
     }
 
-    const adjustedBy =
-        h.createdByUserName != null && String(h.createdByUserName).trim() !== ''
-            ? { name: String(h.createdByUserName).trim() }
-            : null;
+    const receivedByName = readMetaStr(meta, 'receivedByName');
+    const adjustedByName =
+        receivedByName ||
+        (h.createdByUserName != null && String(h.createdByUserName).trim() !== ''
+            ? String(h.createdByUserName).trim()
+            : '');
+    const adjustedBy = adjustedByName ? { name: adjustedByName } : null;
 
     const metaPrevTotal = readMetaQty(meta, 'previousTotalWarehouseQty');
     const metaNextTotal = readMetaQty(meta, 'newTotalWarehouseQty');
@@ -445,14 +455,20 @@ export function fillSupplierTimelineRunningQty(entries, _currentQtyOnHand, produ
             const metaPrev = Number(entry.previousQty);
             const metaNext = Number(entry.newQty);
             const metaMatchesDelta = Math.abs(metaNext - metaPrev - delta) <= 0.0005;
-            if (metaMatchesDelta) {
-                // Frozen at write-time — never rewrite when current stock changes.
+            const runningReady = running != null && Number.isFinite(running);
+            // Location-only snapshots (e.g. purchase wrote 0→6 while product was −1)
+            // must not break the product chain: 1 − 2 = −1, then −1 + 6 = 5.
+            const runningDisagrees =
+                runningReady && Math.abs(metaPrev - running) > 0.0005;
+            if (metaMatchesDelta && !runningDisagrees) {
                 previousQty = metaPrev;
                 newQty = metaNext;
+            } else if (runningReady) {
+                previousQty = running;
+                newQty = running + delta;
             } else {
-                // Metadata inconsistent with delta: keep From frozen, apply delta for To.
                 previousQty = metaPrev;
-                newQty = metaPrev + delta;
+                newQty = metaMatchesDelta ? metaNext : metaPrev + delta;
             }
         } else if (running != null && Number.isFinite(running)) {
             previousQty = running;

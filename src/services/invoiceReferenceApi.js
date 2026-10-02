@@ -5,7 +5,7 @@ function unwrapReference(res) {
     return String(res.reference ?? res.ref ?? '').trim();
 }
 
-/** Supplier sales invoice — SI-### (next unused number in the global sequence) */
+/** Supplier sales invoice — WSI-INV-#### (next unused number in the auto series) */
 export const getNextSupplierSalesInvoiceReference = (options = {}) =>
     apiFetch('/supplier/invoices/next-reference', options)
         .catch((err) => {

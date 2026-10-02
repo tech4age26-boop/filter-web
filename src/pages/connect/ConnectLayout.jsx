@@ -1,5 +1,5 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import {
     Building2,
     BookOpen,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { defaultHomePathForUser } from '../../utils/permissions';
+import { canAccessFilterConnect } from '../../utils/filterConnectAccess';
 import { connectScopeParams, getConnectScope } from '../../services/connectApi';
 import '../../styles/connect/ConnectLayout.css';
 
@@ -52,7 +53,7 @@ const NAV_GROUPS = [
 /** Shown as plain text so the roadmap is visible without pretending the screens exist. */
 const UPCOMING = ['Chat', 'CRM', 'Targets', 'Leaderboard'];
 
-export default function ConnectLayout() {
+function ConnectLayoutInner() {
     const navigate = useNavigate();
     const { user } = useAuth();
     const isPlatformAdmin = user?.userType === 'platform_admin';
@@ -318,4 +319,12 @@ export default function ConnectLayout() {
             </div>
         </div>
     );
+}
+
+export default function ConnectLayout() {
+    const { user, permissions } = useAuth();
+    if (!canAccessFilterConnect(user, permissions)) {
+        return <Navigate to={defaultHomePathForUser(user)} replace />;
+    }
+    return <ConnectLayoutInner />;
 }

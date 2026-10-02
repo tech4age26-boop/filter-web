@@ -725,7 +725,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
     const handleConfirmAdjustment = async () => {
         if (!adjustItem || adjustConfirming) return;
         const qtyInput = Number.parseFloat(String(adjustQty).replace(/,/g, ''));
-        if (!Number.isFinite(qtyInput) || qtyInput < 0) return;
+        if (!Number.isFinite(qtyInput)) return;
         if (adjustmentType !== 'set' && qtyInput <= 0) return;
         const cf = Number(adjustItem.conversionFactor) || 1;
         const currentWh = Number(adjustItem.warehouseQty) || 0;
@@ -734,7 +734,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                 ? qtyInput
                 : adjustmentType === 'add'
                   ? currentWh + qtyInput
-                  : Math.max(0, currentWh - qtyInput);
+                  : currentWh - qtyInput;
         const newWorkshopQty = Math.round(newWarehouseQty * cf * 1000) / 1000;
         const savedId = adjustItem.id;
         setAdjustConfirming(true);
@@ -2065,7 +2065,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                 </label>
                                 <input
                                     type="number"
-                                    min={adjustmentType === 'set' ? '0' : '0.001'}
+                                    min={adjustmentType === 'set' ? undefined : '0.001'}
                                     step="any"
                                     value={adjustQty}
                                     onChange={(e) => setAdjustQty(e.target.value)}
@@ -2088,7 +2088,6 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                         NaN;
                                     if (!Number.isFinite(delta)) return null;
                                     if (adjustmentType !== 'set' && !(delta > 0)) return null;
-                                    if (adjustmentType === 'set' && delta < 0) return null;
                                     const cf = Number(adjustItem.conversionFactor) || 1;
                                     const curWh = Number(adjustItem.warehouseQty) || 0;
                                     const newWh =
@@ -2096,7 +2095,7 @@ export default function SupplierStockInventory({ locale: localeProp }) {
                                             ? delta
                                             : adjustmentType === 'add'
                                               ? curWh + delta
-                                              : Math.max(0, curWh - delta);
+                                              : curWh - delta;
                                     const newWs = Math.round(newWh * cf * 1000) / 1000;
                                     const whUnit = adjustItem.warehouseUnit || 'Box';
                                     const wsUnit = adjustItem.unit || 'Liter';

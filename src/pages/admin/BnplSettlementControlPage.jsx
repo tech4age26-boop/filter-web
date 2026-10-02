@@ -285,7 +285,7 @@ export default function BnplSettlementControlPage() {
     const handleExportPdf = async () => {
         setPdfExporting(true);
         try {
-            exportAccountLedgerPdf({
+            await exportAccountLedgerPdf({
                 header: exportHeader,
                 openingBalance: 0,
                 rows: ledgerRows.map((r) => ({

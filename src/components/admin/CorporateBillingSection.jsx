@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
     ArrowLeft,
+    ArrowRightLeft,
     Building2,
     CheckCircle2,
     FileSpreadsheet,
@@ -24,7 +25,7 @@ import {
     deleteCorporateGeneratedBill,
     deleteCorporateGeneratedBills,
 } from '../../services/accountsApi';
-import { generateCorporateBill } from '../../services/superAdminApi';
+import { generateCorporateBill, transferCorporateInvoice } from '../../services/superAdminApi';
 import { openInvoiceViewAndDownloadPdf } from '../../utils/posInvoiceActions';
 import {
     exportCorporateArLedgerExcel,
@@ -38,6 +39,7 @@ import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingD
 import { cbT } from '../../utils/corporateBillingI18n';
 import CorporateGenerateBillModal from './CorporateGenerateBillModal';
 import CorporateMarkBillPaidModal from './CorporateMarkBillPaidModal';
+import CorporateTransferInvoiceModal from './CorporateTransferInvoiceModal';
 import AdminScreenShell from './AdminScreenShell';
 import '../../styles/admin/AccountingPage.css';
 
@@ -53,6 +55,60 @@ function fmtCell(v, t) {
     return t('money.sar', { amount: fmt(v) });
 }
 
+const LEDGER_COL_COUNT = 13;
+
+function InvoiceAdjustmentStatus({ adj, t, isAr, rowType }) {
+    if (adj?.status === 'Excluded') {
+        const pos = Number(adj.originalInclusiveVat ?? 0);
+        return (
+            <div className="billing-line-adjusted">
+                <span className="ws-badge ws-badge--red">{t('line.excluded')}</span>
+                <div className="billing-line-adjusted__meta">
+                    <div>{t('line.excludedHint')}</div>
+                    <div>{t('line.posOriginal', { amount: fmt(pos) })}</div>
+                    {adj.adjustedByName ? <div>{t('line.adjustedBy', { name: adj.adjustedByName })}</div> : null}
+                </div>
+            </div>
+        );
+    }
+    if (adj?.status === 'Adjusted') {
+        const pos = Number(adj.originalInclusiveVat ?? 0);
+        const now = Number(adj.adjustedInclusiveVat ?? 0);
+        const when = adj.adjustedAt
+            ? new Date(adj.adjustedAt).toLocaleString(isAr ? 'ar-SA' : undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+            })
+            : '';
+        return (
+            <div className="billing-line-adjusted">
+                <span className="ws-badge ws-badge--yellow">{t('line.adjusted')}</span>
+                <div className="billing-line-adjusted__meta">
+                    <div className="billing-line-adjusted__amount">
+                        {t('line.posToBill', { pos: fmt(pos), now: fmt(now) })}
+                    </div>
+                    <div>{t('line.posOriginal', { amount: fmt(pos) })}</div>
+                    <div>{t('line.nowOnBill', { amount: fmt(now) })}</div>
+                    <div>{t('line.posProof')}</div>
+                    {when ? <div>{when}</div> : null}
+                    {adj.adjustedByName ? <div>{t('line.adjustedBy', { name: adj.adjustedByName })}</div> : null}
+                </div>
+            </div>
+        );
+    }
+    if (String(rowType || '') === 'Invoice') {
+        return (
+            <div className="billing-line-adjusted">
+                <span className="ws-badge ws-badge--gray">{t('line.onBill')}</span>
+                <div className="billing-line-adjusted__meta">
+                    <div>{t('line.posUnchanged')}</div>
+                </div>
+            </div>
+        );
+    }
+    return '—';
+}
+
 /** Calendar YYYY-MM-DD only — never local→UTC (that shifts the day, e.g. Jul 1 KSA → Jun 30). */
 function billingPeriodDateParam(dateStr) {
     const s = String(dateStr || '').trim();
@@ -61,10 +117,22 @@ function billingPeriodDateParam(dateStr) {
 
 function billStatusLabel(status, t) {
     if (status === 'paid') return t('status.paid');
+    if (status === 'partially_paid') return t('status.partiallyPaid');
+    if (status === 'overpaid') return t('status.overPaid');
     if (status === 'awaiting_approval') return t('status.awaiting');
     if (status === 'pending_deletion') return t('status.pendingDeletion');
     if (status === 'rejected') return t('status.rejected');
     return t('status.pending');
+}
+
+function billStatusBadgeClass(status) {
+    if (status === 'paid') return 'ws-badge ws-badge--green';
+    if (status === 'overpaid') return 'ws-badge ws-badge--blue';
+    if (status === 'partially_paid') return 'ws-badge ws-badge--yellow';
+    if (status === 'awaiting_approval') return 'ws-badge ws-badge--yellow';
+    if (status === 'rejected') return 'ws-badge ws-badge--red';
+    if (status === 'pending_deletion') return 'ws-badge ws-badge--yellow';
+    return 'ws-badge ws-badge--gray';
 }
 
 function BilingualTh({ primaryKey, secondaryKey, t, style }) {
@@ -208,10 +276,14 @@ export default function CorporateBillingSection() {
     const [billDetailLoading, setBillDetailLoading] = useState(false);
     const [billPdfExporting, setBillPdfExporting] = useState(false);
     const [markPaidOpen, setMarkPaidOpen] = useState(false);
+    const [billSnapshotView, setBillSnapshotView] = useState('adjusted');
 
     const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
     const [invoiceModalData, setInvoiceModalData] = useState(null);
     const [invoiceLoadingId, setInvoiceLoadingId] = useState('');
+
+    const [transferRow, setTransferRow] = useState(null);
+    const [transferring, setTransferring] = useState(false);
 
     const loadCustomers = useCallback(async (range) => {
         const from = range?.dateFrom !== undefined ? range.dateFrom : dateFrom;
@@ -294,6 +366,7 @@ export default function CorporateBillingSection() {
             return;
         }
         setSelectedBillId(billId);
+        setBillSnapshotView('adjusted');
         setBillDetailLoading(true);
         try {
             const res = await getCorporateGeneratedBill(billId);
@@ -465,6 +538,29 @@ export default function CorporateBillingSection() {
         }
     };
 
+    const handleTransferInvoice = async ({ toCorporateAccountId, reason, toCompanyName }) => {
+        if (!transferRow?.invoiceId || !toCorporateAccountId) return;
+        setTransferring(true);
+        setError('');
+        try {
+            const res = await transferCorporateInvoice({
+                invoiceId: transferRow.invoiceId,
+                toCorporateAccountId,
+                reason,
+            });
+            const no = res?.transfer?.invoiceNo || transferRow.invoiceNo || '';
+            const company = res?.transfer?.toCompanyName || toCompanyName || '';
+            setTransferRow(null);
+            await loadLedger();
+            await loadCustomers();
+            alert(t('alert.transferred', { no, company }));
+        } catch (e) {
+            setError(e?.message || t('err.transfer'));
+        } finally {
+            setTransferring(false);
+        }
+    };
+
     const handleGenerateBill = async (opts = {}) => {
         const lineOverrides = Array.isArray(opts?.lineOverrides)
             ? opts.lineOverrides
@@ -510,14 +606,24 @@ export default function CorporateBillingSection() {
         }
     };
 
-    const handleExportBillPdf = async () => {
+    const handleExportBillPdf = async (kind = 'adjusted') => {
         if (!billDetail) return;
+        const original =
+            billDetail.original && typeof billDetail.original === 'object'
+                ? billDetail.original
+                : null;
+        const useOriginal = kind === 'original' && original;
         setBillPdfExporting(true);
         try {
             await exportCorporateGeneratedBillPdf({
-                bill: billDetail,
+                bill: {
+                    ...billDetail,
+                    ...(useOriginal && original.kpis ? { kpis: original.kpis } : {}),
+                },
                 statement: {
-                    ...(billDetail.statement || {}),
+                    ...(useOriginal
+                        ? { ...(billDetail.statement || {}), ...(original || {}), kpis: original.kpis || billDetail.statement?.kpis }
+                        : (billDetail.statement || {})),
                     corporateAccount: {
                         ...(billDetail.statement?.corporateAccount || {}),
                         vatNumber:
@@ -531,12 +637,10 @@ export default function CorporateBillingSection() {
                             '',
                     },
                 },
-                ledgerStatement: billDetail.ledgerStatement,
-                fetchLedger: (params) =>
-                    getCorporateArLedger({
-                        corporateAccountId: selectedAccountId,
-                        ...params,
-                    }),
+                ledgerStatement: useOriginal
+                    ? (original.ledgerStatement ?? billDetail.ledgerStatement)
+                    : billDetail.ledgerStatement,
+                snapshotKind: useOriginal ? 'original' : 'adjusted',
             });
         } catch (e) {
             console.error(e);
@@ -624,15 +728,28 @@ export default function CorporateBillingSection() {
         setSelectedBillIds(new Set(generatedBills.map((b) => String(b.id))));
     };
 
-    const billLedgerRaw = billDetail?.ledgerStatement;
-    const billLedger = useMemo(
-        () => applyPostDiscountVatToLedgerStatement(billLedgerRaw),
-        [billLedgerRaw],
-    );
+    const originalBill = billDetail?.original && typeof billDetail.original === 'object'
+        ? billDetail.original
+        : null;
+    const showOriginalBill = billSnapshotView === 'original' && originalBill;
+    const billLedgerRaw = showOriginalBill
+        ? (originalBill.ledgerStatement ?? billDetail?.ledgerStatement)
+        : billDetail?.ledgerStatement;
+    const billLedger = billLedgerRaw;
     const billLedgerLines = billLedger?.lines ?? [];
     const billSum = billLedger?.summary ?? billDetail?.kpis ?? {};
     const billDueBalance = Number(
         billSum.closingBalance ?? billDetail?.kpis?.balance ?? billDetail?.balance ?? 0,
+    );
+    /** Frozen collection due — never follows Original/Adjusted table view. */
+    const collectionDueBalance = Number(
+        billDetail?.kpis?.balance ?? billDetail?.balance ?? 0,
+    );
+    const posOriginalDue = Number(
+        billDetail?.posOriginalDue ??
+            originalBill?.kpis?.balance ??
+            billDetail?.originalKpis?.balance ??
+            NaN,
     );
 
     const thPair = (enKey, arKey) =>
@@ -722,9 +839,12 @@ export default function CorporateBillingSection() {
                                     {dateFrom && dateTo ? t('stat.periodDue') : t('stat.totalDue')}
                                 </p>
                                 <p className="cash-bank-stat-value">{t('money.sar', { amount: fmt(listSummary.totalDue) })}</p>
-                                {dateFrom && dateTo ? (
+                                {(listSummary.dateFrom && listSummary.dateTo) || (dateFrom && dateTo) ? (
                                     <p className="corporate-billing-list-stats__period">
-                                        {t('label.period', { from: dateFrom, to: dateTo })}
+                                        {t('label.period', {
+                                            from: listSummary.dateFrom || dateFrom,
+                                            to: listSummary.dateTo || dateTo,
+                                        })}
                                     </p>
                                 ) : null}
                             </div>
@@ -804,6 +924,22 @@ export default function CorporateBillingSection() {
     const sum = ledgerDisplay?.summary ?? ledger?.summary ?? {};
     const displayName = corp?.companyName || selectedCustomer?.companyName || t('fallback.title');
 
+    if (transferRow) {
+        return (
+            <CorporateTransferInvoiceModal
+                open
+                onClose={() => !transferring && setTransferRow(null)}
+                t={t}
+                invoiceNo={transferRow.invoiceNo}
+                fromCompanyName={displayName}
+                fromCorporateAccountId={selectedAccountId}
+                submitting={transferring}
+                submitError={error}
+                onConfirm={handleTransferInvoice}
+            />
+        );
+    }
+
     if (generateOpen) {
     return (
             <CorporateGenerateBillModal
@@ -830,7 +966,7 @@ export default function CorporateBillingSection() {
                 t={t}
                 billId={billDetail.id || selectedBillId}
                 billNo={billDetail.billNo}
-                balanceDue={billDueBalance}
+                balanceDue={collectionDueBalance}
                 onPaid={async () => {
                     setMarkPaidOpen(false);
                     await loadGeneratedBills();
@@ -1056,18 +1192,29 @@ export default function CorporateBillingSection() {
                                                     disabled={deletingBills}
                                                 />
                                             </td>
-                                            <td className="table-cell cell-main-text">{b.billNo}</td>
+                                            <td className="table-cell cell-main-text">
+                                                {b.billNo}
+                                                {b.hasManualEdits ? (
+                                                    <span className="ws-badge ws-badge--yellow" style={{ marginLeft: 8 }}>
+                                                        {t('bill.adjustedBadge')}
+                                                    </span>
+                                                ) : null}
+                                            </td>
                                             <td className="table-cell">{b.periodStartDate} — {b.periodEndDate}</td>
                                             <td className="table-cell">{b.dueDate}</td>
-                                            <td className="table-cell">{billStatusLabel(b.status, t)}</td>
+                                            <td className="table-cell">
+                                                <span className={billStatusBadgeClass(b.status)}>
+                                                    {billStatusLabel(b.status, t)}
+                                                </span>
+                                            </td>
                                             <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
-                                                {t('money.sar', {
-                                                    amount: fmt(
-                                                        selectedBillId === b.id && billLedger
-                                                            ? billDueBalance
-                                                            : b.kpis?.balance,
-                                                    ),
-                                                })}
+                                                <div>{t('money.sar', { amount: fmt(b.kpis?.balance) })}</div>
+                                                {b.hasManualEdits && b.originalKpis?.balance != null
+                                                    && Math.abs(Number(b.originalKpis.balance) - Number(b.kpis?.balance ?? 0)) > 0.005 ? (
+                                                    <div style={{ fontSize: 11, fontWeight: 500, color: '#64748b', marginTop: 2 }}>
+                                                        {t('bill.posDue', { amount: fmt(b.originalKpis.balance) })}
+                                                    </div>
+                                                ) : null}
                                                 </td>
                                                 <td className="table-cell">
                                                 {b.createdAt
@@ -1114,6 +1261,31 @@ export default function CorporateBillingSection() {
                                         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>
                                             {billDetail.billNo}
                                         </h3>
+                                        <span className={billStatusBadgeClass(billDetail.status)}>
+                                            {billStatusLabel(billDetail.status, t)}
+                                        </span>
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <button
+                                                type="button"
+                                                className={`btn-portal-outline ${billSnapshotView === 'original' ? 'active' : ''}`}
+                                                onClick={() => setBillSnapshotView('original')}
+                                                disabled={!originalBill}
+                                            >
+                                                {t('bill.viewOriginal')}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`btn-portal-outline ${billSnapshotView === 'adjusted' ? 'active' : ''}`}
+                                                onClick={() => setBillSnapshotView('adjusted')}
+                                            >
+                                                {t('bill.viewAdjusted')}
+                                            </button>
+                                            {billDetail.hasManualEdits ? (
+                                                <span className="ws-badge ws-badge--yellow">{t('bill.adjustedBadge')}</span>
+                                            ) : (
+                                                <span className="ws-badge">{t('bill.matchesPosBadge')}</span>
+                                            )}
+                                        </div>
                                         <span className="billing-due-date-banner" style={{ margin: 0 }}>
                                             {t('label.due')} <strong>{billDetail.dueDate}</strong>
                                         </span>
@@ -1121,15 +1293,25 @@ export default function CorporateBillingSection() {
                                             type="button"
                                             className="btn-portal-outline"
                                             disabled={billPdfExporting}
-                                            onClick={handleExportBillPdf}
+                                            onClick={() => handleExportBillPdf('adjusted')}
                                         >
                                             <FileText size={16} style={{ marginRight: 6 }} />
                                             {billPdfExporting ? t('btn.generating') : t('btn.downloadBillPdf')}
                                         </button>
+                                        <button
+                                            type="button"
+                                            className="btn-portal-outline"
+                                            disabled={billPdfExporting || !originalBill}
+                                            onClick={() => handleExportBillPdf('original')}
+                                        >
+                                            <FileText size={16} style={{ marginRight: 6 }} />
+                                            {t('btn.downloadOriginalPdf')}
+                                        </button>
                                         {billDetail.status !== 'paid'
+                                        && billDetail.status !== 'overpaid'
                                         && billDetail.status !== 'awaiting_approval'
                                         && billDetail.status !== 'pending_deletion'
-                                        && billDueBalance > 0.05 ? (
+                                        && collectionDueBalance > 0.05 ? (
                                             <button
                                                 type="button"
                                                 className="btn-portal"
@@ -1155,6 +1337,31 @@ export default function CorporateBillingSection() {
                                         ) : null}
                                     </div>
 
+                                    <div className="billing-snapshot-banner">
+                                        <div className="billing-snapshot-banner__dues">
+                                            <strong>{t('bill.collectionDue', { amount: fmt(collectionDueBalance) })}</strong>
+                                            {Number.isFinite(posOriginalDue) ? (
+                                                <span>{t('bill.posDue', { amount: fmt(posOriginalDue) })}</span>
+                                            ) : null}
+                                        </div>
+                                        <p className="billing-snapshot-banner__hint">
+                                            {billDetail.hasManualEdits
+                                                ? (showOriginalBill
+                                                    ? t('bill.nowViewingOriginal', { due: fmt(collectionDueBalance) })
+                                                    : t('bill.nowViewingAdjusted', {
+                                                        original: Number.isFinite(posOriginalDue)
+                                                            ? fmt(posOriginalDue)
+                                                            : '—',
+                                                    }))
+                                                : t('bill.sameAsPos')}
+                                        </p>
+                                        <p className="billing-snapshot-banner__hint">
+                                            {billDetail.hasManualEdits
+                                                ? (showOriginalBill ? t('bill.originalHint') : t('bill.adjustedHint'))
+                                                : t('bill.sameAsPosHint')}
+                                        </p>
+                                    </div>
+
                                     <div className="cash-bank-stats cash-bank-register-kpis billing-stats">
                                         {billKpis.map(([labelKey, val]) => (
                                             <div key={labelKey} className="cash-bank-stat-card billing-stat-card">
@@ -1169,11 +1376,12 @@ export default function CorporateBillingSection() {
                                     </div>
 
                                     <section className="premium-table cash-bank-table corporate-ar-ledger-table corporate-billing-ledger-table">
-                                        <table className="ws-table" style={{ width: '100%', minWidth: 1200 }}>
+                                        <table className="ws-table" style={{ width: '100%', minWidth: 1360 }}>
                     <thead>
                         <tr>
                                                     <th>{t('th.date')}</th>
                                                     <th>{t('th.invNo')}</th>
+                                                    <th>{t('th.lineStatus')}</th>
                                                     <th>{t('th.vehicle')}</th>
                                                     <th>{t('th.products')}</th>
                                                     <th>{t('th.type')}</th>
@@ -1188,14 +1396,14 @@ export default function CorporateBillingSection() {
                     </thead>
                     <tbody>
                                                 <tr className="cash-bank-register-opening-row">
-                                                    <td colSpan={11}><strong>{t('label.openingBalance')}</strong></td>
+                                                    <td colSpan={LEDGER_COL_COUNT - 1}><strong>{t('label.openingBalance')}</strong></td>
                                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>
                                                         {t('money.sar', { amount: fmt(billSum.openingBalance) })}
                                                     </td>
                             </tr>
                                                 {billLedgerLines.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={12} className="table-cell table-empty">{t('empty.ledgerLines')}</td>
+                                                        <td colSpan={LEDGER_COL_COUNT} className="table-cell table-empty">{t('empty.ledgerLines')}</td>
                                                     </tr>
                                                 ) : (
                                                     billLedgerLines.map((row) => (
@@ -1209,6 +1417,9 @@ export default function CorporateBillingSection() {
                                                                     loadingId={invoiceLoadingId}
                                                                     onOpen={openInvoicePdf}
                                                                 />
+                                                            </td>
+                                                            <td>
+                                                                <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} rowType={row.type} />
                                                             </td>
                                                             <td>{row.vehicleNo}</td>
                                                             <td style={{ maxWidth: 240 }}>
@@ -1238,7 +1449,7 @@ export default function CorporateBillingSection() {
                                                     ))
                                                 )}
                                                 <tr className="cash-bank-register-closing-row">
-                                                    <td colSpan={11}><strong>{t('label.closingBalance')}</strong></td>
+                                                    <td colSpan={LEDGER_COL_COUNT - 1}><strong>{t('label.closingBalance')}</strong></td>
                                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>
                                                         {t('money.sar', { amount: fmt(billSum.closingBalance) })}
                                                     </td>
@@ -1322,11 +1533,12 @@ export default function CorporateBillingSection() {
             </p>
 
             <section className="premium-table cash-bank-table corporate-ar-ledger-table corporate-billing-ledger-table">
-                <table className="ws-table" style={{ width: '100%', minWidth: 1200 }}>
+                <table className="ws-table" style={{ width: '100%', minWidth: 1360 }}>
                     <thead>
                         <tr>
                             <BilingualTh {...thPair('th.date', 'th.dateAr')} t={t} />
                             <BilingualTh {...thPair('th.invNo', 'th.invNoAr')} t={t} />
+                            <BilingualTh {...thPair('th.lineStatus', 'th.lineStatusAr')} t={t} />
                             <BilingualTh {...thPair('th.vehicle', 'th.vehicleAr')} t={t} />
                             <BilingualTh {...thPair('th.products', 'th.productsAr')} t={t} />
                             <BilingualTh {...thPair('th.type', 'th.typeAr')} t={t} />
@@ -1342,21 +1554,21 @@ export default function CorporateBillingSection() {
                     <tbody>
                         {ledgerLoading ? (
                             <tr>
-                                <td colSpan={12} className="table-cell table-empty">
+                                <td colSpan={LEDGER_COL_COUNT} className="table-cell table-empty">
                                     <Loader size={18} className="spin" /> {t('loading.ledger')}
                                 </td>
                             </tr>
                         ) : (
                             <>
                                 <tr className="cash-bank-register-opening-row">
-                                    <td colSpan={11}><strong>{t('label.openingBalance')}</strong></td>
+                                    <td colSpan={LEDGER_COL_COUNT - 1}><strong>{t('label.openingBalance')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>
                                         {t('money.sar', { amount: fmt(sum.openingBalance) })}
                                     </td>
                                 </tr>
                                 {filteredLines.length === 0 ? (
                                     <tr>
-                                        <td colSpan={12} className="table-cell table-empty">
+                                        <td colSpan={LEDGER_COL_COUNT} className="table-cell table-empty">
                                             {ledgerFilter !== 'all'
                                                 ? t('empty.periodFilter', { filter: ledgerFilter })
                                                 : t('empty.period')}
@@ -1367,6 +1579,7 @@ export default function CorporateBillingSection() {
                                         <tr key={row.id}>
                                             <td>{row.date}</td>
                                             <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                 <ClickableInvoiceNo
                                                     invoiceId={row.invoiceId}
                                                     invoiceNo={row.invoiceNo}
@@ -1374,6 +1587,25 @@ export default function CorporateBillingSection() {
                                                     loadingId={invoiceLoadingId}
                                                     onOpen={openInvoicePdf}
                                                 />
+                                                {row.type === 'Invoice' && row.invoiceId ? (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-portal-outline"
+                                                        style={{ padding: '2px 8px', fontSize: 12 }}
+                                                        onClick={() => {
+                                                            setError('');
+                                                            setTransferRow(row);
+                                                        }}
+                                                        title={t('btn.transfer')}
+                                                    >
+                                                        <ArrowRightLeft size={12} style={{ marginRight: 4 }} />
+                                                        {t('btn.transfer')}
+                                                    </button>
+                                                ) : null}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <InvoiceAdjustmentStatus adj={row.billAdjustment} t={t} isAr={isAr} rowType={row.type} />
                                             </td>
                                             <td>{row.vehicleNo}</td>
                                             <td style={{ maxWidth: 240 }}>
@@ -1415,7 +1647,7 @@ export default function CorporateBillingSection() {
                                     ))
                                 )}
                                 <tr className="cash-bank-register-closing-row">
-                                    <td colSpan={11}><strong>{t('label.closingBalance')}</strong></td>
+                                    <td colSpan={LEDGER_COL_COUNT - 1}><strong>{t('label.closingBalance')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>
                                         {t('money.sar', { amount: fmt(sum.closingBalance) })}
                                     </td>

@@ -16,6 +16,100 @@ export function formatSarAmount(n) {
 
 export const PAYEE_TYPES = ['Supplier', 'Employee', 'Customer', 'Other'];
 
+export function normalizePayeeType(value) {
+    const hit = PAYEE_TYPES.find((p) => p.toLowerCase() === String(value || '').toLowerCase());
+    return hit || 'Other';
+}
+
+/** Match a stored numeric payeeId to combo ids like corp:12 / affiliated:12. */
+export function resolvePayeeComboId(row, payees) {
+    const stored = String(row?.payeeId || '').trim();
+    const type = normalizePayeeType(row?.payeeType);
+    if (!stored) return '';
+    const options = payeesForTypeList(type, payees);
+    const candidates = [stored, `corp:${stored}`, `affiliated:${stored}`, `local:${stored}`];
+    for (const c of candidates) {
+        if (options.some((o) => String(o.id) === c)) return c;
+    }
+    return stored;
+}
+
+/** If every payee of this type shares one default GL, fill it when Type changes. */
+export function sharedPayeeDefaultAccountId(list) {
+    const ids = (list || [])
+        .map((p) => String(p?.defaultAccountId || '').trim())
+        .filter(Boolean);
+    if (!ids.length) return '';
+    const first = ids[0];
+    return ids.every((id) => id === first) ? first : '';
+}
+
+export function suggestPayeeAccountPatch(row, payees, nextType, nextPayeeId) {
+    const options = payeesForTypeList(nextType, payees);
+    const opt = options.find((o) => String(o.id) === String(nextPayeeId));
+    const suggested = opt?.defaultAccountId
+        ? String(opt.defaultAccountId)
+        : sharedPayeeDefaultAccountId(options);
+    const current = String(row?.accountId || '');
+    const lastAuto = String(row?.accountAutoFilled || '');
+    const canFill = !current || current === lastAuto;
+    if (!canFill) return {};
+    if (!suggested) return { accountId: '', accountAutoFilled: '' };
+    return { accountId: suggested, accountAutoFilled: suggested };
+}
+
+export function payeesForTypeList(type, payees) {
+    if (type === 'Supplier') return payees?.supplier || [];
+    if (type === 'Employee') return payees?.employee || [];
+    if (type === 'Customer') return payees?.customer || [];
+    return [];
+}
+
+/** Keep payee default GLs in the account combo even if listCoa hid the heading. */
+export function mergePayeeDefaultAccountOptions(accountOptions, extraPayees) {
+    const opts = Array.isArray(accountOptions) ? [...accountOptions] : [];
+    const seen = new Set(opts.map((o) => String(o.id)));
+    for (const p of extraPayees || []) {
+        const id = String(p?.defaultAccountId || '').trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        opts.push({
+            id,
+            label: p.defaultAccountLabel || id,
+            searchText: `${p.defaultAccountLabel || ''} ${id}`,
+        });
+    }
+    return opts;
+}
+
+/**
+ * Cash/bank + COA visibility for the payment/receipt branch header.
+ * Selected branch → that branch's registers/accounts + workshop-wide (null branch).
+ * All branches → everything.
+ */
+export function filterAccountsForBranch(list, branchId) {
+    const bid = String(branchId || '').trim();
+    if (!bid) return Array.isArray(list) ? list : [];
+    return (list || []).filter((a) => {
+        const aBranch = a?.branchId != null && String(a.branchId).trim() !== ''
+            ? String(a.branchId)
+            : '';
+        return !aBranch || aBranch === bid;
+    });
+}
+
+/** Payees already typed; optionally keep only this branch (+ workshop-wide). */
+export function filterPayeesForBranch(list, branchId) {
+    const bid = String(branchId || '').trim();
+    if (!bid) return Array.isArray(list) ? list : [];
+    return (list || []).filter((p) => {
+        const pBranch = p?.branchId != null && String(p.branchId).trim() !== ''
+            ? String(p.branchId)
+            : '';
+        return !pBranch || pBranch === bid;
+    });
+}
+
 export const blankPaymentRow = (i, voucher) => ({
     id: `p-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
     voucher: voucher ?? `PE${String(i + 1).padStart(4, '0')}`,
@@ -24,6 +118,7 @@ export const blankPaymentRow = (i, voucher) => ({
     payeeId: '',
     payeeName: '',
     accountId: '',
+    accountAutoFilled: '',
     amount: '',
     ref: '',
     notes: '',
@@ -37,6 +132,7 @@ export const blankReceiptRow = (i, voucher) => ({
     payeeId: '',
     payeeName: '',
     accountId: '',
+    accountAutoFilled: '',
     amount: '',
     ref: '',
     notes: '',
@@ -45,6 +141,7 @@ export const blankReceiptRow = (i, voucher) => ({
 export const blankJournalRow = (i) => ({
     id: `j-${Date.now()}-${i}`,
     accountId: '',
+    payeeId: '',
     description: '',
     debit: '',
     credit: '',
@@ -65,6 +162,7 @@ export function buildRowsFromVoucherPool(makeBlank, pool, count = 2) {
 export const CASH_BANK_TABS = [
     { id: 'all', labelKey: 'cb.tab.all' },
     { id: 'cash', labelKey: 'cb.tab.cash' },
+    { id: 'tills', labelKey: 'cb.tab.tills' },
     { id: 'bank', labelKey: 'cb.tab.bank' },
     { id: 'petty', labelKey: 'cb.tab.petty' },
 ];

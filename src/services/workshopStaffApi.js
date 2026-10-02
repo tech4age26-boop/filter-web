@@ -145,20 +145,47 @@ export const postWorkshopEmployees = (body = {}, options = {}) =>
         headers: options.headers,
     });
 
+/** Cashiers / portal users / technicians share numeric ids across tables. */
+export function resolveWorkshopStaffRecordType(row) {
+    const explicit = String(row?.recordType || row?.record_type || '').trim().toLowerCase();
+    if (explicit === 'employee' || explicit === 'cashier' || explicit === 'portal_user') {
+        return explicit;
+    }
+    const fromKey = String(row?.staffKey || row?.staff_key || '');
+    const keyType = fromKey.includes(':') ? fromKey.slice(0, fromKey.indexOf(':')).toLowerCase() : '';
+    if (keyType === 'employee' || keyType === 'cashier' || keyType === 'portal_user') {
+        return keyType;
+    }
+    const et = String(row?.employeeType || row?.employee_type || '').toLowerCase();
+    if (et === 'cashier') return 'cashier';
+    if (et === 'portal_user' || et === 'portal-staff') return 'portal_user';
+    return 'employee';
+}
+
+export function workshopStaffRoleLabel(row) {
+    const type = resolveWorkshopStaffRecordType(row);
+    const et = String(row?.employeeType || row?.employee_type || '').toLowerCase();
+    if (type === 'cashier' || et === 'cashier') return 'Cashier';
+    if (type === 'portal_user') return 'Staff';
+    if (et === 'technician') return 'Technician';
+    return 'Employee';
+}
+
 /** Stable select value — ids overlap across employees, cashiers, and portal users. */
 export function workshopStaffSelectValue(row) {
     if (!row) return '';
-    const type = row.recordType || 'employee';
+    const type = resolveWorkshopStaffRecordType(row);
     return `${type}:${String(row.id ?? '')}`;
 }
 
 /** Parse `workshopStaffSelectValue` back to record type + bare id. */
 export function parseWorkshopStaffSelectValue(value) {
-    if (!value) return { recordType: 'employee', id: '', compositeKey: '' };
+    if (!value) return { recordType: '', id: '', compositeKey: '' };
     const s = String(value);
     const idx = s.indexOf(':');
     if (idx <= 0) {
-        return { recordType: 'employee', id: s, compositeKey: `employee:${s}` };
+        // Bare numeric ids are ambiguous (cashier 4 ≠ employee 4). Never default to employee.
+        return { recordType: '', id: s, compositeKey: s };
     }
     return {
         recordType: s.slice(0, idx),
@@ -473,6 +500,21 @@ export const updateWorkshopPortalStaff = (id, body) =>
 export const updateWorkshopTechnician = (id, body) =>
     apiFetch(`/workshop-staff/technicians/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 
+export const listCompensationRevisions = ({ recordId, recordType, workshopId } = {}) =>
+    apiFetch(`/workshop-staff/compensation/revisions${qs({ recordId, recordType, workshopId })}`);
+
+export const previewCompensationRevision = ({ recordId, recordType, workshopId, body } = {}) =>
+    apiFetch(`/workshop-staff/compensation/preview${qs({ recordId, recordType, workshopId })}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const applyCompensationRevision = ({ recordId, recordType, workshopId, body } = {}) =>
+    apiFetch(`/workshop-staff/compensation/apply${qs({ recordId, recordType, workshopId })}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
 /**
  * Patch a cashier / non-technician staff row.
  * Canonical: PATCH /workshop-staff/cashier/:id — plural PATCH /workshop-staff/cashiers/:id is an alias (same handler).
@@ -590,6 +632,13 @@ export const listWorkshopCashBankPosTerminals = (params = {}) =>
 /** Internal transfer between two workshop registers (debit + credit, same reference). */
 export const internalTransferWorkshopCashBank = (body) =>
     apiFetch('/workshop-staff/cash-bank/internal-transfer', {
+        method: 'POST',
+        body: JSON.stringify(mergeAccountingScopeBody(body ?? {})),
+    });
+
+/** Signed +/- closing adjustment (register movement + JE vs 1154). */
+export const adjustWorkshopCashBankAmount = (id, body) =>
+    apiFetch(`/workshop-staff/cash-bank/accounts/${encodeURIComponent(String(id))}/adjust`, {
         method: 'POST',
         body: JSON.stringify(mergeAccountingScopeBody(body ?? {})),
     });

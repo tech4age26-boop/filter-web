@@ -516,7 +516,7 @@ export default function MyWalletPage() {
                         <span className="my-wallet-balance-label-dot" aria-hidden />
                         Available Balance
                     </p>
-                    <p className="my-wallet-balance-amount">
+                    <p className={`my-wallet-balance-amount${Number(balance) < 0 ? ' my-wallet-balance-amount--negative' : ''}`}>
                         {formatSar(balance)}
                     </p>
                     <span className="my-wallet-balance-currency">Saudi Riyal (SAR)</span>
@@ -848,7 +848,12 @@ export default function MyWalletPage() {
                         </div>
                         <p className="my-wallet-list-item-title">{r.purpose}</p>
                         <div className="my-wallet-list-item-meta">
-                            <span>{formatWalletTxDate({ createdAt: r.createdAt })}</span>
+                            <span>
+                                Requested {formatWalletTxDate({ createdAt: r.createdAt })}
+                                {r.approvedAt
+                                    ? ` · Approved ${formatWalletTxDate({ createdAt: r.approvedAt })}`
+                                    : ''}
+                            </span>
                             {(r.workshopName || r.branchName) && (
                                 <span>{[r.workshopName, r.branchName].filter(Boolean).join(' · ')}</span>
                             )}
@@ -923,6 +928,7 @@ export default function MyWalletPage() {
                 ))}
                 {rows.map((t) => {
                     const amount = Number(t.amount ?? 0);
+                    const hasRun = t.previousBalance != null && t.newBalance != null;
                     return (
                         <article key={t.id} className="my-wallet-list-item">
                             <div className="my-wallet-list-item-top">
@@ -931,7 +937,16 @@ export default function MyWalletPage() {
                             </div>
                             <p className="my-wallet-list-item-title">{coerceWalletFieldText(t.description)}</p>
                             <div className="my-wallet-list-item-meta">
-                                <span>{formatWalletTxDate(t)}</span>
+                                <span>
+                                    {t.requestedAt
+                                        ? `Requested ${formatWalletTxDate({ createdAt: t.requestedAt })} · Approved ${formatWalletTxDate({ createdAt: t.approvedAt || t.createdAt })}`
+                                        : formatWalletTxDate(t)}
+                                </span>
+                                {hasRun ? (
+                                    <span className={Number(t.newBalance) < 0 ? 'my-wallet-amount--debit' : undefined}>
+                                        SAR {formatSar(t.previousBalance)} → SAR {formatSar(t.newBalance)}
+                                    </span>
+                                ) : null}
                             </div>
                             <div className="my-wallet-list-item-foot">
                                 <span className="my-wallet-list-amount my-wallet-list-amount--debit">
@@ -985,6 +1000,8 @@ export default function MyWalletPage() {
                                 <th>Proof</th>
                                 <th>Type</th>
                                 <th>Amount</th>
+                                <th>From</th>
+                                <th>To</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -992,9 +1009,15 @@ export default function MyWalletPage() {
                                 const typeRaw = String(t.type || '').toLowerCase();
                                 const amount = Number(t.amount ?? 0);
                                 const isCredit = typeRaw === 'credit' || (typeRaw !== 'debit' && amount > 0);
+                                const from = t.previousBalance;
+                                const to = t.newBalance;
                                 return (
                                     <tr key={t.id}>
-                                        <td className="my-wallet-td-muted">{formatWalletTxDate(t)}</td>
+                                        <td className="my-wallet-td-muted" style={{ whiteSpace: 'pre-line' }}>
+                                            {t.requestedAt
+                                                ? `Requested ${formatWalletTxDate({ createdAt: t.requestedAt })}\nApproved ${formatWalletTxDate({ createdAt: t.approvedAt || t.createdAt })}`
+                                                : formatWalletTxDate(t)}
+                                        </td>
                                         <td className="my-wallet-td-ref">{t.referenceId || '—'}</td>
                                         <td>{coerceWalletFieldText(t.description)}</td>
                                         <td>
@@ -1009,6 +1032,12 @@ export default function MyWalletPage() {
                                         </td>
                                         <td className={isCredit ? 'my-wallet-amount--credit' : 'my-wallet-amount--debit'}>
                                             {isCredit ? '+' : '−'} SAR {formatSar(Math.abs(amount))}
+                                        </td>
+                                        <td className={Number(from) < 0 ? 'my-wallet-amount--debit' : undefined}>
+                                            {from == null ? '—' : `SAR ${formatSar(from)}`}
+                                        </td>
+                                        <td className={Number(to) < 0 ? 'my-wallet-amount--debit' : undefined}>
+                                            {to == null ? '—' : `SAR ${formatSar(to)}`}
                                         </td>
                                     </tr>
                                 );

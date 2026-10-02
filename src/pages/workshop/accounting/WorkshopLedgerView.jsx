@@ -499,10 +499,20 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             const res = await getAccountLedger(accountId, {
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
-                limit: 10000,
+                limit: 100000,
             });
             setLedger(res);
             setPage(1);
+            if (res?.truncated) {
+                setError(
+                    t('ledger.truncated', {
+                        returned: res.returnedLines ?? res.lines?.length ?? 0,
+                        total: res.totalLines ?? 0,
+                        defaultValue:
+                            `Showing ${res.returnedLines ?? 0} of ${res.totalLines ?? 0} lines — narrow the date range to see the rest.`,
+                    }),
+                );
+            }
 
             if (corpParty.startsWith(CORP_PREFIX)) {
                 const corpId = corpParty.slice(CORP_PREFIX.length);
@@ -816,6 +826,16 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         vatNumber: selectedCorpProfile?.vatNumber
             || corpLedgerRaw?.corporateAccount?.vatNumber
             || '',
+        crNumber: corpLedgerRaw?.corporateAccount?.crNumber || '',
+        sellerVatNumber: '311120967500003',
+        sellerName: 'Filter Car Services',
+        partyName: selectedCorpProfile?.companyName
+            || corpLedgerRaw?.corporateAccount?.companyName
+            || '',
+        partyPhone: selectedCorpProfile?.phone
+            || corpLedgerRaw?.corporateAccount?.customerMobile
+            || '',
+        partyAddress: corpLedgerRaw?.corporateAccount?.address || '',
         phone: selectedCorpProfile?.phone
             || corpLedgerRaw?.corporateAccount?.customerMobile
             || '',
@@ -885,9 +905,9 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                     lines: corpLedgerRaw.lines ?? [],
                 });
             } else if (isApSupplierView && apLedgerRaw) {
-                exportSupplierLedgerPdf(buildApExportPayload());
+                await exportSupplierLedgerPdf(buildApExportPayload());
             } else {
-                exportWorkshopGlLedgerPdf({
+                await exportWorkshopGlLedgerPdf({
                     header: exportHeader,
                     openingBalance: statementOpening,
                     lines: filteredLines,

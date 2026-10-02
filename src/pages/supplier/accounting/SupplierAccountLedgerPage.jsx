@@ -168,7 +168,7 @@ export default function SupplierAccountLedgerPage({ locale: localeProp }) {
         setErr('');
         try {
             const root = await fetchForExport();
-            exportAccountLedgerPdf({
+            await exportAccountLedgerPdf({
                 header: buildExportHeader(root),
                 openingBalance: root?.openingBalance ?? 0,
                 rows: root?.rows ?? [],
@@ -277,6 +277,14 @@ export default function SupplierAccountLedgerPage({ locale: localeProp }) {
                 partyLabel={partyLabel}
                 accountType={accountType}
                 companyName={data?.header?.companyName}
+                sellerName={data?.header?.sellerName || 'Filter Car Services'}
+                vatNumber={data?.header?.vatNumber || ''}
+                sellerVatNumber={data?.header?.sellerVatNumber || ''}
+                crNumber={data?.header?.crNumber || ''}
+                partyAddress={data?.header?.partyAddress || ''}
+                partyPhone={data?.header?.partyPhone || ''}
+                contactPerson={data?.header?.contactPerson || ''}
+                partyName={data?.header?.partyName || ''}
                 periodFrom={data?.header?.from || dateFrom || em}
                 periodTo={data?.header?.to || dateTo || em}
                 openingBalance={data?.openingBalance ?? 0}

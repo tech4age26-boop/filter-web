@@ -13,7 +13,7 @@ import {
     AcctError,
     AcctLoading,
 } from './SupplierAccountingShared';
-import { PaymentReceiptGrid, buildCustomerOptions } from './SupplierPayReceiptBulkGrid';
+import { PaymentReceiptGrid, buildCustomerOptions, journalToMoneyPrefill } from './SupplierPayReceiptBulkGrid';
 import { LogTab } from './SupplierJournalLogs';
 import { extractArray } from './SupplierManagerAccountingShared';
 
@@ -43,6 +43,7 @@ export default function SupplierReceiptsPage({ locale = 'en' }) {
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [refreshToken, setRefreshToken] = useState(0);
+    const [editPrefill, setEditPrefill] = useState(null);
 
     const customerOptions = useMemo(
         () => buildCustomerOptions(affiliated, externals, t),
@@ -93,20 +94,34 @@ export default function SupplierReceiptsPage({ locale = 'en' }) {
                         locale={locale}
                         t={t}
                         cashFieldLabel={t('logs.col.receivedIn')}
-                        initialPrefill={prefill}
+                        initialPrefill={editPrefill || prefill}
                         onPosted={() => {
                             try {
                                 sessionStorage.removeItem(PREFILL_KEY);
                             } catch {
                                 /* ignore */
                             }
+                            setEditPrefill(null);
                             setRefreshToken((n) => n + 1);
                         }}
                     />
                 )}
             </AcctCard>
             <AcctCard title={t('mgr.rec.title')}>
-                <LogTab tab="receipts" locale={locale} t={t} refreshToken={refreshToken} />
+                <LogTab
+                    tab="receipts"
+                    locale={locale}
+                    t={t}
+                    refreshToken={refreshToken}
+                    partyOptions={customerOptions}
+                    onEdit={(journal) => {
+                        const next = journalToMoneyPrefill(journal, 'receipt');
+                        if (next) {
+                            setEditPrefill(next);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                    }}
+                />
             </AcctCard>
         </div>
     );

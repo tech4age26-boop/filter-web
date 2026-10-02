@@ -12,12 +12,20 @@ export function todayISO(d = new Date()) {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function toDateOnly(value) {
+    const s = String(value ?? '').trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+}
+
 export function loadSaAccountingDateRange() {
     try {
         const raw = sessionStorage.getItem(SA_ACCOUNTING_DATE_RANGE_KEY);
         if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed?.dateFrom && parsed?.dateTo) return parsed;
+            const dateFrom = toDateOnly(parsed?.dateFrom);
+            const dateTo = toDateOnly(parsed?.dateTo);
+            if (dateFrom && dateTo) return { dateFrom, dateTo };
         }
     } catch {
         /* ignore */
@@ -27,7 +35,13 @@ export function loadSaAccountingDateRange() {
 
 export function saveSaAccountingDateRange(range) {
     try {
-        sessionStorage.setItem(SA_ACCOUNTING_DATE_RANGE_KEY, JSON.stringify(range));
+        sessionStorage.setItem(
+            SA_ACCOUNTING_DATE_RANGE_KEY,
+            JSON.stringify({
+                dateFrom: toDateOnly(range?.dateFrom) || startOfMonthISO(),
+                dateTo: toDateOnly(range?.dateTo) || todayISO(),
+            }),
+        );
     } catch {
         /* ignore */
     }
@@ -36,8 +50,10 @@ export function saveSaAccountingDateRange(range) {
 export function dateParamsForApi(dateRange) {
     if (!dateRange) return {};
     const p = {};
-    if (dateRange.dateFrom) p.dateFrom = dateRange.dateFrom;
-    if (dateRange.dateTo) p.dateTo = dateRange.dateTo;
+    const from = toDateOnly(dateRange.dateFrom);
+    const to = toDateOnly(dateRange.dateTo);
+    if (from) p.dateFrom = from;
+    if (to) p.dateTo = to;
     return p;
 }
 

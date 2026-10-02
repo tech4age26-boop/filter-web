@@ -15,9 +15,21 @@ import {
     getInvoice,
     getSuperAdminCorporateCompanies,
 } from '../../services/superAdminApi';
-import { ExportMenu, DateTimeRange } from '../../components/admin/SalesExportControls';
+import { ExportMenu } from '../../components/admin/SalesExportControls';
 import { exportRowsToPdf, exportRowsToExcel } from '../../utils/tableExport';
 import { ctT } from '../../utils/corporateTransactionsI18n';
+import {
+    loadSaAccountingDateRange,
+    saveSaAccountingDateRange,
+    startOfMonthISO,
+    todayISO,
+} from './saAccountingDateRange';
+
+/** Calendar YYYY-MM-DD — same period as Corporate Billing. Never datetime-local. */
+function periodDateParam(raw) {
+    const m = String(raw || '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
+}
 
 const PAGE_SIZE = 50;
 // Upper bound for the one-shot "export everything matching the filters" fetch.
@@ -31,6 +43,16 @@ const num = (v, t) =>
             maximumFractionDigits: 2,
         }),
     });
+
+function corporateCustomerName(r) {
+    return (
+        r?.corporateAccountName
+        ?? r?.corporate?.companyName
+        ?? r?.customerName
+        ?? r?.customer?.name
+        ?? '—'
+    );
+}
 
 function formatDate(raw) {
     if (!raw) return '—';
@@ -99,7 +121,7 @@ function buildCorporateExportRows(list, t) {
         return [
             formatDate(r.invoiceDate ?? r.invoice_date ?? r.createdAt),
             r.invoiceNo ?? r.invoice_no ?? '—',
-            r.corporateAccountName ?? r.corporate?.companyName ?? '—',
+            corporateCustomerName(r),
             r.plateNo ?? r.vehicle?.plateNo ?? r.vehicleNumber ?? '—',
             orderType,
             r.workshopName ?? r.workshop?.name ?? '—',
@@ -157,10 +179,13 @@ export default function CorporateTransactions() {
     const [selectedWorkshopId, setSelectedWorkshopId] = useState('');
     const [selectedBranchId, setSelectedBranchId] = useState('');
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
-    // Date+time range → passed as startDate/endDate to getInvoices (backend
-    // honours full ISO datetimes, so this filters to the minute).
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    // Same calendar range as Corporate Billing (YYYY-MM-DD, Asia/Riyadh days).
+    const [dateFrom, setDateFrom] = useState(
+        () => periodDateParam(loadSaAccountingDateRange().dateFrom) || startOfMonthISO(),
+    );
+    const [dateTo, setDateTo] = useState(
+        () => periodDateParam(loadSaAccountingDateRange().dateTo) || todayISO(),
+    );
     const [exporting, setExporting] = useState(false);
     // Server-computed KPI totals across ALL pages (not just this page's rows).
     const [summary, setSummary] = useState(null);
@@ -193,13 +218,12 @@ export default function CorporateTransactions() {
                 workshopId: selectedWorkshopId || undefined,
                 branchId:   selectedBranchId   || undefined,
                 corporateAccountId: selectedCompanyId || undefined,
-                startDate: dateFrom || undefined,
-                endDate:   dateTo   || undefined,
+                startDate: periodDateParam(dateFrom) || undefined,
+                endDate:   periodDateParam(dateTo) || undefined,
                 search: debouncedSearch || undefined,
                 limit: PAGE_SIZE,
                 offset: (page - 1) * PAGE_SIZE,
-                corporateOnly: true,     // only corporate invoices
-                orderStatus: 'invoiced', // only orders that have been invoiced (paid or unpaid both shown)
+                corporateOnly: true,
             });
             const list = Array.isArray(res?.invoices)
                 ? res.invoices
@@ -320,13 +344,12 @@ export default function CorporateTransactions() {
                 workshopId: selectedWorkshopId || undefined,
                 branchId:   selectedBranchId   || undefined,
                 corporateAccountId: selectedCompanyId || undefined,
-                startDate: dateFrom || undefined,
-                endDate:   dateTo   || undefined,
+                startDate: periodDateParam(dateFrom) || undefined,
+                endDate:   periodDateParam(dateTo) || undefined,
                 search: debouncedSearch || undefined,
                 limit: EXPORT_LIMIT,
                 offset: 0,
                 corporateOnly: true,
-                orderStatus: 'invoiced',
             });
             const all = Array.isArray(res?.invoices) ? res.invoices
                 : Array.isArray(res?.items) ? res.items
@@ -542,12 +565,20 @@ export default function CorporateTransactions() {
                 </div>
             </header>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 8 }}>
                 <KpiCard label={t('kpi.invoices')} value={loading ? '—' : Number(kpiCount).toLocaleString()} accent="#0f172a" />
                 <KpiCard label={t('kpi.totalBilled')} value={loading ? '—' : num(totalBilled, t)} accent="#0f172a" />
                 <KpiCard label={t('kpi.collected')} value={loading ? '—' : num(totalCollected, t)} accent="#15803d" />
                 <KpiCard label={t('kpi.outstanding')} value={loading ? '—' : num(totalOutstanding, t)} accent={totalOutstanding > 0 ? '#b91c1c' : '#15803d'} />
             </div>
+            <p style={{ margin: '0 0 16px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
+                {summary?.dateFrom || summary?.dateTo || dateFrom || dateTo
+                    ? t('kpi.period', {
+                        from: summary?.dateFrom || dateFrom || '…',
+                        to: summary?.dateTo || dateTo || '…',
+                    })
+                    : t('kpi.periodAll')}
+            </p>
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'flex-end' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 200 }}>
@@ -613,14 +644,38 @@ export default function CorporateTransactions() {
                         ))}
                     </select>
                 </div>
-                <DateTimeRange
-                    from={dateFrom}
-                    to={dateTo}
-                    onFrom={setDateFrom}
-                    onTo={setDateTo}
-                    onClear={() => { setDateFrom(''); setDateTo(''); }}
-                    locale={locale}
-                />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>
+                        {t('filter.period')}
+                    </label>
+                    <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                            type="date"
+                            value={periodDateParam(dateFrom)}
+                            max={periodDateParam(dateTo) || undefined}
+                            onChange={(e) => {
+                                const v = periodDateParam(e.target.value);
+                                setDateFrom(v);
+                                saveSaAccountingDateRange({ dateFrom: v || startOfMonthISO(), dateTo: periodDateParam(dateTo) || todayISO() });
+                            }}
+                            style={{ padding: '9px 10px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: '0.8125rem', background: '#fff' }}
+                            aria-label={t('date.from')}
+                        />
+                        <span style={{ color: '#94a3b8', fontSize: '0.8125rem' }}>→</span>
+                        <input
+                            type="date"
+                            value={periodDateParam(dateTo)}
+                            min={periodDateParam(dateFrom) || undefined}
+                            onChange={(e) => {
+                                const v = periodDateParam(e.target.value);
+                                setDateTo(v);
+                                saveSaAccountingDateRange({ dateFrom: periodDateParam(dateFrom) || startOfMonthISO(), dateTo: v || todayISO() });
+                            }}
+                            style={{ padding: '9px 10px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: '0.8125rem', background: '#fff' }}
+                            aria-label={t('date.to')}
+                        />
+                    </div>
+                </div>
                 <input
                     type="search"
                     value={search}
@@ -818,9 +873,7 @@ function InvoicesTable({ loading, filtered, cellTh, cellTd, detailLoadingId, onO
                             <td style={cellTd}><span style={{ fontWeight: 700, color: '#2563eb' }}>{r.invoiceNo ?? r.invoice_no ?? '—'}</span></td>
                             <td style={cellTd}>
                                 <div style={{ fontWeight: 700 }}>
-                                    {r.corporateAccountName
-                                        ?? r.corporate?.companyName
-                                        ?? '—'}
+                                    {corporateCustomerName(r)}
                                 </div>
                             </td>
                             <td style={{ ...cellTd, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
@@ -939,7 +992,7 @@ function CorporateTransactionDetailsModal({
                                 </tr>
                                 <tr>
                                     <th>{t('modal.corporateAccount')}</th>
-                                    <td>{row?.corporateAccountName ?? data.customer?.name ?? '—'}</td>
+                                    <td>{corporateCustomerName(row) !== '—' ? corporateCustomerName(row) : (data.customer?.name ?? '—')}</td>
                                 </tr>
                                 <tr>
                                     <th>{t('modal.orderType')}</th>

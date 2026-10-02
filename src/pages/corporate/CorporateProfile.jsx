@@ -45,12 +45,13 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
             name: formData.name,
             email: formData.email,
             companyName: formData.companyName,
-            vatNumber: formData.vatNumber,
             crNumber: formData.crNumber,
             billingAddress: formData.billingAddress,
             phoneNumber: formData.phoneNumber,
             selectedStoreIds: formData.selectedStoreIds,
         };
+        const vat = String(formData.vatNumber || '').trim();
+        if (vat) payload.vatNumber = vat;
         if (formData.newPassword) {
             payload.newPassword = formData.newPassword;
         }

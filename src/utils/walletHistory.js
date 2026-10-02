@@ -42,6 +42,26 @@ export function formatWalletTxDate(row) {
     return '—';
 }
 
+/** Calendar day for request / approval timestamps (YYYY-MM-DD or locale). */
+export function formatWalletCalendarDate(raw) {
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        return raw.slice(0, 10);
+    }
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-SA');
+}
+
+export function formatLedgerRequestApprovalDate(row) {
+    const requested = formatWalletCalendarDate(row?.requestedAt);
+    const approved = formatWalletCalendarDate(row?.approvedAt) || formatWalletCalendarDate(row?.date);
+    if (requested && approved) {
+        return `Requested ${requested}\nApproved ${approved}`;
+    }
+    if (requested) return `Requested ${requested}`;
+    return approved || formatWalletTxDate(row);
+}
+
 /** Vehicle report (and similar) APIs return last touch as `{ date, description }`. */
 export function formatDateDescriptionBlob(val) {
     if (val == null || val === '') return null;

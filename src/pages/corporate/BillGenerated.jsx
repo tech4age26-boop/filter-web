@@ -16,10 +16,7 @@ import {
     fmtBillingMoney,
     fmtPeriodLabel,
 } from '../../utils/corporateBillingFormat';
-import {
-    exportCorporateGeneratedBillPdf,
-    formatLedgerTypeShort,
-} from '../../utils/corporateArLedgerExport';
+import { formatLedgerTypeShort } from '../../utils/corporateArLedgerExport';
 
 const num = (v) => `SAR ${fmtBillingMoney(v)}`;
 const fmtCell = fmtBillingCellAmount;
@@ -40,6 +37,8 @@ const PAYMENT_METHODS = ['Wallet', 'Bank Transfer', 'Cash', 'Card', 'Cheque'];
 
 function billStatusLabel(status) {
     if (status === 'paid') return 'Paid';
+    if (status === 'partially_paid') return 'Partially Paid';
+    if (status === 'overpaid') return 'Over Paid';
     if (status === 'awaiting_approval') return 'Awaiting approval';
     if (status === 'rejected') return 'Rejected';
     return 'Pending payment';
@@ -47,6 +46,8 @@ function billStatusLabel(status) {
 
 function billStatusClass(status) {
     if (status === 'paid') return 'ws-badge ws-badge--green';
+    if (status === 'overpaid') return 'ws-badge ws-badge--blue';
+    if (status === 'partially_paid') return 'ws-badge ws-badge--yellow';
     if (status === 'awaiting_approval') return 'ws-badge ws-badge--yellow';
     if (status === 'rejected') return 'ws-badge ws-badge--red';
     return 'ws-badge ws-badge--gray';
@@ -77,6 +78,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
     const [paySubmitting, setPaySubmitting] = useState(false);
     const [payError, setPayError] = useState('');
     const [pdfExporting, setPdfExporting] = useState(false);
+    const [billSnapshotView, setBillSnapshotView] = useState('adjusted');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -109,6 +111,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
             return;
         }
         setExpandedId(billId);
+        setBillSnapshotView('adjusted');
         setDetailLoading(true);
         try {
             const res = await apiFetch(`/corporate/billing/generated-bills/${encodeURIComponent(billId)}`);
@@ -199,11 +202,24 @@ export default function BillGenerated({ onWalletBalanceChange }) {
         void handleProofPay();
     };
 
-    const downloadBillPdf = async (bill, statement, ledgerStatement) => {
+    const downloadBillPdf = async (kind = 'adjusted') => {
+        const bill = detail ?? bills.find((b) => b.id === expandedId);
         if (!bill) return;
+        const original =
+            detail?.original && typeof detail.original === 'object' ? detail.original : null;
+        const useOriginal = kind === 'original' && original;
+        const statement = useOriginal
+            ? {
+                  ...(detail?.statement || {}),
+                  ...(original || {}),
+                  kpis: original.kpis || detail?.statement?.kpis,
+              }
+            : detail?.statement;
         const period = fmtBillPeriod(bill);
         const rows = statement?.rows ?? [];
-        const kpis = bill.kpis ?? statement?.kpis ?? {};
+        const kpis = useOriginal
+            ? (original.kpis || bill.kpis || {})
+            : (bill.kpis ?? statement?.kpis ?? {});
         const printWindow = window.open('', '_blank', 'width=900,height=700');
         if (!printWindow) return;
         printWindow.document.write(`
@@ -241,8 +257,16 @@ export default function BillGenerated({ onWalletBalanceChange }) {
     };
 
     const activeBill = detail ?? bills.find((b) => b.id === expandedId);
-    const activeStatement = detail?.statement;
-    const activeLedger = detail?.ledgerStatement;
+    const originalBill = detail?.original && typeof detail.original === 'object'
+        ? detail.original
+        : null;
+    const showOriginalBill = billSnapshotView === 'original' && originalBill;
+    const activeStatement = showOriginalBill
+        ? { ...(detail?.statement || {}), ...(originalBill || {}), kpis: originalBill?.kpis || detail?.statement?.kpis }
+        : detail?.statement;
+    const activeLedger = showOriginalBill
+        ? (originalBill.ledgerStatement ?? detail?.ledgerStatement)
+        : detail?.ledgerStatement;
     const ledgerLines = activeLedger?.lines ?? [];
     const ledgerSum = activeLedger?.summary ?? activeBill?.kpis ?? {};
 
@@ -304,6 +328,11 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                     <div>
                                         <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>
                                             {bill.billNo}
+                                            {bill.hasManualEdits ? (
+                                                <span className="ws-badge ws-badge--yellow" style={{ marginLeft: 8 }}>
+                                                    Adjusted
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 4 }}>
                                             Period {fmtBillPeriod(bill)} · Due {bill.dueDate}
@@ -326,6 +355,50 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                             </div>
                                         ) : activeLedger?.lines?.length || activeStatement?.rows?.length ? (
                                             <>
+                                                {(detail || originalBill || activeLedger) ? (
+                                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal-outline"
+                                                            style={{
+                                                                background: billSnapshotView === 'original' ? '#0f172a' : '#fff',
+                                                                color: billSnapshotView === 'original' ? '#fff' : '#0f172a',
+                                                            }}
+                                                            onClick={() => setBillSnapshotView('original')}
+                                                            disabled={!originalBill}
+                                                        >
+                                                            POS original (cashier invoices)
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal-outline"
+                                                            style={{
+                                                                background: billSnapshotView === 'adjusted' ? '#0f172a' : '#fff',
+                                                                color: billSnapshotView === 'adjusted' ? '#fff' : '#0f172a',
+                                                            }}
+                                                            onClick={() => setBillSnapshotView('adjusted')}
+                                                        >
+                                                            Adjusted bill (pay this)
+                                                        </button>
+                                                    </div>
+                                                ) : null}
+                                                {(detail || originalBill || activeLedger) ? (
+                                                    <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 13, color: '#92400e' }}>
+                                                        <strong>Pay this: {num(detail?.kpis?.balance ?? bill.kpis?.balance)}</strong>
+                                                        {(detail?.posOriginalDue != null || originalBill?.kpis?.balance != null) ? (
+                                                            <div style={{ marginTop: 4, color: '#78716c', fontSize: 12 }}>
+                                                                POS original due: {num(detail?.posOriginalDue ?? originalBill?.kpis?.balance)}. Cashier invoices were not changed.
+                                                            </div>
+                                                        ) : null}
+                                                        <div style={{ marginTop: 4, color: '#78716c', fontSize: 12 }}>
+                                                            {detail?.hasManualEdits
+                                                                ? (showOriginalBill
+                                                                    ? 'Viewing cashier POS proof. Amount to pay stays the adjusted bill.'
+                                                                    : 'Viewing the adjusted bill to pay.')
+                                                                : 'POS original and Adjusted are the same on this bill. Cashier invoices were not changed.'}
+                                                        </div>
+                                                    </div>
+                                                ) : null}
                                                 <div
                                                     style={{
                                                         display: 'grid',
@@ -365,11 +438,12 @@ export default function BillGenerated({ onWalletBalanceChange }) {
 
                                                 <div style={{ overflowX: 'auto', marginBottom: 16 }}>
                                                     {activeLedger?.lines?.length ? (
-                                                        <table className="ws-table" style={{ minWidth: 960 }}>
+                                                        <table className="ws-table" style={{ minWidth: 1100 }}>
                                                             <thead>
                                                                 <tr>
                                                                     <th>Date</th>
                                                                     <th>Inv No.</th>
+                                                                    <th>Status</th>
                                                                     <th>Vehicle</th>
                                                                     <th>Products &amp; Services</th>
                                                                     <th>Type</th>
@@ -381,13 +455,48 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                             </thead>
                                                             <tbody>
                                                                 <tr>
-                                                                    <td colSpan={8}><strong>Opening balance</strong></td>
+                                                                    <td colSpan={9}><strong>Opening balance</strong></td>
                                                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>{num(ledgerSum.openingBalance)}</td>
                                                                 </tr>
                                                                 {ledgerLines.map((row) => (
                                                                     <tr key={row.id}>
                                                                         <td>{row.date}</td>
                                                                         <td>{row.invoiceNo}</td>
+                                                                        <td>
+                                                                            {row.billAdjustment?.status === 'Excluded' ? (
+                                                                                <div>
+                                                                                    <span className="ws-badge ws-badge--red">Excluded</span>
+                                                                                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.35 }}>
+                                                                                        <div>Removed from collection bill</div>
+                                                                                        <div>POS original: SAR {fmtBillingMoney(row.billAdjustment.originalInclusiveVat)}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : row.billAdjustment?.status === 'Adjusted' ? (
+                                                                                <div>
+                                                                                    <span className="ws-badge ws-badge--yellow">Adjusted</span>
+                                                                                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, lineHeight: 1.35 }}>
+                                                                                        <div>POS original: SAR {fmtBillingMoney(row.billAdjustment.originalInclusiveVat)}</div>
+                                                                                        <div style={{ fontWeight: 700, color: '#c2410c' }}>
+                                                                                            Now on bill: SAR {fmtBillingMoney(row.billAdjustment.adjustedInclusiveVat)}
+                                                                                        </div>
+                                                                                        <div>Cashier POS invoice unchanged</div>
+                                                                                        {row.billAdjustment.adjustedAt ? (
+                                                                                            <div>{new Date(row.billAdjustment.adjustedAt).toLocaleString()}</div>
+                                                                                        ) : null}
+                                                                                        {row.billAdjustment.adjustedByName ? (
+                                                                                            <div>By {row.billAdjustment.adjustedByName}</div>
+                                                                                        ) : null}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : row.type === 'Invoice' ? (
+                                                                                <div>
+                                                                                    <span className="ws-badge ws-badge--gray">On bill</span>
+                                                                                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                                                                                        POS amount unchanged
+                                                                                    </div>
+                                                                                </div>
+                                                                            ) : '—'}
+                                                                        </td>
                                                                         <td>{row.vehicleNo}</td>
                                                                         <td>
                                                                             <div>{row.productsServicesEn ?? row.productsServices}</div>
@@ -403,7 +512,7 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                                     </tr>
                                                                 ))}
                                                                 <tr>
-                                                                    <td colSpan={8}><strong>Closing balance</strong></td>
+                                                                    <td colSpan={9}><strong>Closing balance</strong></td>
                                                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>{num(ledgerSum.closingBalance)}</td>
                                                                 </tr>
                                                             </tbody>
@@ -459,11 +568,23 @@ export default function BillGenerated({ onWalletBalanceChange }) {
                                                         type="button"
                                                         className="btn-portal-outline"
                                                         disabled={pdfExporting}
-                                                        onClick={() => downloadBillPdf(activeBill, activeStatement, activeLedger)}
+                                                        onClick={() => downloadBillPdf('adjusted')}
                                                     >
-                                                        <Download size={16} /> {pdfExporting ? 'Generating…' : 'Download Bill PDF'}
+                                                        <Download size={16} /> {pdfExporting ? 'Generating…' : 'Download collection PDF'}
                                                     </button>
-                                                    {(bill.status === 'pending' || bill.status === 'rejected') &&
+                                                    {originalBill ? (
+                                                        <button
+                                                            type="button"
+                                                            className="btn-portal-outline"
+                                                            disabled={pdfExporting}
+                                                            onClick={() => downloadBillPdf('original')}
+                                                        >
+                                                            <Download size={16} /> Download original PDF
+                                                        </button>
+                                                    ) : null}
+                                                    {(bill.status === 'pending' ||
+                                                        bill.status === 'rejected' ||
+                                                        bill.status === 'partially_paid') &&
                                                     Number(bill.kpis?.balance ?? 0) > 0.05 ? (
                                                         <button
                                                             type="button"

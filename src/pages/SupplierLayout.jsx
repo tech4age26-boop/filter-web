@@ -9,6 +9,7 @@ import {
     ChevronDown,
     ChevronRight,
 } from 'lucide-react';
+import { SectionErrorBoundary } from '../components/AppErrorBoundary';
 import { NAV_GROUPS } from './supplier/constants';
 import SupplierDashboard from './supplier/SupplierDashboard';
 import SupplierOrderQueue from './supplier/SupplierOrderQueue';
@@ -491,7 +492,11 @@ export default function SupplierLayout() {
                         </div>
                     </div>
                 </header>
-                <main className="ws-content">{renderContent()}</main>
+                <main className="ws-content">
+                    <SectionErrorBoundary resetKey={activeTab}>
+                        {renderContent()}
+                    </SectionErrorBoundary>
+                </main>
             </div>
 
             {logoutConfirmOpen && (

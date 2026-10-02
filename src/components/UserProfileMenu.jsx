@@ -2,7 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, User, LogOut } from 'lucide-react';
 
-const UserProfileMenu = ({ isOpen, onClose, onLogout, locale = 'en' }) => {
+const UserProfileMenu = ({ isOpen, onClose, onLogout, onSettings, onProfile, locale = 'en' }) => {
     const t = {
         en: { settings: 'Settings', profile: 'Profile', logout: 'Logout' },
         ar: { settings: 'الإعدادات', profile: 'الملف الشخصي', logout: 'تسجيل الخروج' }
@@ -20,11 +20,11 @@ const UserProfileMenu = ({ isOpen, onClose, onLogout, locale = 'en' }) => {
                     transition={{ duration: 0.2, ease: "easeOut" }}
                     className="user-profile-menu"
                 >
-                    <button className="user-menu-item" onClick={(e) => { e.stopPropagation(); console.log('Settings clicked'); onClose(); }}>
+                    <button className="user-menu-item" onClick={(e) => { e.stopPropagation(); onSettings?.(); onClose(); }}>
                         <Settings size={16} />
                         <span>{currentT.settings}</span>
                     </button>
-                    <button className="user-menu-item" onClick={(e) => { e.stopPropagation(); console.log('Profile clicked'); onClose(); }}>
+                    <button className="user-menu-item" onClick={(e) => { e.stopPropagation(); onProfile?.(); onClose(); }}>
                         <User size={16} />
                         <span>{currentT.profile}</span>
                     </button>

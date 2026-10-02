@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { ArrowLeft, Plus } from 'lucide-react';
 import Modal from '../../../components/Modal';
+import { SectionErrorBoundary } from '../../../components/AppErrorBoundary';
 import { ShimmerTable } from '../../../components/supplier/Shimmer';
 import {
     useStorageFacilityApi,
@@ -211,6 +212,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId, locale: local
                 </div>
             </div>
 
+            <SectionErrorBoundary resetKey={tab}>
             {tab === 'overview' && summary ? (
                 <div
                     style={{
@@ -402,6 +404,7 @@ export default function SupplierStorageFacilityBrandHub({ brandId, locale: local
                     </div>
                 </>
             ) : null}
+            </SectionErrorBoundary>
 
             {userModal ? (
                 <Modal

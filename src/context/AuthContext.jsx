@@ -127,6 +127,15 @@ export const AuthProvider = ({ children }) => {
         clearLastActivityTimestamp();
     };
 
+    const updateUser = (patch) => {
+        setUser((prev) => {
+            if (!prev) return prev;
+            const next = { ...prev, ...patch };
+            localStorage.setItem('filter_auth_user', JSON.stringify(next));
+            return next;
+        });
+    };
+
     const permissions = useMemo(() => {
         const arr = Array.isArray(user?.permissions) ? user.permissions : null;
         if (!arr) return null; // session has no permissions field — legacy
@@ -142,7 +151,7 @@ export const AuthProvider = ({ children }) => {
         <AuthContext.Provider value={{
             user, workshop, token,
             isAuthenticated: !!token,
-            login, logout, loading,
+            login, logout, updateUser, loading,
             permissions, hasPermission,
         }}>
             {loading ? (

@@ -68,6 +68,7 @@ export const WPC_I18N = {
 
         'kind.fundTopUp': 'Fund top-up',
         'kind.expense': 'Expense',
+        'kind.nonCash': 'Non Cash',
 
         'source.petty_cash_replenishment': 'Fund top-up',
         'source.petty_cash_expense': 'Expense',
@@ -215,6 +216,7 @@ export const WPC_I18N = {
 
         'kind.fundTopUp': 'تعبئة رصيد',
         'kind.expense': 'مصروف',
+        'kind.nonCash': 'غير نقدي',
 
         'source.petty_cash_replenishment': 'تعبئة رصيد',
         'source.petty_cash_expense': 'مصروف',

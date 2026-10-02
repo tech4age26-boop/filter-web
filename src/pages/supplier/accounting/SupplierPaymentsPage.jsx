@@ -12,7 +12,7 @@ import {
     AcctError,
     AcctLoading,
 } from './SupplierAccountingShared';
-import { PaymentReceiptGrid, buildCustomerOptions } from './SupplierPayReceiptBulkGrid';
+import { PaymentReceiptGrid, buildCustomerOptions, journalToMoneyPrefill } from './SupplierPayReceiptBulkGrid';
 import { LogTab } from './SupplierJournalLogs';
 import { extractArray } from './SupplierManagerAccountingShared';
 
@@ -27,6 +27,7 @@ export default function SupplierPaymentsPage({ locale = 'en' }) {
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [refreshToken, setRefreshToken] = useState(0);
+    const [editPrefill, setEditPrefill] = useState(null);
 
     const customerOptions = useMemo(
         () => buildCustomerOptions(affiliated, externals, t),
@@ -77,12 +78,29 @@ export default function SupplierPaymentsPage({ locale = 'en' }) {
                         locale={locale}
                         t={t}
                         cashFieldLabel={t('logs.col.paidFrom')}
-                        onPosted={() => setRefreshToken((n) => n + 1)}
+                        initialPrefill={editPrefill}
+                        onPosted={() => {
+                            setEditPrefill(null);
+                            setRefreshToken((n) => n + 1);
+                        }}
                     />
                 )}
             </AcctCard>
             <AcctCard title={t('mgr.pay.title')}>
-                <LogTab tab="payments" locale={locale} t={t} refreshToken={refreshToken} />
+                <LogTab
+                    tab="payments"
+                    locale={locale}
+                    t={t}
+                    refreshToken={refreshToken}
+                    accounts={accounts}
+                    onEdit={(journal) => {
+                        const next = journalToMoneyPrefill(journal, 'payment');
+                        if (next) {
+                            setEditPrefill(next);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }
+                    }}
+                />
             </AcctCard>
         </div>
     );

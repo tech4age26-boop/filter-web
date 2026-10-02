@@ -92,8 +92,8 @@ function defaultLoadExpenseApprovalContext({ expenseRequestId }) {
 /**
  * Payment + budget pickers for admin wallet fund/expense approval.
  *
- * Expense mode is wallet-first: if the requester's wallet covers the amount,
- * payment account is hidden. Otherwise Pay from account is required (Option B).
+ * Expense mode always debits the requester wallet, even if the balance goes
+ * negative. Pay-from cash/bank/locker is only for fund top-ups.
  */
 export default function WalletApprovalAccountFields({
     workshopId,
@@ -141,7 +141,10 @@ export default function WalletApprovalAccountFields({
         && amt > 0
         && requesterWalletBalance >= amt,
     );
-    const needsPayFromAccount = mode === 'fund' || (isExpense && !walletCoversExpense);
+    const projectedWalletBalance = isExpense && requesterWalletBalance != null && amt > 0
+        ? Math.round((Number(requesterWalletBalance) - amt + Number.EPSILON) * 100) / 100
+        : requesterWalletBalance;
+    const needsPayFromAccount = mode === 'fund';
     const displayRequesterName = requesterName || resolvedRequesterName || t('acct.requester');
 
     useEffect(() => {
@@ -311,9 +314,7 @@ export default function WalletApprovalAccountFields({
 
     const blocked = loading || walletLoading || Boolean(loadError) || Boolean(blockReason);
 
-    const paymentSource = isExpense
-        ? (walletCoversExpense ? 'wallet' : 'cash_register')
-        : 'cash_register';
+    const paymentSource = isExpense ? 'wallet' : 'cash_register';
 
     useEffect(() => {
         onChange?.({
@@ -323,6 +324,7 @@ export default function WalletApprovalAccountFields({
             budgetAccountName: showBudget ? (selectedBudget?.name || '') : '',
             paymentSource,
             requesterWalletBalance,
+            projectedWalletBalance,
             walletCoversExpense,
             requesterUserId: resolvedRequesterUserId || requesterUserId,
             loading: loading || walletLoading,
@@ -342,6 +344,7 @@ export default function WalletApprovalAccountFields({
         needsPayFromAccount,
         paymentSource,
         requesterWalletBalance,
+        projectedWalletBalance,
         walletCoversExpense,
     ]);
 
@@ -383,7 +386,7 @@ export default function WalletApprovalAccountFields({
                         <p style={{ margin: '8px 0 0', fontSize: '0.8125rem', color: walletCoversExpense ? '#15803d' : '#b45309' }}>
                             {walletCoversExpense
                                 ? t('acct.walletOk')
-                                : t('acct.walletShort')}
+                                : t('acct.walletShort', { amount: fmt(projectedWalletBalance) })}
                         </p>
                     ) : null}
                 </div>
