@@ -1,16 +1,24 @@
 import { apiFetch } from './api';
 
-/** Unwrap { success, data } or { success, ...rest } wrapper from the backend interceptor. */
+/**
+ * Unwrap { success, ... } wrapper from the backend SuccessResponseInterceptor.
+ * - Pure list wrap `{ success, data: [...] }` → returns the array
+ * - Paginated wrap `{ success, data, total, page, ... }` → drops success, keeps object
+ * - Object wrap `{ success, id, name, ... }` → drops success, keeps object
+ */
 function unwrap(res) {
   if (!res || typeof res !== 'object') return res;
-  // Array wrapped in { success, data: [...] }
-  if (Array.isArray(res.data)) return res.data;
-  // Object spread { success, ...fields }
-  if ('success' in res) {
-    const { success, ...rest } = res;
-    return rest;
+  if (!('success' in res)) return res;
+
+  const { success, ...rest } = res;
+
+  // Pure array response: { success: true, data: [...] }
+  const keys = Object.keys(rest);
+  if (keys.length === 1 && keys[0] === 'data' && Array.isArray(rest.data)) {
+    return rest.data;
   }
-  return res;
+
+  return rest;
 }
 
 // ─── Cameras ──────────────────────────────────────────────────
