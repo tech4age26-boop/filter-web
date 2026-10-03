@@ -19,6 +19,10 @@ import {
     exportSalaryPaymentsPdf,
 } from './workshopSalaryPaymentsExport';
 import WsStaffPicker from '../../../components/workshop/WsStaffPicker';
+import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import usePagedSearch, { WS_PAGE_SIZES } from '../../../components/workshop/usePagedSearch';
+import { staffMeta, staffName, staffSearchText } from './staffPickerOptions';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -49,25 +53,21 @@ const ackBadge = (status, ackAt) => {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const staffName = (e) => e?.name || 'Unnamed';
-
-const staffMeta = (e) =>
-    [workshopStaffRoleLabel(e), e?.branch?.name, e?.phone].filter(Boolean).join(' · ');
-
-const staffSearchText = (e) =>
-    [
-        e?.name,
-        e?.phone,
-        e?.email,
-        e?.iqama,
-        workshopStaffRoleLabel(e),
-        String(e?.employeeType || '').replace(/_/g, ' '),
-        String(e?.technicianType || '').replace(/_/g, ' '),
-        e?.branch?.name,
-        ...(e?.departments ?? []).map((d) => d?.name),
-    ]
+const recentRowKey = (s) => String(s.id);
+const recentRowName = (s) => s.employeeName || '';
+const recentRowHay = (s) =>
+    [s.employeeName, s.period, s.payFromAccountName, s.paymentDate ? String(s.paymentDate).slice(0, 10) : '']
         .filter(Boolean)
         .join(' ');
+const recentRowMeta = (s) =>
+    [
+        s.period,
+        s.paymentDate ? new Date(s.paymentDate).toLocaleDateString() : '',
+        `Net SAR ${fmt(s.netSalary)}`,
+        s.payFromAccountName,
+    ]
+        .filter(Boolean)
+        .join(' · ');
 
 const listBasicSalary = (emp) => {
     if (!emp) return '';
@@ -143,7 +143,6 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
     const [recentDateFrom, setRecentDateFrom] = useState('');
     const [recentDateTo, setRecentDateTo] = useState('');
     const [recentBranchId, setRecentBranchId] = useState(() => branchFilter || '');
-    const [recentEmployeeSearch, setRecentEmployeeSearch] = useState('');
     const [loadingLookups, setLoadingLookups] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [msg, setMsg] = useState('');
@@ -153,14 +152,12 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
         recentBranchId: '',
         recentDateFrom: '',
         recentDateTo: '',
-        recentEmployeeSearch: '',
     });
 
     recentFiltersRef.current = {
         recentBranchId,
         recentDateFrom,
         recentDateTo,
-        recentEmployeeSearch,
     };
 
     const branchParams = useMemo(
@@ -171,11 +168,10 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
     const buildRecentQueryParams = useCallback(() => {
         const f = recentFiltersRef.current;
         return {
-            limit: 500,
+            limit: 5000,
             ...(f.recentBranchId ? { branchId: f.recentBranchId } : {}),
             ...(f.recentDateFrom ? { dateFrom: f.recentDateFrom } : {}),
             ...(f.recentDateTo ? { dateTo: f.recentDateTo } : {}),
-            ...(f.recentEmployeeSearch.trim() ? { search: f.recentEmployeeSearch.trim() } : {}),
         };
     }, []);
 
@@ -196,6 +192,19 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
         const match = branches.find((b) => String(b.id) === String(recentBranchId));
         return match?.name || 'Branch';
     }, [recentBranchId, branches]);
+
+    const recentPager = usePagedSearch({
+        rows: recent,
+        getKey: recentRowKey,
+        getName: recentRowName,
+        getHay: recentRowHay,
+        resetKey: recent,
+    });
+    const recentTableRef = useRef(null);
+    const goToRecentPage = (p) => {
+        recentPager.setPage(p);
+        recentTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
 
     useEffect(() => {
         const next = branchFilter || '';
@@ -662,7 +671,7 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                 </button>
             </div>
 
-            <section className="premium-table cash-bank-table">
+            <section className="premium-table cash-bank-table" style={{ overflow: 'visible' }}>
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                         <Banknote size={16} />
@@ -722,29 +731,19 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         ) : null}
                         <div>
                             <label className="form-label">Employee</label>
-                            <div style={{ position: 'relative' }}>
-                                <Search
-                                    size={14}
-                                    style={{
-                                        position: 'absolute',
-                                        left: 10,
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        color: '#94A3B8',
-                                    }}
-                                />
-                                <input
-                                    type="text"
-                                    className="form-input-field"
-                                    style={{ paddingLeft: 32 }}
-                                    value={recentEmployeeSearch}
-                                    onChange={(e) => setRecentEmployeeSearch(e.target.value)}
-                                    placeholder="Search employee name…"
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') loadRecentPayments();
-                                    }}
-                                />
-                            </div>
+                            <WsSearchSuggest
+                                value={recentPager.query}
+                                onChange={recentPager.setQuery}
+                                matches={recentPager.suggestions}
+                                picked={recentPager.picked}
+                                getKey={recentRowKey}
+                                getLabel={recentRowName}
+                                getMeta={recentRowMeta}
+                                onPick={recentPager.pick}
+                                onClear={recentPager.clear}
+                                placeholder="Search employee, period or account…"
+                                emptyText="No salary payments match"
+                            />
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             <button
@@ -759,15 +758,15 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                             <button
                                 type="button"
                                 className="btn-portal-outline"
-                                disabled={recent.length === 0 || recentLoading}
+                                disabled={recentPager.total === 0 || recentLoading}
                                 onClick={async () => {
                                     try {
                                         await exportSalaryPaymentsPdf({
-                                            rows: recent,
+                                            rows: recentPager.visible,
                                             branchName: recentBranchName,
                                             dateFrom: recentDateFrom,
                                             dateTo: recentDateTo,
-                                            employeeSearch: recentEmployeeSearch,
+                                            employeeSearch: recentPager.query,
                                         });
                                     } catch (e) {
                                         setError(e?.message || 'Could not export salary payments PDF.');
@@ -780,13 +779,13 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                             <button
                                 type="button"
                                 className="btn-portal-outline"
-                                disabled={recent.length === 0}
+                                disabled={recentPager.total === 0}
                                 onClick={() => exportSalaryPaymentsExcel({
-                                    rows: recent,
+                                    rows: recentPager.visible,
                                     branchName: recentBranchName,
                                     dateFrom: recentDateFrom,
                                     dateTo: recentDateTo,
-                                    employeeSearch: recentEmployeeSearch,
+                                    employeeSearch: recentPager.query,
                                 })}
                             >
                                 <FileDown size={14} style={{ marginRight: 6 }} />
@@ -795,7 +794,13 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         </div>
                     </div>
                 </header>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                {recentPager.query.trim() ? (
+                    <p className="form-help-text" style={{ margin: '10px 16px 0', fontSize: 12 }}>
+                        {recentPager.total} of {recent.length} payment{recent.length === 1 ? '' : 's'} match
+                        {' '}“{recentPager.query.trim()}” (searched across all pages)
+                    </p>
+                ) : null}
+                <table ref={recentTableRef} style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
                             <th className="table-th">Date</th>
@@ -811,9 +816,13 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         </tr>
                     </thead>
                     <tbody>
-                        {recent.length === 0 ? (
-                            <tr><td colSpan={10} className="table-cell table-empty">No salary payments yet.</td></tr>
-                        ) : recent.map((s) => (
+                        {recentPager.total === 0 ? (
+                            <tr>
+                                <td colSpan={10} className="table-cell table-empty">
+                                    {recentPager.query.trim() ? 'No salary payments match this search.' : 'No salary payments yet.'}
+                                </td>
+                            </tr>
+                        ) : recentPager.paged.map((s) => (
                             <tr key={s.id}>
                                 <td className="table-cell">{s.paymentDate ? new Date(s.paymentDate).toLocaleDateString() : '—'}</td>
                                 <td className="table-cell">{s.employeeName}</td>
@@ -829,6 +838,17 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         ))}
                     </tbody>
                 </table>
+                {recentPager.total > 0 ? (
+                    <WsTablePagination
+                        page={recentPager.page}
+                        pageCount={recentPager.pageCount}
+                        pageSize={recentPager.pageSize}
+                        pageSizes={WS_PAGE_SIZES}
+                        total={recentPager.total}
+                        onPageChange={goToRecentPage}
+                        onPageSizeChange={recentPager.setPageSize}
+                    />
+                ) : null}
             </section>
         </div>
     );

@@ -77,6 +77,35 @@ export function resolveBilingualCompanyLines(src) {
     return { english, arabic };
 }
 
+/** National Address as at most two balanced lines, split at the separator nearest the middle. */
+export function splitNationalAddressLines(value) {
+    const lines = String(value ?? '')
+        .split(/\r?\n/)
+        .map((l) => l.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+    if (lines.length === 0) return [];
+    if (lines.length >= 2) return [lines[0], lines.slice(1).join(', ')];
+
+    const text = lines[0];
+    if (text.length < 28) return [text];
+    const mid = text.length / 2;
+    const pickNearest = (re) => {
+        let best = -1;
+        for (const m of text.matchAll(re)) {
+            const at = m.index + m[0].length;
+            if (at <= 0 || at >= text.length) continue;
+            if (best < 0 || Math.abs(at - mid) < Math.abs(best - mid)) best = at;
+        }
+        return best;
+    };
+    let cut = pickNearest(/[,،]\s*/g);
+    if (cut < 0) cut = pickNearest(/\s+/g);
+    if (cut < 0) return [text];
+    const first = text.slice(0, cut).replace(/[\s,،]+$/, '');
+    const second = text.slice(cut).trim();
+    return first && second ? [first, second] : [text];
+}
+
 function formatPeriodLabel(dateFrom, dateTo) {
     if (!dateFrom && !dateTo) return 'All transactions';
     if (dateFrom && dateTo) return `${dateFrom}  —  ${dateTo}`;
@@ -1438,6 +1467,30 @@ const MONTHLY_INVOICE_STYLES = `
     direction: rtl;
     text-align: left;
   }
+  .car-mi-hdr__address {
+    margin: 0 0 6px;
+    padding: 4px 0 4px 8px;
+    border-left: 2px solid #FCC247;
+  }
+  .car-mi-hdr__address-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: #334155;
+    line-height: 1.5;
+    margin: 0 0 2px;
+  }
+  .car-mi-hdr__address-ar {
+    font-family: 'Noto Sans Arabic', sans-serif;
+    unicode-bidi: isolate;
+  }
+  .car-mi-hdr__address-line {
+    font-size: 10px;
+    color: #0f172a;
+    line-height: 1.5;
+    text-align: left;
+    unicode-bidi: plaintext;
+    overflow-wrap: anywhere;
+  }
   .car-mi-hdr__meta {
     display: block;
     font-size: 9px;
@@ -1547,6 +1600,17 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
     const sellerTax = '311120967500003';
     const workshop = corp.workshopName || '';
     const vat = resolveCorporateBuyerTaxNo(corp, null) || '—';
+    const nationalAddressLines = splitNationalAddressLines(
+        corp.nationalAddress || corp.customer?.nationalAddress,
+    );
+    const nationalAddressHtml = nationalAddressLines.length
+        ? `<div class="car-mi-hdr__address">
+      <div class="car-mi-hdr__address-title">National Address <span class="car-mi-hdr__address-ar">(العنوان الوطني)</span></div>
+      ${nationalAddressLines
+          .map((line) => `<div class="car-mi-hdr__address-line" dir="auto">${escapeHtml(line)}</div>`)
+          .join('')}
+    </div>`
+        : '';
     const dateFrom =
         bill?.periodStartDate?.slice?.(0, 10) ||
         statement?.period?.startDate?.slice?.(0, 10) ||
@@ -1592,6 +1656,7 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
     <div class="car-mi-hdr__meta">Period: ${escapeHtml(period)}</div>
     ${companyAr ? `<div class="car-mi-hdr__customer-ar">${escapeHtml(companyAr)}</div>` : ''}
     ${companyEn ? `<div class="car-mi-hdr__customer-en">${escapeHtml(companyEn)}</div>` : ''}
+    ${nationalAddressHtml}
     <div class="car-mi-hdr__meta">VAT No.: ${escapeHtml(vat)}</div>
     <div class="car-mi-hdr__meta">Bill No.: ${escapeHtml(bill?.billNo || '—')}</div>
   </div>

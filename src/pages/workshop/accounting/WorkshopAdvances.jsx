@@ -1,23 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
 import {
-    ArrowLeftRight,
     BookOpen,
-    Calendar,
     ChevronDown,
     Clock,
     DollarSign,
     FileDown,
     Plus,
-    Search,
     Users,
     Wallet,
-    X,
     RefreshCw,
     Building2,
 } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
-import Modal from '../../../components/Modal';
 import {
     bulkCreateWorkshopAdvances,
     createWorkshopAdvance,
@@ -31,14 +25,17 @@ import {
     indexWorkshopStaffBySelectValue,
     parseWorkshopStaffSelectValue,
     unwrapWorkshopEmployeesList,
-    workshopStaffRoleLabel,
-    workshopStaffSelectValue,
 } from '../../../services/workshopStaffApi';
 import { accT } from '../../../utils/accountingI18n';
+import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import usePagedSearch, { WS_PAGE_SIZES } from '../../../components/workshop/usePagedSearch';
 import WorkshopSalaryTab from './WorkshopSalaryTab';
 import WorkshopEmployeeLedgerTab from './WorkshopEmployeeLedgerTab';
+import { AdvanceBulkPage, AdvancePayPage } from './WorkshopAdvancePayPages';
 import { exportAdvancesExcel, exportAdvancesPdf } from './workshopAdvancesExport';
 import '../../../styles/admin/AccountingPage.css';
+import './WorkshopAdvancePayPages.css';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -78,6 +75,39 @@ const makeAdvanceRow = () => ({
 
 const ADV_TAB_IDS = new Set(ADV_TABS.map((tab) => tab.id));
 
+const ADV_VIEWS = new Set(['pay', 'bulk']);
+
+const emptyAdvanceForm = () => ({
+    employeeSelectKey: '',
+    employeeRecordId: '',
+    recordType: '',
+    userId: '',
+    employeeName: '',
+    amount: '',
+    date: todayIso(),
+    payFromAccountId: '',
+    reason: '',
+});
+
+const overviewRowKey = (e) => `${e._branchKey}:${e.employeeId}`;
+const overviewRowName = (e) => e.name || '';
+const overviewRowHay = (e) => [e.name, e.employeeType, e._branchName].filter(Boolean).join(' ');
+
+const advanceRowKey = (a) => String(a.id);
+const advanceRowName = (a) => a.employeeName || '';
+const advanceRowHay = (a) =>
+    [
+        a.employeeName,
+        a.branchName,
+        a.reason,
+        a.payFromAccountName,
+        a.status,
+        a.date ? String(a.date).slice(0, 10) : '',
+        a.amount != null ? String(a.amount) : '',
+    ]
+        .filter(Boolean)
+        .join(' ');
+
 export default function WorkshopAdvances({
     branches = [],
     selectedBranchId = 'all',
@@ -85,7 +115,7 @@ export default function WorkshopAdvances({
     initialTab: initialTabProp,
 }) {
     const outletCtx = useOutletContext() || {};
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const locale =
         localeProp ||
         outletCtx.locale ||
@@ -115,10 +145,26 @@ export default function WorkshopAdvances({
     );
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [search, setSearch] = useState('');
 
-    const [payAdvanceOpen, setPayAdvanceOpen] = useState(false);
-    const [bulkAdvanceOpen, setBulkAdvanceOpen] = useState(false);
+    const viewParam = String(searchParams.get('view') || '');
+    const view = ADV_VIEWS.has(viewParam) ? viewParam : 'list';
+
+    const openView = useCallback(
+        (next) => {
+            setError('');
+            setSearchParams(
+                (prev) => {
+                    const p = new URLSearchParams(prev);
+                    if (next === 'list') p.delete('view');
+                    else p.set('view', next);
+                    return p;
+                },
+                { replace: false },
+            );
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
+        [setSearchParams],
+    );
 
     const [stats, setStats] = useState({
         totalAdvancesPaid: 0,
@@ -131,17 +177,7 @@ export default function WorkshopAdvances({
     const [employees, setEmployees] = useState([]);
     const [cashBankAccounts, setCashBankAccounts] = useState([]);
 
-    const [advanceForm, setAdvanceForm] = useState({
-        employeeSelectKey: '',
-        employeeRecordId: '',
-        recordType: '',
-        userId: '',
-        employeeName: '',
-        amount: '',
-        date: todayIso(),
-        payFromAccountId: '',
-        reason: '',
-    });
+    const [advanceForm, setAdvanceForm] = useState(emptyAdvanceForm);
     const [bulkAdvanceRows, setBulkAdvanceRows] = useState([makeAdvanceRow()]);
     const [submitting, setSubmitting] = useState(false);
 
@@ -166,7 +202,7 @@ export default function WorkshopAdvances({
         try {
             const [s, ov, adv, emps, cb] = await Promise.all([
                 getWorkshopAdvancesStats(branchParams),
-                getWorkshopAdvancesOverview({ ...branchParams, search: search.trim() || undefined }),
+                getWorkshopAdvancesOverview(branchParams),
                 getWorkshopAdvancesList({ ...branchParams, ...(filter !== 'All' ? { status: filter.toLowerCase() } : {}) }),
                 getAllWorkshopEmployees(branchParams).catch(() => ({ employees: [] })),
                 listCashBankAccounts(branchParams).catch(() => ({ accounts: [] })),
@@ -189,7 +225,7 @@ export default function WorkshopAdvances({
         } finally {
             setLoading(false);
         }
-    }, [branchParams, filter, search, t]);
+    }, [branchParams, filter, t]);
 
     useEffect(() => {
         refresh();
@@ -201,17 +237,77 @@ export default function WorkshopAdvances({
         }
     }, [selectedBranchId]);
 
-    const filteredAdvances = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        return advances.filter((a) => {
-            const searchMatch =
-                !q ||
-                (a.employeeName || '').toLowerCase().includes(q) ||
-                (a.branchName || '').toLowerCase().includes(q) ||
-                (a.reason || '').toLowerCase().includes(q);
-            return searchMatch;
+    const overviewRows = useMemo(
+        () =>
+            (overview.branches ?? []).flatMap((b) =>
+                (b.employees ?? []).map((e) => ({
+                    ...e,
+                    _branchKey: String(b.branchId ?? b.branchName ?? ''),
+                    _branchName: b.branchName,
+                })),
+            ),
+        [overview.branches],
+    );
+
+    const empPager = usePagedSearch({
+        rows: overviewRows,
+        getKey: overviewRowKey,
+        getName: overviewRowName,
+        getHay: overviewRowHay,
+        resetKey: branchFilter,
+        rankByName: false,
+    });
+
+    const advPager = usePagedSearch({
+        rows: advances,
+        getKey: advanceRowKey,
+        getName: advanceRowName,
+        getHay: advanceRowHay,
+        resetKey: `${branchFilter}|${filter}`,
+    });
+
+    const filteredAdvances = advPager.visible;
+
+    const empBranchTotals = useMemo(() => {
+        const m = {};
+        empPager.visible.forEach((e) => {
+            m[e._branchKey] = (m[e._branchKey] || 0) + 1;
         });
-    }, [advances, search]);
+        return m;
+    }, [empPager.visible]);
+
+    const empPageGroups = useMemo(() => {
+        const groups = [];
+        empPager.paged.forEach((e) => {
+            let g = groups[groups.length - 1];
+            if (!g || g.key !== e._branchKey) {
+                g = { key: e._branchKey, name: e._branchName, rows: [] };
+                groups.push(g);
+            }
+            g.rows.push(e);
+        });
+        return groups;
+    }, [empPager.paged]);
+
+    const tableTopRef = useRef(null);
+    const pagerLabels = useMemo(
+        () => ({
+            prev: t('adv.pager.prev'),
+            next: t('adv.pager.next'),
+            rowsPerPage: t('adv.pager.rowsPerPage'),
+            showing: (from, to, total) => t('adv.pager.showing', { from, to, total }),
+            page: (n) => t('adv.pager.page', { n }),
+        }),
+        [t],
+    );
+    const goToPage = (pager) => (p) => {
+        pager.setPage(p);
+        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    const searchCountText = useCallback(
+        (shown, n) => (n > shown ? t('adv.search.shownOf', { shown, n }) : t('adv.search.matches', { n })),
+        [t],
+    );
 
     const advancesBranchName = useMemo(() => {
         if (!branchFilter) return 'All branches';
@@ -238,7 +334,7 @@ export default function WorkshopAdvances({
                 rows: filteredAdvances,
                 branchName: advancesBranchName,
                 statusLabel: advancesStatusLabel,
-                search,
+                search: advPager.query,
             };
             if (kind === 'pdf') await exportAdvancesPdf(payload);
             else exportAdvancesExcel(payload);
@@ -246,22 +342,6 @@ export default function WorkshopAdvances({
             setError(e?.message || (kind === 'pdf' ? 'Could not export advances PDF.' : 'Could not export advances Excel.'));
         }
     };
-
-    const filteredOverviewBranches = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        if (!q) return overview.branches ?? [];
-        return (overview.branches ?? [])
-            .map((b) => ({
-                ...b,
-                employees: (b.employees ?? []).filter(
-                    (e) =>
-                        (e.name || '').toLowerCase().includes(q) ||
-                        (b.branchName || '').toLowerCase().includes(q) ||
-                        (e.employeeType || '').toLowerCase().includes(q),
-                ),
-            }))
-            .filter((b) => b.employees.length > 0);
-    }, [overview.branches, search]);
 
     const pickEmployee = (selectKey) => {
         const emp = employeeByRecordId[String(selectKey)];
@@ -291,18 +371,8 @@ export default function WorkshopAdvances({
                 payFromAccountId: advanceForm.payFromAccountId,
                 reason: advanceForm.reason || undefined,
             });
-            setPayAdvanceOpen(false);
-            setAdvanceForm({
-                employeeSelectKey: '',
-                employeeRecordId: '',
-                recordType: '',
-                userId: '',
-                employeeName: '',
-                amount: '',
-                date: todayIso(),
-                payFromAccountId: '',
-                reason: '',
-            });
+            setAdvanceForm(emptyAdvanceForm());
+            openView('list');
             await refresh();
         } catch (e) {
             setError(e?.message || t('adv.err.pay'));
@@ -322,13 +392,16 @@ export default function WorkshopAdvances({
                 payFromAccountId: r.payFromAccountId,
                 reason: r.reason || undefined,
             }));
-        if (!rows.length) return;
+        if (!rows.length) {
+            setError(t('adv.err.required'));
+            return;
+        }
         setSubmitting(true);
         setError('');
         try {
             await bulkCreateWorkshopAdvances({ rows });
-            setBulkAdvanceOpen(false);
             setBulkAdvanceRows([makeAdvanceRow()]);
+            openView('list');
             await refresh();
         } catch (e) {
             setError(e?.message || t('adv.err.bulk'));
@@ -339,6 +412,33 @@ export default function WorkshopAdvances({
 
     const controlAccount = stats.controlAccount;
     const controlCode = controlAccount?.code ?? '1250';
+
+    if (view !== 'list') {
+        if (loading && employees.length === 0) {
+            return <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>{t('loading')}</div>;
+        }
+        const shared = {
+            t,
+            controlCode,
+            employees: payableEmployees,
+            accounts: cashBankAccounts,
+            pickEmployee,
+            submitting,
+            error,
+            onBack: () => openView('list'),
+        };
+        return view === 'pay' ? (
+            <AdvancePayPage {...shared} form={advanceForm} setForm={setAdvanceForm} onSubmit={submitAdvance} />
+        ) : (
+            <AdvanceBulkPage
+                {...shared}
+                rows={bulkAdvanceRows}
+                setRows={setBulkAdvanceRows}
+                makeRow={makeAdvanceRow}
+                onSubmit={submitBulkAdvances}
+            />
+        );
+    }
 
     return (
         <div className="advances-view">
@@ -352,10 +452,10 @@ export default function WorkshopAdvances({
                     </p>
                 </div>
                 <div className="adv-header-actions">
-                    <button type="button" className="btn-adv-action btn-bulk-advances" onClick={() => setBulkAdvanceOpen(true)}>
+                    <button type="button" className="btn-adv-action btn-bulk-advances" onClick={() => openView('bulk')}>
                         <Users size={16} /> {t('adv.bulk')}
                     </button>
-                    <button type="button" className="btn-adv-action btn-pay-advance btn-primary-adv" onClick={() => setPayAdvanceOpen(true)}>
+                    <button type="button" className="btn-adv-action btn-pay-advance btn-primary-adv" onClick={() => openView('pay')}>
                         <Plus size={16} /> {t('adv.pay')}
                     </button>
                     <button type="button" className="btn-portal-outline" onClick={refresh} disabled={loading}>
@@ -442,15 +542,59 @@ export default function WorkshopAdvances({
             </div>
 
             <div className="adv-filters-bar">
-                <div className="adv-search-wrapper">
-                    <Search className="search-icon" size={16} />
-                    <input
-                        type="text"
-                        placeholder={t('adv.searchPh')}
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                    />
-                </div>
+                {activeTab === 'By Employee' || activeTab === 'Advances' ? (
+                    <div style={{ flex: '1 1 300px', maxWidth: 440 }}>
+                        {activeTab === 'By Employee' ? (
+                            <WsSearchSuggest
+                                key="emp-search"
+                                value={empPager.query}
+                                onChange={empPager.setQuery}
+                                matches={empPager.suggestions}
+                                picked={empPager.picked}
+                                getKey={overviewRowKey}
+                                getLabel={overviewRowName}
+                                getMeta={(e) =>
+                                    [e.employeeType, e._branchName, `${t('adv.th.outstanding')}: SAR ${fmt(e.outstanding)}`]
+                                        .filter(Boolean)
+                                        .join(' · ')
+                                }
+                                onPick={empPager.pick}
+                                onClear={empPager.clear}
+                                placeholder={t('adv.search.empPh')}
+                                emptyText={t('adv.search.noMatch')}
+                                hint={t('adv.pick.hint')}
+                                countText={searchCountText}
+                            />
+                        ) : (
+                            <WsSearchSuggest
+                                key="adv-search"
+                                value={advPager.query}
+                                onChange={advPager.setQuery}
+                                matches={advPager.suggestions}
+                                picked={advPager.picked}
+                                getKey={advanceRowKey}
+                                getLabel={advanceRowName}
+                                getMeta={(a) =>
+                                    [
+                                        a.date ? new Date(a.date).toLocaleDateString() : '',
+                                        `SAR ${fmt(a.amount)}`,
+                                        a.branchName,
+                                        a.reason,
+                                        statusLabel(a.status),
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' · ')
+                                }
+                                onPick={advPager.pick}
+                                onClear={advPager.clear}
+                                placeholder={t('adv.search.advPh')}
+                                emptyText={t('adv.search.noMatch')}
+                                hint={t('adv.pick.hint')}
+                                countText={searchCountText}
+                            />
+                        )}
+                    </div>
+                ) : null}
                 {branches.length > 0 ? (
                     <div className="ps-select-wrapper" style={{ minWidth: 180 }}>
                         <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
@@ -519,268 +663,164 @@ export default function WorkshopAdvances({
                     branchFilter={branchFilter}
                 />
             ) : activeTab === 'By Employee' ? (
-                <section className="premium-table advances-table">
-                    {filteredOverviewBranches.length === 0 ? (
-                        <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8' }}>{t('adv.noEmployees')}</div>
-                    ) : (
-                        filteredOverviewBranches.map((branch) => (
-                            <div key={branch.branchId || branch.branchName} style={{ marginBottom: 24 }}>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: '10px 14px',
-                                        background: '#F8FAFC',
-                                        borderRadius: '12px 12px 0 0',
-                                        border: '1px solid #E2E8F0',
-                                        borderBottom: 'none',
-                                        fontWeight: 700,
-                                        color: '#334155',
-                                    }}
-                                >
-                                    <Building2 size={16} />
-                                    {branch.branchName}
-                                    <span style={{ fontWeight: 500, color: '#64748B', fontSize: 13 }}>
-                                        {branch.employees.length === 1
-                                            ? t('adv.employeeCount', { n: branch.employees.length })
-                                            : t('adv.employeeCountPlural', { n: branch.employees.length })}
-                                    </span>
-                                </div>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #E2E8F0', borderRadius: '0 0 12px 12px' }}>
-                                    <thead>
-                                        <tr className="table-header-row">
-                                            <th className="table-th">{t('adv.th.employee')}</th>
-                                            <th className="table-th">{t('adv.th.type')}</th>
-                                            <th className="table-th">{t('adv.th.advances')}</th>
-                                            <th className="table-th">{t('adv.th.totalPaid')}</th>
-                                            <th className="table-th">{t('adv.th.outstanding')}</th>
-                                            <th className="table-th">{t('adv.th.latest')}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {branch.employees.map((e) => (
-                                            <tr key={e.employeeId} className="table-row">
-                                                <td className="table-cell" style={{ fontWeight: 700 }}>{e.name || '—'}</td>
-                                                <td className="table-cell">{e.employeeType || '—'}</td>
-                                                <td className="table-cell">{e.advanceCount}</td>
-                                                <td className="table-cell">SAR {fmt(e.totalPaid)}</td>
-                                                <td className="table-cell" style={{ color: e.outstanding > 0 ? '#DC2626' : '#64748B', fontWeight: e.outstanding > 0 ? 700 : 400 }}>
-                                                    SAR {fmt(e.outstanding)}
-                                                </td>
-                                                <td className="table-cell">{e.latestAdvanceDate || '—'}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                <>
+                    {empPager.query.trim() ? (
+                        <p className="adv-search-count">
+                            {t('adv.search.resultCount', {
+                                n: empPager.total,
+                                total: overviewRows.length,
+                                q: empPager.query.trim(),
+                            })}
+                        </p>
+                    ) : null}
+                    <section ref={tableTopRef} className="premium-table advances-table">
+                        {empPager.total === 0 ? (
+                            <div style={{ padding: 32, textAlign: 'center', color: '#94A3B8' }}>
+                                {empPager.query.trim() ? t('adv.noMatchSearch') : t('adv.noEmployees')}
                             </div>
-                        ))
-                    )}
-                </section>
+                        ) : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr className="table-header-row">
+                                        <th className="table-th">{t('adv.th.employee')}</th>
+                                        <th className="table-th">{t('adv.th.type')}</th>
+                                        <th className="table-th">{t('adv.th.advances')}</th>
+                                        <th className="table-th">{t('adv.th.totalPaid')}</th>
+                                        <th className="table-th">{t('adv.th.outstanding')}</th>
+                                        <th className="table-th">{t('adv.th.latest')}</th>
+                                    </tr>
+                                </thead>
+                                {empPageGroups.map((group) => {
+                                    const n = empBranchTotals[group.key] || group.rows.length;
+                                    return (
+                                        <tbody key={group.key}>
+                                            <tr>
+                                                <td colSpan={6} style={{ padding: 0 }}>
+                                                    <div className="adv-branch-head">
+                                                        <Building2 size={16} />
+                                                        {group.name}
+                                                        <span>
+                                                            {n === 1
+                                                                ? t('adv.employeeCount', { n })
+                                                                : t('adv.employeeCountPlural', { n })}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {group.rows.map((e) => (
+                                                <tr key={overviewRowKey(e)} className="table-row">
+                                                    <td className="table-cell" style={{ fontWeight: 700 }}>{e.name || '—'}</td>
+                                                    <td className="table-cell">{e.employeeType || '—'}</td>
+                                                    <td className="table-cell">{e.advanceCount}</td>
+                                                    <td className="table-cell">SAR {fmt(e.totalPaid)}</td>
+                                                    <td
+                                                        className="table-cell"
+                                                        style={{
+                                                            color: e.outstanding > 0 ? '#DC2626' : '#64748B',
+                                                            fontWeight: e.outstanding > 0 ? 700 : 400,
+                                                        }}
+                                                    >
+                                                        SAR {fmt(e.outstanding)}
+                                                    </td>
+                                                    <td className="table-cell">{e.latestAdvanceDate || '—'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    );
+                                })}
+                            </table>
+                        )}
+                        {empPager.total > 0 ? (
+                            <WsTablePagination
+                                page={empPager.page}
+                                pageCount={empPager.pageCount}
+                                pageSize={empPager.pageSize}
+                                pageSizes={WS_PAGE_SIZES}
+                                total={empPager.total}
+                                onPageChange={goToPage(empPager)}
+                                onPageSizeChange={empPager.setPageSize}
+                                labels={pagerLabels}
+                            />
+                        ) : null}
+                    </section>
+                </>
             ) : (
-                <section className="premium-table advances-table">
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr className="table-header-row">
-                                <th className="table-th">{t('adv.th.date')}</th>
-                                <th className="table-th">{t('adv.th.branch')}</th>
-                                <th className="table-th">{t('adv.th.employee')}</th>
-                                <th className="table-th">{t('adv.th.reason')}</th>
-                                <th className="table-th">{t('adv.th.paidFrom')}</th>
-                                <th className="table-th">{t('adv.th.amount')}</th>
-                                <th className="table-th">{t('adv.th.repaid')}</th>
-                                <th className="table-th">{t('adv.th.balance')}</th>
-                                <th className="table-th">{t('adv.th.status')}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredAdvances.length === 0 ? (
-                                <tr><td colSpan={9} className="table-cell table-empty">{t('adv.noAdvances')}</td></tr>
-                            ) : (
-                                filteredAdvances.map((a) => (
-                                    <tr key={a.id} className="table-row">
-                                        <td className="table-cell">{new Date(a.date).toLocaleDateString()}</td>
-                                        <td className="table-cell">{a.branchName || '—'}</td>
-                                        <td className="table-cell" style={{ fontWeight: 700 }}>{a.employeeName}</td>
-                                        <td className="table-cell">{a.reason || '—'}</td>
-                                        <td className="table-cell">{a.payFromAccountName || (a.payFromAccountId ? '—' : t('adv.pettyCash'))}</td>
-                                        <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(a.amount)}</td>
-                                        <td className="table-cell">SAR {fmt(a.repaidAmount)}</td>
-                                        <td className="table-cell">SAR {fmt(a.balance)}</td>
-                                        <td className="table-cell">
-                                            <span className={`status-badge ${['approved', 'partial', 'settled', 'repaid'].includes((a.status || '').toLowerCase()) ? 'approved' : 'pending'}`}>
-                                                {statusLabel(a.status)}
-                                            </span>
+                <>
+                    {advPager.query.trim() ? (
+                        <p className="adv-search-count">
+                            {t('adv.search.resultCount', {
+                                n: advPager.total,
+                                total: advances.length,
+                                q: advPager.query.trim(),
+                            })}
+                        </p>
+                    ) : null}
+                    <section ref={tableTopRef} className="premium-table advances-table">
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                                <tr className="table-header-row">
+                                    <th className="table-th">{t('adv.th.date')}</th>
+                                    <th className="table-th">{t('adv.th.branch')}</th>
+                                    <th className="table-th">{t('adv.th.employee')}</th>
+                                    <th className="table-th">{t('adv.th.reason')}</th>
+                                    <th className="table-th">{t('adv.th.paidFrom')}</th>
+                                    <th className="table-th">{t('adv.th.amount')}</th>
+                                    <th className="table-th">{t('adv.th.repaid')}</th>
+                                    <th className="table-th">{t('adv.th.balance')}</th>
+                                    <th className="table-th">{t('adv.th.status')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {advPager.total === 0 ? (
+                                    <tr>
+                                        <td colSpan={9} className="table-cell table-empty">
+                                            {advPager.query.trim() ? t('adv.noMatchSearch') : t('adv.noAdvances')}
                                         </td>
                                     </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </section>
+                                ) : (
+                                    advPager.paged.map((a) => (
+                                        <tr key={a.id} className="table-row">
+                                            <td className="table-cell">{new Date(a.date).toLocaleDateString()}</td>
+                                            <td className="table-cell">{a.branchName || '—'}</td>
+                                            <td className="table-cell" style={{ fontWeight: 700 }}>{a.employeeName}</td>
+                                            <td className="table-cell">{a.reason || '—'}</td>
+                                            <td className="table-cell">
+                                                {a.payFromAccountName || (a.payFromAccountId ? '—' : t('adv.pettyCash'))}
+                                            </td>
+                                            <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(a.amount)}</td>
+                                            <td className="table-cell">SAR {fmt(a.repaidAmount)}</td>
+                                            <td className="table-cell">SAR {fmt(a.balance)}</td>
+                                            <td className="table-cell">
+                                                <span
+                                                    className={`status-badge ${
+                                                        ['approved', 'partial', 'settled', 'repaid'].includes((a.status || '').toLowerCase())
+                                                            ? 'approved'
+                                                            : 'pending'
+                                                    }`}
+                                                >
+                                                    {statusLabel(a.status)}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                        {advPager.total > 0 ? (
+                            <WsTablePagination
+                                page={advPager.page}
+                                pageCount={advPager.pageCount}
+                                pageSize={advPager.pageSize}
+                                pageSizes={WS_PAGE_SIZES}
+                                total={advPager.total}
+                                onPageChange={goToPage(advPager)}
+                                onPageSizeChange={advPager.setPageSize}
+                                labels={pagerLabels}
+                            />
+                        ) : null}
+                    </section>
+                </>
             )}
-
-            <AnimatePresence>
-                {payAdvanceOpen && (
-                    <Modal
-                        title={<div className="ps-modal-title"><ArrowLeftRight className="ps-title-icon" size={18} /><span>{t('adv.modal.payTitle')}</span></div>}
-                        onClose={() => setPayAdvanceOpen(false)}
-                        width="500px"
-                        contentClassName="modal-content-advance"
-                        footer={
-                            <div className="ps-modal-footer">
-                                <button type="button" className="btn-ps-cancel" onClick={() => setPayAdvanceOpen(false)}>{t('adv.modal.cancel')}</button>
-                                <button type="button" className="btn-ps-pay" disabled={submitting} onClick={submitAdvance}>
-                                    {t('adv.modal.payPost', { code: controlCode })}
-                                </button>
-                            </div>
-                        }
-                    >
-                        <div className="ps-form">
-                            <div className="ps-field">
-                                <label>{t('adv.field.employee')}</label>
-                                <div className="ps-select-wrapper">
-                                    <select
-                                        value={advanceForm.employeeSelectKey}
-                                        onChange={(e) => {
-                                            const picked = pickEmployee(e.target.value);
-                                            setAdvanceForm((p) => ({ ...p, ...picked }));
-                                        }}
-                                    >
-                                        <option value="">{t('adv.field.selectEmployee')}</option>
-                                        {payableEmployees.map((e) => {
-                                            const selectKey = workshopStaffSelectValue(e);
-                                            return (
-                                            <option key={selectKey} value={selectKey} disabled={!e.userId && !e.canReceiveAdvance}>
-                                                {e.name} — {workshopStaffRoleLabel(e)}{e.branch?.name ? ` (${e.branch.name})` : ''}
-                                            </option>
-                                            );
-                                        })}
-                                    </select>
-                                    <ChevronDown size={16} className="ps-select-icon" />
-                                </div>
-                            </div>
-                            <div className="ps-row">
-                                <div className="ps-field">
-                                    <label>{t('adv.field.amount')}</label>
-                                    <input type="number" value={advanceForm.amount} onChange={(e) => setAdvanceForm((p) => ({ ...p, amount: e.target.value }))} placeholder="0.00" />
-                                </div>
-                                <div className="ps-field">
-                                    <label>{t('adv.field.date')}</label>
-                                    <div className="ps-date-input">
-                                        <input type="date" value={advanceForm.date} onChange={(e) => setAdvanceForm((p) => ({ ...p, date: e.target.value }))} />
-                                        <Calendar size={16} />
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="ps-field">
-                                <label>{t('adv.field.payFrom')}</label>
-                                <div className="ps-select-wrapper">
-                                    <select value={advanceForm.payFromAccountId} onChange={(e) => setAdvanceForm((p) => ({ ...p, payFromAccountId: e.target.value }))}>
-                                        <option value="">{t('adv.field.selectAccount')}</option>
-                                        {cashBankAccounts.map((a) => (
-                                            <option key={String(a.id)} value={String(a.id)}>{a.name}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown size={16} className="ps-select-icon" />
-                                </div>
-                            </div>
-                            <div className="ps-field">
-                                <label>{t('adv.field.reason')}</label>
-                                <textarea value={advanceForm.reason} onChange={(e) => setAdvanceForm((p) => ({ ...p, reason: e.target.value }))} placeholder={t('adv.field.reasonPh')} rows={3} />
-                            </div>
-                            <p className="form-help-text" style={{ fontSize: 12, color: '#64748B' }}>
-                                {t('adv.help.post', { code: controlCode })}
-                            </p>
-                        </div>
-                    </Modal>
-                )}
-
-                {bulkAdvanceOpen && (
-                    <Modal
-                        title={<div className="ps-modal-title"><Users className="ps-title-icon" size={18} /><span>{t('adv.modal.bulkTitle')}</span></div>}
-                        onClose={() => setBulkAdvanceOpen(false)}
-                        width="1100px"
-                        contentClassName="modal-content-bulk"
-                        footer={
-                            <div className="ps-modal-footer">
-                                <button type="button" className="btn-ps-cancel" onClick={() => setBulkAdvanceOpen(false)}>{t('adv.modal.cancel')}</button>
-                                <button type="button" className="btn-ps-pay btn-gold" disabled={submitting} onClick={submitBulkAdvances}>
-                                    {t('adv.modal.payN', { n: bulkAdvanceRows.length })}
-                                </button>
-                            </div>
-                        }
-                    >
-                        <div className="bulk-form">
-                            <div className="bulk-table-header">
-                                <div className="bulk-col-emp">{t('adv.bulk.employee')}</div>
-                                <div className="bulk-col-amt">{t('adv.bulk.amount')}</div>
-                                <div className="bulk-col-date">{t('adv.bulk.date')}</div>
-                                <div className="bulk-col-from">{t('adv.bulk.payFrom')}</div>
-                                <div className="bulk-col-reason">{t('adv.bulk.reason')}</div>
-                                <div className="bulk-col-actions" />
-                            </div>
-                            <div className="bulk-table-rows">
-                                {bulkAdvanceRows.map((row, idx) => (
-                                    <div className="bulk-row" key={row.id}>
-                                        <div className="ps-select-wrapper bulk-col-emp">
-                                            <select
-                                                value={row.employeeSelectKey}
-                                                onChange={(e) => {
-                                                    const picked = pickEmployee(e.target.value);
-                                                    const x = [...bulkAdvanceRows];
-                                                    x[idx] = { ...x[idx], ...picked };
-                                                    setBulkAdvanceRows(x);
-                                                }}
-                                            >
-                                                <option value="">{t('adv.field.select')}</option>
-                                                {payableEmployees.map((e) => {
-                                                    const selectKey = workshopStaffSelectValue(e);
-                                                    return (
-                                                    <option key={selectKey} value={selectKey} disabled={!e.userId && !e.canReceiveAdvance}>
-                                                        {e.name} — {workshopStaffRoleLabel(e)}
-                                                    </option>
-                                                    );
-                                                })}
-                                            </select>
-                                            <ChevronDown size={14} className="ps-select-icon" />
-                                        </div>
-                                        <div className="bulk-col-amt">
-                                            <input type="number" value={row.amount} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].amount = e.target.value; setBulkAdvanceRows(x); }} placeholder="0.00" />
-                                        </div>
-                                        <div className="bulk-col-date">
-                                            <div className="ps-date-input">
-                                                <input type="date" value={row.date} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].date = e.target.value; setBulkAdvanceRows(x); }} />
-                                                <Calendar size={14} />
-                                            </div>
-                                        </div>
-                                        <div className="ps-select-wrapper bulk-col-from">
-                                            <select value={row.payFromAccountId} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].payFromAccountId = e.target.value; setBulkAdvanceRows(x); }}>
-                                                <option value="">{t('adv.field.select')}</option>
-                                                {cashBankAccounts.map((a) => (
-                                                    <option key={String(a.id)} value={String(a.id)}>{a.name}</option>
-                                                ))}
-                                            </select>
-                                            <ChevronDown size={14} className="ps-select-icon" />
-                                        </div>
-                                        <div className="bulk-col-reason">
-                                            <input type="text" value={row.reason} onChange={(e) => { const x = [...bulkAdvanceRows]; x[idx].reason = e.target.value; setBulkAdvanceRows(x); }} placeholder={t('adv.field.reasonShortPh')} />
-                                        </div>
-                                        <div className="bulk-col-actions">
-                                            <button type="button" className="btn-row-remove" onClick={() => setBulkAdvanceRows(bulkAdvanceRows.length > 1 ? bulkAdvanceRows.filter((r) => r.id !== row.id) : bulkAdvanceRows)}>
-                                                <X size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <button type="button" className="btn-add-row" onClick={() => setBulkAdvanceRows([...bulkAdvanceRows, makeAdvanceRow()])}>
-                                <Plus size={14} /> {t('adv.bulk.addRow')}
-                            </button>
-                        </div>
-                    </Modal>
-                )}
-            </AnimatePresence>
         </div>
     );
 }

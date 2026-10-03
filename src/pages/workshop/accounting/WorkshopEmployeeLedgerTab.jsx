@@ -3,6 +3,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Calendar, RefreshCw } from 'lucide-react';
 
 import SearchableEntityCombobox from '../../../components/SearchableEntityCombobox';
+import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import usePagedSearch, { WS_PAGE_SIZES } from '../../../components/workshop/usePagedSearch';
 
 import { getWorkshopEmployeeLedger } from '../../../services/advancesApi';
 import { getWorkshopCommissionsEmployees } from '../../../services/workshopCommissionsApi';
@@ -80,6 +83,33 @@ const TYPE_COLORS = {
 };
 
 
+
+const ledgerRowKey = (r) => String(r.id);
+const ledgerRowLabel = (r) => r.description || TYPE_LABELS[r.type] || r.type || 'Entry';
+const ledgerRowName = (r) => (r.reference ? `${r.reference} · ${ledgerRowLabel(r)}` : ledgerRowLabel(r));
+const ledgerRowHay = (r) =>
+    [
+        r.description,
+        r.reference,
+        r.category,
+        TYPE_LABELS[r.type] ?? r.type,
+        r.period,
+        r.status,
+        r.date ? String(r.date).slice(0, 10) : '',
+    ]
+        .filter(Boolean)
+        .join(' ');
+const ledgerRowMeta = (r) => {
+    const amount = r.earnings || r.deductions || r.paid || Math.abs(r.advance || 0);
+    return [
+        r.date ? new Date(r.date).toLocaleDateString() : '',
+        TYPE_LABELS[r.type] ?? r.type,
+        r.reference,
+        amount ? `SAR ${fmt(amount)}` : '',
+    ]
+        .filter(Boolean)
+        .join(' · ');
+};
 
 function localDatetimeToEpochMs(local) {
     return riyadhDatetimeLocalToEpochMs(local);
@@ -409,7 +439,20 @@ export default function WorkshopEmployeeLedgerTab({
 
     const summary = ledger?.summary ?? null;
 
-    const rows = ledger?.rows ?? [];
+    const rows = useMemo(() => ledger?.rows ?? [], [ledger]);
+
+    const ledgerPager = usePagedSearch({
+        rows,
+        getKey: ledgerRowKey,
+        getName: ledgerRowName,
+        getHay: ledgerRowHay,
+        resetKey: ledger,
+    });
+    const ledgerTableRef = useRef(null);
+    const goToLedgerPage = (p) => {
+        ledgerPager.setPage(p);
+        ledgerTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
 
     const hasLiveBalance =
 
@@ -851,7 +894,32 @@ export default function WorkshopEmployeeLedgerTab({
 
 
 
-                    <section className="premium-table cash-bank-table">
+                    {rows.length > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
+                            <div style={{ flex: '1 1 320px', maxWidth: 480 }}>
+                                <WsSearchSuggest
+                                    value={ledgerPager.query}
+                                    onChange={ledgerPager.setQuery}
+                                    matches={ledgerPager.suggestions}
+                                    picked={ledgerPager.picked}
+                                    getKey={ledgerRowKey}
+                                    getLabel={ledgerRowLabel}
+                                    getMeta={ledgerRowMeta}
+                                    onPick={ledgerPager.pick}
+                                    onClear={ledgerPager.clear}
+                                    placeholder="Search entries: description, reference, type, period…"
+                                    emptyText="No ledger entries match"
+                                />
+                            </div>
+                            {ledgerPager.query.trim() ? (
+                                <span className="form-help-text" style={{ fontSize: 12 }}>
+                                    {ledgerPager.total} of {rows.length} entries match (searched across all pages)
+                                </span>
+                            ) : null}
+                        </div>
+                    ) : null}
+
+                    <section ref={ledgerTableRef} className="premium-table cash-bank-table">
 
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
 
@@ -885,7 +953,13 @@ export default function WorkshopEmployeeLedgerTab({
 
                             <tbody>
 
-                                {rows.length === 0 ? (
+                                {rows.length > 0 && ledgerPager.total === 0 ? (
+                                    <tr>
+                                        <td colSpan={10} className="table-cell table-empty">
+                                            No ledger entries match this search.
+                                        </td>
+                                    </tr>
+                                ) : rows.length === 0 ? (
 
                                     <tr>
 
@@ -907,7 +981,7 @@ export default function WorkshopEmployeeLedgerTab({
 
                                 ) : (
 
-                                    rows.map((r) => (
+                                    ledgerPager.paged.map((r) => (
 
                                         <tr key={r.id} className="table-row">
 
@@ -1086,7 +1160,17 @@ export default function WorkshopEmployeeLedgerTab({
                             </tbody>
 
                         </table>
-
+                        {ledgerPager.total > 0 ? (
+                            <WsTablePagination
+                                page={ledgerPager.page}
+                                pageCount={ledgerPager.pageCount}
+                                pageSize={ledgerPager.pageSize}
+                                pageSizes={WS_PAGE_SIZES}
+                                total={ledgerPager.total}
+                                onPageChange={goToLedgerPage}
+                                onPageSizeChange={ledgerPager.setPageSize}
+                            />
+                        ) : null}
                     </section>
 
                 </>

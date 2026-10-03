@@ -94,6 +94,32 @@
     line-height: 1.45;
 }
 
+.customers-field-note {
+    margin: 6px 0 0;
+    color: #64748B;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.customers-field-note--error {
+    color: #B91C1C;
+}
+
+.customers-field-note--warn {
+    color: #B45309;
+}
+
+.customers-form-page-wrap .form-input-field.form-input-field--invalid,
+.customers-form-page-wrap .form-input-field.form-input-field--invalid:focus {
+    border-color: #DC2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+}
+
+.customers-vat-cell {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.75rem;
+}
+
 .customers-form-section {
     margin-bottom: 32px;
 }
