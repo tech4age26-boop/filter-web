@@ -16,6 +16,14 @@ function pageWindow(page, pageCount) {
     return out;
 }
 
+const DEFAULT_LABELS = {
+    prev: 'Previous page',
+    next: 'Next page',
+    rowsPerPage: 'Rows per page',
+    showing: (from, to, total) => `Showing ${from}–${to} of ${total}`,
+    page: (n) => `Page ${n}`,
+};
+
 /**
  * Centered footer for client-side paged tables: numbered pages plus a rows-per-page picker.
  * `labels`: { prev, next, rowsPerPage, showing(from, to, total), page(n) }.
@@ -28,7 +36,7 @@ export default function WsTablePagination({
     total,
     onPageChange,
     onPageSizeChange,
-    labels,
+    labels = DEFAULT_LABELS,
 }) {
     const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
     const to = Math.min(page * pageSize, total);

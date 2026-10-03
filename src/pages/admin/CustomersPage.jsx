@@ -19,6 +19,13 @@ import {
 import { marketingListReferrers } from '../../services/superAdminMarketingApi';
 import { parseAllCustomersRoute, customersRoutes, ALL_CUSTOMERS_BASE } from '../../utils/customersRoutes';
 import { custT, CUST_SUB_LABEL_KEYS } from '../../utils/customersI18n';
+import {
+    compactTaxId,
+    corporateVatError,
+    individualTaxIdError,
+    taxIdChanged,
+    taxIdText,
+} from '../../utils/saudiTaxId';
 
 const CORPORATE_BRANCH_CACHE_KEY = 'filter_corporate_branch_options_cache_v1';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -61,6 +68,7 @@ function mapCustomersResponse(d) {
         whatsapp: c.whatsapp ?? '—',
         taxId: c.taxId ?? '-',
         crNumber: c.crNumber ?? '-',
+        nationalAddress: c.nationalAddress ?? '',
         customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
         isActive: c.isActive !== false,
         vehiclesCount: Number(c.vehiclesCount ?? 0),
@@ -87,6 +95,7 @@ const EMPTY_NEW_CUSTOMER = {
     password: '',
     vatNumber: '',
     crNumber: '',
+    nationalAddress: '',
     referralId: '',
     selectedStoreIds: [],
 };
@@ -349,7 +358,9 @@ export default function CustomersPage() {
             mobile: c.mobile === '—' ? '' : (c.mobile ?? ''),
             whatsapp: c.whatsapp === '—' ? '' : (c.whatsapp ?? ''),
             taxId: c.taxId === '-' ? '' : (c.taxId ?? ''),
+            initialTaxId: c.taxId === '-' ? '' : (c.taxId ?? ''),
             crNumber: c.crNumber === '-' ? '' : (c.crNumber ?? ''),
+            nationalAddress: c.nationalAddress ?? '',
             isActive: c.isActive !== false,
             corporateAccount: c.corporateAccount,
             companyName: c.corporateAccount?.companyName ?? '',
@@ -370,10 +381,13 @@ export default function CustomersPage() {
             const branchIds = raw?.corporateAccount?.selectedStoreIds;
             setEditingCustomer((prev) => {
                 if (!prev || String(prev.id) !== String(customerId)) return prev;
+                const savedTaxId = String(raw?.customer?.taxId ?? raw?.taxId ?? prev.taxId ?? '').trim() || prev.taxId || '';
                 return {
                     ...prev,
-                    taxId: String(raw?.customer?.taxId ?? raw?.taxId ?? prev.taxId ?? '').trim() || prev.taxId || '',
+                    taxId: savedTaxId,
+                    initialTaxId: savedTaxId,
                     crNumber: String(raw?.customer?.crNumber ?? raw?.crNumber ?? prev.crNumber ?? '').trim() || prev.crNumber || '',
+                    nationalAddress: raw?.customer?.nationalAddress ?? prev.nationalAddress ?? '',
                     mobile: String(raw?.customer?.mobile ?? raw?.mobile ?? prev.mobile ?? '').trim() || prev.mobile || '',
                     loginEmail: primary?.email ?? prev.loginEmail ?? '',
                     companyName: raw?.corporateAccount?.companyName ?? prev.companyName ?? '',
@@ -459,6 +473,8 @@ export default function CustomersPage() {
                     mobile: c.mobile ?? '—',
                     whatsapp: c.whatsapp ?? '—',
                     taxId: c.taxId ?? '-',
+                    crNumber: c.crNumber ?? '-',
+                    nationalAddress: c.nationalAddress ?? '',
                     customerType: c.customerType === 'corporate' ? 'corporate' : 'regular',
                     isActive: c.isActive !== false,
                     corporateAccount: raw?.corporateAccount ?? c.corporateAccount ?? null,
@@ -487,6 +503,13 @@ export default function CustomersPage() {
             });
         return () => { cancelled = true; };
     }, [route?.screen, route?.id]);
+    const newVatError = corporateVatError(newCustomer.vatNumber, locale);
+    const editIsCorp = !!editingCustomer && (editingCustomer.customerType === 'corporate' || !!editingCustomer.corporateAccount);
+    const editTaxIdError = editingCustomer
+        ? (editIsCorp ? corporateVatError : individualTaxIdError)(editingCustomer.taxId, locale)
+        : '';
+    const editTaxIdChanged = !!editingCustomer && taxIdChanged(editingCustomer.taxId, editingCustomer.initialTaxId);
+
     const handleSaveNew = async () => {
         const companyName = String(newCustomer.companyName || '').trim();
         const contactPerson = String(newCustomer.contactPerson || '').trim();
@@ -501,13 +524,19 @@ export default function CustomersPage() {
             alert(t('err.selectBranch'));
             return;
         }
+        if (newVatError) {
+            alert(newVatError);
+            return;
+        }
         setSaving(true);
         try {
+            const vat = compactTaxId(newCustomer.vatNumber) || undefined;
             const payload = {
                 companyName,
-                vatNumber: String(newCustomer.vatNumber || '').trim() || undefined,
-                taxId: String(newCustomer.vatNumber || '').trim() || undefined,
+                vatNumber: vat,
+                taxId: vat,
                 crNumber: String(newCustomer.crNumber || '').trim() || undefined,
+                nationalAddress: String(newCustomer.nationalAddress || '').trim() || undefined,
                 contactPerson,
                 email,
                 password,
@@ -545,14 +574,21 @@ export default function CustomersPage() {
                 return;
             }
         }
+        if (editTaxIdChanged && editTaxIdError) {
+            alert(editTaxIdError);
+            return;
+        }
         setSaving(true);
         try {
             const payload = {
                 name: String(editingCustomer.name ?? '').trim() || undefined,
                 mobile: String(editingCustomer.mobile ?? '').trim() || undefined,
                 whatsapp: String(editingCustomer.whatsapp ?? '').trim() || undefined,
-                taxId: String(editingCustomer.taxId ?? '').trim() || undefined,
+                taxId: editTaxIdChanged
+                    ? (compactTaxId(editingCustomer.taxId) || undefined)
+                    : (String(editingCustomer.taxId ?? '').trim() || undefined),
                 crNumber: String(editingCustomer.crNumber ?? '').trim() || undefined,
+                nationalAddress: String(editingCustomer.nationalAddress ?? '').trim(),
                 isActive: !!editingCustomer.isActive,
             };
             if (isCorp) {
@@ -662,11 +698,16 @@ export default function CustomersPage() {
                                             <label className="form-label">{t('label.vat')}</label>
                                             <input
                                                 type="text"
-                                                className="form-input-field"
+                                                inputMode="numeric"
+                                                maxLength={20}
+                                                className={`form-input-field${newVatError ? ' form-input-field--invalid' : ''}`}
                                                 placeholder={t('ph.optional')}
                                                 value={newCustomer.vatNumber}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, vatNumber: e.target.value }))}
                                             />
+                                            <p className={`customers-field-note${newVatError ? ' customers-field-note--error' : ''}`}>
+                                                {newVatError || taxIdText(locale, 'vatHint')}
+                                            </p>
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label">{t('label.cr')}</label>
@@ -676,6 +717,16 @@ export default function CustomersPage() {
                                                 placeholder={t('ph.cr')}
                                                 value={newCustomer.crNumber}
                                                 onChange={(e) => setNewCustomer((p) => ({ ...p, crNumber: e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="form-group span-2">
+                                            <label className="form-label">{taxIdText(locale, 'nationalAddress')}</label>
+                                            <input
+                                                type="text"
+                                                className="form-input-field"
+                                                placeholder={taxIdText(locale, 'nationalAddressPh')}
+                                                value={newCustomer.nationalAddress}
+                                                onChange={(e) => setNewCustomer((p) => ({ ...p, nationalAddress: e.target.value }))}
                                             />
                                         </div>
                                     </div>
@@ -819,10 +870,19 @@ export default function CustomersPage() {
                                                         <label className="form-label">{t('label.vat')}</label>
                                                         <input
                                                             type="text"
-                                                            className="form-input-field"
+                                                            inputMode="numeric"
+                                                            maxLength={20}
+                                                            className={`form-input-field${editTaxIdChanged && editTaxIdError ? ' form-input-field--invalid' : ''}`}
                                                             value={editingCustomer.taxId}
                                                             onChange={(e) => setEditingCustomer((p) => ({ ...p, taxId: e.target.value }))}
                                                         />
+                                                        {editTaxIdError ? (
+                                                            <p className={`customers-field-note ${editTaxIdChanged ? 'customers-field-note--error' : 'customers-field-note--warn'}`}>
+                                                                {editTaxIdChanged ? editTaxIdError : taxIdText(locale, 'legacy')}
+                                                            </p>
+                                                        ) : isCorp ? (
+                                                            <p className="customers-field-note">{taxIdText(locale, 'vatHint')}</p>
+                                                        ) : null}
                                                     </div>
                                                     <div className="form-group">
                                                         <label className="form-label">{t('label.cr')}</label>
@@ -831,6 +891,16 @@ export default function CustomersPage() {
                                                             className="form-input-field"
                                                             value={editingCustomer.crNumber ?? ''}
                                                             onChange={(e) => setEditingCustomer((p) => ({ ...p, crNumber: e.target.value }))}
+                                                        />
+                                                    </div>
+                                                    <div className="form-group span-2">
+                                                        <label className="form-label">{taxIdText(locale, 'nationalAddress')}</label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-input-field"
+                                                            placeholder={taxIdText(locale, 'nationalAddressPh')}
+                                                            value={editingCustomer.nationalAddress ?? ''}
+                                                            onChange={(e) => setEditingCustomer((p) => ({ ...p, nationalAddress: e.target.value }))}
                                                         />
                                                     </div>
                                                 </div>
@@ -935,6 +1005,9 @@ export default function CustomersPage() {
                                     </div>
                                     <div className="cell-sub-text">
                                         CR: {detailsData.customer?.crNumber || detailsData.crNumber || '—'}
+                                    </div>
+                                    <div className="cell-sub-text">
+                                        {taxIdText(locale, 'nationalAddress')}: {detailsData.customer?.nationalAddress || detailsData.nationalAddress || '—'}
                                     </div>
                                 </div>
                                 <div className="form-group">
@@ -1109,6 +1182,9 @@ export default function CustomersPage() {
                                 <td className="table-cell">
                                     <div className="cell-main-text">{c.name}</div>
                                     <div className="cell-sub-text">{c.customerType === 'corporate' ? t('type.business') : t('type.walkIn')}</div>
+                                    {c.taxId && c.taxId !== '-' ? (
+                                        <div className="cell-sub-text customers-vat-cell">{t('label.vat')}: {c.taxId}</div>
+                                    ) : null}
                                 </td>
                                 <td className="table-cell">
                                     <span className={`type-badge ${c.customerType === 'corporate' ? 'corporate' : 'walk-in'}`}>

@@ -3,6 +3,7 @@ import { Building2, Wallet, Edit, Phone, Mail, MapPin, Loader2, Lock, Eye, EyeOf
 import Modal from '../../components/Modal';
 import { apiFetch } from '../../services/api';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
+import { compactTaxId, corporateVatError, taxIdChanged, taxIdText } from '../../utils/saudiTaxId';
 
 export function EditProfileModal({ profile, onClose, onSave, saving }) {
     const [formData, setFormData] = useState({
@@ -11,6 +12,7 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
         companyName: profile?.corporateAccount?.companyName || '',
         vatNumber: profile?.corporateAccount?.vatNumber || '',
         crNumber: profile?.corporateAccount?.crNumber || '',
+        nationalAddress: profile?.corporateAccount?.nationalAddress || '',
         billingAddress: profile?.corporateAccount?.billingAddress || '',
         phoneNumber: profile?.corporateAccount?.phoneNumber || '',
         selectedStoreIds: (profile?.corporateAccount?.selectedStoreIds || []).map(String),
@@ -18,6 +20,9 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
     });
     const [showNew, setShowNew] = useState(false);
     const [formError, setFormError] = useState('');
+    const savedVat = profile?.corporateAccount?.vatNumber || '';
+    const vatChanged = taxIdChanged(formData.vatNumber, savedVat);
+    const vatError = corporateVatError(formData.vatNumber, 'en');
     const availableWorkshops = Array.isArray(profile?.availableWorkshops)
         ? profile.availableWorkshops
         : [];
@@ -39,6 +44,10 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
             setFormError('Please enter a valid email address.');
             return;
         }
+        if (vatChanged && vatError) {
+            setFormError(vatError);
+            return;
+        }
 
         // Send only what's relevant: omit newPassword entirely if blank.
         const payload = {
@@ -46,12 +55,12 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
             email: formData.email,
             companyName: formData.companyName,
             crNumber: formData.crNumber,
+            nationalAddress: String(formData.nationalAddress || '').trim(),
             billingAddress: formData.billingAddress,
             phoneNumber: formData.phoneNumber,
             selectedStoreIds: formData.selectedStoreIds,
         };
-        const vat = String(formData.vatNumber || '').trim();
-        if (vat) payload.vatNumber = vat;
+        if (vatChanged && compactTaxId(formData.vatNumber)) payload.vatNumber = compactTaxId(formData.vatNumber);
         if (formData.newPassword) {
             payload.newPassword = formData.newPassword;
         }
@@ -137,11 +146,16 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
                         <input
                             type="text"
                             name="vatNumber"
-                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            inputMode="numeric"
+                            maxLength={20}
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:`1px solid ${vatChanged && vatError ? '#DC2626' : 'var(--color-border)'}`, fontSize:'0.875rem'}}
                             value={formData.vatNumber}
                             onChange={handleChange}
                             placeholder="e.g. 310123456700003"
                         />
+                        <p style={{margin:'6px 0 0', fontSize:'0.75rem', color: vatError ? (vatChanged ? '#B91C1C' : '#B45309') : 'var(--color-text-muted)'}}>
+                            {vatError ? (vatChanged ? vatError : taxIdText('en', 'legacy')) : taxIdText('en', 'vatHint')}
+                        </p>
                     </div>
                     <div className="ws-form-group">
                         <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>CR Number</label>
@@ -152,6 +166,17 @@ export function EditProfileModal({ profile, onClose, onSave, saving }) {
                             value={formData.crNumber}
                             onChange={handleChange}
                             placeholder="e.g. 1010123456"
+                        />
+                    </div>
+                    <div className="ws-form-group">
+                        <label style={{display:'block', fontSize:'0.75rem', fontWeight:700, color:'var(--color-text-muted)', textTransform:'uppercase', marginBottom:6}}>{taxIdText('en', 'nationalAddress')}</label>
+                        <input
+                            type="text"
+                            name="nationalAddress"
+                            style={{width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--color-border)', fontSize:'0.875rem'}}
+                            value={formData.nationalAddress}
+                            onChange={handleChange}
+                            placeholder={taxIdText('en', 'nationalAddressPh')}
                         />
                     </div>
                 </div>
@@ -339,6 +364,7 @@ export default function CorporateProfile({ onTabChange }) {
                                 </div>
                                 <p style={{fontSize:'0.8125rem',color:'var(--color-text-muted)',marginTop:6, fontWeight:600}}>VAT: {ca?.vatNumber || 'N/A'}</p>
                                 <p style={{fontSize:'0.8125rem',color:'var(--color-text-muted)',marginTop:4, fontWeight:600}}>CR: {ca?.crNumber || 'N/A'}</p>
+                                <p style={{fontSize:'0.8125rem',color:'var(--color-text-muted)',marginTop:4, fontWeight:600}}>{taxIdText('en', 'nationalAddress')}: {ca?.nationalAddress || 'N/A'}</p>
                             </div>
                         </div>
                         <div style={{display:'flex',gap:12,alignItems:'center'}}>

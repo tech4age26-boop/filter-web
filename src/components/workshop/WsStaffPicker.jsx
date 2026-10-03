@@ -19,6 +19,8 @@ export default function WsStaffPicker({
     placeholder = 'Search name, phone, role or branch…',
     emptyText = 'No staff match',
     disabled = false,
+    countText = (matched, total, searching) => (searching ? `${matched} of ${total} match` : `${total} staff`),
+    hint = '↑ ↓ to move, Enter to select, Esc to close',
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -155,6 +157,7 @@ export default function WsStaffPicker({
                     className="ws-staff-picker__clear"
                     aria-label="Clear selection"
                     title="Clear selection"
+                    tabIndex={-1}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                         onChange('', null);
@@ -211,10 +214,8 @@ export default function WsStaffPicker({
                     )}
                     {matches.length > 0 ? (
                         <div className="ws-staff-picker__footer">
-                            {query.trim()
-                                ? `${matches.length} of ${options.length} match`
-                                : `${options.length} staff`}
-                            {' · ↑ ↓ to move, Enter to select, Esc to close'}
+                            {countText(matches.length, options.length, Boolean(query.trim()))}
+                            {` · ${hint}`}
                         </div>
                     ) : null}
                 </div>

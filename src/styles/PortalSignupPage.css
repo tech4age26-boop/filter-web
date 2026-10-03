@@ -52,6 +52,17 @@
     color: #6b7280;
 }
 
+.signup-field-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.signup-field-note--error {
+    color: #b91c1c;
+}
+
 .signup-workshop-group {
     border: 1px solid #eef2f7;
     border-radius: 10px;
