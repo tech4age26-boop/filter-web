@@ -492,11 +492,11 @@ export default function WorkshopPettyCashManagement({
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.createdAt).toLocaleDateString()}</td>
                                 <td className="table-cell">{r.requestedBy?.name ?? t('emDash')}</td>
-                                <td className="table-cell">{r.kind === 'fund_request' ? t('kind.fundTopUp') : t('kind.expense')}</td>
+                                <td className="table-cell">{r.kind === 'fund_request' ? t('kind.fundTopUp') : r.kind === 'no_cash' ? t('kind.nonCash') : t('kind.expense')}</td>
                                 <td className="table-cell">{r.branch?.name ?? t('emDash')}</td>
                                 <td className="table-cell">{t('money.sar', { amount: formatSar(r.amount) })}</td>
                                 <td className="table-cell">
-                                    {r.kind === 'expense' ? (
+                                    {r.kind === 'expense' || r.kind === 'no_cash' ? (
                                         <ExpenseProofThumbnail proofUrl={r.proofUrl} size={36} />
                                     ) : t('emDash')}
                                 </td>

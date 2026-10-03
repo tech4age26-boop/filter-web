@@ -5,9 +5,31 @@ import { useAuth } from './AuthContext';
 
 const POSContext = createContext(null);
 
-/** Oldest order id first (matches backend GET /cashier/orders FIFO). */
-function sortCashierOrdersOldestFirst(list) {
+function cashierOrderInstant(o) {
+    const raw = String(o?.createdAt ?? o?.orderDateTime ?? '').trim();
+    if (!raw) return null;
+    const t = new Date(raw).getTime();
+    return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Oldest order first, so the newest lands at the bottom of the hub list.
+ *
+ * Creation time is the key rather than id: a branch restored from a seed/reset
+ * carries low ids with recent timestamps, which used to float genuinely new
+ * orders to the top. Id only breaks ties.
+ */
+export function sortCashierOrdersOldestFirst(list) {
     return [...list].sort((a, b) => {
+        const at = cashierOrderInstant(a);
+        const bt = cashierOrderInstant(b);
+        if (at !== null && bt !== null) {
+            if (at !== bt) return at - bt;
+        } else if (at !== null) {
+            return 1;
+        } else if (bt !== null) {
+            return -1;
+        }
         try {
             const ai = BigInt(String(a?.id ?? '0'));
             const bi = BigInt(String(b?.id ?? '0'));

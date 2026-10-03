@@ -61,6 +61,7 @@ export const WA_I18N = {
         'type.lockerExpense': 'Locker expense',
         'type.topUp': 'Top up',
         'type.expense': 'Expense',
+        'type.nonCash': 'Non Cash',
 
         'reason.lines': 'Lines: {label}',
         'reason.linkedSupplierReturn': 'Linked supplier return {no}',
@@ -244,6 +245,7 @@ export const WA_I18N = {
         'type.lockerExpense': 'مصروف الخزنة',
         'type.topUp': 'تعبئة رصيد',
         'type.expense': 'مصروف',
+        'type.nonCash': 'غير نقدي',
 
         'reason.lines': 'البنود: {label}',
         'reason.linkedSupplierReturn': 'مرتجع مورّد مرتبط {no}',

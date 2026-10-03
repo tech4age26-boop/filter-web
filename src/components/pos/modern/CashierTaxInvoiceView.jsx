@@ -289,6 +289,21 @@ export default function CashierTaxInvoiceView({ invoice: rawInvoice, pdfCapture 
               amount={sar(totals.promoDiscount)}
             />
           ) : null}
+          {thermalR2(totals.referralDiscount) > 0.001 ? (
+            <TotalsRow
+              en={
+                invoice.referralCode
+                  ? `Referral Discount (${invoice.referralCode})`
+                  : 'Referral Discount'
+              }
+              ar={
+                invoice.referralCode
+                  ? `خصم الإحالة (${invoice.referralCode})`
+                  : 'خصم الإحالة'
+              }
+              amount={sar(totals.referralDiscount)}
+            />
+          ) : null}
           <TotalsRow
             en="Total Taxable Amount (Excluding VAT)"
             ar="إجمالي المبلغ الخاضع للضريبة"
