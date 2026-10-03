@@ -700,7 +700,14 @@ function AiCameraListScreen() {
         status: orderStatus,
         search: searchQ,
       });
-      setOrders(res || { data: [], total: 0, page: 1, totalPages: 1 });
+      // Backend returns { data, total, page, limit, totalPages }
+      if (Array.isArray(res)) {
+        setOrders({ data: res, total: res.length, page: 1, totalPages: 1 });
+      } else if (res && Array.isArray(res.data)) {
+        setOrders(res);
+      } else {
+        setOrders({ data: [], total: 0, page: 1, totalPages: 1 });
+      }
     } catch (e) {
       setError(e.message || 'Failed to load orders');
       setOrders({ data: [], total: 0, page: 1, totalPages: 1 });
