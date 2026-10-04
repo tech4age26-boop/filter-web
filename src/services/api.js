@@ -5,12 +5,7 @@ import { notifyUserActivity } from '../utils/sessionIdle';
 // Production / preview builds without that env var keep the Railway staging API.
 // export const BASE_URL = "https://api.filtercarservices.com";
 //staging url (production default when VITE_API_BASE_URL is unset)
-const STAGING_BASE_URL = 'https://filterbackend-production.up.railway.app';
-const DEV_BASE_URL =
-  import.meta.env?.DEV && import.meta.env?.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL).trim().replace(/\/+$/, '')
-    : '';
-export const BASE_URL = DEV_BASE_URL || STAGING_BASE_URL;
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
 // development url — use local Nest while building AI Camera Phase 1
 // export const BASE_URL = 'http://localhost:3000';
 
