@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Percent, Calculator, FileText, AlertCircle, Save, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, Percent, Calculator, FileText, AlertCircle, Save, CheckCircle2, Landmark } from 'lucide-react';
 import { getTaxCodesConfig, saveTaxCodesConfig } from '../../services/superAdminApi';
 import { useAuth } from '../../context/AuthContext';
+import { compactTaxId, corporateVatError, taxIdText } from '../../utils/saudiTaxId';
 import '../../styles/admin/TaxCodePage.css';
 
 const TaxCodePage = () => {
@@ -17,6 +18,9 @@ const TaxCodePage = () => {
     // SAVE button commits any change (VAT or additional taxes), so enable if any edit power exists.
     const canSave = canEditVat || canCreateAdditional || canEditAdditional || canDeleteAdditional;
     const [vatRate, setVatRate] = useState(15);
+    const [platformVatNumber, setPlatformVatNumber] = useState('');
+    const [platformNameEn, setPlatformNameEn] = useState('');
+    const [platformNameAr, setPlatformNameAr] = useState('');
     const [taxes, setTaxes] = useState([]);
     const [configId, setConfigId] = useState(null);
     const [updatedAt, setUpdatedAt] = useState(null);
@@ -46,6 +50,9 @@ const TaxCodePage = () => {
                 if (!mounted) return;
                 setConfigId(res?.id ?? null);
                 setVatRate(Number(res?.vatRate ?? 15));
+                setPlatformVatNumber(String(res?.platformVatNumber ?? ''));
+                setPlatformNameEn(String(res?.platformNameEn ?? ''));
+                setPlatformNameAr(String(res?.platformNameAr ?? ''));
                 setTaxes(normalizeTaxes(res?.taxes));
                 setUpdatedAt(res?.updatedAt ?? null);
             } catch (e) {
@@ -60,6 +67,16 @@ const TaxCodePage = () => {
             mounted = false;
         };
     }, []);
+
+    const sellerError = useMemo(() => {
+        const vatErr = corporateVatError(platformVatNumber);
+        if (vatErr) return `Platform VAT number: ${vatErr}`;
+        const hasName = Boolean(platformNameEn.trim() || platformNameAr.trim());
+        const hasVat = Boolean(compactTaxId(platformVatNumber));
+        if (hasVat && !hasName) return 'Enter the platform name (English or Arabic) registered for this VAT number.';
+        if (hasName && !hasVat) return 'Enter the platform VAT number registered for this platform name.';
+        return '';
+    }, [platformVatNumber, platformNameEn, platformNameAr]);
 
     const previewSubtotal = 1000;
     const vatAmount = useMemo(() => (previewSubtotal * Number(vatRate || 0)) / 100, [vatRate]);
@@ -115,6 +132,10 @@ const TaxCodePage = () => {
             setErrorMessage('vatRate must be a number between 0 and 100');
             return;
         }
+        if (sellerError) {
+            setErrorMessage(sellerError);
+            return;
+        }
         const payloadTaxes = taxes.map((tax, index) => ({
             name: String(tax.name ?? '').trim(),
             percent: Number(tax.percent),
@@ -149,9 +170,19 @@ const TaxCodePage = () => {
             const res = await saveTaxCodesConfig({
                 vatRate: vatNum,
                 taxes: payloadTaxes,
+                ...(canEditVat
+                    ? {
+                          platformVatNumber: compactTaxId(platformVatNumber),
+                          platformNameEn: platformNameEn.trim(),
+                          platformNameAr: platformNameAr.trim(),
+                      }
+                    : {}),
             });
             setConfigId(res?.id ?? null);
             setVatRate(Number(res?.vatRate ?? vatNum));
+            setPlatformVatNumber(String(res?.platformVatNumber ?? ''));
+            setPlatformNameEn(String(res?.platformNameEn ?? ''));
+            setPlatformNameAr(String(res?.platformNameAr ?? ''));
             setTaxes(normalizeTaxes(res?.taxes));
             setUpdatedAt(res?.updatedAt ?? null);
             setShowSuccess(true);
@@ -281,6 +312,81 @@ const TaxCodePage = () => {
                                 SAR {grandTotal.toFixed(2)}
                             </span>
                         </div>
+                    </div>
+                </motion.div>
+
+                {/* Platform seller (VAT registration) — printed on every corporate monthly bill, statement and ZATCA QR */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    className="tax-card full-width"
+                >
+                    <div className="tax-card-header">
+                        <div className="tax-card-icon vat-icon">
+                            <Landmark size={24} />
+                        </div>
+                        <div className="tax-card-info">
+                            <h3>Platform Seller (VAT Registration)</h3>
+                            <p>Platform name and VAT number exactly as registered with ZATCA — seller on corporate monthly bills and statements</p>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                        <div className="tax-form-group" style={{ minWidth: 260 }}>
+                            <label>Platform Name (English)</label>
+                            <input
+                                type="text"
+                                maxLength={200}
+                                value={platformNameEn}
+                                onChange={(e) => setPlatformNameEn(e.target.value)}
+                                placeholder="Filter Car Services"
+                                disabled={!canEditVat}
+                                readOnly={!canEditVat}
+                            />
+                        </div>
+                        <div className="tax-form-group" style={{ minWidth: 260 }}>
+                            <label>اسم المنصة (عربي) / Platform Name (Arabic)</label>
+                            <input
+                                type="text"
+                                dir="rtl"
+                                maxLength={200}
+                                value={platformNameAr}
+                                onChange={(e) => setPlatformNameAr(e.target.value)}
+                                placeholder="فلتر لخدمات السيارات"
+                                disabled={!canEditVat}
+                                readOnly={!canEditVat}
+                            />
+                        </div>
+                        <div className="tax-form-group" style={{ minWidth: 220 }}>
+                            <label>Platform VAT Number / الرقم الضريبي للمنصة</label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={20}
+                                value={platformVatNumber}
+                                onChange={(e) => setPlatformVatNumber(e.target.value)}
+                                placeholder="310123456700003"
+                                disabled={!canEditVat}
+                                readOnly={!canEditVat}
+                            />
+                        </div>
+                    </div>
+                    {sellerError && (
+                        <div className="vat-hint" style={{ color: '#B91C1C' }}>
+                            <AlertCircle size={14} />
+                            <span>{sellerError}</span>
+                        </div>
+                    )}
+                    <div className="vat-hint">
+                        <AlertCircle size={14} />
+                        <span>
+                            VAT: {taxIdText('en', 'vatHint')}. The name(s) and VAT number print together as the seller on the
+                            bill header, every statement page and the QR code of corporate monthly bills (QR uses the Arabic
+                            name, or the English name when Arabic is empty).
+                            {!platformNameEn.trim() && !platformNameAr.trim() && !compactTaxId(platformVatNumber) &&
+                                ' Not set yet — bills print "Filter Car Services / فلتر لخدمات السيارات" with 311120967500003 until saved.'}
+                        </span>
                     </div>
                 </motion.div>
 

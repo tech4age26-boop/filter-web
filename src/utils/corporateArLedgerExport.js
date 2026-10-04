@@ -4,10 +4,13 @@ import QRCode from 'qrcode';
 import filterBrandIcon from '../assets/images/filter-brand-icon.png';
 import { buildZatcaPhase1QrPayloadFromInvoice } from './zatcaQr';
 import {
+    buildBillAmountSummaryLines,
     collectionAmountDue,
+    invoiceBillBreakdown,
     money2,
     splitInclusiveVatAmount,
     storedInvoiceDisplayAmounts,
+    sumBillBreakdowns,
 } from './corporateBillInvoiceAmounts';
 
 const fmt = (v) =>
@@ -77,6 +80,55 @@ export function resolveBilingualCompanyLines(src) {
     return { english, arabic };
 }
 
+const PLATFORM_SELLER_NAME_EN = 'Filter Car Services';
+const PLATFORM_SELLER_NAME_AR = 'فلتر لخدمات السيارات';
+/** Used only until super admin saves a Platform VAT Number (Tax Configuration). */
+const LEGACY_PLATFORM_VAT = '311120967500003';
+
+/** Seller VAT on every bill / statement page is the platform's (super-admin setting). */
+export function resolvePlatformVatNumber(...sources) {
+    for (const src of sources) {
+        const v = String(src?.platformVatNumber ?? '').trim();
+        if (v) return v;
+    }
+    return LEGACY_PLATFORM_VAT;
+}
+
+/**
+ * Seller block on bills / statements: VAT-registered platform name (Tax Configuration) + platform VAT.
+ * Once any name is saved only the saved names print; the QR seller name is the Arabic name, else English.
+ */
+export function resolvePlatformSeller(...sources) {
+    const pick = (key) => {
+        for (const src of sources) {
+            const v = String(src?.[key] ?? '').trim();
+            if (v) return v;
+        }
+        return '';
+    };
+    const savedEn = pick('platformNameEn');
+    const savedAr = pick('platformNameAr');
+    const hasSaved = Boolean(savedEn || savedAr);
+    const nameEn = hasSaved ? savedEn : PLATFORM_SELLER_NAME_EN;
+    const nameAr = hasSaved ? savedAr : PLATFORM_SELLER_NAME_AR;
+    return {
+        nameEn,
+        nameAr,
+        qrName: nameAr || nameEn,
+        vatNumber: resolvePlatformVatNumber(...sources),
+    };
+}
+
+/** Header fields to pass the platform seller through export headers. */
+export function platformSellerHeaderFields(...sources) {
+    const seller = resolvePlatformSeller(...sources);
+    return {
+        platformNameEn: seller.nameEn,
+        platformNameAr: seller.nameAr,
+        platformVatNumber: seller.vatNumber,
+    };
+}
+
 /** National Address as at most two balanced lines, split at the separator nearest the middle. */
 export function splitNationalAddressLines(value) {
     const lines = String(value ?? '')
@@ -135,16 +187,19 @@ const LEDGER_COLUMNS = [
     { en: 'Vehicle No.', ar: 'رقم المركبة' },
     { en: 'Products & Services', ar: 'المنتجات والخدمات' },
     { en: 'Type', ar: 'النوع' },
-    { en: 'Inv Excl VAT', ar: 'المبلغ بدون ضريبة' },
+    { en: 'Total Excl VAT', ar: 'الإجمالي قبل الضريبة' },
+    { en: 'Less: Discount', ar: 'يخصم: الخصم' },
+    { en: 'Taxable Amount', ar: 'المبلغ الخاضع للضريبة' },
     { en: 'VAT 15%', ar: 'ضريبة 15%' },
-    { en: 'Discounts', ar: 'الخصومات' },
-    { en: 'INV Incl VAT', ar: 'الفاتورة شامل الضريبة' },
+    { en: 'Total Incl VAT', ar: 'الإجمالي شامل الضريبة' },
     { en: 'Returns', ar: 'المرتجعات' },
     { en: 'Receipts', ar: 'المقبوضات' },
     { en: 'Balance', ar: 'الرصيد' },
 ];
 
-const LEDGER_COL_COUNT = LEDGER_COLUMNS.length;
+/** Customer-facing PDFs omit the internal bill-adjustment Status column. */
+const PDF_LEDGER_COLUMNS = LEDGER_COLUMNS.filter((c) => c.en !== 'Status');
+const PDF_LEDGER_COL_COUNT = PDF_LEDGER_COLUMNS.length;
 
 export function formatLedgerAdjustmentStatus(row) {
     const adj = row?.billAdjustment;
@@ -382,13 +437,12 @@ const PDF_STYLES = `
     font-weight: 700;
   }
   .car-pdf-table tr.row-close td { background: #FFF7ED; }
-  .car-pdf-table col.col-date { width: 7%; }
-  .car-pdf-table col.col-inv { width: 7%; }
-  .car-pdf-table col.col-status { width: 10%; }
-  .car-pdf-table col.col-veh { width: 6%; }
-  .car-pdf-table col.col-prod { width: 16%; }
-  .car-pdf-table col.col-type { width: 4%; }
-  .car-pdf-table col.col-num { width: 7.14%; }
+  .car-pdf-table col.col-date { width: 6.5%; }
+  .car-pdf-table col.col-inv { width: 6.5%; }
+  .car-pdf-table col.col-veh { width: 5.5%; }
+  .car-pdf-table col.col-prod { width: 21.5%; }
+  .car-pdf-table col.col-type { width: 3.5%; }
+  .car-pdf-table col.col-num { width: 7.0625%; }
 `;
 
 function bilingualCell(en, ar) {
@@ -399,9 +453,7 @@ function bilingualCell(en, ar) {
 function buildHeaderHtml(header) {
     const { english: companyNameEnglish, arabic: companyNameArabic } =
         resolveBilingualCompanyLines(header);
-    const sellerEn = header?.sellerNameEn || 'Filter Car Services';
-    const sellerAr = header?.sellerNameAr || 'فلتر لخدمات السيارات';
-    const sellerTax = header?.sellerTaxId || '311120967500003';
+    const seller = resolvePlatformSeller(header);
     const branch = header?.workshopName || header?.branchName || '';
     const vat = header?.vatNumber || '—';
     const phone = header?.phone || header?.customerMobile || header?.mobile || '';
@@ -417,11 +469,11 @@ function buildHeaderHtml(header) {
   <div class="car-pdf-hdr__top">
     <div><img class="car-pdf-hdr__logo" src="${escapeHtml(filterBrandIcon)}" alt="FILTER" /></div>
     <div class="car-pdf-hdr__seller">
-      <div class="car-pdf-hdr__seller-en">${escapeHtml(sellerEn)}</div>
-      <div class="car-pdf-hdr__seller-ar">${escapeHtml(sellerAr)}</div>
+      ${seller.nameEn ? `<div class="car-pdf-hdr__seller-en">${escapeHtml(seller.nameEn)}</div>` : ''}
+      ${seller.nameAr ? `<div class="car-pdf-hdr__seller-ar">${escapeHtml(seller.nameAr)}</div>` : ''}
       <div class="car-pdf-hdr__seller-meta">
+        <div>Tax No.: ${escapeHtml(seller.vatNumber)}</div>
         ${branch ? `<div>${escapeHtml(branch)}</div>` : ''}
-        <div>Tax No.: ${escapeHtml(sellerTax)}</div>
       </div>
     </div>
   </div>
@@ -442,37 +494,36 @@ function buildHeaderHtml(header) {
 }
 
 function buildTableHeadHtml() {
-    const colHead = LEDGER_COLUMNS.map(
+    const colHead = PDF_LEDGER_COLUMNS.map(
         (c) =>
             `<th><span class="th-en">${escapeHtml(c.en)}</span><span class="th-ar">${escapeHtml(c.ar)}</span></th>`,
     ).join('');
     const colgroup = `
 <colgroup>
-  <col class="col-date" /><col class="col-inv" /><col class="col-status" /><col class="col-veh" /><col class="col-prod" />
-  <col class="col-type" /><col class="col-num" /><col class="col-num" /><col class="col-num" />
+  <col class="col-date" /><col class="col-inv" /><col class="col-veh" /><col class="col-prod" />
+  <col class="col-type" /><col class="col-num" /><col class="col-num" /><col class="col-num" /><col class="col-num" />
   <col class="col-num" /><col class="col-num" /><col class="col-num" /><col class="col-num" />
 </colgroup>`;
     return { colHead, colgroup };
 }
 
+/** Invoice rows → [Total Excl VAT, Less discount, Taxable, VAT, Total Incl VAT]; other rows blank. */
+export function ledgerAmountCells(r) {
+    if (r?.type !== 'Invoice') return [null, null, null, null, null];
+    const b = invoiceBillBreakdown(r);
+    return [b.grossExcl, b.discount, b.taxable, b.vat, b.total];
+}
+
 function buildDataRowHtml(r) {
     const prodEn = r.productsServicesEn ?? r.productsServices ?? '—';
     const prodAr = r.productsServicesAr ?? '';
-    const statusText = formatLedgerAdjustmentStatus(r);
-    const statusHtml = statusText
-        ? escapeHtml(statusText).replace(/\n/g, '<br/>')
-        : '—';
     return `<tr>
   <td class="col-text">${escapeHtml(r.date)}</td>
   <td class="col-text">${escapeHtml(r.invoiceNo)}</td>
-  <td class="col-text">${statusHtml}</td>
   <td class="col-text">${escapeHtml(r.vehicleNo)}</td>
   <td class="col-prod">${bilingualCell(prodEn, prodAr)}</td>
   <td class="col-text">${escapeHtml(formatLedgerTypeShort(r.type))}</td>
-  <td class="num">${fmtCell(r.invoiceExclVat)}</td>
-  <td class="num">${fmtCell(r.vat15)}</td>
-  <td class="num">${fmtCell(r.salesDiscounts)}</td>
-  <td class="num">${fmtCell(r.invoiceInclusiveVat)}</td>
+  ${ledgerAmountCells(r).map((v) => `<td class="num">${fmtCell(v)}</td>`).join('\n  ')}
   <td class="num">${fmtCell(r.salesReturns)}</td>
   <td class="num">${fmtCell(r.receipts)}</td>
   <td class="num">${fmt(r.runningBalance)}</td>
@@ -504,10 +555,10 @@ function buildLedgerPageHtml(summary, chunkRows, opts) {
     const { colHead, colgroup } = buildTableHeadHtml();
 
     const openingRow = showOpening
-        ? `<tr class="row-open"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`
+        ? `<tr class="row-open"><td colspan="${PDF_LEDGER_COL_COUNT - 1}"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`
         : '';
     const closingRow = showClosing
-        ? `<tr class="row-close"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`
+        ? `<tr class="row-close"><td colspan="${PDF_LEDGER_COL_COUNT - 1}"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`
         : '';
     const dataRows = chunkRows.map(buildDataRowHtml).join('');
 
@@ -528,7 +579,7 @@ function buildContinuationHeaderHtml(header) {
     return `
 <div class="car-pdf-cont">
   <div class="car-pdf-cont__title">${escapeHtml(name)} — Statement of Account / كشف حساب</div>
-  <div class="car-pdf-cont__meta">Period: ${escapeHtml(period)} · Tax No.: ${escapeHtml(header?.vatNumber || '—')}</div>
+  <div class="car-pdf-cont__meta">Period: ${escapeHtml(period)} · VAT No.: ${escapeHtml(header?.vatNumber || '—')}</div>
 </div>`;
 }
 
@@ -851,13 +902,42 @@ function reconcileMonthlyRowsToFrozenInvoices(rows, frozenInvoiceIncl) {
         invoiceExclVat: 0,
         vat15: 0,
     });
+    const discount = money2(next[idx].salesDiscounts ?? 0);
     next[idx] = {
         ...next[idx],
+        grossExclVat: money2(split.excl + discount),
         invoiceExclVat: split.excl,
         vat15: split.vat,
         invoiceInclusiveVat: incl,
     };
     return next;
+}
+
+/**
+ * One tax-invoice line for many POS invoices. Each column is the sum of the per-invoice
+ * figures, so the bill matches its invoices to the halala (re-splitting the summed Incl
+ * VAT turned 456.49 / 68.48 into 456.50 / 68.47).
+ */
+function monthlyRowAmounts(lines) {
+    const t = sumBillBreakdowns(lines.map(invoiceBillBreakdown));
+    return {
+        grossExcl: t.grossExcl,
+        discount: t.discount,
+        excl: t.taxable,
+        vat: t.vat,
+        incl: t.total,
+    };
+}
+
+function monthlyRowFromAmounts(base, a) {
+    return {
+        ...base,
+        grossExclVat: a.grossExcl,
+        salesDiscounts: a.discount,
+        invoiceExclVat: a.excl,
+        vat15: a.vat,
+        invoiceInclusiveVat: a.incl,
+    };
 }
 
 /**
@@ -877,57 +957,38 @@ function buildMonthlySummarizedBillRows(ledgerStatement, statement, bill) {
 
     const chunks = splitPeriodIntoMonthChunks(dateFrom, dateTo);
     if (!chunks.length) {
-        const { excl, vat, incl } = invoiceLines.reduce(
-            (acc, line) => {
-                const a = storedInvoiceDisplayAmounts(line);
-                acc.excl += a.excl;
-                acc.vat += a.vat;
-                acc.incl += a.incl;
-                return acc;
-            },
-            { excl: 0, vat: 0, incl: 0 },
-        );
         const start = parseIsoDate(dateFrom) || genDate;
         const end = parseIsoDate(dateTo) || genDate;
         return reconcileMonthlyRowsToFrozenInvoices(
             [
-                {
-                    date: dateLabel,
-                    descriptionEn: buildMonthlyBillDescriptionEn(start, end),
-                    descriptionAr: buildMonthlyBillDescriptionAr(start, end),
-                    invoiceExclVat: Number(excl.toFixed(2)),
-                    vat15: Number(vat.toFixed(2)),
-                    invoiceInclusiveVat: Number(incl.toFixed(2)),
-                },
+                monthlyRowFromAmounts(
+                    {
+                        date: dateLabel,
+                        descriptionEn: buildMonthlyBillDescriptionEn(start, end),
+                        descriptionAr: buildMonthlyBillDescriptionAr(start, end),
+                    },
+                    monthlyRowAmounts(invoiceLines),
+                ),
             ],
             frozenInvoiceInclusive(ledgerStatement, statement, bill),
         );
     }
 
-    const rows = chunks.map((chunk) => {
-        let excl = 0;
-        let vat = 0;
-        let incl = 0;
-
-        for (const line of invoiceLines) {
-            const lineDate = parseIsoDate(line.date);
-            if (!lineDate) continue;
-            if (lineDate < chunk.start || lineDate > chunk.end) continue;
-            const a = storedInvoiceDisplayAmounts(line);
-            excl += a.excl;
-            vat += a.vat;
-            incl += a.incl;
-        }
-
-        return {
-            date: dateLabel,
-            descriptionEn: buildMonthlyBillDescriptionEn(chunk.start, chunk.end),
-            descriptionAr: buildMonthlyBillDescriptionAr(chunk.start, chunk.end),
-            invoiceExclVat: Number(excl.toFixed(2)),
-            vat15: Number(vat.toFixed(2)),
-            invoiceInclusiveVat: Number(incl.toFixed(2)),
-        };
-    });
+    const rows = chunks.map((chunk) =>
+        monthlyRowFromAmounts(
+            {
+                date: dateLabel,
+                descriptionEn: buildMonthlyBillDescriptionEn(chunk.start, chunk.end),
+                descriptionAr: buildMonthlyBillDescriptionAr(chunk.start, chunk.end),
+            },
+            monthlyRowAmounts(
+                invoiceLines.filter((line) => {
+                    const lineDate = parseIsoDate(line.date);
+                    return lineDate && lineDate >= chunk.start && lineDate <= chunk.end;
+                }),
+            ),
+        ),
+    );
 
     // Drop empty month slices (e.g. timezone-shifted stray day with 0.00).
     const withAmount = rows.filter((r) => Math.abs(Number(r.invoiceInclusiveVat ?? 0)) > 0.005);
@@ -942,18 +1003,23 @@ function computeSummaryTotals(summaryRows, statement, bill) {
     let totalExcl = summaryRows.reduce((s, r) => s + Number(r.invoiceExclVat ?? 0), 0);
     let totalVat = summaryRows.reduce((s, r) => s + Number(r.vat15 ?? 0), 0);
     let totalIncl = summaryRows.reduce((s, r) => s + Number(r.invoiceInclusiveVat ?? 0), 0);
+    let totalDiscount = summaryRows.reduce((s, r) => s + Number(r.salesDiscounts ?? 0), 0);
 
     if (summaryRows.length === 0 && Number(kpis.totalInvoiceAmount ?? 0) > 0) {
-        totalIncl = Number(kpis.totalInvoiceAmount);
-        totalExcl = totalIncl / 1.15;
-        totalVat = totalIncl - totalExcl;
+        const split = splitInclusiveVatAmount(kpis.totalInvoiceAmount);
+        totalIncl = split.incl;
+        totalExcl = split.excl;
+        totalVat = split.vat;
+        totalDiscount = 0;
     }
 
     const balanceDue = Number(kpis.balance ?? totalIncl);
     return {
-        totalExcl: Number(totalExcl.toFixed(2)),
-        totalVat: Number(totalVat.toFixed(2)),
-        totalIncl: Number(totalIncl.toFixed(2)),
+        totalGrossExcl: money2(totalExcl + totalDiscount),
+        totalDiscount: money2(totalDiscount),
+        totalExcl: money2(totalExcl),
+        totalVat: money2(totalVat),
+        totalIncl: money2(totalIncl),
         balanceDue,
     };
 }
@@ -976,6 +1042,8 @@ function buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill) {
             date: dateLabel,
             descriptionEn: 'Sales returns',
             descriptionAr: 'مرتجعات المبيعات',
+            grossExclVat: -excl,
+            salesDiscounts: 0,
             invoiceExclVat: -excl,
             vat15: -vat,
             invoiceInclusiveVat: -incl,
@@ -990,6 +1058,8 @@ function buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill) {
             date: dateLabel,
             descriptionEn: 'Receipts / payments',
             descriptionAr: 'المقبوضات',
+            grossExclVat: -excl,
+            salesDiscounts: 0,
             invoiceExclVat: -excl,
             vat15: -vat,
             invoiceInclusiveVat: -incl,
@@ -1000,17 +1070,13 @@ function buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill) {
     return rows;
 }
 
+/** Seller on the bill is the platform heading, so the QR must carry the same name + VAT. */
 function resolveZatcaSellerName(corp, header) {
-    const workshop = String(corp?.workshopName || header?.workshopName || '').trim();
-    if (workshop) return workshop;
-    return 'Filter Car Services';
+    return resolvePlatformSeller(corp, header).qrName;
 }
 
 function resolveZatcaSellerTaxId(corp, header) {
-    const tax = String(
-        corp?.workshopTaxId || header?.sellerTaxId || header?.workshopTaxId || '',
-    ).trim();
-    return tax || '311120967500003';
+    return resolvePlatformVatNumber(corp, header);
 }
 
 function resolveCorporateBuyerTaxNo(corp, header) {
@@ -1250,7 +1316,7 @@ async function measureTableHeadHeight(contentWidth) {
 async function measureOpeningRowHeight(summary, contentWidth) {
     const sum = summary ?? {};
     const { colgroup } = buildTableHeadHtml();
-    const row = `<tr class="row-open"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`;
+    const row = `<tr class="row-open"><td colspan="${PDF_LEDGER_COL_COUNT - 1}"><strong>Opening balance / الرصيد الافتتاحي</strong></td><td class="num">${fmt(sum.openingBalance)}</td></tr>`;
     const html = `<div class="car-pdf-body"><table class="car-pdf-table">${colgroup}<tbody>${row}</tbody></table></div>`;
     return measureHtmlHeight(html, contentWidth);
 }
@@ -1258,7 +1324,7 @@ async function measureOpeningRowHeight(summary, contentWidth) {
 async function measureClosingRowHeight(summary, contentWidth) {
     const sum = summary ?? {};
     const { colgroup } = buildTableHeadHtml();
-    const row = `<tr class="row-close"><td colspan="${LEDGER_COL_COUNT - 1}"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`;
+    const row = `<tr class="row-close"><td colspan="${PDF_LEDGER_COL_COUNT - 1}"><strong>Closing balance / الرصيد الختامي</strong></td><td class="num">${fmt(sum.closingBalance)}</td></tr>`;
     const html = `<div class="car-pdf-body"><table class="car-pdf-table">${colgroup}<tbody>${row}</tbody></table></div>`;
     return measureHtmlHeight(html, contentWidth);
 }
@@ -1547,7 +1613,25 @@ const MONTHLY_INVOICE_STYLES = `
   .car-mi-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .car-mi-table tr.totals td { background: #DBEAFE; font-weight: 700; color: #1E3A8A; }
   .car-mi-table tr.empty td { height: 18px; }
-  .car-mi-footer { display: flex; align-items: flex-end; justify-content: flex-start; margin-top: 16px; min-height: 130px; }
+  .car-mi-table tr.deduction td { color: #B91C1C; }
+  .car-mi-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 16px; min-height: 130px; }
+  .car-mi-sum { flex: 0 0 62%; margin-left: auto; border: 1px solid #FCC247; border-radius: 4px; overflow: hidden; }
+  .car-mi-sum__head {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #FCC247; color: #111827; font-size: 9px; font-weight: 700; padding: 5px 8px;
+  }
+  .car-mi-sum__head-ar { font-family: 'Noto Sans Arabic', sans-serif; direction: rtl; }
+  .car-mi-sum__table { width: 100%; border-collapse: collapse; font-size: 8px; }
+  .car-mi-sum__table td { padding: 5px 8px; border-top: 1px solid #F1F5F9; vertical-align: middle; }
+  .car-mi-sum__table td.lbl-en { font-weight: 600; color: #111827; width: 44%; }
+  .car-mi-sum__table td.lbl-ar {
+    font-family: 'Noto Sans Arabic', sans-serif; direction: rtl; text-align: right; color: #475569; font-size: 7.5px; width: 34%;
+  }
+  .car-mi-sum__table td.num {
+    text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; border-left: 1px solid #F1F5F9;
+  }
+  .car-mi-sum__table tr.subtotal td { background: #F8FAFC; }
+  .car-mi-sum__table tr.grand td { background: #FFF7E0; font-size: 9.5px; font-weight: 800; border-top: 1px solid #FCC247; }
   .car-mi-qr img { width: 128px; height: 128px; display: block; }
   .car-mi-qr-label { font-size: 8px; color: #64748b; margin-top: 5px; text-align: center; }
 `;
@@ -1558,13 +1642,34 @@ function buildMonthlyInvoiceRowHtml(row) {
     const desc = descAr
         ? `${escapeHtml(descEn)}<span class="td-ar">${escapeHtml(descAr)}</span>`
         : escapeHtml(descEn);
-    return `<tr>
+    const gross = row.grossExclVat ?? money2(Number(row.invoiceExclVat ?? 0) + Number(row.salesDiscounts ?? 0));
+    return `<tr${row.isDeduction ? ' class="deduction"' : ''}>
   <td>${escapeHtml(row.date)}</td>
   <td>${desc}</td>
+  <td class="num">${fmtCell(gross)}</td>
+  <td class="num">${fmtCell(row.salesDiscounts ?? 0)}</td>
   <td class="num">${fmtCell(row.invoiceExclVat)}</td>
   <td class="num">${fmtCell(row.vat15)}</td>
   <td class="num">${fmtCell(row.invoiceInclusiveVat)}</td>
 </tr>`;
+}
+
+function buildBillAmountSummaryHtml(summary) {
+    const rows = summary.lines
+        .map((l) => {
+            const cls = l.grand ? 'grand' : l.subtotal ? 'subtotal' : '';
+            const amt = l.negative && Math.abs(l.amount) > 0.005 ? `(${fmt(l.amount)})` : fmt(l.amount);
+            return `<tr class="${cls}">
+  <td class="lbl-en">${escapeHtml(l.en)}</td>
+  <td class="lbl-ar">${escapeHtml(l.ar)}</td>
+  <td class="num">SAR ${amt}</td>
+</tr>`;
+        })
+        .join('');
+    return `<div class="car-mi-sum">
+  <div class="car-mi-sum__head"><span>Total Amount</span><span class="car-mi-sum__head-ar">إجمالي المبالغ</span></div>
+  <table class="car-mi-sum__table"><tbody>${rows}</tbody></table>
+</div>`;
 }
 
 async function buildMonthlyInvoiceQrDataUrl(opts) {
@@ -1595,9 +1700,7 @@ async function buildMonthlyInvoiceQrDataUrl(opts) {
 function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSummary, qrDataUrl }) {
     const corp = statement?.corporateAccount ?? {};
     const { english: companyEn, arabic: companyAr } = resolveBilingualCompanyLines(corp);
-    const sellerEn = 'Filter Car Services';
-    const sellerAr = 'فلتر لخدمات السيارات';
-    const sellerTax = '311120967500003';
+    const seller = resolvePlatformSeller(corp);
     const workshop = corp.workshopName || '';
     const vat = resolveCorporateBuyerTaxNo(corp, null) || '—';
     const nationalAddressLines = splitNationalAddressLines(
@@ -1622,18 +1725,27 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
     const period = formatPeriodLabel(dateFrom, dateTo);
     const invoiceRows = buildMonthlyInvoiceTableRows(summaryRows, kpiSummary, bill);
     const tableTotals = computeSummaryTotals(invoiceRows, statement, bill);
+    const invoiceOnlyTotals = computeSummaryTotals(summaryRows, statement, bill);
+    const amountSummary = buildBillAmountSummaryLines({
+        invoiceTotals: {
+            grossExcl: invoiceOnlyTotals.totalGrossExcl,
+            discount: invoiceOnlyTotals.totalDiscount,
+            taxable: invoiceOnlyTotals.totalExcl,
+            vat: invoiceOnlyTotals.totalVat,
+            total: invoiceOnlyTotals.totalIncl,
+        },
+        opening: kpiSummary?.openingBalance ?? 0,
+        returns: kpiSummary?.totalSalesReturns ?? 0,
+        receipts: kpiSummary?.totalReceipts ?? 0,
+    });
     // Amount due stays from export (opening + invoices − receipts − returns).
-    const balanceDue = Number(totals?.balanceDue ?? tableTotals.totalIncl ?? 0);
-    // Footer Total nets sales returns (and receipts) so it matches Amount due when opening is 0.
-    const totalExcl = tableTotals.totalExcl;
-    const totalVat = tableTotals.totalVat;
-    const totalIncl = tableTotals.totalIncl;
+    const balanceDue = Number(totals?.balanceDue ?? amountSummary.amountDue ?? 0);
 
     const rowsHtml = invoiceRows.map(buildMonthlyInvoiceRowHtml).join('');
-    const minBodyRows = 4;
+    const minBodyRows = 3;
     const fillerCount = Math.max(0, minBodyRows - invoiceRows.length);
     const fillerHtml = Array.from({ length: fillerCount }, () =>
-        '<tr class="empty"><td>&nbsp;</td><td></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>',
+        '<tr class="empty"><td>&nbsp;</td><td></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td></tr>',
     ).join('');
 
     const dueDate =
@@ -1642,8 +1754,6 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
         bill?.dueDate ||
         statement?.dueDate ||
         '—';
-
-    const kpiHtml = kpiSummary ? `<div class="car-mi-kpi-wrap">${buildKpiHtml(kpiSummary)}</div>` : '';
 
     const qrBlock = qrDataUrl
         ? `<div class="car-mi-qr"><img src="${qrDataUrl}" alt="" /></div>`
@@ -1662,11 +1772,11 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
   </div>
   <div class="car-mi-hdr__seller">
     <img class="car-mi-hdr__logo" src="${escapeHtml(filterBrandIcon)}" alt="FILTER" />
-    <div class="car-mi-hdr__seller-en">${escapeHtml(sellerEn)}</div>
-    <div class="car-mi-hdr__seller-ar">${escapeHtml(sellerAr)}</div>
+    ${seller.nameEn ? `<div class="car-mi-hdr__seller-en">${escapeHtml(seller.nameEn)}</div>` : ''}
+    ${seller.nameAr ? `<div class="car-mi-hdr__seller-ar">${escapeHtml(seller.nameAr)}</div>` : ''}
     <div class="car-mi-hdr__seller-meta">
+      <div>Tax No.: ${escapeHtml(seller.vatNumber)}</div>
       ${workshop ? `<div>${escapeHtml(workshop)}</div>` : ''}
-      <div>Tax No.: ${escapeHtml(sellerTax)}</div>
     </div>
   </div>
 </div>
@@ -1675,16 +1785,16 @@ function buildMonthlyInvoiceHtml({ bill, statement, summaryRows, totals, kpiSumm
   <div class="car-mi-title-ar">فاتورة الخدمات والمنتجات الشهرية</div>
 </div>
 <div class="car-mi-due">Due date: ${escapeHtml(dueDate)} · Amount due: SAR ${fmt(balanceDue)}</div>
-<div class="car-mi-due-math">Opening SAR ${fmt(kpiSummary?.openingBalance)} + invoices − receipts − returns = amount due</div>
-${kpiHtml}
 <table class="car-mi-table">
   <thead>
     <tr>
-      <th style="width:12%"><span>Date</span><span class="th-ar">التاريخ</span></th>
-      <th style="width:46%"><span>Description</span><span class="th-ar">الوصف</span></th>
-      <th style="width:14%"><span>Excl VAT</span><span class="th-ar">قبل الضريبة</span></th>
-      <th style="width:14%"><span>VAT 15%</span><span class="th-ar">ضريبة 15%</span></th>
-      <th style="width:14%"><span>Incl VAT</span><span class="th-ar">شامل الضريبة</span></th>
+      <th style="width:10%"><span>Date</span><span class="th-ar">التاريخ</span></th>
+      <th style="width:30%"><span>Description</span><span class="th-ar">الوصف</span></th>
+      <th style="width:12%"><span>Total Excl VAT</span><span class="th-ar">الإجمالي قبل الضريبة</span></th>
+      <th style="width:12%"><span>Less: Discount</span><span class="th-ar">يخصم: الخصم</span></th>
+      <th style="width:12%"><span>Taxable Amount</span><span class="th-ar">المبلغ الخاضع للضريبة</span></th>
+      <th style="width:12%"><span>VAT 15%</span><span class="th-ar">ضريبة 15%</span></th>
+      <th style="width:12%"><span>Total Incl VAT</span><span class="th-ar">الإجمالي شامل الضريبة</span></th>
     </tr>
   </thead>
   <tbody>
@@ -1692,13 +1802,15 @@ ${kpiHtml}
     ${fillerHtml}
     <tr class="totals">
       <td colspan="2" style="text-align:left;font-weight:700">Total / الإجمالي</td>
-      <td class="num">${fmt(totalExcl)}</td>
-      <td class="num">${fmt(totalVat)}</td>
-      <td class="num">${fmt(totalIncl)}</td>
+      <td class="num">${fmt(tableTotals.totalGrossExcl)}</td>
+      <td class="num">${fmt(tableTotals.totalDiscount)}</td>
+      <td class="num">${fmt(tableTotals.totalExcl)}</td>
+      <td class="num">${fmt(tableTotals.totalVat)}</td>
+      <td class="num">${fmt(tableTotals.totalIncl)}</td>
     </tr>
   </tbody>
 </table>
-<div class="car-mi-footer">${qrBlock}</div>`;
+<div class="car-mi-footer">${qrBlock}${buildBillAmountSummaryHtml(amountSummary)}</div>`;
 }
 
 /** Combined PDF: monthly invoice (ZATCA QR) + full AR statement details. */
@@ -1731,7 +1843,7 @@ export async function exportCorporateGeneratedBillPdf({
         vatNumber: resolveCorporateBuyerTaxNo(corp, null),
         taxId: corp.taxId || corp.vatNumber || '',
         workshopName: corp.workshopName,
-        sellerTaxId: corp.workshopTaxId || '',
+        ...platformSellerHeaderFields(corp, ledger?.corporateAccount),
         dateFrom,
         dateTo,
         generatedAt: bill?.createdAt
@@ -1845,14 +1957,17 @@ export function exportCorporateArLedgerExcel({ header, summary, lines }) {
     const accountLabel = header?.accountCode
         ? `[${header.accountCode}] ${header.accountName || ''}`.trim()
         : (header?.accountName || '');
+    const seller = resolvePlatformSeller(header);
     const aoa = [
-        ['FILTER · Filter Car Services'],
+        [`FILTER · ${seller.nameEn || seller.nameAr}`],
         ['Statement of Account / كشف حساب'],
         ['Corporate AR Ledger Statement — كشف حساب العملاء الشركات'],
         [english || header?.companyName || ''],
         ...(arabic ? [[arabic]] : []),
         ...(accountLabel ? [[`Account: ${accountLabel}`]] : []),
         [`VAT No.: ${header?.vatNumber || '—'}`],
+        [`Seller: ${[seller.nameEn, seller.nameAr].filter(Boolean).join(' / ')}`],
+        [`Seller Tax No.: ${seller.vatNumber}`],
         [`Phone: ${header?.phone || header?.customerMobile || header?.mobile || '—'}`],
         ...(header?.contactPerson || header?.customerName
             ? [[`Contact: ${header.contactPerson || header.customerName}`]]
@@ -1869,7 +1984,7 @@ export function exportCorporateArLedgerExcel({ header, summary, lines }) {
         ['Closing Balance', Number(sum.closingBalance ?? 0)],
         [],
         LEDGER_COLUMNS.map((c) => `${c.en} / ${c.ar}`),
-        ['—', '—', '—', '—', 'Opening balance / الرصيد الافتتاحي', '—', '', '', '', '', '', '', Number(sum.openingBalance ?? 0)],
+        ['—', '—', '—', '—', 'Opening balance / الرصيد الافتتاحي', '—', '', '', '', '', '', '', '', Number(sum.openingBalance ?? 0)],
         ...(lines ?? []).map((r) => [
             r.date,
             r.invoiceNo,
@@ -1877,21 +1992,18 @@ export function exportCorporateArLedgerExcel({ header, summary, lines }) {
             r.vehicleNo,
             productsExcelCell(r),
             formatLedgerTypeShort(r.type),
-            r.invoiceExclVat != null ? Number(r.invoiceExclVat) : '',
-            r.vat15 != null ? Number(r.vat15) : '',
-            r.salesDiscounts != null ? Number(r.salesDiscounts) : '',
-            r.invoiceInclusiveVat != null ? Number(r.invoiceInclusiveVat) : '',
+            ...ledgerAmountCells(r).map((v) => (v != null ? Number(v) : '')),
             r.salesReturns != null ? Number(r.salesReturns) : '',
             r.receipts != null ? Number(r.receipts) : '',
             Number(r.runningBalance ?? 0),
         ]),
-        ['—', '—', '—', '—', 'Closing balance / الرصيد الختامي', '—', '', '', '', '', '', '', Number(sum.closingBalance ?? 0)],
+        ['—', '—', '—', '—', 'Closing balance / الرصيد الختامي', '—', '', '', '', '', '', '', '', Number(sum.closingBalance ?? 0)],
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [
         { wch: 12 }, { wch: 14 }, { wch: 28 }, { wch: 12 }, { wch: 40 }, { wch: 12 },
-        { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+        { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Corporate AR');
