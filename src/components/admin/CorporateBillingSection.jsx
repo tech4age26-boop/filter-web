@@ -32,12 +32,14 @@ import {
     exportCorporateArLedgerPdf,
     exportCorporateGeneratedBillPdf,
     formatLedgerTypeShort,
+    ledgerAmountCells,
     applyPostDiscountVatToLedgerStatement,
+    platformSellerHeaderFields,
 } from '../../utils/corporateArLedgerExport';
 import { exportRowsToExcel, exportRowsToPdf } from '../../utils/tableExport';
 import { startOfMonthISO, todayISO, loadSaAccountingDateRange, saveSaAccountingDateRange } from '../../pages/admin/saAccountingDateRange';
 import { cbT } from '../../utils/corporateBillingI18n';
-import CorporateGenerateBillModal from './CorporateGenerateBillModal';
+import CorporateGenerateBillPage from './CorporateGenerateBillPage';
 import CorporateMarkBillPaidModal from './CorporateMarkBillPaidModal';
 import CorporateTransferInvoiceModal from './CorporateTransferInvoiceModal';
 import AdminScreenShell from './AdminScreenShell';
@@ -55,7 +57,22 @@ function fmtCell(v, t) {
     return t('money.sar', { amount: fmt(v) });
 }
 
-const LEDGER_COL_COUNT = 13;
+const LEDGER_COL_COUNT = 14;
+
+function LedgerAmountTds({ row, t }) {
+    return ledgerAmountCells(row).map((v, i) => (
+        <td
+            key={i}
+            style={{
+                textAlign: 'right',
+                ...(i === 1 && Number(v) > 0 ? { color: '#B45309' } : null),
+                ...(i === 4 ? { fontWeight: 600 } : null),
+            }}
+        >
+            {i === 1 && Number(v) > 0 ? `(${fmtCell(v, t)})` : fmtCell(v, t)}
+        </td>
+    ));
+}
 
 function InvoiceAdjustmentStatus({ adj, t, isAr, rowType }) {
     if (adj?.status === 'Excluded') {
@@ -420,6 +437,7 @@ export default function CorporateBillingSection() {
             companyName: ledger.corporateAccount?.companyName,
             vatNumber: ledger.corporateAccount?.vatNumber,
             workshopName: ledger.corporateAccount?.workshopName,
+            ...platformSellerHeaderFields(ledger.corporateAccount),
             dateFrom,
             dateTo,
             generatedAt: ledger.generatedAt
@@ -941,11 +959,16 @@ export default function CorporateBillingSection() {
     }
 
     if (generateOpen) {
-    return (
-            <CorporateGenerateBillModal
-                open={generateOpen}
-                onClose={() => !generating && setGenerateOpen(false)}
+        return (
+            <CorporateGenerateBillPage
+                onClose={() => {
+                    if (generating) return;
+                    setError('');
+                    setGenerateOpen(false);
+                }}
                 t={t}
+                isAr={isAr}
+                submitError={error}
                 companyName={displayName}
                 dateFrom={dateFrom}
                 dateTo={dateTo}
@@ -1044,8 +1067,9 @@ export default function CorporateBillingSection() {
                         <button
                             type="button"
                             className="btn-portal"
-                    disabled={!dateFrom || !dateTo}
+                    disabled={!dateFrom || !dateTo || ledgerLoading || !ledger}
                             onClick={() => {
+                        setError('');
                         setGenerateDueDate(dueDate || dateTo || '');
                                 setGenerateOpen(true);
                             }}
@@ -1376,7 +1400,7 @@ export default function CorporateBillingSection() {
                                     </div>
 
                                     <section className="premium-table cash-bank-table corporate-ar-ledger-table corporate-billing-ledger-table">
-                                        <table className="ws-table" style={{ width: '100%', minWidth: 1360 }}>
+                                        <table className="ws-table" style={{ width: '100%', minWidth: 1460 }}>
                     <thead>
                         <tr>
                                                     <th>{t('th.date')}</th>
@@ -1385,10 +1409,11 @@ export default function CorporateBillingSection() {
                                                     <th>{t('th.vehicle')}</th>
                                                     <th>{t('th.products')}</th>
                                                     <th>{t('th.type')}</th>
-                                                    <th style={{ textAlign: 'right' }}>{t('th.exclVatShort')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.grossExcl')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.lessDiscount')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.taxable')}</th>
                                                     <th style={{ textAlign: 'right' }}>{t('th.vat15')}</th>
-                                                    <th style={{ textAlign: 'right' }}>{t('th.discounts')}</th>
-                                                    <th style={{ textAlign: 'right' }}>{t('th.inclVatShort')}</th>
+                                                    <th style={{ textAlign: 'right' }}>{t('th.totalIncl')}</th>
                                                     <th style={{ textAlign: 'right' }}>{t('th.returns')}</th>
                                                     <th style={{ textAlign: 'right' }}>{t('th.receipts')}</th>
                                                     <th style={{ textAlign: 'right' }}>{t('th.balance')}</th>
@@ -1436,10 +1461,7 @@ export default function CorporateBillingSection() {
                                                                 ) : null}
                                                             </td>
                                                             <td>{formatLedgerTypeShort(row.type)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat, t)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15, t)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.salesDiscounts, t)}</td>
-                                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat, t)}</td>
+                                                            <LedgerAmountTds row={row} t={t} />
                                                             <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmtCell(row.salesReturns, t)}</td>
                                                             <td style={{ textAlign: 'right', color: '#059669' }}>{fmtCell(row.receipts, t)}</td>
                                                             <td style={{ textAlign: 'right', fontWeight: 600 }}>
@@ -1533,7 +1555,7 @@ export default function CorporateBillingSection() {
             </p>
 
             <section className="premium-table cash-bank-table corporate-ar-ledger-table corporate-billing-ledger-table">
-                <table className="ws-table" style={{ width: '100%', minWidth: 1360 }}>
+                <table className="ws-table" style={{ width: '100%', minWidth: 1460 }}>
                     <thead>
                         <tr>
                             <BilingualTh {...thPair('th.date', 'th.dateAr')} t={t} />
@@ -1542,10 +1564,11 @@ export default function CorporateBillingSection() {
                             <BilingualTh {...thPair('th.vehicle', 'th.vehicleAr')} t={t} />
                             <BilingualTh {...thPair('th.products', 'th.productsAr')} t={t} />
                             <BilingualTh {...thPair('th.type', 'th.typeAr')} t={t} />
-                            <BilingualTh {...thPair('th.exclVat', 'th.exclVatAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.grossExcl', 'th.grossExclAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.lessDiscount', 'th.lessDiscountAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.taxable', 'th.taxableAr')} t={t} style={{ textAlign: 'right' }} />
                             <BilingualTh {...thPair('th.vat15', 'th.vat15Ar')} t={t} style={{ textAlign: 'right' }} />
-                            <BilingualTh {...thPair('th.discounts', 'th.discountsAr')} t={t} style={{ textAlign: 'right' }} />
-                            <BilingualTh {...thPair('th.inclVat', 'th.inclVatAr')} t={t} style={{ textAlign: 'right' }} />
+                            <BilingualTh {...thPair('th.totalIncl', 'th.totalInclAr')} t={t} style={{ textAlign: 'right' }} />
                             <BilingualTh {...thPair('th.returns', 'th.returnsAr')} t={t} style={{ textAlign: 'right' }} />
                             <BilingualTh {...thPair('th.receipts', 'th.receiptsAr')} t={t} style={{ textAlign: 'right' }} />
                             <BilingualTh {...thPair('th.balance', 'th.balanceAr')} t={t} style={{ textAlign: 'right' }} />
@@ -1634,10 +1657,7 @@ export default function CorporateBillingSection() {
                                                 ) : null}
                                             </td>
                                             <td>{formatLedgerTypeShort(row.type)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceExclVat, t)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.vat15, t)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.salesDiscounts, t)}</td>
-                                            <td style={{ textAlign: 'right' }}>{fmtCell(row.invoiceInclusiveVat, t)}</td>
+                                            <LedgerAmountTds row={row} t={t} />
                                             <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmtCell(row.salesReturns, t)}</td>
                                             <td style={{ textAlign: 'right', color: '#059669' }}>{fmtCell(row.receipts, t)}</td>
                                             <td style={{ textAlign: 'right', fontWeight: 600 }}>

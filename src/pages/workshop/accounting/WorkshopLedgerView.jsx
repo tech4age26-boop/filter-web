@@ -45,6 +45,8 @@ import {
 import {
     exportCorporateArLedgerExcel,
     exportCorporateArLedgerPdf,
+    platformSellerHeaderFields,
+    resolvePlatformSeller,
 } from '../../../utils/corporateArLedgerExport';
 import {
     exportSupplierLedgerExcel,
@@ -827,8 +829,10 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             || corpLedgerRaw?.corporateAccount?.vatNumber
             || '',
         crNumber: corpLedgerRaw?.corporateAccount?.crNumber || '',
-        sellerVatNumber: '311120967500003',
-        sellerName: 'Filter Car Services',
+        ...platformSellerHeaderFields(corpLedgerRaw?.corporateAccount),
+        sellerVatNumber: resolvePlatformSeller(corpLedgerRaw?.corporateAccount).vatNumber,
+        sellerName: resolvePlatformSeller(corpLedgerRaw?.corporateAccount).nameEn
+            || resolvePlatformSeller(corpLedgerRaw?.corporateAccount).nameAr,
         partyName: selectedCorpProfile?.companyName
             || corpLedgerRaw?.corporateAccount?.companyName
             || '',

@@ -142,17 +142,53 @@ function accumulateItems(invoice, emit) {
   flat.forEach((it) => emit(mapLineItem(it)));
 }
 
+function invoiceJobs(invoice) {
+  return Array.isArray(invoice.jobs) ? invoice.jobs
+    : Array.isArray(invoice.salesOrder?.jobs) ? invoice.salesOrder.jobs
+    : Array.isArray(invoice.sales_order?.jobs) ? invoice.sales_order.jobs
+    : [];
+}
+
+function lineDiscountExclVat(item, gross, fixedIsVatInclusive) {
+  if (item.discountType === 'percent' || item.discountType === 'percentage') {
+    return thermalR2(gross * (item.discountValue / 100));
+  }
+  if (item.discountValue > 0) {
+    const raw = fixedIsVatInclusive ? item.discountValue / 1.15 : item.discountValue;
+    return thermalR2(Math.min(gross, raw));
+  }
+  return 0;
+}
+
+/**
+ * Line-discount-only invoices treat a fixed line discount as VAT-inclusive (VAT 15 % of the
+ * discounted base). Invoices with job/promo discounts — and older invoices saved before that
+ * rule — keep it ex-VAT; whichever rule reproduces the stored subtotal is used.
+ */
+function fixedLineDiscountIsVatInclusive(invoice) {
+  const hasOrderLevel = invoiceJobs(invoice).some(
+    (j) => (parseFloat(j.totalDiscountValue) || 0) > 0 || (parseFloat(j.promoDiscountAmount) || 0) > 0,
+  );
+  if (hasOrderLevel) return false;
+  const subtotalApi = parseFloat(invoice.subtotal) || 0;
+  if (subtotalApi <= 0.001) return true;
+  let netIncl = 0;
+  let netExcl = 0;
+  accumulateItems(invoice, (item) => {
+    const gross = thermalR2(thermalR2(item.unitPrice / 1.15) * item.qty);
+    netIncl += gross - lineDiscountExclVat(item, gross, true);
+    netExcl += gross - lineDiscountExclVat(item, gross, false);
+  });
+  return Math.abs(netIncl - subtotalApi) <= Math.abs(netExcl - subtotalApi);
+}
+
 export function computeThermalInvoiceLineRows(invoice) {
   const rows = [];
+  const fixedInclusive = fixedLineDiscountIsVatInclusive(invoice);
   accumulateItems(invoice, (item) => {
     const unitExcl = thermalR2(item.unitPrice / 1.15);
     const gross = thermalR2(unitExcl * item.qty);
-    let disc = 0;
-    if (item.discountType === 'percent' || item.discountType === 'percentage') {
-      disc = thermalR2(gross * (item.discountValue / 100));
-    } else if (item.discountValue > 0) {
-      disc = thermalR2(item.discountValue);
-    }
+    const disc = lineDiscountExclVat(item, gross, fixedInclusive);
     const totalBeforeVat = thermalR2(gross - disc);
     const lineVat = thermalR2(totalBeforeVat * 0.15);
     const totalWithVat = thermalR2(totalBeforeVat + lineVat);
@@ -174,27 +210,18 @@ export function computeThermalInvoiceLineRows(invoice) {
 export function computeThermalInvoiceTotals(invoice) {
   let grossAmountExclVat = 0;
   let itemDiscountsTotal = 0;
+  const fixedInclusive = fixedLineDiscountIsVatInclusive(invoice);
 
   accumulateItems(invoice, (item) => {
     const unitExcl = thermalR2(item.unitPrice / 1.15);
     const gross = thermalR2(unitExcl * item.qty);
-    let disc = 0;
-    if (item.discountType === 'percent' || item.discountType === 'percentage') {
-      disc = thermalR2(gross * (item.discountValue / 100));
-    } else if (item.discountValue > 0) {
-      disc = thermalR2(item.discountValue);
-    }
     grossAmountExclVat += gross;
-    itemDiscountsTotal += disc;
+    itemDiscountsTotal += lineDiscountExclVat(item, gross, fixedInclusive);
   });
 
   let invoiceDiscount = 0;
   let promoDiscount = 0;
-  const jobs =
-    Array.isArray(invoice.jobs) ? invoice.jobs
-    : Array.isArray(invoice.salesOrder?.jobs) ? invoice.salesOrder.jobs
-    : Array.isArray(invoice.sales_order?.jobs) ? invoice.sales_order.jobs
-    : [];
+  const jobs = invoiceJobs(invoice);
 
   jobs.forEach((j) => {
     const afterLine =

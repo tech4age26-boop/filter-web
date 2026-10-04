@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Save, RefreshCw, Users, Banknote, Search, Filter, FileDown } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, Banknote, Filter, FileDown, Pencil, FileSpreadsheet } from 'lucide-react';
+import Modal from '../../../components/Modal';
 import {
+    deleteWorkshopSalaryPayroll,
     getRecentWorkshopSalaryPayroll,
     getSalaryPayrollPreview,
     postWorkshopSalaryPayroll,
+    updateWorkshopSalaryPayroll,
 } from '../../../services/advancesApi';
 import { listCashBankAccounts } from '../../../services/workshopAccountingApi';
 import {
@@ -17,6 +20,7 @@ import {
 import {
     exportSalaryPaymentsExcel,
     exportSalaryPaymentsPdf,
+    formatSalaryMonth,
 } from './workshopSalaryPaymentsExport';
 import WsStaffPicker from '../../../components/workshop/WsStaffPicker';
 import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
@@ -53,14 +57,35 @@ const ackBadge = (status, ackAt) => {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+const filterChipStyle = {
+    padding: '2px 8px',
+    borderRadius: 999,
+    background: '#F1F5F9',
+    border: '1px solid #E2E8F0',
+    fontWeight: 600,
+};
+
+const fmtFilterDate = (ymd) => {
+    const [y, m, d] = String(ymd).split('-');
+    return y && m && d ? `${d}/${m}/${y}` : ymd;
+};
+
 const recentRowKey = (s) => String(s.id);
 const recentRowName = (s) => s.employeeName || '';
 const recentRowHay = (s) =>
-    [s.employeeName, s.period, s.payFromAccountName, s.paymentDate ? String(s.paymentDate).slice(0, 10) : '']
+    [
+        s.employeeName,
+        s.period,
+        s.payFromAccountName,
+        s.branchName,
+        s.entryNumber,
+        s.paymentDate ? String(s.paymentDate).slice(0, 10) : '',
+    ]
         .filter(Boolean)
         .join(' ');
 const recentRowMeta = (s) =>
     [
+        s.entryNumber,
         s.period,
         s.paymentDate ? new Date(s.paymentDate).toLocaleDateString() : '',
         `Net SAR ${fmt(s.netSalary)}`,
@@ -122,6 +147,20 @@ const emptyRow = () => ({
     previewLoaded: false,
 });
 
+const branchKey = (b) => String(b.id);
+const branchLabel = (b) => b?.name || '—';
+const branchMeta = (b) => [b?.branchCode, b?.address].filter(Boolean).join(' · ') || 'Branch';
+const branchSearchText = (b) => [b?.name, b?.branchCode, b?.address].filter(Boolean).join(' ');
+
+const editNetPayable = (f) => {
+    if (!f) return 0;
+    return (Number(f.basicSalary) || 0)
+        + (Number(f.rewardBonus) || 0)
+        + (Number(f.commissionAmount) || 0)
+        - (Number(f.advanceDeduction) || 0)
+        - (Number(f.penalties) || 0);
+};
+
 function netPayable(row) {
     const basic = Number(row.basicSalary) || 0;
     const reward = Number(row.rewardBonus) || 0;
@@ -143,55 +182,248 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
     const [recentDateFrom, setRecentDateFrom] = useState('');
     const [recentDateTo, setRecentDateTo] = useState('');
     const [recentBranchId, setRecentBranchId] = useState(() => branchFilter || '');
+    const [appliedFilters, setAppliedFilters] = useState(() => ({
+        branchId: branchFilter || '',
+        dateFrom: '',
+        dateTo: '',
+    }));
+    const [filterError, setFilterError] = useState('');
     const [loadingLookups, setLoadingLookups] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [msg, setMsg] = useState('');
     const [error, setError] = useState('');
+    const [editForm, setEditForm] = useState(null);
+    const [editSaving, setEditSaving] = useState(false);
+    const [editError, setEditError] = useState('');
+    const [deleteRow, setDeleteRow] = useState(null);
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
+    const [sheetOpen, setSheetOpen] = useState(false);
+    const [sheetMonth, setSheetMonth] = useState(defaultPeriod());
+    const [sheetBranchId, setSheetBranchId] = useState('');
+    const [sheetFormat, setSheetFormat] = useState('pdf');
+    const [sheetBusy, setSheetBusy] = useState(false);
+    const [sheetError, setSheetError] = useState('');
     const previewSeqRef = useRef({});
-    const recentFiltersRef = useRef({
-        recentBranchId: '',
-        recentDateFrom: '',
-        recentDateTo: '',
-    });
-
-    recentFiltersRef.current = {
-        recentBranchId,
-        recentDateFrom,
-        recentDateTo,
-    };
+    const recentSeqRef = useRef(0);
+    /** Filters the table was last loaded with — background refreshes never pick up unapplied inputs. */
+    const appliedFiltersRef = useRef(appliedFilters);
 
     const branchParams = useMemo(
         () => (branchFilter ? { branchId: branchFilter } : {}),
         [branchFilter],
     );
 
-    const buildRecentQueryParams = useCallback(() => {
-        const f = recentFiltersRef.current;
-        return {
-            limit: 5000,
-            ...(f.recentBranchId ? { branchId: f.recentBranchId } : {}),
-            ...(f.recentDateFrom ? { dateFrom: f.recentDateFrom } : {}),
-            ...(f.recentDateTo ? { dateTo: f.recentDateTo } : {}),
-        };
-    }, []);
-
-    const loadRecentPayments = useCallback(async () => {
-        setRecentLoading(true);
+    const loadRecentPayments = useCallback(async ({ filters, silent = false } = {}) => {
+        const f = filters ?? appliedFiltersRef.current;
+        const seq = recentSeqRef.current + 1;
+        recentSeqRef.current = seq;
+        if (!silent) setRecentLoading(true);
         try {
-            const salRes = await getRecentWorkshopSalaryPayroll(buildRecentQueryParams());
-            setRecent(salRes?.list ?? []);
+            const salRes = await getRecentWorkshopSalaryPayroll({
+                limit: 5000,
+                ...(f.branchId ? { branchId: f.branchId } : {}),
+                ...(f.dateFrom ? { dateFrom: f.dateFrom } : {}),
+                ...(f.dateTo ? { dateTo: f.dateTo } : {}),
+            });
+            if (recentSeqRef.current !== seq) return;
+            const list = (salRes?.list ?? []).filter((r) => {
+                if (f.branchId && String(r.branchId ?? '') !== String(f.branchId)) return false;
+                const day = r.paymentDate ? String(r.paymentDate).slice(0, 10) : '';
+                if (f.dateFrom && day && day < f.dateFrom) return false;
+                if (f.dateTo && day && day > f.dateTo) return false;
+                return true;
+            });
+            appliedFiltersRef.current = f;
+            setAppliedFilters(f);
+            setRecent(list);
         } catch (e) {
+            if (recentSeqRef.current !== seq) return;
             setError(e?.message || 'Could not refresh recent salary payments.');
         } finally {
-            setRecentLoading(false);
+            if (recentSeqRef.current === seq) setRecentLoading(false);
         }
-    }, [buildRecentQueryParams]);
+    }, []);
 
-    const recentBranchName = useMemo(() => {
-        if (!recentBranchId) return 'All branches';
-        const match = branches.find((b) => String(b.id) === String(recentBranchId));
+    const refreshRecent = useCallback(() => loadRecentPayments(), [loadRecentPayments]);
+
+    const branchNameOf = useCallback((id) => {
+        if (!id) return 'All branches';
+        const match = branches.find((b) => String(b.id) === String(id));
         return match?.name || 'Branch';
-    }, [recentBranchId, branches]);
+    }, [branches]);
+
+    /** Label of the branch whose rows are actually loaded (never the unsaved dropdown value). */
+    const recentBranchName = useMemo(
+        () => branchNameOf(appliedFilters.branchId),
+        [branchNameOf, appliedFilters.branchId],
+    );
+
+    const filtersDirty = recentBranchId !== appliedFilters.branchId
+        || recentDateFrom !== appliedFilters.dateFrom
+        || recentDateTo !== appliedFilters.dateTo;
+
+    const applyRecentFilters = () => {
+        setFilterError('');
+        if (recentDateFrom && recentDateTo && recentDateFrom > recentDateTo) {
+            setFilterError('"From" date cannot be after the "To" date.');
+            return;
+        }
+        loadRecentPayments({
+            filters: { branchId: recentBranchId, dateFrom: recentDateFrom, dateTo: recentDateTo },
+        });
+    };
+
+    const clearRecentFilters = () => {
+        setFilterError('');
+        const next = { branchId: branchFilter || '', dateFrom: '', dateTo: '' };
+        setRecentBranchId(next.branchId);
+        setRecentDateFrom('');
+        setRecentDateTo('');
+        loadRecentPayments({ filters: next });
+    };
+
+    const editPayFromOptions = useMemo(() => {
+        if (!editForm?.payFromAccountId) return accounts;
+        if (accounts.some((a) => String(a.id) === String(editForm.payFromAccountId))) return accounts;
+        return [{ id: editForm.payFromAccountId, name: editForm.payFromAccountName || 'Current account' }, ...accounts];
+    }, [accounts, editForm?.payFromAccountId, editForm?.payFromAccountName]);
+
+    const openEdit = (s) => {
+        setEditError('');
+        setEditForm({
+            id: s.id,
+            employeeName: s.employeeName,
+            entryNumber: s.entryNumber || '',
+            branchName: s.branchName || '',
+            period: s.period || '',
+            paymentDate: s.paymentDate ? String(s.paymentDate).slice(0, 10) : todayIso(),
+            payFromAccountId: s.payFromAccountId ? String(s.payFromAccountId) : '',
+            payFromAccountName: s.payFromAccountName || '',
+            basicSalary: String(s.basicSalary ?? 0),
+            rewardBonus: String(s.rewardBonus ?? 0),
+            commissionAmount: Number(s.commissionAmount || 0),
+            advanceDeduction: String(s.advanceDeduction ?? 0),
+            penalties: String(s.penalties ?? 0),
+            penaltyNotes: s.penaltyNotes || '',
+            notes: s.notes || '',
+        });
+    };
+
+    const saveEdit = async () => {
+        if (!editForm) return;
+        setEditError('');
+        const nums = ['basicSalary', 'rewardBonus', 'advanceDeduction', 'penalties'];
+        for (const k of nums) {
+            const n = Number(editForm[k]);
+            if (editForm[k] === '' || !Number.isFinite(n) || n < 0) {
+                setEditError('Salary, reward/bonus, advance deduction and penalties must be numbers ≥ 0.');
+                return;
+            }
+        }
+        if (!editForm.period) { setEditError('Select the salary period (month).'); return; }
+        if (!editForm.paymentDate) { setEditError('Select the payment date.'); return; }
+        if (!editForm.payFromAccountId) { setEditError('Select a Pay From account (cash or bank).'); return; }
+        if (Number(editForm.penalties) > 0 && !editForm.penaltyNotes.trim()) {
+            setEditError('Penalty reason is required when a penalty amount is entered.');
+            return;
+        }
+        const gross = (Number(editForm.basicSalary) || 0) + (Number(editForm.rewardBonus) || 0) + editForm.commissionAmount;
+        if (gross <= 0) { setEditError('Salary must have a payable amount greater than zero.'); return; }
+        if (editNetPayable(editForm) < -0.004) { setEditError('Deductions cannot exceed the gross salary.'); return; }
+
+        setEditSaving(true);
+        try {
+            const res = await updateWorkshopSalaryPayroll(editForm.id, {
+                period: editForm.period,
+                paymentDate: editForm.paymentDate,
+                payFromAccountId: String(editForm.payFromAccountId),
+                basicSalary: Number(editForm.basicSalary),
+                rewardBonus: Number(editForm.rewardBonus),
+                advanceDeduction: Number(editForm.advanceDeduction),
+                penalties: Number(editForm.penalties),
+                penaltyNotes: editForm.penaltyNotes.trim(),
+                notes: editForm.notes.trim(),
+            });
+            setMsg(
+                `Updated salary for ${editForm.employeeName}. Same document ${res?.entryNumber || editForm.entryNumber || ''} — net SAR ${fmt(res?.netSalary)}.`
+                + (res?.technicianAckReset ? ' Technician acknowledgment reset to awaiting.' : ''),
+            );
+            setError('');
+            setEditForm(null);
+            await loadRecentPayments();
+        } catch (e) {
+            setEditError(e?.message || 'Could not update salary.');
+        } finally {
+            setEditSaving(false);
+        }
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteRow) return;
+        setDeleteError('');
+        setDeleteBusy(true);
+        try {
+            const res = await deleteWorkshopSalaryPayroll(deleteRow.id);
+            const jes = (res?.deletedJournals ?? []).join(', ');
+            const comm = Number(res?.revertedCommissionLines || 0);
+            setMsg(
+                `Deleted salary for ${deleteRow.employeeName} (${deleteRow.period}).`
+                + (jes ? ` Journal ${jes} removed from all ledgers.` : '')
+                + (comm ? ` ${comm} commission line(s) returned to unpaid.` : ''),
+            );
+            setError('');
+            setDeleteRow(null);
+            await loadRecentPayments();
+        } catch (e) {
+            setDeleteError(e?.message || 'Could not delete salary.');
+        } finally {
+            setDeleteBusy(false);
+        }
+    };
+
+    const openSheet = () => {
+        setSheetError('');
+        setSheetBranchId(appliedFilters.branchId || branchFilter || '');
+        setSheetOpen(true);
+    };
+
+    const downloadSheet = async () => {
+        setSheetError('');
+        if (!/^\d{4}-\d{2}$/.test(sheetMonth || '')) {
+            setSheetError('Select the salary month.');
+            return;
+        }
+        if (branches.length > 0 && !sheetBranchId) {
+            setSheetError('Select the branch.');
+            return;
+        }
+        const branchName = branchNameOf(sheetBranchId);
+        setSheetBusy(true);
+        try {
+            const res = await getRecentWorkshopSalaryPayroll({
+                limit: 5000,
+                period: sheetMonth,
+                ...(sheetBranchId ? { branchId: sheetBranchId } : {}),
+            });
+            const rows = (res?.list ?? []).filter(
+                (r) => r.period === sheetMonth && (!sheetBranchId || String(r.branchId) === String(sheetBranchId)),
+            );
+            if (rows.length === 0) {
+                setSheetError(`No salary prepared for ${formatSalaryMonth(sheetMonth)} — ${branchName}.`);
+                return;
+            }
+            const opts = { rows, branchName, salaryMonth: sheetMonth };
+            if (sheetFormat === 'excel') exportSalaryPaymentsExcel(opts);
+            else await exportSalaryPaymentsPdf(opts);
+            setMsg(`Downloaded salary sheet for ${formatSalaryMonth(sheetMonth)} — ${branchName} (${rows.length} employee${rows.length === 1 ? '' : 's'}).`);
+            setSheetOpen(false);
+        } catch (e) {
+            setSheetError(e?.message || 'Could not download the salary sheet.');
+        } finally {
+            setSheetBusy(false);
+        }
+    };
 
     const recentPager = usePagedSearch({
         rows: recent,
@@ -207,13 +439,9 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
     };
 
     useEffect(() => {
-        const next = branchFilter || '';
-        setRecentBranchId(next);
-        recentFiltersRef.current = {
-            ...recentFiltersRef.current,
-            recentBranchId: next,
-        };
-        loadRecentPayments();
+        const branchId = branchFilter || '';
+        setRecentBranchId(branchId);
+        loadRecentPayments({ filters: { ...appliedFiltersRef.current, branchId } });
     }, [branchFilter, loadRecentPayments]);
 
     const staffBySelectKey = useMemo(
@@ -250,17 +478,13 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
     useEffect(() => { loadLookups(); }, [loadLookups]);
 
     useEffect(() => {
-        const refreshOnFocus = () => {
+        const refreshOnReturn = () => {
             if (document.visibilityState === 'visible') {
-                loadRecentPayments();
+                loadRecentPayments({ silent: true });
             }
         };
-        document.addEventListener('visibilitychange', refreshOnFocus);
-        window.addEventListener('focus', refreshOnFocus);
-        return () => {
-            document.removeEventListener('visibilitychange', refreshOnFocus);
-            window.removeEventListener('focus', refreshOnFocus);
-        };
+        document.addEventListener('visibilitychange', refreshOnReturn);
+        return () => document.removeEventListener('visibilitychange', refreshOnReturn);
     }, [loadRecentPayments]);
 
     const loadPreview = async (idx, { id, recordType }) => {
@@ -678,10 +902,19 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         <strong>Recent Salary Payments</strong>
                         <button
                             type="button"
+                            className="btn-portal"
+                            onClick={openSheet}
+                            style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 12 }}
+                        >
+                            <FileSpreadsheet size={14} style={{ marginRight: 6 }} />
+                            Download Salary Sheet
+                        </button>
+                        <button
+                            type="button"
                             className="btn-portal-outline"
                             disabled={recentLoading}
-                            onClick={loadRecentPayments}
-                            style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 12 }}
+                            onClick={refreshRecent}
+                            style={{ padding: '4px 10px', fontSize: 12 }}
                         >
                             <RefreshCw size={14} style={{ marginRight: 6 }} />
                             {recentLoading ? 'Refreshing…' : 'Refresh status'}
@@ -750,10 +983,18 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                                 type="button"
                                 className="btn-portal"
                                 disabled={recentLoading}
-                                onClick={loadRecentPayments}
+                                onClick={applyRecentFilters}
                             >
                                 <Filter size={14} style={{ marginRight: 6 }} />
-                                Apply
+                                {recentLoading ? 'Loading…' : 'Apply'}
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-portal-outline"
+                                disabled={recentLoading}
+                                onClick={clearRecentFilters}
+                            >
+                                Clear
                             </button>
                             <button
                                 type="button"
@@ -764,8 +1005,8 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                                         await exportSalaryPaymentsPdf({
                                             rows: recentPager.visible,
                                             branchName: recentBranchName,
-                                            dateFrom: recentDateFrom,
-                                            dateTo: recentDateTo,
+                                            dateFrom: appliedFilters.dateFrom,
+                                            dateTo: appliedFilters.dateTo,
                                             employeeSearch: recentPager.query,
                                         });
                                     } catch (e) {
@@ -779,12 +1020,12 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                             <button
                                 type="button"
                                 className="btn-portal-outline"
-                                disabled={recentPager.total === 0}
+                                disabled={recentPager.total === 0 || recentLoading}
                                 onClick={() => exportSalaryPaymentsExcel({
                                     rows: recentPager.visible,
                                     branchName: recentBranchName,
-                                    dateFrom: recentDateFrom,
-                                    dateTo: recentDateTo,
+                                    dateFrom: appliedFilters.dateFrom,
+                                    dateTo: appliedFilters.dateTo,
                                     employeeSearch: recentPager.query,
                                 })}
                             >
@@ -793,18 +1034,41 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                             </button>
                         </div>
                     </div>
+                    {filterError ? (
+                        <p className="form-help-text" style={{ margin: '8px 0 0', fontSize: 12, color: '#B91C1C' }}>{filterError}</p>
+                    ) : null}
+                    <div
+                        style={{
+                            display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center',
+                            marginTop: 10, fontSize: 12, color: '#334155',
+                        }}
+                    >
+                        <strong>Showing {recentPager.total} payment{recentPager.total === 1 ? '' : 's'} for:</strong>
+                        <span style={filterChipStyle}>Branch: {recentBranchName}</span>
+                        <span style={filterChipStyle}>
+                            Date: {appliedFilters.dateFrom ? fmtFilterDate(appliedFilters.dateFrom) : 'Any'}
+                            {' – '}
+                            {appliedFilters.dateTo ? fmtFilterDate(appliedFilters.dateTo) : 'Any'}
+                        </span>
+                        {recentPager.query.trim() ? (
+                            <span style={filterChipStyle}>Employee: “{recentPager.query.trim()}”</span>
+                        ) : null}
+                        <span>Net total SAR {fmt(recentPager.visible.reduce((sum, r) => sum + (Number(r.netSalary) || 0), 0))}</span>
+                        {filtersDirty ? (
+                            <span style={{ color: '#B45309', fontWeight: 600 }}>
+                                Filters changed — click Apply to update the results.
+                            </span>
+                        ) : null}
+                    </div>
                 </header>
-                {recentPager.query.trim() ? (
-                    <p className="form-help-text" style={{ margin: '10px 16px 0', fontSize: 12 }}>
-                        {recentPager.total} of {recent.length} payment{recent.length === 1 ? '' : 's'} match
-                        {' '}“{recentPager.query.trim()}” (searched across all pages)
-                    </p>
-                ) : null}
+                <div style={{ overflowX: 'auto' }}>
                 <table ref={recentTableRef} style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
                             <th className="table-th">Date</th>
+                            <th className="table-th">Doc No.</th>
                             <th className="table-th">Employee</th>
+                            <th className="table-th">Branch</th>
                             <th className="table-th">Period</th>
                             <th className="table-th">Salary</th>
                             <th className="table-th">Reward/Bonus</th>
@@ -813,19 +1077,26 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                             <th className="table-th">Net paid</th>
                             <th className="table-th">Pay from</th>
                             <th className="table-th">Technician</th>
+                            <th className="table-th">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {recentPager.total === 0 ? (
                             <tr>
-                                <td colSpan={10} className="table-cell table-empty">
-                                    {recentPager.query.trim() ? 'No salary payments match this search.' : 'No salary payments yet.'}
+                                <td colSpan={13} className="table-cell table-empty">
+                                    {recentLoading
+                                        ? 'Loading…'
+                                        : recentPager.query.trim() || appliedFilters.branchId || appliedFilters.dateFrom || appliedFilters.dateTo
+                                            ? 'No salary payments match the applied filters.'
+                                            : 'No salary payments yet.'}
                                 </td>
                             </tr>
                         ) : recentPager.paged.map((s) => (
                             <tr key={s.id}>
                                 <td className="table-cell">{s.paymentDate ? new Date(s.paymentDate).toLocaleDateString() : '—'}</td>
+                                <td className="table-cell" style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{s.entryNumber || '—'}</td>
                                 <td className="table-cell">{s.employeeName}</td>
+                                <td className="table-cell">{s.branchName || '—'}</td>
                                 <td className="table-cell">{s.period}</td>
                                 <td className="table-cell">SAR {fmt(s.basicSalary ?? s.grossSalary)}</td>
                                 <td className="table-cell">SAR {fmt(s.rewardBonus)}</td>
@@ -834,10 +1105,33 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                                 <td className="table-cell" style={{ fontWeight: 700 }}>SAR {fmt(s.netSalary)}</td>
                                 <td className="table-cell">{s.payFromAccountName ?? '—'}</td>
                                 <td className="table-cell">{ackBadge(s.technicianAckStatus, s.technicianAckAt)}</td>
+                                <td className="table-cell">
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <button
+                                            type="button"
+                                            className="btn-edit-zone"
+                                            title={`Edit salary ${s.entryNumber || ''}`.trim()}
+                                            onClick={() => openEdit(s)}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                        >
+                                            <Pencil size={13} /> Edit
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn-edit-zone"
+                                            title={`Delete salary ${s.entryNumber || ''}`.trim()}
+                                            onClick={() => { setDeleteError(''); setDeleteRow(s); }}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#B91C1C', background: '#FEE2E2' }}
+                                        >
+                                            <Trash2 size={13} /> Delete
+                                        </button>
+                                    </div>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
+                </div>
                 {recentPager.total > 0 ? (
                     <WsTablePagination
                         page={recentPager.page}
@@ -850,6 +1144,194 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                     />
                 ) : null}
             </section>
+
+            {editForm ? (
+                <Modal
+                    title={`Edit Salary — ${editForm.employeeName}`}
+                    onClose={() => !editSaving && setEditForm(null)}
+                    disableClose={editSaving}
+                    width="min(94vw, 760px)"
+                    footer={(
+                        <>
+                            <button type="button" className="btn-secondary" disabled={editSaving} onClick={() => setEditForm(null)}>
+                                Cancel
+                            </button>
+                            <button type="button" className="btn-submit btn-dark" disabled={editSaving} onClick={saveEdit}>
+                                <Save size={14} style={{ marginRight: 6 }} />
+                                {editSaving ? 'Updating…' : 'Update Salary'}
+                            </button>
+                        </>
+                    )}
+                >
+                    {editError ? (
+                        <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">{editError}</p>
+                    ) : null}
+                    <p className="form-help-text" style={{ marginBottom: 12, fontSize: 13 }}>
+                        Document <strong>{editForm.entryNumber || '—'}</strong>
+                        {editForm.branchName ? <> · {editForm.branchName}</> : null}
+                        {' '}— updating keeps the same document number and rewrites its journal lines in every ledger.
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                        <div>
+                            <label className="form-label">Period (month) *</label>
+                            <input type="month" className="form-input-field" value={editForm.period} onChange={(e) => setEditForm((f) => ({ ...f, period: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Payment date *</label>
+                            <input type="date" className="form-input-field" value={editForm.paymentDate} onChange={(e) => setEditForm((f) => ({ ...f, paymentDate: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Pay from (cash / bank) *</label>
+                            <select className="form-input-field" value={editForm.payFromAccountId} onChange={(e) => setEditForm((f) => ({ ...f, payFromAccountId: e.target.value }))}>
+                                <option value="">Select account…</option>
+                                {editPayFromOptions.map((a) => (
+                                    <option key={a.id} value={String(a.id)}>{a.name}{a.coaCode ? ` · ${a.coaCode}` : ''}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="form-label">Basic salary (SAR)</label>
+                            <input type="number" min="0" step="0.01" className="form-input-field" value={editForm.basicSalary} onChange={(e) => setEditForm((f) => ({ ...f, basicSalary: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Reward/Bonus (SAR)</label>
+                            <input type="number" min="0" step="0.01" className="form-input-field" value={editForm.rewardBonus} onChange={(e) => setEditForm((f) => ({ ...f, rewardBonus: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Commission (settled)</label>
+                            <input type="text" className="form-input-field" readOnly value={`SAR ${fmt(editForm.commissionAmount)}`} style={{ background: '#F8FAFC' }} title="Commission lines stay settled by this salary. Delete and re-post the salary to change them." />
+                        </div>
+                        <div>
+                            <label className="form-label">Deduct from advance</label>
+                            <input type="number" min="0" step="0.01" className="form-input-field" value={editForm.advanceDeduction} onChange={(e) => setEditForm((f) => ({ ...f, advanceDeduction: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Penalties (manual)</label>
+                            <input type="number" min="0" step="0.01" className="form-input-field" value={editForm.penalties} onChange={(e) => setEditForm((f) => ({ ...f, penalties: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Penalty reason{Number(editForm.penalties) > 0 ? ' *' : ''}</label>
+                            <input type="text" className="form-input-field" value={editForm.penaltyNotes} onChange={(e) => setEditForm((f) => ({ ...f, penaltyNotes: e.target.value }))} />
+                        </div>
+                        <div>
+                            <label className="form-label">Net payable</label>
+                            <input
+                                type="text"
+                                className="form-input-field"
+                                readOnly
+                                value={`SAR ${fmt(Math.max(editNetPayable(editForm), 0))}`}
+                                style={{ background: '#ECFDF5', fontWeight: 700, color: '#065F46' }}
+                            />
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                            <label className="form-label">Payroll notes (optional)</label>
+                            <input type="text" className="form-input-field" value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} />
+                        </div>
+                    </div>
+                </Modal>
+            ) : null}
+
+            {deleteRow ? (
+                <Modal
+                    title="Delete Salary"
+                    onClose={() => !deleteBusy && setDeleteRow(null)}
+                    disableClose={deleteBusy}
+                    width="min(94vw, 520px)"
+                    footer={(
+                        <>
+                            <button type="button" className="btn-secondary" disabled={deleteBusy} onClick={() => setDeleteRow(null)}>
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-submit"
+                                disabled={deleteBusy}
+                                onClick={confirmDelete}
+                                style={{ background: '#B91C1C', borderColor: '#B91C1C', color: '#fff' }}
+                            >
+                                <Trash2 size={14} style={{ marginRight: 6 }} />
+                                {deleteBusy ? 'Deleting…' : 'Delete Salary'}
+                            </button>
+                        </>
+                    )}
+                >
+                    {deleteError ? (
+                        <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">{deleteError}</p>
+                    ) : null}
+                    <p style={{ margin: '0 0 10px', fontSize: 14 }}>
+                        Delete the salary of <strong>{deleteRow.employeeName}</strong> for <strong>{deleteRow.period}</strong>
+                        {deleteRow.branchName ? <> ({deleteRow.branchName})</> : null} — net SAR {fmt(deleteRow.netSalary)}?
+                    </p>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#475569', lineHeight: 1.6 }}>
+                        <li>Journal <strong>{deleteRow.entryNumber || '—'}</strong> is removed from every ledger (salary expense, cash/bank, advances, commission, penalties).</li>
+                        {Number(deleteRow.commissionAmount) > 0 ? (
+                            <li>Commission SAR {fmt(deleteRow.commissionAmount)} returns to unpaid (accrued).</li>
+                        ) : null}
+                        {Number(deleteRow.advanceDeduction) > 0 ? (
+                            <li>Advance deduction SAR {fmt(deleteRow.advanceDeduction)} is restored to the employee&apos;s advance balance.</li>
+                        ) : null}
+                        <li>This cannot be undone.</li>
+                    </ul>
+                </Modal>
+            ) : null}
+
+            {sheetOpen ? (
+                <Modal
+                    title="Download Salary Sheet"
+                    onClose={() => !sheetBusy && setSheetOpen(false)}
+                    disableClose={sheetBusy}
+                    width="min(94vw, 520px)"
+                    footer={(
+                        <>
+                            <button type="button" className="btn-secondary" disabled={sheetBusy} onClick={() => setSheetOpen(false)}>
+                                Cancel
+                            </button>
+                            <button type="button" className="btn-submit btn-dark" disabled={sheetBusy} onClick={downloadSheet}>
+                                <FileDown size={14} style={{ marginRight: 6 }} />
+                                {sheetBusy ? 'Preparing…' : 'Download'}
+                            </button>
+                        </>
+                    )}
+                >
+                    {sheetError ? (
+                        <p className="form-help-text" style={{ color: '#B45309', marginBottom: 12 }} role="alert">{sheetError}</p>
+                    ) : null}
+                    <div style={{ display: 'grid', gap: 14, minHeight: 260 }}>
+                        <div>
+                            <label className="form-label">Salary for the Month of *</label>
+                            <input type="month" className="form-input-field" value={sheetMonth} onChange={(e) => setSheetMonth(e.target.value)} />
+                        </div>
+                        {branches.length > 0 ? (
+                            <div>
+                                <label className="form-label">Salary for the Branch *</label>
+                                <WsStaffPicker
+                                    options={branches}
+                                    value={sheetBranchId}
+                                    onChange={(key) => setSheetBranchId(key || '')}
+                                    getKey={branchKey}
+                                    getLabel={branchLabel}
+                                    getMeta={branchMeta}
+                                    getSearchText={branchSearchText}
+                                    placeholder="Search branch name or code…"
+                                    emptyText="No branch matches"
+                                    countText={(n, total, searching) => (searching ? `${n} of ${total} branches` : `${total} branches`)}
+                                />
+                            </div>
+                        ) : null}
+                        <div>
+                            <label className="form-label">Format</label>
+                            <div style={{ display: 'flex', gap: 18, fontSize: 14 }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                    <input type="radio" name="salary-sheet-format" checked={sheetFormat === 'pdf'} onChange={() => setSheetFormat('pdf')} /> PDF
+                                </label>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                    <input type="radio" name="salary-sheet-format" checked={sheetFormat === 'excel'} onChange={() => setSheetFormat('excel')} /> Excel
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </Modal>
+            ) : null}
         </div>
     );
 }
