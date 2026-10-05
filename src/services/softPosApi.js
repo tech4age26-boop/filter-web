@@ -70,3 +70,42 @@ export const refundSoftPosTransaction = (id, body) =>
 
 export const listSoftPosBatches = (params = {}) =>
     apiFetch(`/super-admin/softpos/batches${qs(params)}`);
+
+export const getSoftPosOptions = (params = {}) =>
+    apiFetch(`/super-admin/softpos/options${qs(params)}`);
+
+export const assignSoftPosTransactionTerminal = (id, terminalId) =>
+    apiFetch(`/super-admin/softpos/transactions/${encodeURIComponent(id)}/terminal`, {
+        method: 'PATCH',
+        body: JSON.stringify({ terminalId }),
+    });
+
+export const listSoftPosDevices = (params = {}) =>
+    apiFetch(`/super-admin/softpos/devices${qs(params)}`);
+
+export const createSoftPosDevice = (body) =>
+    apiFetch('/super-admin/softpos/devices', {
+        method: 'POST',
+        body: JSON.stringify(body),
+    });
+
+export const updateSoftPosDevice = (id, body) =>
+    apiFetch(`/super-admin/softpos/devices/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
+export const regenerateSoftPosDeviceCode = (id) =>
+    apiFetch(`/super-admin/softpos/devices/${encodeURIComponent(id)}/pairing-code`, {
+        method: 'POST',
+    });
+
+export const revokeSoftPosDevice = (id) =>
+    apiFetch(`/super-admin/softpos/devices/${encodeURIComponent(id)}/revoke`, {
+        method: 'POST',
+    });
+
+export const deleteSoftPosDevice = (id) =>
+    apiFetch(`/super-admin/softpos/devices/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+    });
