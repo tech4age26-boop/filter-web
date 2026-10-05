@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
     CreditCard,
@@ -13,18 +13,32 @@ import {
     Receipt,
     Settings,
     Search,
+    Smartphone,
+    Copy,
+    KeyRound,
+    Ban,
+    Link2,
+    AlertTriangle,
 } from 'lucide-react';
 import {
+    assignSoftPosTransactionTerminal,
+    createSoftPosDevice,
     createSoftPosRule,
     createSoftPosTerminal,
+    deleteSoftPosDevice,
     deleteSoftPosRule,
     deleteSoftPosTerminal,
+    getSoftPosOptions,
     getSoftPosStats,
     listSoftPosBatches,
+    listSoftPosDevices,
     listSoftPosRules,
     listSoftPosTerminals,
     listSoftPosTransactions,
     refundSoftPosTransaction,
+    regenerateSoftPosDeviceCode,
+    revokeSoftPosDevice,
+    updateSoftPosDevice,
     updateSoftPosRule,
     updateSoftPosTerminal,
 } from '../../services/softPosApi';
@@ -42,6 +56,7 @@ const SAR = (n) => `SAR ${(Number(n) || 0).toFixed(2)}`;
 const TABS = [
     { key: 'transactions', labelKey: 'tab.transactions', icon: Receipt,         permission: 'softpos-settlement.transactions.view' },
     { key: 'terminals',    labelKey: 'tab.terminals',    icon: CreditCard,      permission: 'softpos-settlement.terminals.view' },
+    { key: 'devices',      labelKey: 'tab.devices',      icon: Smartphone,      permission: 'softpos-settlement.terminals.view' },
     { key: 'batches',      labelKey: 'tab.batches',      icon: ArrowDownToLine, permission: 'softpos-settlement.batches.view' },
     { key: 'hqsettlement', labelKey: 'tab.hqsettlement', icon: Banknote,        permission: 'softpos-settlement.batches.view' },
     { key: 'rules',        labelKey: 'tab.rules',        icon: Settings,        permission: 'softpos-settlement.rules.view' },
@@ -107,6 +122,89 @@ function statusLabel(t, status) {
     return translated === key ? status : translated;
 }
 
+const MODE_COLORS = {
+    merchant_direct: { bg: '#e0e7ff', color: '#3730a3' },
+    platform_collect: { bg: '#fef3c7', color: '#92400e' },
+};
+
+const DEVICE_STATUS_COLORS = {
+    active: { bg: '#dcfce7', color: '#16a34a' },
+    pending: { bg: '#fef3c7', color: '#92400e' },
+    revoked: { bg: '#fee2e2', color: '#dc2626' },
+};
+
+const badge = (c) => ({
+    background: c.bg,
+    color: c.color,
+    padding: '2px 8px',
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+});
+
+function ModeBadge({ mode, t }) {
+    if (!mode) return null;
+    const c = MODE_COLORS[mode] || { bg: '#e5e7eb', color: '#374151' };
+    return <span style={badge(c)}>{t(`mode.${mode}.short`)}</span>;
+}
+
+function FeeVatNote({ amount, t }) {
+    if (!amount) return null;
+    return (
+        <div style={{ color: '#6b7280', fontSize: 11 }}>
+            {t('tx.plusVat', { amount: SAR(amount) })}
+        </div>
+    );
+}
+
+const fmtDateTime = (v) => (v ? new Date(v).toLocaleString() : '');
+
+/** Dropdown data; branches / bank accounts / terminals load once a workshop is picked. */
+function useSoftPosOptions(workshopId) {
+    const key = workshopId || '';
+    const [state, setState] = useState({
+        key: null,
+        workshops: [],
+        branches: [],
+        bankAccounts: [],
+        terminals: [],
+    });
+    useEffect(() => {
+        let cancelled = false;
+        getSoftPosOptions({ workshopId: key || undefined })
+            .then((res) => {
+                if (cancelled) return;
+                setState({
+                    key,
+                    workshops: res?.workshops || [],
+                    branches: res?.branches || [],
+                    bankAccounts: res?.bankAccounts || [],
+                    terminals: res?.terminals || [],
+                });
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setState((p) => ({ ...p, key, branches: [], bankAccounts: [], terminals: [] }));
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [key]);
+    const loading = state.key !== key;
+    return {
+        workshops: state.workshops,
+        branches: loading ? [] : state.branches,
+        bankAccounts: loading ? [] : state.bankAccounts,
+        terminals: loading ? [] : state.terminals,
+        loading,
+    };
+}
+
+const terminalOptionLabel = (term) =>
+    `${term.terminalCode}${term.label ? ` — ${term.label}` : ''}${term.status && term.status !== 'active' ? ` (${term.status})` : ''}`;
+
 export default function SoftPosSettlement() {
     const { hasPermission } = useAuth();
     const outletCtx = useOutletContext() || {};
@@ -117,7 +215,10 @@ export default function SoftPosSettlement() {
     const t = useCallback((key, vars) => softPosT(locale, key, vars), [locale]);
     const [searchParams] = useSearchParams();
     const tabFromUrl = searchParams.get('tab') || '';
-    const visibleTabs = TABS.filter((tab) => hasPermission(tab.permission));
+    const visibleTabs = useMemo(
+        () => TABS.filter((tab) => hasPermission(tab.permission)),
+        [hasPermission],
+    );
     const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.key ?? 'transactions');
     const [stats, setStats] = useState(null);
     const [statsLoading, setStatsLoading] = useState(true);
@@ -202,6 +303,26 @@ export default function SoftPosSettlement() {
                 />
             </div>
 
+            {!statsLoading && Number(stats?.unassignedTransactions) > 0 && (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: '#fffbeb',
+                        border: '1px solid #fde68a',
+                        color: '#92400e',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        marginBottom: 12,
+                        fontSize: 13,
+                    }}
+                >
+                    <AlertTriangle size={16} />
+                    {t('tx.unassignedBanner', { n: stats.unassignedTransactions })}
+                </div>
+            )}
+
             <div
                 style={{
                     display: 'flex',
@@ -260,6 +381,7 @@ export default function SoftPosSettlement() {
 
             {activeTab === 'transactions' && hasPermission('softpos-settlement.transactions.view') && <TransactionsTab onError={setError} t={t} />}
             {activeTab === 'terminals'    && hasPermission('softpos-settlement.terminals.view')    && <TerminalsTab onError={setError} t={t} />}
+            {activeTab === 'devices'      && hasPermission('softpos-settlement.terminals.view')    && <DevicesTab onError={setError} t={t} />}
             {activeTab === 'batches'      && hasPermission('softpos-settlement.batches.view')      && <BatchesTab onError={setError} t={t} />}
             {activeTab === 'hqsettlement' && hasPermission('softpos-settlement.batches.view')      && <HqSettlementTab onError={setError} t={t} />}
             {activeTab === 'rules'        && hasPermission('softpos-settlement.rules.view')        && <RulesTab onError={setError} t={t} />}
@@ -289,12 +411,13 @@ function SummaryCard({ label, value, icon, color }) {
 function TransactionsTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
-    const [totals, setTotals] = useState({ gross: 0, bankFee: 0, platformFee: 0, netToMerchant: 0 });
+    const [totals, setTotals] = useState({ gross: 0, bankFee: 0, platformFee: 0, platformFeeVat: 0, netToMerchant: 0 });
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({
         workshopId: '',
         branchId: '',
         terminalId: '',
+        unassigned: false,
         status: '',
         fromDate: '',
         toDate: '',
@@ -302,13 +425,23 @@ function TransactionsTab({ onError, t }) {
     });
     const [reload, setReload] = useState(0);
     const [refundOpen, setRefundOpen] = useState(null);
+    const [assignOpen, setAssignOpen] = useState(null);
+    const options = useSoftPosOptions(filters.workshopId);
+    const filterTerminals = options.terminals.filter(
+        (term) => !filters.branchId || term.branchId === filters.branchId,
+    );
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             setLoading(true);
             try {
-                const res = await listSoftPosTransactions({ ...filters, limit: 100 });
+                const res = await listSoftPosTransactions({
+                    ...filters,
+                    terminalId: filters.unassigned ? '' : filters.terminalId,
+                    unassigned: filters.unassigned ? 'true' : '',
+                    limit: 100,
+                });
                 if (cancelled) return;
                 setRows(pickArr(res, 'items'));
                 setTotal(Number(res?.total || 0));
@@ -327,8 +460,10 @@ function TransactionsTab({ onError, t }) {
     const headers = [
         'th.captured',
         'th.terminal',
+        'th.device',
         'th.workshopBranch',
         'th.invoice',
+        'th.card',
         'th.gross',
         'th.bankFee',
         'th.platform',
@@ -336,6 +471,20 @@ function TransactionsTab({ onError, t }) {
         'th.status',
         'th.actions',
     ];
+
+    if (assignOpen) {
+        return (
+            <AssignTerminalModal
+                transaction={assignOpen}
+                t={t}
+                onClose={() => setAssignOpen(null)}
+                onDone={() => {
+                    setAssignOpen(null);
+                    setReload((x) => x + 1);
+                }}
+            />
+        );
+    }
 
     if (refundOpen) {
         return (
@@ -356,7 +505,7 @@ function TransactionsTab({ onError, t }) {
             <div
                 style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(6, minmax(120px, 1fr)) auto',
+                    gridTemplateColumns: 'repeat(6, minmax(120px, 1fr)) auto auto',
                     gap: 8,
                     alignItems: 'center',
                     marginBottom: 12,
@@ -368,24 +517,40 @@ function TransactionsTab({ onError, t }) {
                     onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
                     style={inputStyle}
                 />
-                <input
-                    placeholder={t('tx.ph.workshopId')}
+                <select
                     value={filters.workshopId}
-                    onChange={(e) => setFilters((p) => ({ ...p, workshopId: e.target.value }))}
+                    onChange={(e) =>
+                        setFilters((p) => ({ ...p, workshopId: e.target.value, branchId: '', terminalId: '' }))
+                    }
                     style={inputStyle}
-                />
-                <input
-                    placeholder={t('tx.ph.branchId')}
+                >
+                    <option value="">{t('opt.allWorkshops')}</option>
+                    {options.workshops.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                </select>
+                <select
                     value={filters.branchId}
-                    onChange={(e) => setFilters((p) => ({ ...p, branchId: e.target.value }))}
+                    onChange={(e) => setFilters((p) => ({ ...p, branchId: e.target.value, terminalId: '' }))}
                     style={inputStyle}
-                />
-                <input
-                    placeholder={t('tx.ph.terminalId')}
+                    disabled={!filters.workshopId}
+                >
+                    <option value="">{t('opt.allBranches')}</option>
+                    {options.branches.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                </select>
+                <select
                     value={filters.terminalId}
                     onChange={(e) => setFilters((p) => ({ ...p, terminalId: e.target.value }))}
                     style={inputStyle}
-                />
+                    disabled={!filters.workshopId || filters.unassigned}
+                >
+                    <option value="">{t('opt.allTerminals')}</option>
+                    {filterTerminals.map((term) => (
+                        <option key={term.id} value={term.id}>{terminalOptionLabel(term)}</option>
+                    ))}
+                </select>
                 <input
                     type="date"
                     value={filters.fromDate}
@@ -398,6 +563,14 @@ function TransactionsTab({ onError, t }) {
                     onChange={(e) => setFilters((p) => ({ ...p, toDate: e.target.value }))}
                     style={inputStyle}
                 />
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, whiteSpace: 'nowrap' }}>
+                    <input
+                        type="checkbox"
+                        checked={filters.unassigned}
+                        onChange={(e) => setFilters((p) => ({ ...p, unassigned: e.target.checked }))}
+                    />
+                    {t('tx.unassignedOnly')}
+                </label>
                 <button type="button" style={btnPrimary} onClick={() => setReload((x) => x + 1)}>
                     {t('common.apply')}
                 </button>
@@ -406,7 +579,7 @@ function TransactionsTab({ onError, t }) {
             <div
                 style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gridTemplateColumns: 'repeat(5, 1fr)',
                     gap: 8,
                     marginBottom: 12,
                     fontSize: 13,
@@ -421,6 +594,9 @@ function TransactionsTab({ onError, t }) {
                 </div>
                 <div>
                     <strong>{t('tx.platformFee')}</strong> {SAR(totals.platformFee)}
+                </div>
+                <div>
+                    <strong>{t('tx.platformFeeVat')}</strong> {SAR(totals.platformFeeVat || 0)}
                 </div>
                 <div>
                     <strong>{t('tx.netToMerchants')}</strong> {SAR(totals.netToMerchant)}
@@ -452,13 +628,13 @@ function TransactionsTab({ onError, t }) {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={10} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
                                     {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={10} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
                                     {t('tx.empty')}
                                 </td>
                             </tr>
@@ -471,10 +647,26 @@ function TransactionsTab({ onError, t }) {
                                             {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : t('common.emDash')}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                            <div style={{ fontWeight: 600 }}>{r.terminalCode || t('common.emDash')}</div>
-                                            {r.terminalLabel && (
-                                                <div style={{ color: '#6b7280', fontSize: 11 }}>{r.terminalLabel}</div>
+                                            {r.terminalCode ? (
+                                                <>
+                                                    <div style={{ fontWeight: 600 }}>{r.terminalCode}</div>
+                                                    {r.terminalLabel && (
+                                                        <div style={{ color: '#6b7280', fontSize: 11 }}>{r.terminalLabel}</div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <span style={badge({ bg: '#fef3c7', color: '#92400e' })}>
+                                                    {t('tx.unassigned')}
+                                                </span>
                                             )}
+                                            {r.terminalId && (
+                                                <div style={{ marginTop: 4 }}>
+                                                    <ModeBadge mode={r.settlementMode} t={t} />
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13 }}>
+                                            {r.deviceLabel || t('common.emDash')}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                             <div>{r.workshopName || t('common.emDash')}</div>
@@ -482,6 +674,17 @@ function TransactionsTab({ onError, t }) {
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                             {r.invoiceNo || r.reference || t('common.emDash')}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>
+                                            {r.cardScheme || r.cardLast4 ? (
+                                                <div>
+                                                    {[r.cardScheme, r.cardLast4 ? `•••• ${r.cardLast4}` : null]
+                                                        .filter(Boolean)
+                                                        .join(' ')}
+                                                </div>
+                                            ) : null}
+                                            {r.rrn && <div style={{ color: '#6b7280', fontSize: 11 }}>RRN {r.rrn}</div>}
+                                            {!r.cardScheme && !r.cardLast4 && !r.rrn && t('common.emDash')}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>
                                             {SAR(r.gross)}
@@ -491,6 +694,7 @@ function TransactionsTab({ onError, t }) {
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, color: '#16a34a' }}>
                                             {SAR(r.platformFee)}
+                                            <FeeVatNote amount={r.platformFeeVat} t={t} />
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>
                                             {SAR(r.netToMerchant)}
@@ -510,20 +714,39 @@ function TransactionsTab({ onError, t }) {
                                             </span>
                                         </td>
                                         <td style={{ padding: '8px 10px' }}>
-                                            {r.status !== 'refund' && r.status !== 'refunded' && (
-                                                <button
-                                                    type="button"
-                                                    style={{
-                                                        ...btn,
-                                                        color: '#dc2626',
-                                                        borderColor: '#fee2e2',
-                                                        fontSize: 12,
-                                                    }}
-                                                    onClick={() => setRefundOpen(r)}
-                                                >
-                                                    {t('tx.refund')}
-                                                </button>
-                                            )}
+                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                {!r.refundOfId && !r.journalId && (
+                                                    <button
+                                                        type="button"
+                                                        style={{
+                                                            ...btn,
+                                                            fontSize: 12,
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: 4,
+                                                            ...(r.needsTerminal ? { borderColor: '#fde68a', color: '#92400e' } : {}),
+                                                        }}
+                                                        onClick={() => setAssignOpen(r)}
+                                                    >
+                                                        <Link2 size={12} />
+                                                        {r.needsTerminal ? t('tx.assign') : t('tx.reassign')}
+                                                    </button>
+                                                )}
+                                                {r.status !== 'refund' && r.status !== 'refunded' && (
+                                                    <button
+                                                        type="button"
+                                                        style={{
+                                                            ...btn,
+                                                            color: '#dc2626',
+                                                            borderColor: '#fee2e2',
+                                                            fontSize: 12,
+                                                        }}
+                                                        onClick={() => setRefundOpen(r)}
+                                                    >
+                                                        {t('tx.refund')}
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -541,7 +764,11 @@ function TransactionsTab({ onError, t }) {
 }
 
 function RefundModal({ transaction, onClose, onDone, t }) {
-    const [amount, setAmount] = useState(Number(transaction.gross || 0));
+    const refundable = Math.max(
+        0,
+        Math.round((Number(transaction.gross || 0) - Number(transaction.refundedAmount || 0)) * 100) / 100,
+    );
+    const [amount, setAmount] = useState(refundable);
     const [reason, setReason] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [err, setErr] = useState('');
@@ -570,13 +797,13 @@ function RefundModal({ transaction, onClose, onDone, t }) {
                     <input
                         type="number"
                         step="0.01"
-                        max={Number(transaction.gross)}
+                        max={refundable}
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
                         style={inputStyle}
                     />
                     <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-                        {t('refund.max', { amount: SAR(transaction.gross) })}
+                        {t('refund.max', { amount: SAR(refundable) })}
                     </div>
                 </div>
                 <div>
@@ -595,6 +822,70 @@ function RefundModal({ transaction, onClose, onDone, t }) {
                     </button>
                     <button type="button" style={btnPrimary} onClick={submit} disabled={submitting}>
                         {submitting ? t('common.submitting') : t('refund.submit')}
+                    </button>
+                </div>
+            </div>
+        </AdminModalAsScreen>
+    );
+}
+
+function AssignTerminalModal({ transaction, onClose, onDone, t }) {
+    const options = useSoftPosOptions(transaction.workshopId);
+    const branchTerminals = options.terminals.filter((term) => term.branchId === transaction.branchId);
+    const [terminalId, setTerminalId] = useState(transaction.terminalId || '');
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState('');
+
+    const submit = async () => {
+        if (!terminalId) {
+            setErr(t('err.terminalRequired'));
+            return;
+        }
+        setSaving(true);
+        setErr('');
+        try {
+            await assignSoftPosTransactionTerminal(transaction.id, terminalId);
+            onDone();
+        } catch (e) {
+            setErr(e?.message || t('err.saveFailed'));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <AdminModalAsScreen
+            title={t('assign.title', { ref: transaction.invoiceNo || transaction.reference || transaction.id })}
+            onClose={onClose}
+        >
+            <div style={{ display: 'grid', gap: 12, maxWidth: 560 }}>
+                <div style={{ fontSize: 13, color: '#374151' }}>
+                    {transaction.workshopName} · {transaction.branchName} · {SAR(transaction.gross)}
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{t('assign.hint')}</div>
+                <Field label={t('assign.terminal')} full>
+                    <select
+                        value={terminalId}
+                        onChange={(e) => setTerminalId(e.target.value)}
+                        style={inputStyle}
+                        disabled={options.loading}
+                    >
+                        <option value="">{options.loading ? t('common.loading') : t('opt.selectTerminal')}</option>
+                        {branchTerminals.map((term) => (
+                            <option key={term.id} value={term.id}>{terminalOptionLabel(term)}</option>
+                        ))}
+                    </select>
+                </Field>
+                {!options.loading && branchTerminals.length === 0 && (
+                    <div style={{ fontSize: 12, color: '#92400e' }}>{t('assign.noTerminals')}</div>
+                )}
+                {err && <div style={{ color: '#dc2626', fontSize: 13 }}>{err}</div>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button type="button" style={btn} onClick={onClose} disabled={saving}>
+                        {t('common.cancel')}
+                    </button>
+                    <button type="button" style={btnPrimary} onClick={submit} disabled={saving}>
+                        {saving ? t('common.saving') : t('assign.submit')}
                     </button>
                 </div>
             </div>
@@ -642,6 +933,9 @@ function TerminalsTab({ onError, t }) {
         'th.terminalCode',
         'th.merchant',
         'th.workshopBranch',
+        'th.mode',
+        'th.nearpayId',
+        'th.devices',
         'th.bankAc',
         'th.bankPct',
         'th.platformPct',
@@ -720,13 +1014,13 @@ function TerminalsTab({ onError, t }) {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
                                     {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={8} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
                                     {t('term.empty')}
                                 </td>
                             </tr>
@@ -744,6 +1038,15 @@ function TerminalsTab({ onError, t }) {
                                         <div>{term.workshopName || t('common.emDash')}</div>
                                         <div style={{ color: '#6b7280', fontSize: 11 }}>{term.branchName || t('common.emDash')}</div>
                                     </td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                        <ModeBadge mode={term.settlementMode} t={t} />
+                                    </td>
+                                    <td style={{ padding: '8px 10px', fontSize: 12 }}>
+                                        {term.nearpayTerminalId || (
+                                            <span style={{ color: '#6b7280' }}>{t('term.nearpayUsesTid')}</span>
+                                        )}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{term.activeDevices ?? 0}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                         {term.bankCashBankAccountName || t('common.emDash')}
                                     </td>
@@ -797,7 +1100,7 @@ function TerminalsTab({ onError, t }) {
     );
 }
 
-function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
+function TerminalModal({ initial = {}, onClose, onDone, t }) {
     const [form, setForm] = useState({
         workshopId: initial.workshopId || '',
         branchId: initial.branchId || '',
@@ -808,11 +1111,22 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
         bankFeePercent: initial.bankFeePercent ?? '',
         platformFeePercent: initial.platformFeePercent ?? '',
         status: initial.status || 'active',
+        settlementMode: initial.settlementMode || 'merchant_direct',
+        nearpayTerminalId: initial.nearpayTerminalId || '',
+        nearpayClientUuid: initial.nearpayClientUuid || '',
     });
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
+    const options = useSoftPosOptions(form.workshopId);
+    const bankAccounts = options.bankAccounts.filter(
+        (a) => !a.branchId || !form.branchId || a.branchId === form.branchId,
+    );
 
     const submit = async () => {
+        if (!form.workshopId || !form.branchId) {
+            setErr(t('err.workshopBranchRequired'));
+            return;
+        }
         setSaving(true);
         setErr('');
         try {
@@ -839,21 +1153,57 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
     return (
         <AdminModalAsScreen title={initial.id ? t('term.editTitle') : t('term.newTitle')} onClose={onClose}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <Field label={t('term.workshopId')}>
-                    <input
+                <Field label={t('term.workshop')}>
+                    <select
                         value={form.workshopId}
-                        onChange={(e) => setForm((p) => ({ ...p, workshopId: e.target.value }))}
+                        onChange={(e) =>
+                            setForm((p) => ({
+                                ...p,
+                                workshopId: e.target.value,
+                                branchId: '',
+                                bankCashBankAccountId: '',
+                            }))
+                        }
                         style={inputStyle}
                         disabled={!!initial.id}
-                    />
+                    >
+                        <option value="">{t('opt.selectWorkshop')}</option>
+                        {initial.id && !options.workshops.some((w) => w.id === form.workshopId) && (
+                            <option value={form.workshopId}>{initial.workshopName || form.workshopId}</option>
+                        )}
+                        {options.workshops.map((w) => (
+                            <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                    </select>
                 </Field>
-                <Field label={t('term.branchId')}>
-                    <input
+                <Field label={t('term.branch')}>
+                    <select
                         value={form.branchId}
                         onChange={(e) => setForm((p) => ({ ...p, branchId: e.target.value }))}
                         style={inputStyle}
-                        disabled={!!initial.id}
-                    />
+                        disabled={!!initial.id || !form.workshopId}
+                    >
+                        <option value="">{t('opt.selectBranch')}</option>
+                        {initial.id && !options.branches.some((b) => b.id === form.branchId) && (
+                            <option value={form.branchId}>{initial.branchName || form.branchId}</option>
+                        )}
+                        {options.branches.map((b) => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                    </select>
+                </Field>
+                <Field label={t('term.settlementMode')} full>
+                    <select
+                        value={form.settlementMode}
+                        onChange={(e) => setForm((p) => ({ ...p, settlementMode: e.target.value }))}
+                        style={inputStyle}
+                    >
+                        <option value="merchant_direct">{t('mode.merchant_direct')}</option>
+                        <option value="platform_collect">{t('mode.platform_collect')}</option>
+                    </select>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                        {t(`mode.${form.settlementMode}.hint`)}
+                    </div>
                 </Field>
                 <Field label={t('term.merchantCode')}>
                     <input
@@ -869,6 +1219,22 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
                         style={inputStyle}
                     />
                 </Field>
+                <Field label={t('term.nearpayTerminalId')}>
+                    <input
+                        value={form.nearpayTerminalId}
+                        onChange={(e) => setForm((p) => ({ ...p, nearpayTerminalId: e.target.value }))}
+                        style={inputStyle}
+                        placeholder={t('term.ph.nearpayTerminalId')}
+                    />
+                </Field>
+                <Field label={t('term.nearpayClientUuid')}>
+                    <input
+                        value={form.nearpayClientUuid}
+                        onChange={(e) => setForm((p) => ({ ...p, nearpayClientUuid: e.target.value }))}
+                        style={inputStyle}
+                        placeholder={t('term.ph.nearpayClientUuid')}
+                    />
+                </Field>
                 <Field label={t('term.label')} full>
                     <input
                         value={form.label}
@@ -876,14 +1242,28 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
                         style={inputStyle}
                     />
                 </Field>
-                <Field label={t('term.bankCashBankAccountId')}>
-                    <input
+                <Field label={t('term.bankAccount')}>
+                    <select
                         value={form.bankCashBankAccountId}
                         onChange={(e) =>
                             setForm((p) => ({ ...p, bankCashBankAccountId: e.target.value }))
                         }
                         style={inputStyle}
-                    />
+                        disabled={!form.workshopId}
+                    >
+                        <option value="">{t('opt.none')}</option>
+                        {form.bankCashBankAccountId &&
+                            !bankAccounts.some((a) => a.id === form.bankCashBankAccountId) && (
+                                <option value={form.bankCashBankAccountId}>
+                                    {initial.bankCashBankAccountName || form.bankCashBankAccountId}
+                                </option>
+                            )}
+                        {bankAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                                {a.name}{a.bankName ? ` — ${a.bankName}` : ''}
+                            </option>
+                        ))}
+                    </select>
                 </Field>
                 <Field label={t('term.status')}>
                     <select
@@ -931,6 +1311,412 @@ function TerminalModal({ initial = {}, onClose, onDone, onError, t }) {
     );
 }
 
+// ===== Devices =====
+function DevicesTab({ onError, t }) {
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState({ workshopId: '', status: '' });
+    const [reload, setReload] = useState(0);
+    const [editing, setEditing] = useState(null);
+    const [pairing, setPairing] = useState(null);
+    const options = useSoftPosOptions('');
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            try {
+                const res = await listSoftPosDevices(filters);
+                if (!cancelled) setRows(pickArr(res));
+            } catch (err) {
+                if (!cancelled) onError(err?.message || t('err.loadDevices'));
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reload]);
+
+    const run = async (fn, confirmKey) => {
+        if (confirmKey && !window.confirm(t(confirmKey))) return;
+        try {
+            await fn();
+            setReload((x) => x + 1);
+        } catch (e) {
+            onError(e?.message || t('err.saveFailed'));
+        }
+    };
+
+    const newCode = async (device) => {
+        if (device.status === 'active' && !window.confirm(t('dev.confirmNewCode'))) return;
+        try {
+            const res = await regenerateSoftPosDeviceCode(device.id);
+            setPairing(res);
+            setReload((x) => x + 1);
+        } catch (e) {
+            onError(e?.message || t('err.saveFailed'));
+        }
+    };
+
+    if (pairing) {
+        return <PairingCodeScreen pairing={pairing} t={t} onClose={() => setPairing(null)} />;
+    }
+
+    if (editing) {
+        return (
+            <DeviceModal
+                initial={editing.id ? editing : {}}
+                t={t}
+                onClose={() => setEditing(null)}
+                onCreated={(res) => {
+                    setEditing(null);
+                    setPairing(res);
+                    setReload((x) => x + 1);
+                }}
+                onDone={() => {
+                    setEditing(null);
+                    setReload((x) => x + 1);
+                }}
+            />
+        );
+    }
+
+    const headers = ['th.device', 'th.terminal', 'th.workshopBranch', 'th.status', 'th.lastSeen', 'th.actions'];
+
+    return (
+        <div style={card}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>{t('dev.intro')}</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <select
+                    value={filters.workshopId}
+                    onChange={(e) => setFilters((p) => ({ ...p, workshopId: e.target.value }))}
+                    style={{ ...inputStyle, width: 240 }}
+                >
+                    <option value="">{t('opt.allWorkshops')}</option>
+                    {options.workshops.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                </select>
+                <select
+                    value={filters.status}
+                    onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))}
+                    style={{ ...inputStyle, width: 180 }}
+                >
+                    <option value="">{t('common.all')}</option>
+                    <option value="pending">{t('devStatus.pending')}</option>
+                    <option value="active">{t('devStatus.active')}</option>
+                    <option value="revoked">{t('devStatus.revoked')}</option>
+                </select>
+                <button type="button" style={btn} onClick={() => setReload((x) => x + 1)}>
+                    {t('common.apply')}
+                </button>
+                <div style={{ flex: 1 }} />
+                <button
+                    type="button"
+                    style={{ ...btnPrimary, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    onClick={() => setEditing({})}
+                >
+                    <Plus size={14} /> {t('dev.new')}
+                </button>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                        <tr style={{ background: '#fafafa' }}>
+                            {headers.map((h) => (
+                                <th
+                                    key={h}
+                                    style={{
+                                        textAlign: 'left',
+                                        padding: '8px 10px',
+                                        fontSize: 11,
+                                        color: '#6b7280',
+                                        borderBottom: '1px solid #e5e7eb',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: 1,
+                                    }}
+                                >
+                                    {t(h)}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                    {t('common.loading')}
+                                </td>
+                            </tr>
+                        ) : rows.length === 0 ? (
+                            <tr>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                    {t('dev.empty')}
+                                </td>
+                            </tr>
+                        ) : (
+                            rows.map((d) => {
+                                const sc = DEVICE_STATUS_COLORS[d.status] || { bg: '#e5e7eb', color: '#374151' };
+                                return (
+                                    <tr key={d.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                        <td style={{ padding: '8px 10px', fontSize: 13 }}>
+                                            <div style={{ fontWeight: 600 }}>{d.label}</div>
+                                            {(d.deviceModel || d.appVersion) && (
+                                                <div style={{ color: '#6b7280', fontSize: 11 }}>
+                                                    {[d.deviceModel, d.appVersion ? `v${d.appVersion}` : null]
+                                                        .filter(Boolean)
+                                                        .join(' · ')}
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13 }}>
+                                            {d.terminalCode ? (
+                                                <>
+                                                    <div style={{ fontWeight: 600 }}>{d.terminalCode}</div>
+                                                    {d.terminalLabel && (
+                                                        <div style={{ color: '#6b7280', fontSize: 11 }}>{d.terminalLabel}</div>
+                                                    )}
+                                                    {d.terminalStatus && d.terminalStatus !== 'active' && (
+                                                        <div style={{ color: '#dc2626', fontSize: 11 }}>{statusLabel(t, d.terminalStatus)}</div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <span style={badge({ bg: '#fef3c7', color: '#92400e' })}>{t('tx.unassigned')}</span>
+                                            )}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', fontSize: 13 }}>
+                                            <div>{d.workshopName || t('common.emDash')}</div>
+                                            <div style={{ color: '#6b7280', fontSize: 11 }}>{d.branchName || t('common.emDash')}</div>
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <span style={badge(sc)}>{t(`devStatus.${d.status}`)}</span>
+                                            {d.status === 'pending' && (
+                                                <div style={{ fontSize: 11, marginTop: 4, color: d.pairingCodeExpired ? '#dc2626' : '#6b7280' }}>
+                                                    {d.pairingCodeExpired
+                                                        ? t('dev.codeExpired')
+                                                        : t('dev.codeExpires', { at: fmtDateTime(d.pairingCodeExpiresAt) })}
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td style={{ padding: '8px 10px', fontSize: 12 }}>
+                                            {d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : t('common.emDash')}
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
+                                                <button
+                                                    type="button"
+                                                    style={{ ...btn, border: 'none', padding: 0 }}
+                                                    title={t('common.edit')}
+                                                    onClick={() => setEditing(d)}
+                                                >
+                                                    <Pencil size={14} color="#6b7280" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    style={{ ...btn, border: 'none', padding: 0 }}
+                                                    title={t('dev.newCode')}
+                                                    onClick={() => newCode(d)}
+                                                    disabled={!d.terminalId}
+                                                >
+                                                    <KeyRound size={14} color={d.terminalId ? '#1d4ed8' : '#cbd5e1'} />
+                                                </button>
+                                                {d.status !== 'revoked' && (
+                                                    <button
+                                                        type="button"
+                                                        style={{ ...btn, border: 'none', padding: 0 }}
+                                                        title={t('dev.revoke')}
+                                                        onClick={() => run(() => revokeSoftPosDevice(d.id), 'dev.confirmRevoke')}
+                                                    >
+                                                        <Ban size={14} color="#b45309" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    style={{ ...btn, border: 'none', padding: 0 }}
+                                                    title={t('common.delete')}
+                                                    onClick={() => run(() => deleteSoftPosDevice(d.id), 'dev.confirmDelete')}
+                                                >
+                                                    <Trash2 size={14} color="#dc2626" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+function DeviceModal({ initial = {}, onClose, onCreated, onDone, t }) {
+    const [workshopId, setWorkshopId] = useState(initial.workshopId || '');
+    const [terminalId, setTerminalId] = useState(initial.terminalId || '');
+    const [label, setLabel] = useState(initial.label || '');
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState('');
+    const options = useSoftPosOptions(workshopId);
+    const branchName = (id) => options.branches.find((b) => b.id === id)?.name || '';
+
+    const submit = async () => {
+        if (!label.trim()) {
+            setErr(t('err.labelRequired'));
+            return;
+        }
+        if (!terminalId) {
+            setErr(t('err.terminalRequired'));
+            return;
+        }
+        setSaving(true);
+        setErr('');
+        try {
+            if (initial.id) {
+                await updateSoftPosDevice(initial.id, { label: label.trim(), terminalId });
+                onDone();
+            } else {
+                const res = await createSoftPosDevice({ label: label.trim(), terminalId });
+                onCreated(res);
+            }
+        } catch (e) {
+            setErr(e?.message || t('err.saveFailed'));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <AdminModalAsScreen title={initial.id ? t('dev.editTitle') : t('dev.newTitle')} onClose={onClose}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 720 }}>
+                <Field label={t('dev.label')} full>
+                    <input
+                        value={label}
+                        onChange={(e) => setLabel(e.target.value)}
+                        style={inputStyle}
+                        placeholder={t('dev.ph.label')}
+                        maxLength={120}
+                    />
+                </Field>
+                <Field label={t('term.workshop')}>
+                    <select
+                        value={workshopId}
+                        onChange={(e) => {
+                            setWorkshopId(e.target.value);
+                            setTerminalId('');
+                        }}
+                        style={inputStyle}
+                    >
+                        <option value="">{t('opt.selectWorkshop')}</option>
+                        {options.workshops.map((w) => (
+                            <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                    </select>
+                </Field>
+                <Field label={t('assign.terminal')}>
+                    <select
+                        value={terminalId}
+                        onChange={(e) => setTerminalId(e.target.value)}
+                        style={inputStyle}
+                        disabled={!workshopId || options.loading}
+                    >
+                        <option value="">{t('opt.selectTerminal')}</option>
+                        {options.terminals.map((term) => (
+                            <option key={term.id} value={term.id}>
+                                {terminalOptionLabel(term)}{branchName(term.branchId) ? ` · ${branchName(term.branchId)}` : ''}
+                            </option>
+                        ))}
+                    </select>
+                </Field>
+                {workshopId && !options.loading && options.terminals.length === 0 && (
+                    <div style={{ gridColumn: 'span 2', fontSize: 12, color: '#92400e' }}>{t('dev.noTerminals')}</div>
+                )}
+                {initial.id && initial.status === 'active' && (
+                    <div style={{ gridColumn: 'span 2', fontSize: 12, color: '#6b7280' }}>{t('dev.reassignHint')}</div>
+                )}
+                {err && <div style={{ gridColumn: 'span 2', color: '#dc2626', fontSize: 13 }}>{err}</div>}
+                <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button type="button" style={btn} onClick={onClose} disabled={saving}>
+                        {t('common.cancel')}
+                    </button>
+                    <button type="button" style={btnPrimary} onClick={submit} disabled={saving}>
+                        {saving ? t('common.saving') : initial.id ? t('common.update') : t('dev.createAndCode')}
+                    </button>
+                </div>
+            </div>
+        </AdminModalAsScreen>
+    );
+}
+
+function PairingCodeScreen({ pairing, onClose, t }) {
+    const [copied, setCopied] = useState(false);
+    const code = pairing?.pairingCode || '';
+    const device = pairing?.device || {};
+
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            setCopied(false);
+        }
+    };
+
+    return (
+        <AdminModalAsScreen title={t('pair.title', { label: device.label || '' })} onClose={onClose}>
+            <div style={{ display: 'grid', gap: 16, maxWidth: 560 }}>
+                <div style={{ fontSize: 13, color: '#374151' }}>
+                    {[device.terminalCode, device.workshopName, device.branchName].filter(Boolean).join(' · ')}
+                </div>
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        border: '2px dashed #D4A017',
+                        borderRadius: 12,
+                        padding: '18px 20px',
+                        background: '#fffbeb',
+                    }}
+                >
+                    <span
+                        dir="ltr"
+                        style={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 34, fontWeight: 800, letterSpacing: 4 }}
+                    >
+                        {code}
+                    </span>
+                    <button
+                        type="button"
+                        style={{ ...btn, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                        onClick={copy}
+                    >
+                        <Copy size={14} /> {copied ? t('pair.copied') : t('pair.copy')}
+                    </button>
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>
+                    {t('pair.expires', { at: fmtDateTime(pairing?.expiresAt) })}
+                </div>
+                <ol style={{ margin: 0, paddingInlineStart: 18, fontSize: 13, color: '#374151', display: 'grid', gap: 4 }}>
+                    <li>{t('pair.step1')}</li>
+                    <li>{t('pair.step2')}</li>
+                    <li>{t('pair.step3')}</li>
+                </ol>
+                <div style={{ fontSize: 12, color: '#b45309' }}>{t('pair.onlyOnce')}</div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="button" style={btnPrimary} onClick={onClose}>
+                        {t('pair.done')}
+                    </button>
+                </div>
+            </div>
+        </AdminModalAsScreen>
+    );
+}
+
 // ===== Batches =====
 function BatchesTab({ onError, t }) {
     const [rows, setRows] = useState([]);
@@ -944,7 +1730,7 @@ function BatchesTab({ onError, t }) {
             setLoading(true);
             try {
                 const res = await listSoftPosBatches(filters);
-                if (!cancelled) setRows(Array.isArray(res) ? res : []);
+                if (!cancelled) setRows(pickArr(res));
             } catch (err) {
                 if (!cancelled) onError(err?.message || t('err.loadBatches'));
             } finally {
@@ -1038,13 +1824,23 @@ function BatchesTab({ onError, t }) {
                             rows.map((b, idx) => (
                                 <tr key={`${b.terminalId}-${b.date}-${idx}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.date}</td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.terminalCode}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>
+                                        <div>{b.terminalCode || t('tx.unassigned')}</div>
+                                        {b.terminalId && (
+                                            <div style={{ marginTop: 4 }}>
+                                                <ModeBadge mode={b.settlementMode} t={t} />
+                                            </div>
+                                        )}
+                                    </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.workshopName}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.branchName}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.count}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(b.gross)}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, color: '#dc2626' }}>{SAR(b.bankFee)}</td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13, color: '#16a34a' }}>{SAR(b.platformFee)}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13, color: '#16a34a' }}>
+                                        {SAR(b.platformFee)}
+                                        <FeeVatNote amount={b.platformFeeVat} t={t} />
+                                    </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(b.netToMerchant)}</td>
                                 </tr>
                             ))
@@ -1452,7 +2248,10 @@ function RefundsTab({ onError, t }) {
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.branchName || t('common.emDash')}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(r.gross)}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{SAR(r.bankFee)}</td>
-                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{SAR(r.platformFee)}</td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>
+                                        {SAR(r.platformFee)}
+                                        <FeeVatNote amount={r.platformFeeVat} t={t} />
+                                    </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{SAR(r.netToMerchant)}</td>
                                 </tr>
                             ))
@@ -1484,7 +2283,7 @@ function HqSettlementTab({ onError, t }) {
         (async () => {
             try {
                 const res = await listSettlements({ limit: 100 });
-                if (!cancelled) setStatements(Array.isArray(res) ? res : []);
+                if (!cancelled) setStatements(pickArr(res));
             } catch (err) {
                 if (!cancelled) onError(err?.message || t('err.loadSettlements'));
             }

@@ -25,6 +25,7 @@ import {
     indexWorkshopStaffBySelectValue,
     parseWorkshopStaffSelectValue,
     unwrapWorkshopEmployeesList,
+    workshopStaffSelectValue,
 } from '../../../services/workshopStaffApi';
 import { accT } from '../../../utils/accountingI18n';
 import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
@@ -89,7 +90,7 @@ const emptyAdvanceForm = () => ({
     reason: '',
 });
 
-const overviewRowKey = (e) => `${e._branchKey}:${e.employeeId}`;
+const overviewRowKey = (e) => `${e._branchKey}:${e.staffKey || e.employeeId}`;
 const overviewRowName = (e) => e.name || '';
 const overviewRowHay = (e) => [e.name, e.employeeType, e._branchName].filter(Boolean).join(' ');
 
@@ -211,13 +212,22 @@ export default function WorkshopAdvances({
             setOverview(ov || { employees: [], branches: [] });
             setAdvances(Array.isArray(adv) ? adv : []);
             const empItems = unwrapWorkshopEmployeesList(emps).filter((e) => !e.transferPlaceholder);
-            const ovById = Object.fromEntries((ov?.employees ?? []).map((e) => [String(e.employeeId), e]));
+            // Staff ids repeat across employees / cashiers / users: match on type + id only.
+            const ovByKey = Object.fromEntries(
+                (ov?.employees ?? []).map((e) => [
+                    String(e.staffKey || `${e.recordType || 'employee'}:${e.employeeId}`),
+                    e,
+                ]),
+            );
             setEmployees(
-                empItems.map((e) => ({
-                    ...e,
-                    userId: ovById[String(e.id)]?.userId ?? e.userId ?? null,
-                    canReceiveAdvance: ovById[String(e.id)]?.canReceiveAdvance ?? Boolean(e.userId),
-                })),
+                empItems.map((e) => {
+                    const ovRow = ovByKey[workshopStaffSelectValue(e)];
+                    return {
+                        ...e,
+                        userId: e.userId ?? ovRow?.userId ?? null,
+                        canReceiveAdvance: ovRow?.canReceiveAdvance ?? Boolean(e.userId),
+                    };
+                }),
             );
             setCashBankAccounts(cb?.accounts ?? cb?.items ?? []);
         } catch (e) {
@@ -365,6 +375,8 @@ export default function WorkshopAdvances({
         try {
             await createWorkshopAdvance({
                 employeeId: String(advanceForm.userId),
+                employeeRecordId: advanceForm.employeeRecordId || undefined,
+                recordType: advanceForm.recordType || undefined,
                 employeeName: advanceForm.employeeName,
                 amount: Number(advanceForm.amount || 0),
                 date: advanceForm.date,
@@ -386,6 +398,8 @@ export default function WorkshopAdvances({
             .filter((r) => r.userId && Number(r.amount) > 0 && r.payFromAccountId)
             .map((r) => ({
                 employeeId: String(r.userId),
+                employeeRecordId: r.employeeRecordId || undefined,
+                recordType: r.recordType || undefined,
                 employeeName: r.employeeName || t('adv.defaultEmployee'),
                 amount: Number(r.amount || 0),
                 date: r.date,
