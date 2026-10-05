@@ -39,6 +39,7 @@ import {
 import { formatTransferDate, transferPlaceLabel, staffTransferKind } from '../../utils/staffTransfer';
 import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
 import CompensationRevisionPanel from '../../components/compensation/CompensationRevisionPanel';
+import InactiveTag from '../../components/InactiveTag';
 
 const EMPLOYEE_PAGE_SIZES = [20, 40, 60, 80, 100];
 const SEARCH_SUGGESTION_LIMIT = 8;
@@ -113,6 +114,8 @@ function statusLabel(t, status) {
     if (status === 'inactive') return t('status.inactive');
     return status || t('emdash');
 }
+
+const isInactiveEmployee = (emp) => String(emp?.status || '').toLowerCase() === 'inactive';
 
 function getPortalOptions(t) {
     return [
@@ -505,7 +508,8 @@ function WorkshopEmployees({
         const q = empSearch.trim().toLowerCase();
         if (!q) return [];
         const words = q.split(/\s+/).filter(Boolean);
-        const rank = (x) => (x.name.startsWith(q) ? 0 : x.name.includes(q) ? 1 : 2);
+        const rank = (x) =>
+            (x.name.startsWith(q) ? 0 : x.name.includes(q) ? 1 : 2) + (isInactiveEmployee(x.emp) ? 3 : 0);
         return searchIndex
             .filter((x) => words.every((w) => x.hay.includes(w)))
             .sort((a, b) => rank(a) - rank(b))
@@ -1592,7 +1596,7 @@ function WorkshopEmployees({
                         setPickedKey(null);
                         setPage(1);
                     }}
-                    matches={pickedKey ? [] : searchMatches}
+                    matches={searchMatches}
                     describe={(emp) =>
                         [jobRoleLabel(t, emp.role), getEmployeeBranchNames(emp).join(', '), emp.phone]
                             .filter(Boolean)
@@ -1905,11 +1909,14 @@ function EmployeeSearchBox({ t, value, onChange, matches, describe, onPick, onCl
                                     key={employeeRowKey(emp)}
                                     role="option"
                                     aria-selected={i === highlight}
-                                    className={`ws-emp-suggest__item${i === highlight ? ' is-active' : ''}`}
+                                    className={`ws-emp-suggest__item${i === highlight ? ' is-active' : ''}${isInactiveEmployee(emp) ? ' is-inactive-option' : ''}`}
                                     onMouseEnter={() => setHighlight(i)}
                                     onClick={() => pick(emp)}
                                 >
-                                    <div className="ws-emp-suggest__name">{emp.name || t('emdash')}</div>
+                                    <div className="ws-emp-suggest__name">
+                                        {emp.name || t('emdash')}
+                                        {isInactiveEmployee(emp) ? <InactiveTag label={t('status.inactive')} /> : null}
+                                    </div>
                                     <div className="ws-emp-suggest__meta">{describe(emp)}</div>
                                 </div>
                             ))}

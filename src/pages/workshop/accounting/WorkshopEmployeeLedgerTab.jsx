@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Calendar, RefreshCw } from 'lucide-react';
 
 import SearchableEntityCombobox from '../../../components/SearchableEntityCombobox';
+import { isInactiveRecord } from '../../../utils/inactiveRecords';
 import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
 import WsTablePagination from '../../../components/workshop/WsTablePagination';
 import usePagedSearch, { WS_PAGE_SIZES } from '../../../components/workshop/usePagedSearch';
@@ -309,6 +310,7 @@ export default function WorkshopEmployeeLedgerTab({
                         id: bareId,
                         name: row.name ?? row.employee_name ?? 'Employee',
                         recordType: 'employee',
+                        ...(row.is_active === false ? { isActive: false } : {}),
                         branch: row.branch?.name
                             ? { name: row.branch.name }
                             : row.branch_name
@@ -488,6 +490,7 @@ export default function WorkshopEmployeeLedgerTab({
                         ]
                             .filter(Boolean)
                             .join(' '),
+                        ...(isInactiveRecord(e) ? { inactive: true } : {}),
                     };
                 }),
         [employees],
@@ -624,6 +627,7 @@ export default function WorkshopEmployeeLedgerTab({
                     <SearchableEntityCombobox
                         className="ws-filter-combobox"
                         options={employeeComboboxOptions}
+                        inactiveSelectable
                         value={ledgerEmployeeId}
                         displayText={employeeSearchDraft}
                         entityLabel="employee"
