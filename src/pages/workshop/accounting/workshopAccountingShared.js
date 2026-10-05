@@ -37,6 +37,7 @@ export function resolvePayeeComboId(row, payees) {
 /** If every payee of this type shares one default GL, fill it when Type changes. */
 export function sharedPayeeDefaultAccountId(list) {
     const ids = (list || [])
+        .filter((p) => p?.isActive !== false)
         .map((p) => String(p?.defaultAccountId || '').trim())
         .filter(Boolean);
     if (!ids.length) return '';
@@ -70,6 +71,7 @@ export function mergePayeeDefaultAccountOptions(accountOptions, extraPayees) {
     const opts = Array.isArray(accountOptions) ? [...accountOptions] : [];
     const seen = new Set(opts.map((o) => String(o.id)));
     for (const p of extraPayees || []) {
+        if (p?.isActive === false) continue;
         const id = String(p?.defaultAccountId || '').trim();
         if (!id || seen.has(id)) continue;
         seen.add(id);

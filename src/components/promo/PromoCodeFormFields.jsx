@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { catalogItemId, catalogItemName } from './promoCodeFormUtils';
+import InactiveTag from '../InactiveTag';
+import { inactiveLastWhenSearching, isInactiveRecord } from '../../utils/inactiveRecords';
 
 function strTrim(value) {
   return String(value ?? '').trim();
@@ -232,7 +234,7 @@ function ScopeSection({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return sorted.filter((row) => {
+    const matches = sorted.filter((row) => {
       if (
         selectedCategoryIds.length > 0
         && !selectedCategoryIds.includes(String(row.categoryId ?? row.category_id ?? ''))
@@ -245,10 +247,23 @@ function ScopeSection({
       const cat = String(row.categoryName ?? row.category_name ?? '').toLowerCase();
       return name.includes(q) || sku.includes(q) || cat.includes(q);
     });
-  }, [sorted, search, selectedCategoryIds]);
+    return inactiveLastWhenSearching(matches, {
+      searching: Boolean(q),
+      keep: (row) => selectedIds.includes(catalogItemId(row, kind)),
+    });
+  }, [sorted, search, selectedCategoryIds, selectedIds, kind]);
 
   const visibleIds = useMemo(
     () => filtered.map((row) => catalogItemId(row, kind)).filter(Boolean),
+    [filtered, kind],
+  );
+
+  const selectableVisibleIds = useMemo(
+    () =>
+      filtered
+        .filter((row) => !isInactiveRecord(row))
+        .map((row) => catalogItemId(row, kind))
+        .filter(Boolean),
     [filtered, kind],
   );
 
@@ -300,10 +315,10 @@ function ScopeSection({
             <div className="ws-promo-picker-actions">
               <button
                 type="button"
-                disabled={disabled}
-                onClick={() => onSelectMany([...new Set([...selectedIds, ...visibleIds])])}
+                disabled={disabled || selectableVisibleIds.length === 0}
+                onClick={() => onSelectMany([...new Set([...selectedIds, ...selectableVisibleIds])])}
               >
-                Select visible ({visibleIds.length})
+                Select visible ({selectableVisibleIds.length})
               </button>
               <button
                 type="button"
@@ -322,7 +337,7 @@ function ScopeSection({
               <p className="ws-promo-picker-empty">Loading catalog…</p>
             ) : disabled ? (
               <p className="ws-promo-picker-empty">Select at least one branch first.</p>
-            ) : sorted.length === 0 ? (
+            ) : filtered.length === 0 && !search.trim() ? (
               <p className="ws-promo-picker-empty">
                 No {kind} on the selected branch(es).
               </p>
@@ -334,15 +349,24 @@ function ScopeSection({
               filtered.map((row) => {
                 const id = catalogItemId(row, kind);
                 if (!id) return null;
+                const checked = selectedIds.includes(id);
+                const inactive = isInactiveRecord(row);
+                const locked = inactive && !checked;
                 return (
-                  <label key={id} className="ws-promo-picker-row">
+                  <label
+                    key={id}
+                    className={`ws-promo-picker-row${inactive ? ' is-inactive-option' : ''}${locked ? ' is-locked' : ''}`}
+                  >
                     <input
                       type="checkbox"
-                      checked={selectedIds.includes(id)}
-                      disabled={disabled}
+                      checked={checked}
+                      disabled={disabled || locked}
                       onChange={() => onToggle(id)}
                     />
-                    <span>{catalogItemName(row)}</span>
+                    <span>
+                      {catalogItemName(row)}
+                      {inactive ? <InactiveTag /> : null}
+                    </span>
                   </label>
                 );
               })

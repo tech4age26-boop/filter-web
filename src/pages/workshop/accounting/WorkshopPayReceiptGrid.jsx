@@ -45,6 +45,7 @@ import {
     payeeTypeForKind,
 } from './workshopControlAccounts';
 import { commitMathFieldValue } from '../../../utils/evalMathExpression';
+import { isInactiveRecord } from '../../../utils/inactiveRecords';
 
 function payReceiptRowFromEdit(editRow, makeBlank, payees, isPayment) {
     if (!editRow?.id) return null;
@@ -94,6 +95,7 @@ function PayeeCell({ row, payees, options: optionsOverride, onChange, t }) {
                 id: String(o.id),
                 label: o.sublabel ? `${o.name} — ${o.sublabel}` : o.name,
                 searchText: `${o.name || ''} ${o.sublabel || ''}`,
+                inactive: isInactiveRecord(o),
             }))}
         />
     );
@@ -240,7 +242,10 @@ export default function WorkshopPayReceiptGrid({
                     }),
                     listAcctCoa(coaKind, branchParam ? { branchId: branchParam } : {}),
                     listAcctPayees('supplier', branchParam ? { branchId: branchParam } : {}),
-                    listAcctPayees('employee', branchParam ? { branchId: branchParam } : {}),
+                    listAcctPayees('employee', {
+                        ...(branchParam ? { branchId: branchParam } : {}),
+                        includeInactive: 'true',
+                    }),
                     listAcctPayees('customer', branchParam ? { branchId: branchParam } : {}),
                 ]);
                 if (cancelled) return;

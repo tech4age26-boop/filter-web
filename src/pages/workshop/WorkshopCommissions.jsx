@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Clock, CheckCircle, Users, Wallet, Calendar, AlertCircle } from 'lucide-react';
 import Modal from '../../components/Modal';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import { isInactiveRecord } from '../../utils/inactiveRecords';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
@@ -297,6 +298,7 @@ export default function WorkshopCommissions({
                     id: String(id),
                     label: nm || t('employee.fallback'),
                     subtitle: [entries, tag].filter(Boolean).join(' · '),
+                    ...(isInactiveRecord(e) ? { inactive: true } : {}),
                 };
             }),
         [filterEmployees, t, transferTagText],
@@ -1080,6 +1082,7 @@ export default function WorkshopCommissions({
                     <SearchableEntityCombobox
                         className="ws-filter-combobox"
                         options={employeeComboboxOptions}
+                        inactiveSelectable
                         value={filterEmployeeId}
                         displayText={employeeFilterText}
                         entityLabel={t('filter.employeeLabel')}

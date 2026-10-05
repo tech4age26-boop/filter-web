@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import { isInactiveRecord } from '../../utils/inactiveRecords';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import '../../styles/RowActionsMenu.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -789,6 +790,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 .map((techRow) => ({
                     id: String(techRow?.id ?? techRow?.employeeId ?? ''),
                     name: String(techRow?.name ?? '').trim() || t('fallback.technician'),
+                    inactive: isInactiveRecord(techRow),
                 }))
                 .filter((techRow) => techRow.id);
             opts.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
@@ -873,6 +875,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 id: String(techOpt.id),
                 label: techOpt.name || t('fallback.technician'),
                 subtitle: techOpt.phone ? String(techOpt.phone) : '',
+                ...(techOpt.inactive ? { inactive: true } : {}),
             })),
         [technicianOptions, t],
     );
@@ -2240,6 +2243,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         id="ws-by-product-technician"
                                         className="ws-report-tab-combobox"
                                         options={technicianComboboxOptions}
+                                        inactiveSelectable
                                         value={byProductTechnicianId}
                                         displayText={byProductTechnicianFilterText}
                                         entityLabel={t('entity.technician')}
@@ -2352,6 +2356,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         id="ws-by-service-technician"
                                         className="ws-report-tab-combobox"
                                         options={technicianComboboxOptions}
+                                        inactiveSelectable
                                         value={byServiceTechnicianId}
                                         displayText={byServiceTechnicianFilterText}
                                         entityLabel={t('entity.technician')}

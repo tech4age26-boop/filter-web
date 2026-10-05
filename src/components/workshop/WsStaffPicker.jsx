@@ -1,10 +1,14 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, X } from 'lucide-react';
+import InactiveTag from '../InactiveTag';
+import { isInactiveRecord } from '../../utils/inactiveRecords';
 import './WsStaffPicker.css';
 
 /**
  * Searchable staff combobox: type any part of a name, phone, role, branch…,
  * move with ↑/↓, pick with Enter or a click. Every match is listed (scrolls).
+ * Inactive staff are left out of the open list; a typed search shows them
+ * last, dimmed and tagged, and (unless `inactiveSelectable`) not pickable.
  */
 export default function WsStaffPicker({
     options,
@@ -21,6 +25,9 @@ export default function WsStaffPicker({
     disabled = false,
     countText = (matched, total, searching) => (searching ? `${matched} of ${total} match` : `${total} staff`),
     hint = '↑ ↓ to move, Enter to select, Esc to close',
+    isInactive = isInactiveRecord,
+    inactiveSelectable = false,
+    inactiveTagLabel,
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -39,23 +46,28 @@ export default function WsStaffPicker({
                 key: getKey(o),
                 name: String(getLabel(o) || '').toLowerCase(),
                 hay: String(getSearchText(o) || '').toLowerCase(),
+                inactive: Boolean(isInactive(o)),
             })),
-        [options, getKey, getLabel, getSearchText],
+        [options, getKey, getLabel, getSearchText, isInactive],
     );
 
-    /** Every word must match somewhere; names starting with the query come first. */
+    const openIndex = useMemo(() => index.filter((x) => !x.inactive || x.key === value), [index, value]);
+
+    /** Every word must match somewhere; active first, then names starting with the query. */
     const matches = useMemo(() => {
         const q = query.trim().toLowerCase();
-        if (!q) return index;
+        if (!q) return openIndex;
         const words = q.split(/\s+/).filter(Boolean);
-        const rank = (x) => (x.name.startsWith(q) ? 0 : x.name.includes(q) ? 1 : 2);
+        const rank = (x) => (x.inactive ? 3 : 0) + (x.name.startsWith(q) ? 0 : x.name.includes(q) ? 1 : 2);
         return index
             .filter((x) => words.every((w) => x.hay.includes(w)))
             .sort((a, b) => rank(a) - rank(b));
-    }, [index, query]);
+    }, [index, openIndex, query]);
 
     const selected = useMemo(() => index.find((x) => x.key === value) || null, [index, value]);
-    const isDisabled = (x) => Boolean(disabledKeys?.has(x.key)) && x.key !== value;
+    const isTaken = (x) => Boolean(disabledKeys?.has(x.key)) && x.key !== value;
+    const isLockedInactive = (x) => x.inactive && !inactiveSelectable && x.key !== value;
+    const isDisabled = (x) => isTaken(x) || isLockedInactive(x);
 
     useEffect(() => {
         if (!open || highlight < 0 || !listRef.current) return;
@@ -79,7 +91,7 @@ export default function WsStaffPicker({
         if (open) return;
         setOpen(true);
         setQuery('');
-        const at = selected ? index.indexOf(selected) : -1;
+        const at = selected ? openIndex.indexOf(selected) : -1;
         setHighlight(at);
     };
 
@@ -186,6 +198,7 @@ export default function WsStaffPicker({
                     ) : (
                         matches.map((x, i) => {
                             const off = isDisabled(x);
+                            const taken = isTaken(x);
                             return (
                                 <div
                                     key={x.key}
@@ -198,15 +211,20 @@ export default function WsStaffPicker({
                                         'ws-staff-picker__item',
                                         i === highlight && !off ? 'is-active' : '',
                                         x.key === value ? 'is-selected' : '',
-                                        off ? 'is-off' : '',
+                                        taken ? 'is-off' : '',
+                                        x.inactive ? 'is-inactive-option' : '',
+                                        off && !taken ? 'is-locked' : '',
                                     ].filter(Boolean).join(' ')}
                                     onMouseEnter={() => !off && setHighlight(i)}
                                     onClick={() => pick(x)}
                                 >
-                                    <div className="ws-staff-picker__name">{getLabel(x.o)}</div>
+                                    <div className="ws-staff-picker__name">
+                                        {getLabel(x.o)}
+                                        {x.inactive ? <InactiveTag label={inactiveTagLabel} /> : null}
+                                    </div>
                                     <div className="ws-staff-picker__meta">
                                         {getMeta(x.o)}
-                                        {off ? ` · ${disabledHint}` : ''}
+                                        {taken ? ` · ${disabledHint}` : ''}
                                     </div>
                                 </div>
                             );
@@ -214,7 +232,11 @@ export default function WsStaffPicker({
                     )}
                     {matches.length > 0 ? (
                         <div className="ws-staff-picker__footer">
-                            {countText(matches.length, options.length, Boolean(query.trim()))}
+                            {countText(
+                                matches.length,
+                                query.trim() ? index.length : openIndex.length,
+                                Boolean(query.trim()),
+                            )}
                             {` · ${hint}`}
                         </div>
                     ) : null}

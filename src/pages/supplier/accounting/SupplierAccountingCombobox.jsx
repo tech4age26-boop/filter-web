@@ -17,6 +17,7 @@ export default function SupplierAccountingCombobox({
     required = false,
     disabled = false,
     menuMinWidth = 260,
+    inactiveSelectable = false,
 }) {
     const [search, setSearch] = useState('');
     const [editing, setEditing] = useState(false);
@@ -28,6 +29,7 @@ export default function SupplierAccountingCombobox({
                 subtitle: o.subtitle,
                 searchText: o.searchText || `${o.label || ''} ${o.id || o.value || ''}`,
                 trailing: o.trailing,
+                ...(o.inactive ? { inactive: true } : {}),
             })),
         [options],
     );
@@ -61,6 +63,7 @@ export default function SupplierAccountingCombobox({
             required={required}
             disabled={disabled}
             menuMinWidth={menuMinWidth}
+            inactiveSelectable={inactiveSelectable}
         />
     );
 }

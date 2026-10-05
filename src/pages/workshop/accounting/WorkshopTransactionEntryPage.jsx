@@ -64,7 +64,7 @@ export default function WorkshopTransactionEntryPage({
                 listAcctCoa('receivable_revenue'),
                 listAcctCoa('all'),
                 listAcctPayees('supplier'),
-                listAcctPayees('employee'),
+                listAcctPayees('employee', { includeInactive: 'true' }),
                 listAcctPayees('customer'),
             ]);
             setCashBankAccounts(cb?.accounts ?? []);

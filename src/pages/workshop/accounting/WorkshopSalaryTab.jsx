@@ -1314,6 +1314,7 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                                     getSearchText={branchSearchText}
                                     placeholder="Search branch name or code…"
                                     emptyText="No branch matches"
+                                    inactiveSelectable
                                     countText={(n, total, searching) => (searching ? `${n} of ${total} branches` : `${total} branches`)}
                                 />
                             </div>

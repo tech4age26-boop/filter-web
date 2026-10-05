@@ -31,6 +31,7 @@ import {
     payeeTypeForKind,
 } from './workshopControlAccounts';
 import { commitMathFieldValue } from '../../../utils/evalMathExpression';
+import { isInactiveRecord } from '../../../utils/inactiveRecords';
 
 const EMPTY_ACCOUNTS = [];
 const EMPTY_PAYEES = { supplier: [], employee: [], customer: [] };
@@ -87,7 +88,7 @@ export default function WorkshopJournalGrid({
                 const [coa, sup, emp, cust] = await Promise.all([
                     listAcctCoa('all', params),
                     listAcctPayees('supplier', params),
-                    listAcctPayees('employee', params),
+                    listAcctPayees('employee', { ...params, includeInactive: 'true' }),
                     listAcctPayees('customer', params),
                 ]);
                 if (cancelled) return;
@@ -421,6 +422,7 @@ export default function WorkshopJournalGrid({
                                                 id: String(o.id),
                                                 label: o.sublabel ? `${o.name} — ${o.sublabel}` : o.name,
                                                 searchText: `${o.name || ''} ${o.sublabel || ''}`,
+                                                inactive: isInactiveRecord(o),
                                             }))}
                                         />
                                     ) : (
