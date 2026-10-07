@@ -602,6 +602,31 @@ function OrderDetailScreen() {
   }
 
   const st = STATUS_COLORS[order.status] || STATUS_COLORS.VEHICLE_ENTERED;
+  const bayEvents = order.serviceBayEvents || [];
+
+  // Visit timeline: entrance first, then bay events in order
+  const timeline = [
+    {
+      key: 'entrance',
+      kind: 'ENTRANCE',
+      title: 'Vehicle Entered',
+      subtitle: order.entranceCamera?.name || 'Entrance camera',
+      at: order.entranceDetectedAt,
+      meta: order.confidence
+        ? `${(Number(order.confidence) * 100).toFixed(1)}% confidence`
+        : null,
+    },
+    ...bayEvents.map((ev, i) => ({
+      key: `bay-${ev.id || i}`,
+      kind: 'SERVICE_BAY',
+      title: ev.department?.name || `Department ${ev.departmentId}`,
+      subtitle: ev.camera?.name || 'Service bay camera',
+      at: ev.detectedAt,
+      meta: ev.confidence
+        ? `${(Number(ev.confidence) * 100).toFixed(1)}% confidence`
+        : null,
+    })),
+  ];
 
   return (
     <ApprovalPageShell title="AI Order Detail" onBack={() => navigate(`${LIST_PATH}?tab=orders`)}>
@@ -610,7 +635,7 @@ function OrderDetailScreen() {
         <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'monospace' }}>{order.captureNo}</div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, maxWidth: 640 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24, maxWidth: 640 }}>
         <InfoCell label="Plate Number" value={order.plateNumber} mono />
         <InfoCell
           label="Status"
@@ -623,32 +648,70 @@ function OrderDetailScreen() {
         <InfoCell label="Branch" value={order.branch?.name || '-'} />
         <InfoCell label="Entrance Camera" value={order.entranceCamera?.name || '-'} />
         <InfoCell label="Detected At" value={new Date(order.entranceDetectedAt).toLocaleString()} />
-        <InfoCell label="Confidence" value={order.confidence ? `${(Number(order.confidence) * 100).toFixed(1)}%` : '-'} />
         <InfoCell label="Company Vehicle" value={order.isCompanyVehicle ? 'Yes' : 'No'} />
         <InfoCell label="First Bay At" value={order.firstServiceBayAt ? new Date(order.firstServiceBayAt).toLocaleString() : '-'} />
+        <InfoCell label="Bay Visits" value={String(bayEvents.length)} />
       </div>
 
       {order.snapshotUrl ? (
-        <div style={{ marginBottom: 16, maxWidth: 480 }}>
-          <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, marginBottom: 6 }}>SNAPSHOT</div>
+        <div style={{ marginBottom: 24, maxWidth: 480 }}>
+          <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, marginBottom: 6 }}>ENTRANCE SNAPSHOT</div>
           <img src={order.snapshotUrl} alt="snapshot" style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E7EB' }} />
         </div>
       ) : null}
 
-      {order.serviceBayEvents?.length > 0 ? (
-        <div>
-          <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, marginBottom: 8 }}>SERVICE BAY EVENTS</div>
-          {order.serviceBayEvents.map((ev, i) => (
-            <div key={i} style={{ background: '#F8F9FA', borderRadius: 8, padding: 10, marginBottom: 8, fontSize: 13 }}>
-              <div style={{ fontWeight: 700 }}>{ev.department?.name || `Dept ${ev.departmentId}`}</div>
-              <div style={{ color: '#6C757D' }}>
-                {ev.camera?.name || 'Camera'} · {new Date(ev.detectedAt).toLocaleString()}
-                {ev.confidence ? ` · ${(Number(ev.confidence) * 100).toFixed(1)}%` : ''}
-              </div>
-            </div>
-          ))}
+      <div style={{ maxWidth: 640 }}>
+        <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, marginBottom: 12, letterSpacing: '0.4px' }}>
+          VISIT TIMELINE
         </div>
-      ) : null}
+        <div style={{ position: 'relative', paddingLeft: 28 }}>
+          <div style={{
+            position: 'absolute', left: 9, top: 8, bottom: 8, width: 2, background: '#E5E7EB',
+          }}
+          />
+          {timeline.map((step, idx) => {
+            const isBay = step.kind === 'SERVICE_BAY';
+            const color = isBay ? '#E65100' : '#2E7D32';
+            const bg = isBay ? '#FFF3E0' : '#E8F5E9';
+            return (
+              <div key={step.key} style={{ position: 'relative', marginBottom: idx === timeline.length - 1 ? 0 : 16 }}>
+                <div style={{
+                  position: 'absolute', left: -28, top: 14, width: 20, height: 20, borderRadius: '50%',
+                  background: bg, border: `2px solid ${color}`, zIndex: 1,
+                }}
+                />
+                <div style={{
+                  background: '#fff', border: '1px solid #F0F0F0', borderRadius: 12, padding: 14,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 800, color, textTransform: 'uppercase', marginBottom: 2 }}>
+                        {isBay ? 'Service Bay' : 'Entrance'}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{step.title}</div>
+                      <div style={{ fontSize: 12, color: '#6C757D', marginTop: 2 }}>{step.subtitle}</div>
+                      {step.meta ? (
+                        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{step.meta}</div>
+                      ) : null}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>
+                      {step.at ? new Date(step.at).toLocaleString() : '-'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {bayEvents.length === 0 ? (
+          <p style={{ marginTop: 16, fontSize: 13, color: '#6C757D' }}>
+            No service bay detections yet. When a service-bay camera sees this plate, status becomes <strong>Confirmed</strong> and events appear here.
+          </p>
+        ) : null}
+      </div>
     </ApprovalPageShell>
   );
 }
@@ -1016,6 +1079,7 @@ function AiCameraListScreen() {
                       <Th>STATUS</Th>
                       <Th>BRANCH</Th>
                       <Th>CAMERA</Th>
+                      <Th>BAYS</Th>
                       <Th>DETECTED</Th>
                       <Th>COMPANY</Th>
                       <Th />
@@ -1024,6 +1088,7 @@ function AiCameraListScreen() {
                   <tbody>
                     {(orders.data || []).map((order) => {
                       const st = STATUS_COLORS[order.status] || STATUS_COLORS.VEHICLE_ENTERED;
+                      const bayCount = order.serviceBayEvents?.length ?? 0;
                       return (
                         <tr
                           key={String(order.id)}
@@ -1039,6 +1104,7 @@ function AiCameraListScreen() {
                           </Td>
                           <Td>{order.branch?.name || '-'}</Td>
                           <Td>{order.entranceCamera?.name || '-'}</Td>
+                          <Td>{bayCount}</Td>
                           <Td>{new Date(order.entranceDetectedAt).toLocaleString()}</Td>
                           <Td>{order.isCompanyVehicle ? 'Yes' : '-'}</Td>
                           <Td><ChevronRight size={14} color="#9CA3AF" /></Td>
