@@ -67,6 +67,28 @@ export const getAiOrder = async (id) => {
   return unwrap(res);
 };
 
+/** Phase 4 — Matching Engine */
+export const runAiOrderMatching = async (params = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  });
+  const q = qs.toString();
+  const res = await apiFetch(`/ai-camera/orders/run-matching${q ? `?${q}` : ''}`, {
+    method: 'POST',
+  });
+  return unwrap(res);
+};
+
+export const matchAiOrder = (id, salesOrderId) =>
+  apiFetch(`/ai-camera/orders/${id}/match`, {
+    method: 'POST',
+    body: JSON.stringify({ salesOrderId }),
+  });
+
+export const unmatchAiOrder = (id) =>
+  apiFetch(`/ai-camera/orders/${id}/unmatch`, { method: 'POST' });
+
 // ─── Company Staff Vehicles ───────────────────────────────────
 export const listStaffVehicles = async (workshopId) => {
   const res = await apiFetch(`/ai-camera/staff-vehicles/${workshopId}`);

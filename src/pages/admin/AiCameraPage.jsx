@@ -651,6 +651,28 @@ function OrderDetailScreen() {
         <InfoCell label="Company Vehicle" value={order.isCompanyVehicle ? 'Yes' : 'No'} />
         <InfoCell label="First Bay At" value={order.firstServiceBayAt ? new Date(order.firstServiceBayAt).toLocaleString() : '-'} />
         <InfoCell label="Bay Visits" value={String(bayEvents.length)} />
+        <InfoCell
+          label="POS Order"
+          value={
+            order.linkedSalesOrder?.id
+              || order.cashierOrderId
+              || '-'
+          }
+          mono
+        />
+        <InfoCell
+          label="Matched At"
+          value={order.matchedAt ? new Date(order.matchedAt).toLocaleString() : '-'}
+        />
+        <InfoCell
+          label="Invoice"
+          value={order.linkedSalesOrder?.invoice?.invoiceNo || '-'}
+          mono
+        />
+        <InfoCell
+          label="POS Customer"
+          value={order.linkedSalesOrder?.customer?.name || '-'}
+        />
       </div>
 
       {order.snapshotUrl ? (
