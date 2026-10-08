@@ -3,6 +3,7 @@ import { useNavigate, useMatch, useParams } from 'react-router-dom';
 import {
   Camera, Plus, Search, Edit2, Trash2,
   Video, Radio, Car, ChevronRight, RefreshCw, Building, Layers, Loader2,
+  BarChart3,
 } from 'lucide-react';
 import ApprovalPageShell from '../../components/admin/ApprovalPageShell';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
@@ -11,7 +12,8 @@ import '../../styles/admin/ApprovalsPage.css';
 import {
   listCameras, createCamera, updateCamera, deleteCamera, getCamera,
   listAiOrders, getAiOrder,
-  listStaffVehicles, createStaffVehicle, deleteStaffVehicle,
+  listStaffVehicles, createStaffVehicle, updateStaffVehicle, deleteStaffVehicle,
+  getAiCameraReportSummary,
 } from '../../services/aiCameraApi';
 import {
   getWorkshopOptions,
@@ -33,6 +35,7 @@ const TABS = [
   { id: 'cameras', label: 'Cameras', icon: Camera },
   { id: 'orders', label: 'AI Orders', icon: Car },
   { id: 'staff-vehicles', label: 'Staff Vehicles', icon: Radio },
+  { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];
 
 function InfoCell({ label, value, mono }) {
@@ -648,7 +651,16 @@ function OrderDetailScreen() {
         <InfoCell label="Branch" value={order.branch?.name || '-'} />
         <InfoCell label="Entrance Camera" value={order.entranceCamera?.name || '-'} />
         <InfoCell label="Detected At" value={new Date(order.entranceDetectedAt).toLocaleString()} />
-        <InfoCell label="Company Vehicle" value={order.isCompanyVehicle ? 'Yes' : 'No'} />
+        <InfoCell
+          label="Company Vehicle"
+          value={
+            order.isCompanyVehicle ? (
+              <span style={{ background: '#FFECB3', color: '#8D6E00', padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                STAFF VEHICLE
+              </span>
+            ) : 'No'
+          }
+        />
         <InfoCell label="First Bay At" value={order.firstServiceBayAt ? new Date(order.firstServiceBayAt).toLocaleString() : '-'} />
         <InfoCell label="Bay Visits" value={String(bayEvents.length)} />
         <InfoCell
@@ -760,6 +772,11 @@ function AiCameraListScreen() {
   const [searchQ, setSearchQ] = useState('');
   const [orderPage, setOrderPage] = useState(1);
   const [orderStatus, setOrderStatus] = useState('');
+  const [companyFilter, setCompanyFilter] = useState(''); // '' | 'true' | 'false'
+  const [report, setReport] = useState(null);
+  const [reportWorkshopId, setReportWorkshopId] = useState('');
+  const [reportWorkshopDisplay, setReportWorkshopDisplay] = useState('');
+  const [reportIncludeCompany, setReportIncludeCompany] = useState(true);
 
   const loadCameras = useCallback(async () => {
     setLoading(true);
@@ -784,6 +801,7 @@ function AiCameraListScreen() {
         limit: 20,
         status: orderStatus,
         search: searchQ,
+        isCompanyVehicle: companyFilter || undefined,
       });
       // Backend returns { data, total, page, limit, totalPages }
       if (Array.isArray(res)) {
@@ -799,7 +817,24 @@ function AiCameraListScreen() {
     } finally {
       setLoading(false);
     }
-  }, [orderPage, orderStatus, searchQ]);
+  }, [orderPage, orderStatus, searchQ, companyFilter]);
+
+  const loadReport = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await getAiCameraReportSummary({
+        workshopId: reportWorkshopId || undefined,
+        includeCompanyVehicles: reportIncludeCompany,
+      });
+      setReport(res || null);
+    } catch (e) {
+      setError(e.message || 'Failed to load report');
+      setReport(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [reportWorkshopId, reportIncludeCompany]);
 
   const loadStaffVehicles = useCallback(async () => {
     if (!staffWorkshopId) {
@@ -823,10 +858,11 @@ function AiCameraListScreen() {
     if (tab === 'cameras') loadCameras();
     if (tab === 'orders') loadOrders();
     if (tab === 'staff-vehicles') loadStaffVehicles();
-  }, [tab, loadCameras, loadOrders, loadStaffVehicles]);
+    if (tab === 'reports') loadReport();
+  }, [tab, loadCameras, loadOrders, loadStaffVehicles, loadReport]);
 
   useEffect(() => {
-    if (tab !== 'staff-vehicles') return;
+    if (tab !== 'staff-vehicles' && tab !== 'reports') return;
     let cancelled = false;
     (async () => {
       try {
@@ -871,10 +907,20 @@ function AiCameraListScreen() {
     }
   };
 
+  const handleToggleStaffActive = async (sv) => {
+    try {
+      await updateStaffVehicle(String(sv.id), { isActive: !sv.isActive });
+      loadStaffVehicles();
+    } catch (e) {
+      setError(e.message || 'Update failed');
+    }
+  };
+
   const refresh = () => {
     if (tab === 'cameras') loadCameras();
     if (tab === 'orders') loadOrders();
     if (tab === 'staff-vehicles') loadStaffVehicles();
+    if (tab === 'reports') loadReport();
   };
 
   return (
@@ -1078,6 +1124,15 @@ function AiCameraListScreen() {
               <option value="UNMATCHED">Unmatched</option>
               <option value="EXPIRED">Expired</option>
             </select>
+            <select
+              value={companyFilter}
+              onChange={(e) => { setCompanyFilter(e.target.value); setOrderPage(1); }}
+              style={{ padding: '8px 12px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#fff' }}
+            >
+              <option value="">All vehicles</option>
+              <option value="true">Staff / company only</option>
+              <option value="false">Customer only</option>
+            </select>
           </div>
 
           {loading ? (
@@ -1111,14 +1166,32 @@ function AiCameraListScreen() {
                     {(orders.data || []).map((order) => {
                       const st = STATUS_COLORS[order.status] || STATUS_COLORS.VEHICLE_ENTERED;
                       const bayCount = order.serviceBayEvents?.length ?? 0;
+                      const isStaff = !!order.isCompanyVehicle;
                       return (
                         <tr
                           key={String(order.id)}
-                          style={{ borderBottom: '1px solid #F5F5F5', cursor: 'pointer' }}
+                          style={{
+                            borderBottom: '1px solid #F5F5F5',
+                            cursor: 'pointer',
+                            background: isStaff ? '#FFF8E7' : undefined,
+                          }}
                           onClick={() => navigate(`${LIST_PATH}/orders/${order.id}`)}
                         >
                           <Td mono>{order.captureNo}</Td>
-                          <Td><span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>{order.plateNumber}</span></Td>
+                          <Td>
+                            <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>
+                              {order.plateNumber}
+                            </span>
+                            {isStaff ? (
+                              <span style={{
+                                marginLeft: 8, background: '#FFECB3', color: '#8D6E00',
+                                padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 800,
+                              }}
+                              >
+                                STAFF
+                              </span>
+                            ) : null}
+                          </Td>
                           <Td>
                             <span style={{ background: st.bg, color: st.color, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
                               {st.label}
@@ -1128,7 +1201,7 @@ function AiCameraListScreen() {
                           <Td>{order.entranceCamera?.name || '-'}</Td>
                           <Td>{bayCount}</Td>
                           <Td>{new Date(order.entranceDetectedAt).toLocaleString()}</Td>
-                          <Td>{order.isCompanyVehicle ? 'Yes' : '-'}</Td>
+                          <Td>{isStaff ? 'Yes' : '-'}</Td>
                           <Td><ChevronRight size={14} color="#9CA3AF" /></Td>
                         </tr>
                       );
@@ -1218,19 +1291,165 @@ function AiCameraListScreen() {
                       </Td>
                       <Td>{new Date(sv.createdAt).toLocaleDateString()}</Td>
                       <Td>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteStaffVehicle(sv.id)}
-                          style={{ border: '1px solid #FECDD3', borderRadius: 6, background: '#FFF5F5', color: '#DC2626', cursor: 'pointer', padding: '4px 10px', fontSize: 12, fontWeight: 600 }}
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleStaffActive(sv)}
+                            style={{
+                              border: '1px solid #E5E7EB', borderRadius: 6, background: '#fff',
+                              cursor: 'pointer', padding: '4px 10px', fontSize: 11, fontWeight: 700,
+                            }}
+                          >
+                            {sv.isActive ? 'Disable' : 'Enable'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteStaffVehicle(sv.id)}
+                            style={{ border: '1px solid #FECDD3', borderRadius: 6, background: '#FFF5F5', color: '#DC2626', cursor: 'pointer', padding: '4px 10px', fontSize: 12, fontWeight: 600 }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       </Td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+        </>
+      )}
+
+      {tab === 'reports' && (
+        <>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ minWidth: 280, flex: 1, maxWidth: 360 }}>
+              <label className="form-label">Workshop (optional)</label>
+              <SearchableEntityCombobox
+                options={[{ id: '', label: 'All workshops' }, ...staffWorkshops]}
+                value={reportWorkshopId}
+                displayText={reportWorkshopDisplay}
+                onDisplayTextChange={setReportWorkshopDisplay}
+                onSelect={(opt) => {
+                  setReportWorkshopId(String(opt?.id || ''));
+                  setReportWorkshopDisplay('');
+                }}
+                placeholder="All workshops…"
+                entityLabel="workshop"
+                menuMinWidth={280}
+              />
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, paddingBottom: 8 }}>
+              <input
+                type="checkbox"
+                checked={reportIncludeCompany}
+                onChange={(e) => setReportIncludeCompany(e.target.checked)}
+              />
+              Include staff vehicles
+            </label>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#6C757D' }}>Loading report…</div>
+          ) : !report?.totals ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#6C757D' }}>No report data.</div>
+          ) : (
+            <>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                gap: 12,
+                marginBottom: 20,
+              }}
+              >
+                {[
+                  { label: 'Visits', value: report.totals.visits },
+                  { label: 'Matched', value: report.totals.MATCHED },
+                  { label: 'Unmatched', value: report.totals.UNMATCHED },
+                  { label: 'Confirmed', value: report.totals.CONFIRMED },
+                  { label: 'Entered', value: report.totals.VEHICLE_ENTERED },
+                  { label: 'Match rate', value: `${report.totals.matchRatePercent}%` },
+                  { label: 'Staff visits', value: report.totals.companyVehicleVisits },
+                  { label: 'Unbilled alerts', value: report.totals.unbilledAlertsSent },
+                  { label: 'Staff registry', value: report.totals.activeStaffVehiclesRegistered },
+                ].map((card) => (
+                  <div
+                    key={card.label}
+                    style={{
+                      background: '#fff', borderRadius: 12, padding: 14,
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    <div style={{ fontSize: 10, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase' }}>
+                      {card.label}
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{card.value ?? 0}</div>
+                  </div>
+                ))}
+              </div>
+
+              {(report.byBranch || []).length > 0 ? (
+                <div style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', marginBottom: 16 }}>
+                  <div style={{ padding: '12px 14px', fontWeight: 800, fontSize: 13, borderBottom: '1px solid #F0F0F0' }}>
+                    By branch
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #F0F0F0' }}>
+                        <Th>BRANCH</Th>
+                        <Th>TOTAL</Th>
+                        <Th>MATCHED</Th>
+                        <Th>UNMATCHED</Th>
+                        <Th>STAFF</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.byBranch.map((b) => (
+                        <tr key={b.branchId} style={{ borderBottom: '1px solid #F5F5F5' }}>
+                          <Td>{b.branchName}</Td>
+                          <Td>{b.total}</Td>
+                          <Td>{b.matched}</Td>
+                          <Td>{b.unmatched}</Td>
+                          <Td>{b.companyVehicle}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {(report.byDay || []).length > 0 ? (
+                <div style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                  <div style={{ padding: '12px 14px', fontWeight: 800, fontSize: 13, borderBottom: '1px solid #F0F0F0' }}>
+                    By day
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #F0F0F0' }}>
+                        <Th>DATE</Th>
+                        <Th>TOTAL</Th>
+                        <Th>MATCHED</Th>
+                        <Th>UNMATCHED</Th>
+                        <Th>CONFIRMED</Th>
+                        <Th>STAFF</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...report.byDay].reverse().map((d) => (
+                        <tr key={d.date} style={{ borderBottom: '1px solid #F5F5F5' }}>
+                          <Td mono>{d.date}</Td>
+                          <Td>{d.total}</Td>
+                          <Td>{d.matched}</Td>
+                          <Td>{d.unmatched}</Td>
+                          <Td>{d.confirmed}</Td>
+                          <Td>{d.companyVehicle}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </>
           )}
         </>
       )}
