@@ -90,8 +90,15 @@ export const unmatchAiOrder = (id) =>
   apiFetch(`/ai-camera/orders/${id}/unmatch`, { method: 'POST' });
 
 // ─── Company Staff Vehicles ───────────────────────────────────
-export const listStaffVehicles = async (workshopId) => {
-  const res = await apiFetch(`/ai-camera/staff-vehicles/${workshopId}`);
+export const listStaffVehicles = async (workshopId, params = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  });
+  const q = qs.toString();
+  const res = await apiFetch(
+    `/ai-camera/staff-vehicles/${workshopId}${q ? `?${q}` : ''}`,
+  );
   return unwrap(res);
 };
 
@@ -101,5 +108,27 @@ export const createStaffVehicle = (data) =>
     body: JSON.stringify(data),
   });
 
+export const updateStaffVehicle = (id, data) =>
+  apiFetch(`/ai-camera/staff-vehicles/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+
 export const deleteStaffVehicle = (id) =>
   apiFetch(`/ai-camera/staff-vehicles/${id}`, { method: 'DELETE' });
+
+// ─── Phase 5 — Reports ────────────────────────────────────────
+export const getAiCameraReportSummary = async (params = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  });
+  const q = qs.toString();
+  const res = await apiFetch(`/ai-camera/reports/summary${q ? `?${q}` : ''}`);
+  return unwrap(res);
+};
+
+export const getAiCameraPermissions = async () => {
+  const res = await apiFetch('/ai-camera/permissions');
+  return unwrap(res);
+};
