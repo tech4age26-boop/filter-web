@@ -773,10 +773,14 @@ function AiCameraListScreen() {
   const [orderPage, setOrderPage] = useState(1);
   const [orderStatus, setOrderStatus] = useState('');
   const [companyFilter, setCompanyFilter] = useState(''); // '' | 'true' | 'false'
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [report, setReport] = useState(null);
   const [reportWorkshopId, setReportWorkshopId] = useState('');
   const [reportWorkshopDisplay, setReportWorkshopDisplay] = useState('');
   const [reportIncludeCompany, setReportIncludeCompany] = useState(true);
+  const [reportFrom, setReportFrom] = useState('');
+  const [reportTo, setReportTo] = useState('');
 
   const loadCameras = useCallback(async () => {
     setLoading(true);
@@ -802,6 +806,8 @@ function AiCameraListScreen() {
         status: orderStatus,
         search: searchQ,
         isCompanyVehicle: companyFilter || undefined,
+        from: dateFrom ? new Date(dateFrom).toISOString() : undefined,
+        to: dateTo ? new Date(`${dateTo}T23:59:59`).toISOString() : undefined,
       });
       // Backend returns { data, total, page, limit, totalPages }
       if (Array.isArray(res)) {
@@ -817,7 +823,7 @@ function AiCameraListScreen() {
     } finally {
       setLoading(false);
     }
-  }, [orderPage, orderStatus, searchQ, companyFilter]);
+  }, [orderPage, orderStatus, searchQ, companyFilter, dateFrom, dateTo]);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -826,6 +832,8 @@ function AiCameraListScreen() {
       const res = await getAiCameraReportSummary({
         workshopId: reportWorkshopId || undefined,
         includeCompanyVehicles: reportIncludeCompany,
+        from: reportFrom ? new Date(reportFrom).toISOString() : undefined,
+        to: reportTo ? new Date(`${reportTo}T23:59:59`).toISOString() : undefined,
       });
       setReport(res || null);
     } catch (e) {
@@ -834,7 +842,7 @@ function AiCameraListScreen() {
     } finally {
       setLoading(false);
     }
-  }, [reportWorkshopId, reportIncludeCompany]);
+  }, [reportWorkshopId, reportIncludeCompany, reportFrom, reportTo]);
 
   const loadStaffVehicles = useCallback(async () => {
     if (!staffWorkshopId) {
@@ -1133,6 +1141,33 @@ function AiCameraListScreen() {
               <option value="true">Staff / company only</option>
               <option value="false">Customer only</option>
             </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#6C757D' }}>From</label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setOrderPage(1); }}
+                style={{ padding: '6px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, background: '#fff' }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#6C757D' }}>To</label>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setOrderPage(1); }}
+                style={{ padding: '6px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, background: '#fff' }}
+              />
+            </div>
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={() => { setDateFrom(''); setDateTo(''); setOrderPage(1); }}
+                style={{ padding: '6px 12px', border: '1px solid #FECDD3', borderRadius: 8, background: '#FFF5F5', color: '#DC2626', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+              >
+                Clear dates
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -1338,6 +1373,35 @@ function AiCameraListScreen() {
                 entityLabel="workshop"
                 menuMinWidth={280}
               />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#6C757D', display: 'block', marginBottom: 4 }}>From</label>
+                <input
+                  type="date"
+                  value={reportFrom}
+                  onChange={(e) => setReportFrom(e.target.value)}
+                  style={{ padding: '6px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, background: '#fff' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#6C757D', display: 'block', marginBottom: 4 }}>To</label>
+                <input
+                  type="date"
+                  value={reportTo}
+                  onChange={(e) => setReportTo(e.target.value)}
+                  style={{ padding: '6px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, background: '#fff' }}
+                />
+              </div>
+              {(reportFrom || reportTo) && (
+                <button
+                  type="button"
+                  onClick={() => { setReportFrom(''); setReportTo(''); }}
+                  style={{ padding: '6px 12px', border: '1px solid #FECDD3', borderRadius: 8, background: '#FFF5F5', color: '#DC2626', cursor: 'pointer', fontSize: 11, fontWeight: 700, marginBottom: 1 }}
+                >
+                  Clear
+                </button>
+              )}
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, paddingBottom: 8 }}>
               <input
