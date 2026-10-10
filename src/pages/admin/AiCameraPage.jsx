@@ -3,7 +3,7 @@ import { useNavigate, useMatch, useParams } from 'react-router-dom';
 import {
   Camera, Plus, Search, Edit2, Trash2,
   Video, Radio, Car, ChevronRight, RefreshCw, Building, Layers, Loader2,
-  BarChart3,
+  BarChart3, AlertTriangle, Clock, Pencil, Check, X,
 } from 'lucide-react';
 import ApprovalPageShell from '../../components/admin/ApprovalPageShell';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
@@ -14,6 +14,8 @@ import {
   listAiOrders, getAiOrder,
   listStaffVehicles, createStaffVehicle, updateStaffVehicle, deleteStaffVehicle,
   getAiCameraReportSummary,
+  listUnmatchedPosOrders,
+  correctPlateNumber,
 } from '../../services/aiCameraApi';
 import {
   getWorkshopOptions,
@@ -34,6 +36,7 @@ const STATUS_COLORS = {
 const TABS = [
   { id: 'cameras', label: 'Cameras', icon: Camera },
   { id: 'orders', label: 'AI Orders', icon: Car },
+  { id: 'unmatched-pos', label: 'Unmatched POS', icon: AlertTriangle },
   { id: 'staff-vehicles', label: 'Staff Vehicles', icon: Radio },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
 ];
@@ -571,6 +574,9 @@ function OrderDetailScreen() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [editingPlate, setEditingPlate] = useState(false);
+  const [newPlate, setNewPlate] = useState('');
+  const [savingPlate, setSavingPlate] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -639,7 +645,60 @@ function OrderDetailScreen() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24, maxWidth: 640 }}>
-        <InfoCell label="Plate Number" value={order.plateNumber} mono />
+        <div>
+          <div style={{ fontSize: 10, color: '#6C757D', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>Plate Number</div>
+          {editingPlate ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input
+                value={newPlate}
+                onChange={(e) => setNewPlate(e.target.value.toUpperCase())}
+                style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, padding: '2px 8px', border: '1px solid #E5E7EB', borderRadius: 6, width: 120 }}
+                autoFocus
+              />
+              <button
+                type="button"
+                disabled={savingPlate || !newPlate.trim()}
+                onClick={async () => {
+                  setSavingPlate(true);
+                  try {
+                    await correctPlateNumber(orderId, newPlate.trim());
+                    const res = await getAiOrder(orderId);
+                    setOrder(res);
+                    setEditingPlate(false);
+                  } catch (e) {
+                    setError(e.message || 'Failed to correct plate');
+                  } finally {
+                    setSavingPlate(false);
+                  }
+                }}
+                style={{ padding: '2px 6px', border: 'none', background: '#E8F5E9', borderRadius: 4, cursor: 'pointer' }}
+                title="Save"
+              >
+                {savingPlate ? <Loader2 size={14} className="spin" /> : <Check size={14} color="#2E7D32" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingPlate(false)}
+                style={{ padding: '2px 6px', border: 'none', background: '#FEF2F2', borderRadius: 4, cursor: 'pointer' }}
+                title="Cancel"
+              >
+                <X size={14} color="#DC2626" />
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, fontFamily: 'monospace' }}>{order.plateNumber}</span>
+              <button
+                type="button"
+                onClick={() => { setNewPlate(order.plateNumber || ''); setEditingPlate(true); }}
+                style={{ padding: '2px 6px', border: '1px solid #E5E7EB', background: '#fff', borderRadius: 4, cursor: 'pointer' }}
+                title="Correct plate number"
+              >
+                <Pencil size={12} color="#6C757D" />
+              </button>
+            </div>
+          )}
+        </div>
         <InfoCell
           label="Status"
           value={(
@@ -775,6 +834,13 @@ function AiCameraListScreen() {
   const [companyFilter, setCompanyFilter] = useState(''); // '' | 'true' | 'false'
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [cameraFilter, setCameraFilter] = useState('');
+  const [filterDepartments, setFilterDepartments] = useState([]);
+  const [filterCameras, setFilterCameras] = useState([]);
+  const [unmatchedPos, setUnmatchedPos] = useState({ data: [], total: 0, page: 1, totalPages: 1 });
+  const [unmatchedPosPage, setUnmatchedPosPage] = useState(1);
+  const [unmatchedPosSearch, setUnmatchedPosSearch] = useState('');
   const [report, setReport] = useState(null);
   const [reportWorkshopId, setReportWorkshopId] = useState('');
   const [reportWorkshopDisplay, setReportWorkshopDisplay] = useState('');
@@ -808,8 +874,9 @@ function AiCameraListScreen() {
         isCompanyVehicle: companyFilter || undefined,
         from: dateFrom ? new Date(dateFrom).toISOString() : undefined,
         to: dateTo ? new Date(`${dateTo}T23:59:59`).toISOString() : undefined,
+        departmentId: departmentFilter || undefined,
+        cameraId: cameraFilter || undefined,
       });
-      // Backend returns { data, total, page, limit, totalPages }
       if (Array.isArray(res)) {
         setOrders({ data: res, total: res.length, page: 1, totalPages: 1 });
       } else if (res && Array.isArray(res.data)) {
@@ -823,7 +890,7 @@ function AiCameraListScreen() {
     } finally {
       setLoading(false);
     }
-  }, [orderPage, orderStatus, searchQ, companyFilter, dateFrom, dateTo]);
+  }, [orderPage, orderStatus, searchQ, companyFilter, dateFrom, dateTo, departmentFilter, cameraFilter]);
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -843,6 +910,32 @@ function AiCameraListScreen() {
       setLoading(false);
     }
   }, [reportWorkshopId, reportIncludeCompany, reportFrom, reportTo]);
+
+  const loadUnmatchedPos = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await listUnmatchedPosOrders({
+        page: unmatchedPosPage,
+        limit: 20,
+        search: unmatchedPosSearch || undefined,
+        from: dateFrom ? new Date(dateFrom).toISOString() : undefined,
+        to: dateTo ? new Date(`${dateTo}T23:59:59`).toISOString() : undefined,
+      });
+      if (Array.isArray(res)) {
+        setUnmatchedPos({ data: res, total: res.length, page: 1, totalPages: 1 });
+      } else if (res && Array.isArray(res.data)) {
+        setUnmatchedPos(res);
+      } else {
+        setUnmatchedPos({ data: [], total: 0, page: 1, totalPages: 1 });
+      }
+    } catch (e) {
+      setError(e.message || 'Failed to load unmatched POS orders');
+      setUnmatchedPos({ data: [], total: 0, page: 1, totalPages: 1 });
+    } finally {
+      setLoading(false);
+    }
+  }, [unmatchedPosPage, unmatchedPosSearch, dateFrom, dateTo]);
 
   const loadStaffVehicles = useCallback(async () => {
     if (!staffWorkshopId) {
@@ -865,9 +958,10 @@ function AiCameraListScreen() {
   useEffect(() => {
     if (tab === 'cameras') loadCameras();
     if (tab === 'orders') loadOrders();
+    if (tab === 'unmatched-pos') loadUnmatchedPos();
     if (tab === 'staff-vehicles') loadStaffVehicles();
     if (tab === 'reports') loadReport();
-  }, [tab, loadCameras, loadOrders, loadStaffVehicles, loadReport]);
+  }, [tab, loadCameras, loadOrders, loadUnmatchedPos, loadStaffVehicles, loadReport]);
 
   useEffect(() => {
     if (tab !== 'staff-vehicles' && tab !== 'reports') return;
@@ -890,6 +984,30 @@ function AiCameraListScreen() {
         }
       } catch {
         if (!cancelled) setStaffWorkshops([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tab]);
+
+  // Load departments + cameras for filter dropdowns on orders tab
+  useEffect(() => {
+    if (tab !== 'orders') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getDepartments();
+        const list = Array.isArray(res?.departments) ? res.departments : Array.isArray(res) ? res : [];
+        if (!cancelled) setFilterDepartments(list.filter((d) => d && d.isActive !== false));
+      } catch {
+        if (!cancelled) setFilterDepartments([]);
+      }
+    })();
+    (async () => {
+      try {
+        const cams = await listCameras();
+        if (!cancelled) setFilterCameras(Array.isArray(cams) ? cams : []);
+      } catch {
+        if (!cancelled) setFilterCameras([]);
       }
     })();
     return () => { cancelled = true; };
@@ -927,6 +1045,7 @@ function AiCameraListScreen() {
   const refresh = () => {
     if (tab === 'cameras') loadCameras();
     if (tab === 'orders') loadOrders();
+    if (tab === 'unmatched-pos') loadUnmatchedPos();
     if (tab === 'staff-vehicles') loadStaffVehicles();
     if (tab === 'reports') loadReport();
   };
@@ -1168,6 +1287,30 @@ function AiCameraListScreen() {
                 Clear dates
               </button>
             )}
+            {filterDepartments.length > 0 && (
+              <select
+                value={departmentFilter}
+                onChange={(e) => { setDepartmentFilter(e.target.value); setOrderPage(1); }}
+                style={{ padding: '8px 12px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#fff' }}
+              >
+                <option value="">All Departments</option>
+                {filterDepartments.map((d) => (
+                  <option key={d.id} value={String(d.id)}>{d.name || `Dept ${d.id}`}</option>
+                ))}
+              </select>
+            )}
+            {filterCameras.length > 0 && (
+              <select
+                value={cameraFilter}
+                onChange={(e) => { setCameraFilter(e.target.value); setOrderPage(1); }}
+                style={{ padding: '8px 12px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, background: '#fff' }}
+              >
+                <option value="">All Cameras</option>
+                {filterCameras.filter((c) => c.cameraType === 'ENTRANCE').map((c) => (
+                  <option key={c.id} value={String(c.id)}>{c.name || `Camera ${c.id}`}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {loading ? (
@@ -1254,6 +1397,92 @@ function AiCameraListScreen() {
                     Previous
                   </button>
                   <button type="button" disabled={orderPage >= orders.totalPages} onClick={() => setOrderPage((p) => p + 1)}
+                    style={{ padding: '6px 14px', border: '1px solid #E5E7EB', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {tab === 'unmatched-pos' && (
+        <>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '6px 12px', flex: 1, minWidth: 200 }}>
+              <Search size={14} color="#9CA3AF" />
+              <input
+                value={unmatchedPosSearch}
+                onChange={(e) => { setUnmatchedPosSearch(e.target.value); setUnmatchedPosPage(1); }}
+                placeholder="Search by plate, customer, invoice…"
+                style={{ border: 'none', outline: 'none', flex: 1, fontSize: 13 }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#6C757D' }}>From</label>
+              <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setUnmatchedPosPage(1); }}
+                style={{ padding: '6px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, background: '#fff' }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#6C757D' }}>To</label>
+              <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setUnmatchedPosPage(1); }}
+                style={{ padding: '6px 10px', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, background: '#fff' }} />
+            </div>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#6C757D' }}>Loading…</div>
+          ) : (unmatchedPos.data || []).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, background: '#fff', borderRadius: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+              <AlertTriangle size={48} color="#D1D5DB" style={{ marginBottom: 12 }} />
+              <h3 style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>No Unmatched POS Orders</h3>
+              <p style={{ color: '#6C757D', fontSize: 13 }}>
+                All POS sales orders with vehicles have a matching AI detection. 🎉
+              </p>
+            </div>
+          ) : (
+            <>
+              <div style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #F0F0F0' }}>
+                      <Th>ORDER #</Th>
+                      <Th>PLATE</Th>
+                      <Th>CUSTOMER</Th>
+                      <Th>BRANCH</Th>
+                      <Th>INVOICE</Th>
+                      <Th>DATE</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(unmatchedPos.data || []).map((so) => (
+                      <tr key={String(so.id)} style={{ borderBottom: '1px solid #F5F5F5' }}>
+                        <Td mono>{so.orderNo || so.id}</Td>
+                        <Td>
+                          <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14, background: '#FFF3CD', padding: '1px 6px', borderRadius: 4 }}>
+                            {so.vehiclePlate || '-'}
+                          </span>
+                        </Td>
+                        <Td>{so.customer?.name || so.customerName || '-'}</Td>
+                        <Td>{so.branch?.name || '-'}</Td>
+                        <Td mono>{so.invoice?.invoiceNo || '-'}</Td>
+                        <Td>{so.createdAt ? new Date(so.createdAt).toLocaleString() : '-'}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, fontSize: 13 }}>
+                <span style={{ color: '#6C757D' }}>
+                  Showing {((unmatchedPos.page - 1) * 20) + 1}–{Math.min(unmatchedPos.page * 20, unmatchedPos.total)} of {unmatchedPos.total}
+                </span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button type="button" disabled={unmatchedPosPage <= 1} onClick={() => setUnmatchedPosPage((p) => p - 1)}
+                    style={{ padding: '6px 14px', border: '1px solid #E5E7EB', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                    Previous
+                  </button>
+                  <button type="button" disabled={unmatchedPosPage >= unmatchedPos.totalPages} onClick={() => setUnmatchedPosPage((p) => p + 1)}
                     style={{ padding: '6px 14px', border: '1px solid #E5E7EB', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                     Next
                   </button>
@@ -1451,6 +1680,59 @@ function AiCameraListScreen() {
                   </div>
                 ))}
               </div>
+
+              {/* Waiting time analysis */}
+              {report.waitingTime && (
+                <div style={{
+                  background: '#fff', borderRadius: 14, padding: 16,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.06)', marginBottom: 16,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <Clock size={16} color="#1565C0" />
+                    <span style={{ fontWeight: 800, fontSize: 13 }}>Waiting Time Analysis</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+                    <div style={{ padding: 12, background: '#F0F7FF', borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase' }}>Entrance → First Bay (avg)</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4, color: '#1565C0' }}>
+                        {report.waitingTime.entranceToFirstBay?.avgMinutes != null
+                          ? `${report.waitingTime.entranceToFirstBay.avgMinutes} min`
+                          : '—'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6C757D' }}>
+                        Median: {report.waitingTime.entranceToFirstBay?.medianMinutes ?? '—'} min
+                        · {report.waitingTime.entranceToFirstBay?.sampleCount ?? 0} samples
+                      </div>
+                    </div>
+                    <div style={{ padding: 12, background: '#F0FFF0', borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase' }}>Entrance → POS Match (avg)</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4, color: '#2E7D32' }}>
+                        {report.waitingTime.entranceToPos?.avgMinutes != null
+                          ? `${report.waitingTime.entranceToPos.avgMinutes} min`
+                          : '—'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6C757D' }}>
+                        Median: {report.waitingTime.entranceToPos?.medianMinutes ?? '—'} min
+                        · {report.waitingTime.entranceToPos?.sampleCount ?? 0} samples
+                      </div>
+                    </div>
+                    {report.confidence && (
+                      <div style={{ padding: 12, background: '#FFF8E1', borderRadius: 10 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#6C757D', textTransform: 'uppercase' }}>Avg Plate Read Confidence</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4, color: '#E65100' }}>
+                          {report.confidence.avgPercent != null
+                            ? `${report.confidence.avgPercent}%`
+                            : '—'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#6C757D' }}>
+                          Min: {report.confidence.minPercent ?? '—'}%
+                          · {report.confidence.sampleCount ?? 0} reads
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {(report.byBranch || []).length > 0 ? (
                 <div style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', marginBottom: 16 }}>

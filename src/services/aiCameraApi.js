@@ -132,3 +132,21 @@ export const getAiCameraPermissions = async () => {
   const res = await apiFetch('/ai-camera/permissions');
   return unwrap(res);
 };
+
+// ─── Unmatched POS Orders (Cashier-only tab) ──────────────────
+export const listUnmatchedPosOrders = async (params = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  });
+  const q = qs.toString();
+  const res = await apiFetch(`/ai-camera/orders/unmatched-pos${q ? `?${q}` : ''}`);
+  return unwrap(res);
+};
+
+// ─── Manual Plate Correction ──────────────────────────────────
+export const correctPlateNumber = (orderId, plateNumber) =>
+  apiFetch(`/ai-camera/orders/${orderId}/correct-plate`, {
+    method: 'POST',
+    body: JSON.stringify({ plateNumber }),
+  });
