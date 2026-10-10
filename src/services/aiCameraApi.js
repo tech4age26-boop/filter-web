@@ -150,3 +150,18 @@ export const correctPlateNumber = (orderId, plateNumber) =>
     method: 'POST',
     body: JSON.stringify({ plateNumber }),
   });
+
+// ─── Fuzzy Match Suggestions ──────────────────────────────────
+export const getMatchSuggestions = async (orderId, params = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  });
+  const q = qs.toString();
+  const res = await apiFetch(`/ai-camera/orders/${orderId}/suggestions${q ? `?${q}` : ''}`);
+  return unwrap(res);
+};
+
+// ─── Delete AI Order ──────────────────────────────────────────
+export const deleteAiOrder = (orderId) =>
+  apiFetch(`/ai-camera/orders/${orderId}`, { method: 'DELETE' });

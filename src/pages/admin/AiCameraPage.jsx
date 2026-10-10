@@ -3,7 +3,7 @@ import { useNavigate, useMatch, useParams } from 'react-router-dom';
 import {
   Camera, Plus, Search, Edit2, Trash2,
   Video, Radio, Car, ChevronRight, RefreshCw, Building, Layers, Loader2,
-  BarChart3, AlertTriangle, Clock, Pencil, Check, X,
+  BarChart3, AlertTriangle, Clock, Pencil, Check, X, Download, FileText, Sheet,
 } from 'lucide-react';
 import ApprovalPageShell from '../../components/admin/ApprovalPageShell';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
@@ -11,11 +11,13 @@ import '../../components/SearchableEntityCombobox.css';
 import '../../styles/admin/ApprovalsPage.css';
 import {
   listCameras, createCamera, updateCamera, deleteCamera, getCamera,
-  listAiOrders, getAiOrder,
+  listAiOrders, getAiOrder, matchAiOrder,
   listStaffVehicles, createStaffVehicle, updateStaffVehicle, deleteStaffVehicle,
   getAiCameraReportSummary,
   listUnmatchedPosOrders,
   correctPlateNumber,
+  getMatchSuggestions,
+  deleteAiOrder,
 } from '../../services/aiCameraApi';
 import {
   getWorkshopOptions,
@@ -577,6 +579,10 @@ function OrderDetailScreen() {
   const [editingPlate, setEditingPlate] = useState(false);
   const [newPlate, setNewPlate] = useState('');
   const [savingPlate, setSavingPlate] = useState(false);
+  const [suggestions, setSuggestions] = useState(null);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [matching, setMatching] = useState(null); // salesOrderId being matched
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -805,8 +811,227 @@ function OrderDetailScreen() {
           </p>
         ) : null}
       </div>
+
+      {/* ── Fuzzy Match Suggestions ── */}
+      {order.status !== 'MATCHED' && (
+        <div style={{ marginTop: 28, maxWidth: 700 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+              POS Match Suggestions
+            </div>
+            <button
+              type="button"
+              disabled={loadingSuggestions}
+              onClick={async () => {
+                setLoadingSuggestions(true);
+                try {
+                  const res = await getMatchSuggestions(orderId);
+                  setSuggestions(res);
+                } catch (e) {
+                  setError(e.message || 'Failed to load suggestions');
+                } finally {
+                  setLoadingSuggestions(false);
+                }
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
+                border: '1px solid #E5E7EB', borderRadius: 6, background: '#fff',
+                cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              }}
+            >
+              {loadingSuggestions ? <Loader2 size={13} className="spin" /> : <Search size={13} />}
+              {suggestions ? 'Refresh' : 'Find Similar POS Orders'}
+            </button>
+          </div>
+
+          {suggestions && (
+            (suggestions.suggestions || []).length === 0 ? (
+              <div style={{
+                padding: 20, background: '#F9FAFB', borderRadius: 12, textAlign: 'center',
+                color: '#6C757D', fontSize: 13,
+              }}>
+                No POS orders with similar plates found for this date range.
+              </div>
+            ) : (
+              <div style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #F0F0F0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #F0F0F0' }}>
+                      <Th>POS PLATE</Th>
+                      <Th>SIMILARITY</Th>
+                      <Th>CUSTOMER</Th>
+                      <Th>INVOICE</Th>
+                      <Th>DATE</Th>
+                      <Th>ACTION</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(suggestions.suggestions || []).map((s) => {
+                      const pct = s.similarityPercent;
+                      const pctColor = pct >= 80 ? '#16A34A' : pct >= 50 ? '#D97706' : '#DC2626';
+                      const pctBg = pct >= 80 ? '#F0FDF4' : pct >= 50 ? '#FFFBEB' : '#FEF2F2';
+                      return (
+                        <tr key={s.salesOrder.id} style={{ borderBottom: '1px solid #F5F5F5' }}>
+                          <Td>
+                            <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>
+                              {s.posPlate}
+                            </span>
+                            {s.salesOrder.vehicle?.make || s.salesOrder.vehicle?.model ? (
+                              <span style={{ marginLeft: 6, fontSize: 11, color: '#6C757D' }}>
+                                {[s.salesOrder.vehicle.make, s.salesOrder.vehicle.model].filter(Boolean).join(' ')}
+                              </span>
+                            ) : null}
+                          </Td>
+                          <Td>
+                            <span style={{
+                              background: pctBg, color: pctColor,
+                              padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 800,
+                            }}>
+                              {pct}%
+                            </span>
+                          </Td>
+                          <Td>{s.salesOrder.customer?.name || '-'}</Td>
+                          <Td mono>{s.salesOrder.invoice?.invoiceNo || '-'}</Td>
+                          <Td>{s.salesOrder.createdAt ? new Date(s.salesOrder.createdAt).toLocaleString() : '-'}</Td>
+                          <Td>
+                            {s.alreadyMatched ? (
+                              <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 600 }}>Already linked</span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={matching === s.salesOrder.id}
+                                onClick={async () => {
+                                  if (!window.confirm(`Match this AI Order (${order.plateNumber}) with POS plate ${s.posPlate} (${pct}% similar)?`)) return;
+                                  setMatching(s.salesOrder.id);
+                                  try {
+                                    await matchAiOrder(orderId, s.salesOrder.id);
+                                    const res = await getAiOrder(orderId);
+                                    setOrder(res);
+                                    setSuggestions(null);
+                                  } catch (e) {
+                                    setError(e.message || 'Match failed');
+                                  } finally {
+                                    setMatching(null);
+                                  }
+                                }}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 4,
+                                  padding: '5px 12px', border: 'none', borderRadius: 6,
+                                  background: '#FFD700', color: '#000',
+                                  cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                                }}
+                              >
+                                {matching === s.salesOrder.id ? <Loader2 size={12} className="spin" /> : <Check size={12} />}
+                                Match
+                              </button>
+                            )}
+                          </Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ── Delete AI Order ── */}
+      <div style={{ marginTop: 32, paddingTop: 20, borderTop: '1px solid #F0F0F0' }}>
+        <button
+          type="button"
+          disabled={deleting}
+          onClick={async () => {
+            if (!window.confirm(`Delete AI Order ${order.captureNo}? This action cannot be undone.`)) return;
+            setDeleting(true);
+            try {
+              await deleteAiOrder(orderId);
+              navigate(`${LIST_PATH}?tab=orders`);
+            } catch (e) {
+              setError(e.message || 'Delete failed');
+              setDeleting(false);
+            }
+          }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', border: '1px solid #FECDD3', borderRadius: 8,
+            background: '#FFF5F5', color: '#DC2626',
+            cursor: 'pointer', fontSize: 13, fontWeight: 700,
+          }}
+        >
+          <Trash2 size={14} />
+          {deleting ? 'Deleting…' : 'Delete AI Order'}
+        </button>
+      </div>
     </ApprovalPageShell>
   );
+}
+
+// ────────────────────────────────────────────────────────────────
+// Export helpers
+// ────────────────────────────────────────────────────────────────
+function exportOrdersToCSV(orders) {
+  const headers = ['Capture No', 'Plate', 'Status', 'Branch', 'Camera', 'Bays', 'Detected', 'Staff Vehicle'];
+  const rows = (orders || []).map((o) => [
+    o.captureNo || '',
+    o.plateNumber || '',
+    o.status || '',
+    o.branch?.name || '',
+    o.entranceCamera?.name || '',
+    String(o.serviceBayEvents?.length ?? 0),
+    o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : '',
+    o.isCompanyVehicle ? 'Yes' : 'No',
+  ]);
+  const csvContent = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ai-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportOrdersToPDF(orders) {
+  const headers = ['Capture No', 'Plate', 'Status', 'Branch', 'Camera', 'Bays', 'Detected', 'Staff Vehicle'];
+  const rows = (orders || []).map((o) => [
+    o.captureNo || '',
+    o.plateNumber || '',
+    o.status || '',
+    o.branch?.name || '',
+    o.entranceCamera?.name || '',
+    String(o.serviceBayEvents?.length ?? 0),
+    o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : '',
+    o.isCompanyVehicle ? 'Yes' : 'No',
+  ]);
+
+  const printWin = window.open('', '_blank');
+  if (!printWin) return;
+  const tableRows = rows.map((r) =>
+    `<tr>${r.map((c) => `<td style="border:1px solid #ddd;padding:6px 10px;font-size:12px;">${c}</td>`).join('')}</tr>`
+  ).join('');
+  printWin.document.write(`
+    <!DOCTYPE html><html><head><title>AI Orders Export</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+      h1 { font-size: 18px; margin-bottom: 4px; }
+      p { font-size: 12px; color: #666; margin-bottom: 16px; }
+      table { border-collapse: collapse; width: 100%; }
+      th { border: 1px solid #333; padding: 8px 10px; font-size: 11px; text-transform: uppercase;
+           font-weight: 800; background: #f5f5f5; text-align: left; }
+      @media print { body { padding: 0; } }
+    </style></head><body>
+    <h1>AI Camera — Orders Report</h1>
+    <p>Exported: ${new Date().toLocaleString()} &nbsp;|&nbsp; Total: ${rows.length} orders</p>
+    <table>
+      <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+    </body></html>
+  `);
+  printWin.document.close();
+  setTimeout(() => printWin.print(), 400);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -828,6 +1053,7 @@ function AiCameraListScreen() {
   const [staffWorkshopDisplay, setStaffWorkshopDisplay] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [exportOpen, setExportOpen] = useState(false);
   const [searchQ, setSearchQ] = useState('');
   const [orderPage, setOrderPage] = useState(1);
   const [orderStatus, setOrderStatus] = useState('');
@@ -1042,6 +1268,14 @@ function AiCameraListScreen() {
     }
   };
 
+  // Close export dropdown on outside click
+  useEffect(() => {
+    if (!exportOpen) return;
+    const close = () => setExportOpen(false);
+    const timer = setTimeout(() => document.addEventListener('click', close), 0);
+    return () => { clearTimeout(timer); document.removeEventListener('click', close); };
+  }, [exportOpen]);
+
   const refresh = () => {
     if (tab === 'cameras') loadCameras();
     if (tab === 'orders') loadOrders();
@@ -1084,6 +1318,46 @@ function AiCameraListScreen() {
             >
               <Plus size={16} /> Add Vehicle
             </button>
+          ) : null}
+          {tab === 'orders' && (orders.data || []).length > 0 ? (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setExportOpen((v) => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #E5E7EB', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+              >
+                <Download size={14} /> Export
+              </button>
+              {exportOpen && (
+                <div
+                  style={{
+                    position: 'absolute', right: 0, top: '110%', zIndex: 50,
+                    background: '#fff', border: '1px solid #E5E7EB', borderRadius: 10,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.10)', minWidth: 170, overflow: 'hidden',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => { exportOrdersToPDF(orders.data); setExportOpen(false); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 600, textAlign: 'left' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#F9FAFB'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <FileText size={15} color="#DC2626" /> Export as PDF
+                  </button>
+                  <div style={{ height: 1, background: '#F0F0F0' }} />
+                  <button
+                    type="button"
+                    onClick={() => { exportOrdersToCSV(orders.data); setExportOpen(false); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 600, textAlign: 'left' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#F9FAFB'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <Sheet size={15} color="#16A34A" /> Export as Excel (CSV)
+                  </button>
+                </div>
+              )}
+            </div>
           ) : null}
         </div>
       </div>
@@ -1336,7 +1610,7 @@ function AiCameraListScreen() {
                       <Th>CAMERA</Th>
                       <Th>BAYS</Th>
                       <Th>DETECTED</Th>
-                      <Th>COMPANY</Th>
+                      <Th>STAFF VEHICLE</Th>
                       <Th />
                     </tr>
                   </thead>
@@ -1380,7 +1654,26 @@ function AiCameraListScreen() {
                           <Td>{bayCount}</Td>
                           <Td>{new Date(order.entranceDetectedAt).toLocaleString()}</Td>
                           <Td>{isStaff ? 'Yes' : '-'}</Td>
-                          <Td><ChevronRight size={14} color="#9CA3AF" /></Td>
+                          <Td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button
+                                type="button"
+                                title="Delete AI Order"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!window.confirm(`Delete AI Order ${order.captureNo}?`)) return;
+                                  deleteAiOrder(String(order.id)).then(() => loadOrders()).catch((err) => setError(err.message || 'Delete failed'));
+                                }}
+                                style={{
+                                  padding: '3px 6px', border: '1px solid #FECDD3', borderRadius: 4,
+                                  background: '#FFF5F5', cursor: 'pointer', lineHeight: 0,
+                                }}
+                              >
+                                <Trash2 size={12} color="#DC2626" />
+                              </button>
+                              <ChevronRight size={14} color="#9CA3AF" />
+                            </div>
+                          </Td>
                         </tr>
                       );
                     })}
