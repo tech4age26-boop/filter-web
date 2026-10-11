@@ -983,8 +983,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         if (!target) return;
         const isOpen = target.startsWith('so:');
         setRecentOrderActionBusyId(target);
+        // Open before any await so the browser still treats this as the click
+        // and allows the WhatsApp tab. Download then points that tab at the chat.
+        const waTab = actionType === 'download' ? window.open('', '_blank') : null;
         try {
             if (isOpen) {
+                if (waTab) waTab.close();
                 if (actionType === 'view') {
                     void openRecentOrderDetails(target);
                 } else {
@@ -1002,6 +1006,27 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setInvoicePreviewData(invoiceObj);
             } else if (actionType === 'download') {
                 await downloadPosInvoicePdf(invoiceObj);
+                try {
+                    const linkRes = await apiFetch(
+                        `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-link`,
+                    );
+                    const waMeUrl = linkRes?.waMeUrl || linkRes?.data?.waMeUrl;
+                    if (!waMeUrl) {
+                        if (waTab) waTab.close();
+                        window.alert(t('orders.whatsappNoPhone'));
+                    } else {
+                        if (waTab) waTab.location.href = waMeUrl;
+                        else window.open(waMeUrl, '_blank', 'noopener,noreferrer');
+                        window.alert(
+                            linkRes?.pdfUrl
+                                ? t('orders.whatsappOpenedPdf')
+                                : t('orders.whatsappOpened'),
+                        );
+                    }
+                } catch (waErr) {
+                    if (waTab) waTab.close();
+                    window.alert(waErr?.message || t('orders.whatsappNoPhone'));
+                }
             } else if (actionType === 'whatsapp') {
                 try {
                     const waRes = await apiFetch(
@@ -1031,6 +1056,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 }
             }
         } catch (error) {
+            if (waTab && !waTab.closed) {
+                try { waTab.close(); } catch { /* tab already left this page */ }
+            }
             window.alert(error?.message || t('err.actionFailed'));
         } finally {
             setRecentOrderActionBusyId('');
