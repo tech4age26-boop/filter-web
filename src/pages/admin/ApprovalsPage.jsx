@@ -609,6 +609,7 @@ function buildMetaChips(item) {
             push('Email', m.email);
             push('VAT', m.vatNumber);
             push('CR', m.crNumber);
+            push('National Address', m.nationalAddress);
             if (Array.isArray(m.selectedBranchIds) && m.selectedBranchIds.length > 0) {
                 push('Branches', `${m.selectedBranchIds.length}`);
             }

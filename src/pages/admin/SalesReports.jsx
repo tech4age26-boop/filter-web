@@ -2169,18 +2169,19 @@ export default function SalesReports({ portal = 'admin' }) {
                                                 <th>{t('th.cashier')}</th>
                                                 <th>{t('th.totalOrders')}</th>
                                                 <th>{t('th.totalRevenue')}</th>
+                                                <th>{t('th.commission')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {(norm?.byCashier ?? []).length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                    <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                                         {t('empty.cashier')}
                                                     </td>
                                                 </tr>
                                             ) : filteredByCashier.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                                    <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                                         {t('empty.noMatch')}
                                                     </td>
                                                 </tr>
@@ -2202,6 +2203,9 @@ export default function SalesReports({ portal = 'admin' }) {
                                                             <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                                             <td className="ws-font-bold">
                                                                 SAR {toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString()}
+                                                            </td>
+                                                            <td className="ws-font-bold">
+                                                                SAR {toNumber(row.commission_sar ?? row.commissionSar).toLocaleString()}
                                                             </td>
                                                         </tr>
                                                     );

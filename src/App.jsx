@@ -339,8 +339,11 @@ function App() {
               <Route path="fleet-management" element={<Suspense fallback={<PageLoadingFallback />}><FleetManagementPage /></Suspense>} />
               <Route path="warehouse-portal" element={<Suspense fallback={<PageLoadingFallback />}><WarehousePortalPage /></Suspense>} />
               <Route path="locker-management" element={<Suspense fallback={<PageLoadingFallback />}><LockerManagementPage /></Suspense>} />
+              <Route path="ai-camera/new" element={<Suspense fallback={<PageLoadingFallback />}><AiCameraPage /></Suspense>} />
+              <Route path="ai-camera/:id/edit" element={<Suspense fallback={<PageLoadingFallback />}><AiCameraPage /></Suspense>} />
+              <Route path="ai-camera/orders/:orderId" element={<Suspense fallback={<PageLoadingFallback />}><AiCameraPage /></Suspense>} />
+              <Route path="ai-camera/staff-vehicles/new" element={<Suspense fallback={<PageLoadingFallback />}><AiCameraPage /></Suspense>} />
               <Route path="ai-camera" element={<Suspense fallback={<PageLoadingFallback />}><AiCameraPage /></Suspense>} />
-              <Route path="ai-camera/:subTab" element={<Suspense fallback={<PageLoadingFallback />}><AiCameraPage /></Suspense>} />
             </Route>
 
             <Route

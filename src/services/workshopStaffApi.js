@@ -137,6 +137,31 @@ export const getWorkshopEmployees = (params = {}, options = {}) => {
     return apiFetch(`/workshop-staff/employees${query}`, options);
 };
 
+const EMPLOYEES_PAGE_SIZE = 200;
+
+/**
+ * GET /workshop-staff/employees across every page (the API returns at most 200
+ * rows per call). Any `limit` / `offset` in params is ignored.
+ * Resolves to `{ employees, total }` so callers can keep using unwrapWorkshopEmployeesList.
+ */
+export async function getAllWorkshopEmployees(params = {}, options = {}) {
+    const { limit: _limit, offset: _offset, ...rest } = params;
+    const query = { ...rest, limit: String(EMPLOYEES_PAGE_SIZE) };
+    const first = await getWorkshopEmployees(query, options);
+    let list = unwrapWorkshopEmployeesList(first);
+    const total = Number(first?.total ?? first?.data?.total);
+    if (Number.isFinite(total)) {
+        while (list.length < total) {
+            const page = unwrapWorkshopEmployeesList(
+                await getWorkshopEmployees({ ...query, offset: String(list.length) }, options),
+            );
+            if (page.length === 0) break;
+            list = list.concat(page);
+        }
+    }
+    return { employees: list, total: Number.isFinite(total) ? total : list.length };
+}
+
 export const postWorkshopEmployees = (body = {}, options = {}) =>
     apiFetch('/workshop-staff/employees', {
         method: 'POST',
@@ -602,6 +627,24 @@ export const deleteWorkshopPortalStaff = (id) =>
     apiFetch(`/workshop-staff/portal-staff/${encodeURIComponent(String(id))}`, {
         method: 'DELETE',
     });
+
+/** Workshops (any active workshop on the platform) + their active branches for Internal transfer. */
+export const getStaffTransferTargets = () => apiFetch('/workshop-staff/staff-transfer/targets');
+
+/**
+ * `kind` = employee | cashier | portal_user (the row's recordType).
+ * Returns unpaid commission, advances, open jobs / POS shift blockers and past transfers.
+ */
+export const getStaffTransferPreview = (kind, id) =>
+    apiFetch(
+        `/workshop-staff/staff/${encodeURIComponent(String(kind))}/${encodeURIComponent(String(id))}/transfer-preview`,
+    );
+
+export const transferStaff = (kind, id, body) =>
+    apiFetch(
+        `/workshop-staff/staff/${encodeURIComponent(String(kind))}/${encodeURIComponent(String(id))}/transfer`,
+        { method: 'POST', body: JSON.stringify(body) },
+    );
 
 export const getWorkshopBranches = () => apiFetch(`/workshop-staff/branches${qs({})}`);
 
@@ -1295,6 +1338,15 @@ export function normalizeWorkshopEmployee(raw, role) {
                   : raw.user_id != null
                     ? String(raw.user_id)
                     : null,
+        staffKey: raw.staffKey ?? raw.staff_key ?? undefined,
+        /** Latest internal transfer ({ direction: 'in'|'out', date, from_*, to_* }). */
+        transfer: raw.transfer ?? null,
+        /** Read-only row kept on the old workshop / branch after a transfer. */
+        transferPlaceholder: raw.transferPlaceholder === true,
+        /** Moved to another workshop: { workshop_name, branch_name } for display only. */
+        currentPlacement: raw.currentPlacement ?? null,
+        /** Moved portal login with no record left in this workshop. */
+        transferReadOnly: raw.transferReadOnly === true,
         _source: role,
     };
 }
@@ -1364,7 +1416,7 @@ export function normalizeUnifiedWorkshopEmployeeRow(raw) {
  * @param {string} [params.employeeType] staff | technician | cashier
  * @param {boolean|string} [params.isActive]
  * @param {boolean} [params.includeInactive] When true, do not default workshop-wide lists to active-only.
- * @param {number|string} [params.limit]
+ * @param {number|string} [params.limit] With limit/offset, returns that page only; otherwise every page.
  * @param {number|string} [params.offset]
  */
 export async function loadWorkshopEmployeesCombined(params = {}) {
@@ -1394,9 +1446,14 @@ export async function loadWorkshopEmployeesCombined(params = {}) {
         query.workshopId = String(params.workshopId);
     }
 
+    // Without an explicit page, load every page so search, KPIs and the table
+    // see the whole workshop (the API caps one call at 200 rows).
+    const explicitPage = query.limit != null || query.offset != null;
+
     try {
-        const res = await getWorkshopEmployees(query);
-        const list = unwrapWorkshopEmployeesList(res);
+        const list = explicitPage
+            ? unwrapWorkshopEmployeesList(await getWorkshopEmployees(query))
+            : (await getAllWorkshopEmployees(query)).employees;
         const employees = list.map((row) => normalizeUnifiedWorkshopEmployeeRow(row));
         const techList = employees.filter((e) => e._source === 'technician');
         const cashList = employees.filter((e) => e._source === 'cashier');

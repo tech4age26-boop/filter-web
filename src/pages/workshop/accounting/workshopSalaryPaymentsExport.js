@@ -13,7 +13,7 @@ const ROW_HEIGHT_PT = 36;
 const DEPT_HEADER_H_PT = 24;
 const TOTAL_ROW_H_PT = 28;
 const THEAD_HEIGHT_PT = 34;
-const COL_COUNT = 12;
+const COL_COUNT = 13;
 
 /** Bilingual EN + AR labels for the salary sheet PDF. */
 const L = {
@@ -22,6 +22,7 @@ const L = {
     subtitle: 'Department-wise · Managers & cashiers first / حسب القسم · المدراء والكاشير أولاً',
     branch: 'Branch / الفرع',
     period: 'Period / الفترة',
+    salaryMonth: 'Salary for the Month of / راتب شهر',
     empSearch: 'Employee search / بحث الموظف',
     records: 'Records / السجلات',
     totalNet: 'Total net salary after deductions (SAR) / إجمالي صافي الراتب بعد الخصومات',
@@ -29,6 +30,7 @@ const L = {
     continued: 'Continued / تابع',
     pageOf: (p, n) => `Page ${p} of ${n} / صفحة ${p} من ${n}`,
     colDate: 'Date<br/><span class="ar" dir="rtl">التاريخ</span>',
+    colDocNo: 'Doc No.<br/><span class="ar" dir="rtl">رقم القيد</span>',
     colEmployee: 'Employee<br/><span class="ar" dir="rtl">الموظف</span>',
     colBranch: 'Branch<br/><span class="ar" dir="rtl">الفرع</span>',
     colPeriod: 'Period<br/><span class="ar" dir="rtl">الفترة</span>',
@@ -115,6 +117,25 @@ function formatFilterRange(dateFrom, dateTo) {
     return `${from} → ${to}`;
 }
 
+/** `2026-09` → `September 2026`. */
+export function formatSalaryMonth(period) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(period || '').trim());
+    if (!m) return String(period || '');
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1));
+    return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+function periodMetaLine(salaryMonth, dateFrom, dateTo) {
+    return salaryMonth
+        ? `${L.salaryMonth}: ${formatSalaryMonth(salaryMonth)}`
+        : `${L.period}: ${formatFilterRange(dateFrom, dateTo)}`;
+}
+
+function periodMetaHtml(salaryMonth, dateFrom, dateTo) {
+    const [label, ...rest] = periodMetaLine(salaryMonth, dateFrom, dateTo).split(': ');
+    return `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(rest.join(': '))}</div>`;
+}
+
 function moneyFields(s) {
     const salary = Number(s.basicSalary ?? s.grossSalary) || 0;
     const rewardBonus = Number(s.rewardBonus) || 0;
@@ -156,6 +177,7 @@ function mapExportRows(rows) {
         const m = moneyFields(s);
         return {
         date: fmtDate(s.paymentDate),
+        docNo: s.entryNumber || '-',
         employee: s.employeeName || '-',
         branch: s.branchName || '-',
         period: s.period || '-',
@@ -307,7 +329,7 @@ async function ensurePdfFonts() {
 function totalsCellsHtml(totals, label, extraClass = '') {
     return `
         <tr class="tot-row ${extraClass}">
-            <td colspan="4" class="tot-label">${escapeHtml(label)}</td>
+            <td colspan="5" class="tot-label">${escapeHtml(label)}</td>
             <td class="num bold">${escapeHtml(fmtMoney(totals.salary))}</td>
             <td class="num bold">${escapeHtml(fmtMoney(totals.rewardBonus))}</td>
             <td class="num bold">${escapeHtml(fmtMoney(totals.commission))}</td>
@@ -508,6 +530,7 @@ function renderPageBodyHtml(pageBlocks, { isLastDataPage, grandTotals }) {
             parts.push(`
                 <tr class="data-row">
                     <td>${escapeHtml(r.date)}</td>
+                    <td>${escapeHtml(r.docNo)}</td>
                     <td dir="auto">${escapeHtml(r.employee)}</td>
                     <td dir="auto">${escapeHtml(r.branch)}</td>
                     <td>${escapeHtml(r.period)}</td>
@@ -535,6 +558,7 @@ function buildSalaryPaymentsPageHtml({
     branchName,
     dateFrom,
     dateTo,
+    salaryMonth,
     employeeSearch,
     totalNet,
     totalRecords,
@@ -551,7 +575,7 @@ function buildSalaryPaymentsPageHtml({
     const metaLines = isFirstPage
         ? [
             `<div><strong>${L.branch}:</strong> <span dir="auto">${escapeHtml(displayBranch)}</span></div>`,
-            `<div><strong>${L.period}:</strong> ${escapeHtml(formatFilterRange(dateFrom, dateTo))}</div>`,
+            periodMetaHtml(salaryMonth, dateFrom, dateTo),
             employeeSearch?.trim()
                 ? `<div><strong>${L.empSearch}:</strong> <span dir="auto">${escapeHtml(employeeSearch.trim())}</span></div>`
                 : '',
@@ -561,7 +585,7 @@ function buildSalaryPaymentsPageHtml({
         ].filter(Boolean).join('')
         : [
             `<div><strong>${L.branch}:</strong> <span dir="auto">${escapeHtml(displayBranch)}</span></div>`,
-            `<div><strong>${L.period}:</strong> ${escapeHtml(formatFilterRange(dateFrom, dateTo))}</div>`,
+            periodMetaHtml(salaryMonth, dateFrom, dateTo),
             `<div><strong>${L.continued}</strong> · ${escapeHtml(L.pageOf(pageIndex + 1, totalPages))}</div>`,
         ].join('');
 
@@ -583,10 +607,11 @@ function buildSalaryPaymentsPageHtml({
             <table>
                 <thead>
                     <tr>
-                        <th style="width:6.5%">${L.colDate}</th>
+                        <th style="width:6%">${L.colDate}</th>
+                        <th style="width:6%">${L.colDocNo}</th>
                         <th style="width:10%">${L.colEmployee}</th>
                         <th style="width:9%">${L.colBranch}</th>
-                        <th style="width:6%">${L.colPeriod}</th>
+                        <th style="width:5.5%">${L.colPeriod}</th>
                         <th class="num" style="width:6.5%">${L.colSalary}</th>
                         <th class="num" style="width:6.5%">${L.colReward}</th>
                         <th class="num" style="width:7%">${L.colCommission}</th>
@@ -615,6 +640,7 @@ function buildSummaryPageHtml({
     branchName,
     dateFrom,
     dateTo,
+    salaryMonth,
     totalRecords,
     pageIndex,
     totalPages,
@@ -649,7 +675,7 @@ function buildSummaryPageHtml({
             </div>
             <div class="salary-pdf-meta">
                 <div><strong>${L.branch}:</strong> <span dir="auto">${escapeHtml(displayBranch)}</span></div>
-                <div><strong>${L.period}:</strong> ${escapeHtml(formatFilterRange(dateFrom, dateTo))}</div>
+                ${periodMetaHtml(salaryMonth, dateFrom, dateTo)}
                 <div><strong>${L.records}:</strong> ${totalRecords}</div>
             </div>
             <p class="salary-pdf-summary-note">${L.summaryTitle}</p>
@@ -695,6 +721,7 @@ function buildSummaryPageHtml({
 function sampleDataRow() {
     return {
         date: '01/01/2026',
+        docNo: 'JE000000',
         employee: 'Sample Employee',
         branch: 'Sample Branch',
         period: '2026-01',
@@ -841,6 +868,7 @@ export async function exportSalaryPaymentsPdf({
     branchName = 'All branches',
     dateFrom = '',
     dateTo = '',
+    salaryMonth = '',
     employeeSearch = '',
 }) {
     await ensurePdfFonts();
@@ -849,6 +877,7 @@ export async function exportSalaryPaymentsPdf({
     const totalNet = rows.reduce((sum, r) => sum + (Number(r.netSalary) || 0), 0);
     const totalRecords = mapped.length;
     const { blocks, deptSummaries, grandTotals } = buildSheetBlocks(mapped);
+    const fileTag = [salaryMonth, branchName].filter(Boolean).join('-');
 
     const mount = document.createElement('div');
     mount.setAttribute('aria-hidden', 'true');
@@ -868,6 +897,7 @@ export async function exportSalaryPaymentsPdf({
         branchName,
         dateFrom,
         dateTo,
+        salaryMonth,
         employeeSearch,
         totalNet,
             totalRecords,
@@ -909,13 +939,14 @@ export async function exportSalaryPaymentsPdf({
             branchName,
             dateFrom,
             dateTo,
+            salaryMonth,
             totalRecords,
             pageIndex: dataPages.length,
             totalPages,
         });
         await addPdfPageFromHtml(pdf, mount, summaryHtml, toPng, usableWpt, true);
 
-        pdf.save(`salary-payments-${safeFileSlug(branchName)}-${stamp()}.pdf`);
+        pdf.save(`salary-payments-${safeFileSlug(fileTag)}-${stamp()}.pdf`);
     } finally {
         mount.remove();
     }
@@ -926,19 +957,23 @@ export function exportSalaryPaymentsExcel({
     branchName = 'All branches',
     dateFrom = '',
     dateTo = '',
+    salaryMonth = '',
     employeeSearch = '',
 }) {
     const mapped = mapExportRows(rows);
     const { blocks, deptSummaries, grandTotals } = buildSheetBlocks(mapped);
+    const fileTag = [salaryMonth, branchName].filter(Boolean).join('-');
     const headerRows = [
         [L.title],
         [`${L.branch}: ${branchName === 'All branches' ? L.allBranches : branchName}`],
-        [`${L.period}: ${formatFilterRange(dateFrom, dateTo)}`],
+        [periodMetaLine(salaryMonth, dateFrom, dateTo)],
         employeeSearch?.trim() ? [`${L.empSearch}: ${employeeSearch.trim()}`] : null,
+        [`${L.records}: ${mapped.length}`],
         [`${L.generated}: ${new Date().toLocaleString('en-GB')}`],
         [],
         [
             'Date / التاريخ',
+            'Doc No. / رقم القيد',
             'Employee / الموظف',
             'Branch / الفرع',
             'Period / الفترة',
@@ -958,13 +993,14 @@ export function exportSalaryPaymentsExcel({
     const rowHeights = [];
     for (const b of blocks) {
         if (b.type === 'dept-header') {
-            dataRows.push([b.department, '', '', '', '', '', '', '', '', '', '', '', '']);
+            dataRows.push([b.department, '', '', '', '', '', '', '', '', '', '', '', '', '']);
             rowHeights.push({ hpt: 20 });
             continue;
         }
         if (b.type === 'dept-total') {
             dataRows.push([
                 L.deptTotal(b.department),
+                '',
                 '',
                 '',
                 '',
@@ -985,6 +1021,7 @@ export function exportSalaryPaymentsExcel({
             const r = b.row;
             dataRows.push([
         r.date,
+        r.docNo,
         r.employee,
         r.branch,
         r.period,
@@ -1004,6 +1041,7 @@ export function exportSalaryPaymentsExcel({
 
     dataRows.push([
         L.grandTotal,
+        '',
         '',
         '',
         '',
@@ -1066,5 +1104,5 @@ export function exportSalaryPaymentsExcel({
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Salary payments');
-    XLSX.writeFile(wb, `salary-payments-${safeFileSlug(branchName)}-${stamp()}.xlsx`);
+    XLSX.writeFile(wb, `salary-payments-${safeFileSlug(fileTag)}-${stamp()}.xlsx`);
 }

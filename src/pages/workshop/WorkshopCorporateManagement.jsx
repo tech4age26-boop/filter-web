@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Building2, FileText, Lock, Mail, Pencil, Phone, Plus, RefreshCw, Store, User, UserPlus, ToggleLeft,
+    Building2, FileText, Lock, Mail, MapPin, Pencil, Phone, Plus, RefreshCw, Search, Store, User, UserPlus, ToggleLeft,
 } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
@@ -14,6 +14,7 @@ import {
     filterPortalVisibleBranches,
 } from '../../services/workshopStaffApi';
 import { wcorpT } from '../../utils/workshopCorporateI18n';
+import { compactTaxId, corporateVatError, taxIdChanged, taxIdText } from '../../utils/saudiTaxId';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -47,19 +48,25 @@ function buildEditForm(row) {
         mobile: row.customer?.mobile || '',
         taxId: row.customer?.taxId || row.customer?.vatNumber || '',
         crNumber: row.customer?.crNumber || '',
+        nationalAddress: row.customer?.nationalAddress || '',
         status: String(row.status || 'active').toLowerCase(),
         selectedBranchIds: (row.selectedBranchIds || []).map((id) => String(id)),
     };
 }
 
-function FieldRow({ icon: Icon, label, children }) {
+const NOTE_COLORS = { error: '#B91C1C', warn: '#B45309' };
+
+function FieldRow({ icon: Icon, label, children, note, noteTone }) {
     return (
         <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 6 }}>{label}</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#F3F4F6', borderRadius: 10, padding: '10px 12px', border: '1px solid transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#F3F4F6', borderRadius: 10, padding: '10px 12px', border: `1px solid ${noteTone === 'error' ? '#DC2626' : 'transparent'}` }}>
                 {Icon && <Icon size={18} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />}
                 <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
             </div>
+            {note ? (
+                <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: NOTE_COLORS[noteTone] || 'var(--color-text-muted)' }}>{note}</p>
+            ) : null}
         </div>
     );
 }
@@ -76,8 +83,9 @@ function buildPatchBody(form, initial) {
     if (form.customerName.trim() !== initial.customerName) body.customerName = form.customerName.trim();
     if (form.contactPerson.trim() !== initial.contactPerson) body.contactPerson = form.contactPerson.trim();
     if (form.mobile.trim() !== initial.mobile) body.mobile = form.mobile.trim();
-    if (form.taxId.trim() !== initial.taxId) body.taxId = form.taxId.trim();
+    if (taxIdChanged(form.taxId, initial.taxId)) body.taxId = compactTaxId(form.taxId);
     if (form.crNumber.trim() !== initial.crNumber) body.crNumber = form.crNumber.trim();
+    if (form.nationalAddress.trim() !== initial.nationalAddress) body.nationalAddress = form.nationalAddress.trim();
     if (form.status !== initial.status) body.status = form.status;
     if (!sameIdSet(form.selectedBranchIds, initial.selectedBranchIds)) {
         body.selectedBranchIds = form.selectedBranchIds;
@@ -85,11 +93,13 @@ function buildPatchBody(form, initial) {
     return body;
 }
 
-function EditCorporateAccountModal({ row, branches, onClose, onSaved, t }) {
+function EditCorporateAccountModal({ row, branches, onClose, onSaved, t, locale }) {
     const [form, setForm] = useState(() => buildEditForm(row));
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
     const initialRef = useRef(buildEditForm(row));
+    const vatChanged = taxIdChanged(form.taxId, initialRef.current.taxId);
+    const vatError = corporateVatError(form.taxId, locale);
 
     useEffect(() => {
         const next = buildEditForm(row);
@@ -119,6 +129,10 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved, t }) {
         setSaving(true);
         setSaveError('');
         try {
+            if (vatChanged && vatError) {
+                setSaveError(vatError);
+                return;
+            }
             const body = buildPatchBody(form, initialRef.current);
             if (Object.keys(body).length === 0) {
                 setSaveError(t('err.noChanges'));
@@ -185,9 +199,16 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved, t }) {
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label={t('edit.taxId')}>
+                <FieldRow
+                    icon={FileText}
+                    label={t('edit.taxId')}
+                    note={vatError ? (vatChanged ? vatError : taxIdText(locale, 'legacy')) : taxIdText(locale, 'vatHint')}
+                    noteTone={vatError ? (vatChanged ? 'error' : 'warn') : undefined}
+                >
                     <input
                         type="text"
+                        inputMode="numeric"
+                        maxLength={20}
                         value={form.taxId}
                         onChange={(e) => setForm((f) => ({ ...f, taxId: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
@@ -198,6 +219,15 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved, t }) {
                         type="text"
                         value={form.crNumber}
                         onChange={(e) => setForm((f) => ({ ...f, crNumber: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={MapPin} label={taxIdText(locale, 'nationalAddress')}>
+                    <input
+                        type="text"
+                        value={form.nationalAddress}
+                        placeholder={taxIdText(locale, 'nationalAddressPh')}
+                        onChange={(e) => setForm((f) => ({ ...f, nationalAddress: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
@@ -292,7 +322,7 @@ function parseCorporateCustomersResponse(response) {
     return { list: arr, total };
 }
 
-function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSuccess, t }) {
+function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSuccess, t, locale }) {
     const defaultBranches = useMemo(() => {
         if (selectedBranchId && selectedBranchId !== 'all') return [String(selectedBranchId)];
         return [];
@@ -306,11 +336,13 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
         password: '',
         vatNumber: '',
         crNumber: '',
+        nationalAddress: '',
         referralId: '',
         selectedBranchIds: defaultBranches,
     });
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
+    const vatError = corporateVatError(form.vatNumber, locale);
 
     useEffect(() => {
         setForm({
@@ -321,6 +353,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
             password: '',
             vatNumber: '',
             crNumber: '',
+            nationalAddress: '',
             referralId: '',
             selectedBranchIds: defaultBranches,
         });
@@ -344,8 +377,9 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
         const mobile = form.mobile.trim();
         const email = form.email.trim();
         const password = form.password;
-        const vatNumber = form.vatNumber.trim();
+        const vatNumber = compactTaxId(form.vatNumber);
         const crNumber = form.crNumber.trim();
+        const nationalAddress = form.nationalAddress.trim();
         const referralId = form.referralId.trim();
         if (!companyName || !contactPerson || !mobile || !email || !password) {
             setSaveError(t('err.requiredRegister'));
@@ -357,6 +391,10 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
         }
         if (!form.selectedBranchIds.length) {
             setSaveError(t('err.selectBranch'));
+            return;
+        }
+        if (vatError) {
+            setSaveError(vatError);
             return;
         }
         setSaving(true);
@@ -372,6 +410,7 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
             };
             if (vatNumber) payload.vatNumber = vatNumber;
             if (crNumber) payload.crNumber = crNumber;
+            if (nationalAddress) payload.nationalAddress = nationalAddress;
             if (referralId) payload.referralId = referralId;
             const res = await postCorporateRegister(payload);
             if (res && res.success === false) {
@@ -456,9 +495,16 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
-                <FieldRow icon={FileText} label={t('register.vat')}>
+                <FieldRow
+                    icon={FileText}
+                    label={t('register.vat')}
+                    note={vatError || taxIdText(locale, 'vatHint')}
+                    noteTone={vatError ? 'error' : undefined}
+                >
                     <input
                         type="text"
+                        inputMode="numeric"
+                        maxLength={20}
                         value={form.vatNumber}
                         onChange={(e) => setForm((f) => ({ ...f, vatNumber: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
@@ -469,6 +515,15 @@ function RegisterCorporateScreen({ branches, selectedBranchId, onClose, onSucces
                         type="text"
                         value={form.crNumber}
                         onChange={(e) => setForm((f) => ({ ...f, crNumber: e.target.value }))}
+                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </FieldRow>
+                <FieldRow icon={MapPin} label={taxIdText(locale, 'nationalAddress')}>
+                    <input
+                        type="text"
+                        value={form.nationalAddress}
+                        placeholder={taxIdText(locale, 'nationalAddressPh')}
+                        onChange={(e) => setForm((f) => ({ ...f, nationalAddress: e.target.value }))}
                         style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', outline: 'none' }}
                     />
                 </FieldRow>
@@ -673,6 +728,13 @@ export default function WorkshopCorporateManagement({
     const [editing, setEditing] = useState(null);
     const [addUserFor, setAddUserFor] = useState(null);
     const [registerOpen, setRegisterOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [searchDebounced, setSearchDebounced] = useState('');
+
+    useEffect(() => {
+        const id = setTimeout(() => setSearchDebounced(search.trim()), 300);
+        return () => clearTimeout(id);
+    }, [search]);
 
     const mergedBranches = useMemo(
         () =>
@@ -722,7 +784,8 @@ export default function WorkshopCorporateManagement({
         setIsLoading(true);
         setError('');
         try {
-            const params = workshopCorporateCustomersParams(selectedBranchId);
+            const params = { ...workshopCorporateCustomersParams(selectedBranchId), limit: 100 };
+            if (searchDebounced) params.search = searchDebounced;
             const response = await getWorkshopCorporateCustomers(params);
             const { list, total: totalCount } = parseCorporateCustomersResponse(response);
             if (response?.success === false && list.length === 0) {
@@ -737,7 +800,7 @@ export default function WorkshopCorporateManagement({
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBranchId, t]);
+    }, [selectedBranchId, searchDebounced, t]);
 
     useEffect(() => {
         loadCorporateCustomers();
@@ -755,6 +818,7 @@ export default function WorkshopCorporateManagement({
                 onClose={() => setRegisterOpen(false)}
                 onSuccess={loadCorporateCustomers}
                 t={t}
+                locale={locale}
             />
         );
     }
@@ -796,6 +860,17 @@ export default function WorkshopCorporateManagement({
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
+                <div style={{ padding: '16px 16px 0', position: 'relative', maxWidth: 520 }}>
+                    <Search size={15} style={{ position: 'absolute', left: 28, top: 'calc(50% + 8px)', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+                    <input
+                        type="search"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder={t('search.placeholder')}
+                        aria-label={t('search.placeholder')}
+                        style={{ width: '100%', padding: '9px 12px 9px 36px', borderRadius: 10, border: '1px solid var(--color-border)', fontSize: '0.875rem', outline: 'none' }}
+                    />
+                </div>
                 <WsTableScroll style={{ padding: 16 }}>
                     <table className="ws-table">
                         <thead>
@@ -817,7 +892,7 @@ export default function WorkshopCorporateManagement({
                             ) : visibleCustomers.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
-                                        {t('empty.none')}
+                                        {searchDebounced ? t('empty.noMatch', { term: searchDebounced }) : t('empty.none')}
                                     </td>
                                 </tr>
                             ) : (
@@ -898,6 +973,7 @@ export default function WorkshopCorporateManagement({
                     onClose={() => setEditing(null)}
                     onSaved={loadCorporateCustomers}
                     t={t}
+                    locale={locale}
                 />
             )}
             {addUserFor && (

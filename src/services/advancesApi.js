@@ -103,5 +103,18 @@ export const getRecentWorkshopSalaryPayroll = async (params = {}) => {
     return { ...res, list };
 };
 
+/** Corrects a posted salary in place — same salary row and journal entry number. */
+export const updateWorkshopSalaryPayroll = (id, body) =>
+    apiFetch(`/workshop-staff/salary-payroll/${encodeURIComponent(String(id))}`, {
+        method: 'PATCH',
+        body: JSON.stringify(mergeAccountingScopeBody(body)),
+    });
+
+/** Deletes a posted salary and every journal linked to it. */
+export const deleteWorkshopSalaryPayroll = (id) =>
+    apiFetch(withQuery(`/workshop-staff/salary-payroll/${encodeURIComponent(String(id))}`, {}), {
+        method: 'DELETE',
+    });
+
 export const getWorkshopEmployeeLedger = (employeeRecordId, params = {}) =>
     apiFetch(withQuery(`/workshop-staff/employee-ledger/${encodeURIComponent(String(employeeRecordId))}`, params));

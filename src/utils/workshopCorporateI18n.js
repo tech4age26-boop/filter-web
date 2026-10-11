@@ -34,6 +34,8 @@ export const WCORP_I18N = {
         'th.actions': 'Actions',
 
         'empty.none': 'No corporate customers found',
+        'empty.noMatch': 'No corporate customer matches “{term}”',
+        'search.placeholder': 'Search by company, mobile, VAT number, CR or National Address...',
         'emdash': '—',
         'money.sar': 'SAR {amount}',
 
@@ -126,6 +128,8 @@ export const WCORP_I18N = {
         'th.actions': 'إجراءات',
 
         'empty.none': 'لا يوجد عملاء شركات',
+        'empty.noMatch': 'لا يوجد عميل شركة يطابق «{term}»',
+        'search.placeholder': 'ابحث باسم الشركة أو الجوال أو الرقم الضريبي أو السجل التجاري أو العنوان الوطني...',
         'emdash': '—',
         'money.sar': '{amount} ر.س',
 

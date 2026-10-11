@@ -28,6 +28,8 @@ import {
     qtyEquals,
 } from '../../utils/inventoryAdjustQty';
 import { catalogDisplayName } from '../../utils/catalogDisplayName';
+import InactiveTag from '../../components/InactiveTag';
+import { inactiveLastWhenSearching, isInactiveRecord } from '../../utils/inactiveRecords';
 import { formatStockOnHandDisplay, formatUomRule, productEffectiveUom } from './workshopUomUtils';
 import {
     exportWorkshopTimelineExcel,
@@ -772,6 +774,7 @@ function mapApiRowToInventory(row) {
 
     return {
         id: String(id),
+        isActive: !isInactiveRecord(row) && !isInactiveRecord(merged) && !isInactiveRecord(nested),
         name: pickDisplayName(master, row),
         arabicName: pickArabicName(master, row),
         brand: master?.brand || '',
@@ -2012,9 +2015,10 @@ export default function WorkshopInventory({
     const invSearchSuggestions = useMemo(() => {
         const q = normalizeInventorySearchValue(searchQuery);
         if (!q) return [];
-        return rowsMatchingFilters
-            .filter((p) => matchesProductNameSearch(p, searchQuery))
-            .slice(0, INV_SEARCH_SUGGEST_LIMIT);
+        return inactiveLastWhenSearching(
+            rowsMatchingFilters.filter((p) => matchesProductNameSearch(p, searchQuery)),
+            { searching: true },
+        ).slice(0, INV_SEARCH_SUGGEST_LIMIT);
     }, [rowsMatchingFilters, searchQuery]);
 
     const applyInventorySearchSuggestion = useCallback((row) => {
@@ -3143,11 +3147,14 @@ export default function WorkshopInventory({
                                                         id={`workshop-inv-suggest-${idx}`}
                                                         role="option"
                                                         aria-selected={invSuggestIndex === idx}
-                                                        className={`mc-inv-search-suggest${invSuggestIndex === idx ? ' is-active' : ''}`}
+                                                        className={`mc-inv-search-suggest${invSuggestIndex === idx ? ' is-active' : ''}${isInactiveRecord(row) ? ' is-inactive-option' : ''}`}
                                                         onMouseEnter={() => setInvSuggestIndex(idx)}
                                                         onClick={() => applyInventorySearchSuggestion(row)}
                                                     >
-                                                        <span className="mc-inv-search-suggest-name">{displayName(row)}</span>
+                                                        <span className="mc-inv-search-suggest-name">
+                                                            {displayName(row)}
+                                                            {isInactiveRecord(row) ? <InactiveTag /> : null}
+                                                        </span>
                                                         {row.sku ? (
                                                             <span className="mc-inv-search-suggest-sku">{row.sku}</span>
                                                         ) : null}

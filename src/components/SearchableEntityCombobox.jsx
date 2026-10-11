@@ -3,11 +3,15 @@ import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import { countSearchMatches, filterSearchOptions } from '../utils/entitySearchUtils';
 import { stepComboHighlightIdx } from './multiSelectMenuPlacement';
+import InactiveTag from './InactiveTag';
 import './SearchableEntityCombobox.css';
 
 /**
  * Searchable dropdown with portal menu (anchored to input, not page bottom).
  * Type to filter · ↑↓ to navigate · Enter to select.
+ * Options flagged `inactive: true` are left out of the open list; a typed
+ * search shows them last, dimmed and tagged, and (unless `inactiveSelectable`)
+ * not pickable.
  */
 export default function SearchableEntityCombobox({
     options = [],
@@ -31,6 +35,8 @@ export default function SearchableEntityCombobox({
     filterLocally = true,
     menuMinWidth = 280,
     portalClassName = '',
+    inactiveSelectable = false,
+    inactiveTagLabel,
 }) {
     const [open, setOpen] = useState(false);
     const [highlightIdx, setHighlightIdx] = useState(0);
@@ -56,20 +62,43 @@ export default function SearchableEntityCombobox({
         return displayText;
     }, [displayText, selectedLabel]);
 
-    const filtered = useMemo(
-        () =>
-            filterLocally
-                ? filterSearchOptions(options, searchQuery, { maxInitial, maxFiltered })
-                : options,
-        [options, searchQuery, maxInitial, maxFiltered, filterLocally],
+    const searching = String(searchQuery || '').trim() !== '';
+    const isSelected = useCallback((o) => String(o?.id ?? '') === String(value ?? ''), [value]);
+    const isLocked = useCallback(
+        (o) => Boolean(o?.inactive) && !inactiveSelectable && !isSelected(o),
+        [inactiveSelectable, isSelected],
     );
+    const pool = useMemo(
+        () => (searching ? options : options.filter((o) => !o?.inactive || isSelected(o))),
+        [options, searching, isSelected],
+    );
+
+    const filtered = useMemo(() => {
+        const list = filterLocally
+            ? filterSearchOptions(pool, searchQuery, { maxInitial, maxFiltered })
+            : pool;
+        if (!searching || !list.some((o) => o?.inactive)) return list;
+        return list.filter((o) => !o?.inactive).concat(list.filter((o) => o?.inactive));
+    }, [pool, searchQuery, maxInitial, maxFiltered, filterLocally, searching]);
 
     const totalMatches = useMemo(
         () =>
             filterLocally
-                ? countSearchMatches(options, searchQuery)
-                : options.length,
-        [options, searchQuery, filterLocally],
+                ? countSearchMatches(pool, searchQuery)
+                : pool.length,
+        [pool, searchQuery, filterLocally],
+    );
+
+    const firstPickable = useCallback(
+        (from) => {
+            const start = Math.max(0, from);
+            for (let i = 0; i < filtered.length; i += 1) {
+                const o = filtered[(start + i) % filtered.length];
+                if (!isLocked(o)) return o;
+            }
+            return null;
+        },
+        [filtered, isLocked],
     );
 
     const updateMenuPosition = useCallback(() => {
@@ -144,13 +173,13 @@ export default function SearchableEntityCombobox({
 
     const pick = useCallback(
         (opt, advance) => {
-            if (opt == null || opt.id == null) return;
+            if (opt == null || opt.id == null || isLocked(opt)) return;
             onSelect?.(opt);
             setOpen(false);
             setHighlightIdx(0);
             if (advance) window.setTimeout(() => onTabAdvance?.(), 0);
         },
-        [onSelect, onTabAdvance],
+        [onSelect, onTabAdvance, isLocked],
     );
 
     useEffect(() => {
@@ -173,7 +202,7 @@ export default function SearchableEntityCombobox({
             } else if (e.key === 'Enter' && filtered.length > 0) {
                 e.preventDefault();
                 e.stopPropagation();
-                pick(filtered[highlightIdx] ?? filtered[0], false);
+                pick(firstPickable(highlightIdx), false);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
                 setOpen(false);
@@ -181,7 +210,7 @@ export default function SearchableEntityCombobox({
         };
         window.addEventListener('keydown', onKey, true);
         return () => window.removeEventListener('keydown', onKey, true);
-    }, [open, filtered, highlightIdx, pick, clearBlurTimer]);
+    }, [open, filtered, highlightIdx, pick, clearBlurTimer, firstPickable]);
 
     const onKeyDown = (e) => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -193,8 +222,7 @@ export default function SearchableEntityCombobox({
         if (e.key === 'Tab' && !e.shiftKey && filtered.length > 0 && open) {
             const match =
                 filtered.find((o) => String(o.id) === String(value)) ||
-                filtered[highlightIdx] ||
-                filtered[0];
+                firstPickable(highlightIdx);
             if (match) {
                 e.preventDefault();
                 pick(match, true);
@@ -232,19 +260,31 @@ export default function SearchableEntityCombobox({
                       {filtered.length === 0 ? (
                           <div className="sf-combobox-empty">{emptyMessage}</div>
                       ) : (
-                          filtered.map((opt, idx) => (
+                          filtered.map((opt, idx) => {
+                              const locked = isLocked(opt);
+                              const lit = idx === highlightIdx && !locked;
+                              return (
                               <div
                                   key={opt.id}
                                   role="option"
-                                  aria-selected={idx === highlightIdx}
-                                  data-highlight={idx === highlightIdx ? 'true' : 'false'}
-                                  className={`pi-result-item ${idx === highlightIdx ? 'selected' : ''}`}
+                                  aria-selected={lit}
+                                  aria-disabled={locked || undefined}
+                                  data-highlight={lit ? 'true' : 'false'}
+                                  className={[
+                                      'pi-result-item',
+                                      lit ? 'selected' : '',
+                                      opt.inactive ? 'is-inactive-option' : '',
+                                      locked ? 'is-locked' : '',
+                                  ].filter(Boolean).join(' ')}
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => pick(opt, false)}
-                                  onMouseEnter={() => setHighlightIdx(idx)}
+                                  onMouseEnter={() => !locked && setHighlightIdx(idx)}
                               >
                                   <div className="pi-result-info">
-                                      <div className="pi-item-name">{opt.label}</div>
+                                      <div className="pi-item-name">
+                                          {opt.label}
+                                          {opt.inactive ? <InactiveTag label={inactiveTagLabel} /> : null}
+                                      </div>
                                       {opt.subtitle ? (
                                           <div className="pi-item-meta">{opt.subtitle}</div>
                                       ) : null}
@@ -253,7 +293,8 @@ export default function SearchableEntityCombobox({
                                       <div className="pi-result-trailing">{opt.trailing}</div>
                                   ) : null}
                               </div>
-                          ))
+                              );
+                          })
                       )}
                       {filtered.length > 0 ? (
                           <div className="sf-combobox-footer">
