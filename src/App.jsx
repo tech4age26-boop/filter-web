@@ -61,6 +61,8 @@ import InfluencerReferrers from './pages/marketing/InfluencerReferrers';
 import ReferrerManagement from './pages/marketing/ReferrerManagement';
 import MarketingPromotions from './pages/marketing/MarketingPromotions';
 import MarketingPromotionFormPage from './pages/marketing/MarketingPromotionFormPage';
+import RiderAppPromotions from './pages/marketing/RiderAppPromotions';
+import RiderAppPromotionFormPage from './pages/marketing/RiderAppPromotionFormPage';
 import MarketingPromotionConfigurationViewPage from './pages/marketing/MarketingPromotionConfigurationViewPage';
 import MarketingCampaigns from './pages/marketing/MarketingCampaigns';
 import MarketingCampaignFormPage from './pages/marketing/MarketingCampaignFormPage';
@@ -218,6 +220,9 @@ function App() {
                 <Route path="promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
                 <Route path="promotions/:id/edit" element={<LegacyPromotionEditRedirect />} />
                 <Route path="promotions" element={<Navigate to="/admin/marketing/marketing-promotions" replace />} />
+                <Route path="marketing-promotions/rider-app" element={<RiderAppPromotions />} />
+                <Route path="marketing-promotions/rider-app/new" element={<RiderAppPromotionFormPage />} />
+                <Route path="marketing-promotions/rider-app/:id/edit" element={<RiderAppPromotionFormPage />} />
                 <Route path="marketing-promotions/new" element={<MarketingPromotionFormPage />} />
                 <Route path="marketing-promotions/:id/details" element={<MarketingPromotionConfigurationViewPage />} />
                 <Route path="marketing-promotions/:id/view" element={<MarketingPromotionReportPage />} />
@@ -365,6 +370,9 @@ function App() {
               <Route path="promotions/:id/auto-report" element={<MarketingPromotionAutoReportPage />} />
               <Route path="promotions/:id/edit" element={<LegacyPromotionEditRedirect />} />
               <Route path="promotions" element={<Navigate to="/marketing/marketing-promotions" replace />} />
+              <Route path="marketing-promotions/rider-app" element={<RiderAppPromotions />} />
+              <Route path="marketing-promotions/rider-app/new" element={<RiderAppPromotionFormPage />} />
+              <Route path="marketing-promotions/rider-app/:id/edit" element={<RiderAppPromotionFormPage />} />
               <Route path="marketing-promotions/new" element={<MarketingPromotionFormPage />} />
               <Route path="marketing-promotions/:id/details" element={<MarketingPromotionConfigurationViewPage />} />
               <Route path="marketing-promotions/:id/view" element={<MarketingPromotionReportPage />} />
