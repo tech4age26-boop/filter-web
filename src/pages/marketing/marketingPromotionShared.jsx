@@ -1108,6 +1108,7 @@ export const EMPTY_PROMOTION_FORM = {
   startDate: '',
   endDate: '',
   bannerText: '',
+  bannerUrl: '',
   description: '',
   terms: '',
   autoClose: true,
@@ -1238,6 +1239,7 @@ export function promotionFormFromItem(item) {
         ? String(item.rewardMaxQuantity)
         : '',
     bannerText: item.invoiceBannerText || '',
+    bannerUrl: item.bannerUrl || item.bannerImageUrl || '',
     terms: item.termsConditions || '',
     autoClose: Boolean(item.autoCloseOnEndDate ?? true),
     showPos: Boolean(item.showOnPosInvoice ?? true),
@@ -1357,6 +1359,8 @@ export function buildPromotionPayload(
     usageCount: 0,
     usage_count: 0,
     invoiceBannerText: form.bannerText,
+    // '' clears the banner on edit (backend stores null).
+    bannerUrl: form.bannerUrl || '',
     description: form.description?.trim() || '',
     termsConditions: form.terms,
     termsAndConditions: form.terms,

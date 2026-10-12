@@ -12,7 +12,15 @@ import {
   Clock3,
   Eye,
   FileBarChart,
+  Smartphone,
 } from 'lucide-react';
+import {
+  riderAppListWorkshopOffers,
+  riderAppSetWorkshopOffer,
+} from '../../services/riderAppMarketingApi';
+import { riderAppT } from '../../utils/riderAppPromotionsI18n';
+import { listFrom, syncBadgeClass } from './riderAppPromotionUtils';
+import './RiderAppPromotions.css';
 import {
   marketingDeletePromotion,
   marketingListPromotions,
@@ -57,6 +65,10 @@ export const MarketingPromotions = () => {
   const [togglingActivationId, setTogglingActivationId] = useState(null);
   const [pageError, setPageError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  // "Show on Rider app" (workshop offer) settings, keyed by ERP promotion id.
+  const [riderOffers, setRiderOffers] = useState({});
+  const [togglingOfferId, setTogglingOfferId] = useState(null);
+  const rt = useCallback((key, vars) => riderAppT(locale, key, vars), [locale]);
 
   const listPath = resolvePromotionBasePath(location.pathname);
   const statusSelectOptions = useMemo(
@@ -112,9 +124,41 @@ export const MarketingPromotions = () => {
     }
   };
 
+  // Separate from loadPromotions so a Rider-side problem never hides the ERP list.
+  const loadRiderOffers = async () => {
+    try {
+      const rows = listFrom(await riderAppListWorkshopOffers());
+      setRiderOffers(
+        Object.fromEntries(rows.map((row) => [String(row.filterPromotionId), row])),
+      );
+    } catch (error) {
+      console.error('Rider app offers API error:', error);
+    }
+  };
+
   useEffect(() => {
     loadPromotions();
+    loadRiderOffers();
   }, [marketingWorkshopId]);
+
+  const openRiderPromotions = () => navigate(`${listPath}/rider-app`);
+  const openNewRiderPromotion = () => navigate(`${listPath}/rider-app/new`);
+
+  const handleToggleRiderOffer = async (item) => {
+    const current = riderOffers[String(item.id)];
+    const nextEnabled = !current?.enabled;
+    try {
+      setTogglingOfferId(item.id);
+      const saved = await riderAppSetWorkshopOffer(item.id, { enabled: nextEnabled });
+      setRiderOffers((prev) => ({ ...prev, [String(item.id)]: { ...current, ...saved } }));
+      setSuccessMessage(rt('sync.waiting'));
+    } catch (error) {
+      console.error('Toggle Rider app offer error:', error);
+      alert(error?.message || rt('err.action'));
+    } finally {
+      setTogglingOfferId(null);
+    }
+  };
 
   const openNewPage = () => navigate(`${listPath}/new`);
   const openEditPage = (id) => navigate(`${listPath}/${id}/edit`);
@@ -194,6 +238,13 @@ export const MarketingPromotions = () => {
               <Plus size={16} strokeWidth={2.5} />
               {t('btn.new')}
             </button>
+            <button type="button" className="mk-btn-primary" onClick={openNewRiderPromotion}>
+              <Smartphone size={16} strokeWidth={2.5} />
+              {rt('btn.newRiderPromotion')}
+            </button>
+            <button type="button" className="mk-btn-secondary" onClick={openRiderPromotions}>
+              {rt('btn.riderPromotions')}
+            </button>
           </div>
         </div>
       ) : (
@@ -204,10 +255,19 @@ export const MarketingPromotions = () => {
               <p>{t('page.subtitle')}</p>
         </div>
 
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button type="button" onClick={openRiderPromotions} className="mkp-new-btn">
+                {rt('btn.riderPromotions')}
+              </button>
+              <button type="button" onClick={openNewRiderPromotion} className="mkp-new-btn">
+                <Smartphone size={15} strokeWidth={2.5} />
+                {rt('btn.newRiderPromotion')}
+              </button>
             <button type="button" onClick={openNewPage} className="mkp-new-btn">
           <Plus size={15} strokeWidth={2.5} />
               {t('btn.new')}
         </button>
+            </div>
       </div>
 
       <div className="mkp-filters">
@@ -377,6 +437,43 @@ export const MarketingPromotions = () => {
                     </span>
               </button>
             </div>
+
+                <div className="rap-offer-row">
+                  <div className="rap-offer-label">
+                    <strong>
+                      <Smartphone size={13} /> {rt('offer.toggle')}
+                    </strong>
+                    <span>{rt('offer.hint')}</span>
+                  </div>
+                  <div className="rap-offer-actions">
+                    {riderOffers[String(item.id)] ? (
+                      <span
+                        className={syncBadgeClass(riderOffers[String(item.id)].syncStatus)}
+                        title={riderOffers[String(item.id)].syncError || ''}
+                      >
+                        {rt(`sync.${riderOffers[String(item.id)].syncStatus}`)}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={`mkp-card-activation-toggle ${
+                        riderOffers[String(item.id)]?.enabled ? 'on' : 'off'
+                      }`}
+                      onClick={() => handleToggleRiderOffer(item)}
+                      disabled={togglingOfferId === item.id}
+                      aria-pressed={Boolean(riderOffers[String(item.id)]?.enabled)}
+                      title={rt('offer.needsActive')}
+                    >
+                      {togglingOfferId === item.id ? (
+                        <Loader2 size={14} className="mkp-spin" />
+                      ) : (
+                        <span className="mkp-card-activation-track">
+                          <span />
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
 
                 <div className="mkp-card-footer">
                   <button type="button" onClick={() => openDetailsPage(item.id)}>

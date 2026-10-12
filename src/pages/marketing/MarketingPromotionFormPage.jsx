@@ -9,9 +9,7 @@ import {
   ArrowLeft,
   Building2,
   MapPin,
-  Image,
   Hourglass,
-  Upload,
   Loader2,
 } from "lucide-react";
 import {
@@ -46,6 +44,7 @@ import {
 import PromotionApplicabilitySection from "../../components/promo/PromotionApplicabilitySection";
 import PromotionRewardSection from "../../components/promo/PromotionRewardSection";
 import PromotionGuide from "../../components/promo/PromotionGuide";
+import BannerUploadField from "./BannerUploadField";
 import "../workshop/Workshop.css";
 import "./MarketingUniversal.css";
 
@@ -709,24 +708,13 @@ export default function MarketingPromotionFormPage({ readOnly = false }) {
               />
             </div>
 
-            <div className="mkp-form-group">
-              <label className="mkp-label">
-                <Image size={13} strokeWidth={2} />
-                {t('form.label.banners')}
-                <span>{t('form.label.bannersHint')}</span>
-              </label>
-
-              <div className="mkp-upload-row">
-                <button type="button" className="mkp-upload-box">
-                  <Upload size={15} />
-                  <span>{t('common.upload')}</span>
-                </button>
-              </div>
-
-              <div className="mkp-upload-hint">
-                {t('form.uploadHint')}
-              </div>
-            </div>
+            <BannerUploadField
+              value={form.bannerUrl}
+              onChange={(url) => updateForm("bannerUrl", url)}
+              locale={locale}
+              disabled={readOnly}
+              showRiderNote
+            />
 
             <div className="mkp-toggles-row">
               <Toggle
