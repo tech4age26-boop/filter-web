@@ -35,6 +35,13 @@ const STATUS_COLORS = {
   EXPIRED: { bg: '#E2E3E5', color: '#383D41', label: 'Expired' },
 };
 
+const JOB_MATCH_COLORS = {
+  PENDING: { bg: '#E2E3E5', color: '#383D41', label: 'Pending' },
+  MATCHED: { bg: '#D4EDDA', color: '#155724', label: 'Matched' },
+  PARTIALLY_MATCHED: { bg: '#FFF3CD', color: '#856404', label: 'Partial' },
+  UNMATCHED: { bg: '#F8D7DA', color: '#721C24', label: 'Unmatched' },
+};
+
 const TABS = [
   { id: 'cameras', label: 'Cameras', icon: Camera },
   { id: 'orders', label: 'AI Orders', icon: Car },
@@ -619,28 +626,43 @@ function OrderDetailScreen() {
   const st = STATUS_COLORS[order.status] || STATUS_COLORS.VEHICLE_ENTERED;
   const bayEvents = order.serviceBayEvents || [];
 
+  // Determine which event was the very first detection
+  const firstDetAt = order.firstDetectedAt ? new Date(order.firstDetectedAt).getTime() : null;
+  const entranceAt = order.entranceDetectedAt ? new Date(order.entranceDetectedAt).getTime() : null;
+  const entranceIsFirst = firstDetAt && entranceAt && Math.abs(firstDetAt - entranceAt) < 2000;
+
   // Visit timeline: entrance first, then bay events in order
   const timeline = [
     {
       key: 'entrance',
       kind: 'ENTRANCE',
       title: 'Vehicle Entered',
-      subtitle: order.entranceCamera?.name || 'Entrance camera',
+      subtitle: order.entranceCamera?.name || (order.entranceCameraId ? 'Entrance camera' : 'No entrance camera (missed)'),
       at: order.entranceDetectedAt,
+      isFirstDetection: !!entranceIsFirst,
       meta: order.confidence
         ? `${(Number(order.confidence) * 100).toFixed(1)}% confidence`
         : null,
     },
-    ...bayEvents.map((ev, i) => ({
-      key: `bay-${ev.id || i}`,
-      kind: 'SERVICE_BAY',
-      title: ev.department?.name || `Department ${ev.departmentId}`,
-      subtitle: ev.camera?.name || 'Service bay camera',
-      at: ev.detectedAt,
-      meta: ev.confidence
-        ? `${(Number(ev.confidence) * 100).toFixed(1)}% confidence`
-        : null,
-    })),
+    ...bayEvents.map((ev, i) => {
+      const evTime = new Date(ev.detectedAt).getTime();
+      const isBayFirst = firstDetAt && Math.abs(evTime - firstDetAt) < 2000 && !entranceIsFirst;
+      return {
+        key: `bay-${ev.id || i}`,
+        kind: 'SERVICE_BAY',
+        title: ev.department?.name || `Department ${ev.departmentId}`,
+        subtitle: ev.camera?.name || 'Service bay camera',
+        at: ev.detectedAt,
+        isFirstDetection: !!isBayFirst,
+        meta: ev.confidence
+          ? `${(Number(ev.confidence) * 100).toFixed(1)}% confidence`
+          : null,
+        completedAt: ev.completedAt,
+        autoCompleted: ev.autoCompleted,
+        jobMatchStatus: ev.jobMatchStatus,
+        linkedJob: ev.linkedJob,
+      };
+    }),
   ];
 
   return (
@@ -713,6 +735,20 @@ function OrderDetailScreen() {
             </span>
           )}
         />
+        <InfoCell
+          label="Job Match Status"
+          value={(() => {
+            const jm = JOB_MATCH_COLORS[order.jobMatchStatus] || JOB_MATCH_COLORS.PENDING;
+            return (
+              <span style={{ background: jm.bg, color: jm.color, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                {jm.label}
+              </span>
+            );
+          })()}
+        />
+        {order.invoiceGeneratedAt && (
+          <InfoCell label="Invoice Generated" value={new Date(order.invoiceGeneratedAt).toLocaleString()} />
+        )}
         <InfoCell label="Branch" value={order.branch?.name || '-'} />
         <InfoCell label="Entrance Camera" value={order.entranceCamera?.name || '-'} />
         <InfoCell label="Detected At" value={new Date(order.entranceDetectedAt).toLocaleString()} />
@@ -750,6 +786,34 @@ function OrderDetailScreen() {
           label="POS Customer"
           value={order.linkedSalesOrder?.customer?.name || '-'}
         />
+        <div>
+          <div style={{ fontSize: 10, color: '#6C757D', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>First Detected At</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>
+            {order.firstDetectedAt ? new Date(order.firstDetectedAt).toLocaleString() : '-'}
+          </div>
+          {order.firstDetectedCamera?.name && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+              <span style={{
+                background: '#DBEAFE', color: '#1E40AF', padding: '1px 8px', borderRadius: 4,
+                fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
+              }}>
+                First Detection
+              </span>
+              <span style={{ fontSize: 11, color: '#6C757D' }}>{order.firstDetectedCamera.name}</span>
+            </div>
+          )}
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: '#6C757D', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>Last Seen</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>
+            {order.lastSeenAt ? new Date(order.lastSeenAt).toLocaleString() : '-'}
+          </div>
+          {order.lastSeenCamera?.name && (
+            <div style={{ fontSize: 11, color: '#6C757D', marginTop: 3 }}>
+              at <strong>{order.lastSeenCamera.name}</strong>
+            </div>
+          )}
+        </div>
       </div>
 
       {order.snapshotUrl ? (
@@ -786,17 +850,61 @@ function OrderDetailScreen() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 800, color, textTransform: 'uppercase', marginBottom: 2 }}>
-                        {isBay ? 'Service Bay' : 'Entrance'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color, textTransform: 'uppercase' }}>
+                          {isBay ? 'Service Bay' : 'Entrance'}
+                        </span>
+                        {step.isFirstDetection && (
+                          <span style={{
+                            background: '#DBEAFE', color: '#1E40AF', padding: '1px 8px', borderRadius: 4,
+                            fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.3px',
+                          }}>
+                            First Detection
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{step.title}</div>
                       <div style={{ fontSize: 12, color: '#6C757D', marginTop: 2 }}>{step.subtitle}</div>
                       {step.meta ? (
                         <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{step.meta}</div>
                       ) : null}
+                      {/* Job lifecycle info for bay events */}
+                      {isBay && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                          {(() => {
+                            const jm = JOB_MATCH_COLORS[step.jobMatchStatus] || JOB_MATCH_COLORS.PENDING;
+                            return (
+                              <span style={{ background: jm.bg, color: jm.color, padding: '1px 8px', borderRadius: 4, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>
+                                Job: {jm.label}
+                              </span>
+                            );
+                          })()}
+                          {step.completedAt && (
+                            <span style={{
+                              background: step.autoCompleted ? '#FFF3CD' : '#D4EDDA',
+                              color: step.autoCompleted ? '#856404' : '#155724',
+                              padding: '1px 8px', borderRadius: 4, fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
+                            }}>
+                              {step.autoCompleted ? 'Auto-completed' : 'Completed'} {new Date(step.completedAt).toLocaleTimeString()}
+                            </span>
+                          )}
+                          {step.linkedJob && (
+                            <span style={{ fontSize: 10, color: '#6C757D' }}>
+                              POS Job: {step.linkedJob.department?.name || `#${step.linkedJob.id}`} ({step.linkedJob.status})
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>
-                      {step.at ? new Date(step.at).toLocaleString() : '-'}
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>
+                        {step.at ? new Date(step.at).toLocaleString() : '-'}
+                      </div>
+                      {step.isFirstDetection && (
+                        <div style={{ fontSize: 10, color: '#1E40AF', fontWeight: 600, marginTop: 2 }}>
+                          First Detection
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -972,15 +1080,18 @@ function OrderDetailScreen() {
 // Export helpers
 // ────────────────────────────────────────────────────────────────
 function exportOrdersToCSV(orders) {
-  const headers = ['Capture No', 'Plate', 'Status', 'Branch', 'Camera', 'Bays', 'Detected', 'Staff Vehicle'];
+  const headers = ['Capture No', 'Plate', 'Status', 'Job Status', 'Branch', 'First Detected', 'First Detected Camera', 'Last Seen', 'Last Seen Camera', 'Bays', 'Staff Vehicle'];
   const rows = (orders || []).map((o) => [
     o.captureNo || '',
     o.plateNumber || '',
     o.status || '',
+    o.jobMatchStatus || 'PENDING',
     o.branch?.name || '',
-    o.entranceCamera?.name || '',
+    o.firstDetectedAt ? new Date(o.firstDetectedAt).toLocaleString() : (o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : ''),
+    o.firstDetectedCamera?.name || o.entranceCamera?.name || '',
+    o.lastSeenAt ? new Date(o.lastSeenAt).toLocaleString() : '',
+    o.lastSeenCamera?.name || '',
     String(o.serviceBayEvents?.length ?? 0),
-    o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : '',
     o.isCompanyVehicle ? 'Yes' : 'No',
   ]);
   const csvContent = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -994,15 +1105,18 @@ function exportOrdersToCSV(orders) {
 }
 
 function exportOrdersToPDF(orders) {
-  const headers = ['Capture No', 'Plate', 'Status', 'Branch', 'Camera', 'Bays', 'Detected', 'Staff Vehicle'];
+  const headers = ['Capture No', 'Plate', 'Status', 'Job Status', 'Branch', 'First Detected', 'First Camera', 'Last Seen', 'Last Camera', 'Bays', 'Staff'];
   const rows = (orders || []).map((o) => [
     o.captureNo || '',
     o.plateNumber || '',
     o.status || '',
+    o.jobMatchStatus || 'PENDING',
     o.branch?.name || '',
-    o.entranceCamera?.name || '',
+    o.firstDetectedAt ? new Date(o.firstDetectedAt).toLocaleString() : (o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : ''),
+    o.firstDetectedCamera?.name || o.entranceCamera?.name || '',
+    o.lastSeenAt ? new Date(o.lastSeenAt).toLocaleString() : '',
+    o.lastSeenCamera?.name || '',
     String(o.serviceBayEvents?.length ?? 0),
-    o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : '',
     o.isCompanyVehicle ? 'Yes' : 'No',
   ]);
 
@@ -1606,10 +1720,11 @@ function AiCameraListScreen() {
                       <Th>CAPTURE NO</Th>
                       <Th>PLATE</Th>
                       <Th>STATUS</Th>
+                      <Th>JOB STATUS</Th>
                       <Th>BRANCH</Th>
-                      <Th>CAMERA</Th>
+                      <Th>FIRST DETECTED</Th>
+                      <Th>LAST SEEN</Th>
                       <Th>BAYS</Th>
-                      <Th>DETECTED</Th>
                       <Th>STAFF VEHICLE</Th>
                       <Th />
                     </tr>
@@ -1649,10 +1764,38 @@ function AiCameraListScreen() {
                               {st.label}
                             </span>
                           </Td>
+                          <Td>
+                            {(() => {
+                              const jm = JOB_MATCH_COLORS[order.jobMatchStatus] || JOB_MATCH_COLORS.PENDING;
+                              return (
+                                <span style={{ background: jm.bg, color: jm.color, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                                  {jm.label}
+                                </span>
+                              );
+                            })()}
+                          </Td>
                           <Td>{order.branch?.name || '-'}</Td>
-                          <Td>{order.entranceCamera?.name || '-'}</Td>
+                          <Td>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600 }}>
+                                {order.firstDetectedAt ? new Date(order.firstDetectedAt).toLocaleString() : new Date(order.entranceDetectedAt).toLocaleString()}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#6C757D' }}>
+                                {order.firstDetectedCamera?.name || order.entranceCamera?.name || '-'}
+                              </div>
+                            </div>
+                          </Td>
+                          <Td>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 600 }}>
+                                {order.lastSeenAt ? new Date(order.lastSeenAt).toLocaleString() : '-'}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#6C757D' }}>
+                                {order.lastSeenCamera?.name || '-'}
+                              </div>
+                            </div>
+                          </Td>
                           <Td>{bayCount}</Td>
-                          <Td>{new Date(order.entranceDetectedAt).toLocaleString()}</Td>
                           <Td>{isStaff ? 'Yes' : '-'}</Td>
                           <Td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
