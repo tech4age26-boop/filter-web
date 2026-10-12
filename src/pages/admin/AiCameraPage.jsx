@@ -35,6 +35,13 @@ const STATUS_COLORS = {
   EXPIRED: { bg: '#E2E3E5', color: '#383D41', label: 'Expired' },
 };
 
+const JOB_MATCH_COLORS = {
+  PENDING: { bg: '#E2E3E5', color: '#383D41', label: 'Pending' },
+  MATCHED: { bg: '#D4EDDA', color: '#155724', label: 'Matched' },
+  PARTIALLY_MATCHED: { bg: '#FFF3CD', color: '#856404', label: 'Partial' },
+  UNMATCHED: { bg: '#F8D7DA', color: '#721C24', label: 'Unmatched' },
+};
+
 const TABS = [
   { id: 'cameras', label: 'Cameras', icon: Camera },
   { id: 'orders', label: 'AI Orders', icon: Car },
@@ -650,6 +657,10 @@ function OrderDetailScreen() {
         meta: ev.confidence
           ? `${(Number(ev.confidence) * 100).toFixed(1)}% confidence`
           : null,
+        completedAt: ev.completedAt,
+        autoCompleted: ev.autoCompleted,
+        jobMatchStatus: ev.jobMatchStatus,
+        linkedJob: ev.linkedJob,
       };
     }),
   ];
@@ -724,6 +735,20 @@ function OrderDetailScreen() {
             </span>
           )}
         />
+        <InfoCell
+          label="Job Match Status"
+          value={(() => {
+            const jm = JOB_MATCH_COLORS[order.jobMatchStatus] || JOB_MATCH_COLORS.PENDING;
+            return (
+              <span style={{ background: jm.bg, color: jm.color, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                {jm.label}
+              </span>
+            );
+          })()}
+        />
+        {order.invoiceGeneratedAt && (
+          <InfoCell label="Invoice Generated" value={new Date(order.invoiceGeneratedAt).toLocaleString()} />
+        )}
         <InfoCell label="Branch" value={order.branch?.name || '-'} />
         <InfoCell label="Entrance Camera" value={order.entranceCamera?.name || '-'} />
         <InfoCell label="Detected At" value={new Date(order.entranceDetectedAt).toLocaleString()} />
@@ -843,6 +868,33 @@ function OrderDetailScreen() {
                       {step.meta ? (
                         <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>{step.meta}</div>
                       ) : null}
+                      {/* Job lifecycle info for bay events */}
+                      {isBay && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                          {(() => {
+                            const jm = JOB_MATCH_COLORS[step.jobMatchStatus] || JOB_MATCH_COLORS.PENDING;
+                            return (
+                              <span style={{ background: jm.bg, color: jm.color, padding: '1px 8px', borderRadius: 4, fontSize: 9, fontWeight: 800, textTransform: 'uppercase' }}>
+                                Job: {jm.label}
+                              </span>
+                            );
+                          })()}
+                          {step.completedAt && (
+                            <span style={{
+                              background: step.autoCompleted ? '#FFF3CD' : '#D4EDDA',
+                              color: step.autoCompleted ? '#856404' : '#155724',
+                              padding: '1px 8px', borderRadius: 4, fontSize: 9, fontWeight: 800, textTransform: 'uppercase',
+                            }}>
+                              {step.autoCompleted ? 'Auto-completed' : 'Completed'} {new Date(step.completedAt).toLocaleTimeString()}
+                            </span>
+                          )}
+                          {step.linkedJob && (
+                            <span style={{ fontSize: 10, color: '#6C757D' }}>
+                              POS Job: {step.linkedJob.department?.name || `#${step.linkedJob.id}`} ({step.linkedJob.status})
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>
@@ -1028,11 +1080,12 @@ function OrderDetailScreen() {
 // Export helpers
 // ────────────────────────────────────────────────────────────────
 function exportOrdersToCSV(orders) {
-  const headers = ['Capture No', 'Plate', 'Status', 'Branch', 'First Detected', 'First Detected Camera', 'Last Seen', 'Last Seen Camera', 'Bays', 'Staff Vehicle'];
+  const headers = ['Capture No', 'Plate', 'Status', 'Job Status', 'Branch', 'First Detected', 'First Detected Camera', 'Last Seen', 'Last Seen Camera', 'Bays', 'Staff Vehicle'];
   const rows = (orders || []).map((o) => [
     o.captureNo || '',
     o.plateNumber || '',
     o.status || '',
+    o.jobMatchStatus || 'PENDING',
     o.branch?.name || '',
     o.firstDetectedAt ? new Date(o.firstDetectedAt).toLocaleString() : (o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : ''),
     o.firstDetectedCamera?.name || o.entranceCamera?.name || '',
@@ -1052,11 +1105,12 @@ function exportOrdersToCSV(orders) {
 }
 
 function exportOrdersToPDF(orders) {
-  const headers = ['Capture No', 'Plate', 'Status', 'Branch', 'First Detected', 'First Camera', 'Last Seen', 'Last Camera', 'Bays', 'Staff'];
+  const headers = ['Capture No', 'Plate', 'Status', 'Job Status', 'Branch', 'First Detected', 'First Camera', 'Last Seen', 'Last Camera', 'Bays', 'Staff'];
   const rows = (orders || []).map((o) => [
     o.captureNo || '',
     o.plateNumber || '',
     o.status || '',
+    o.jobMatchStatus || 'PENDING',
     o.branch?.name || '',
     o.firstDetectedAt ? new Date(o.firstDetectedAt).toLocaleString() : (o.entranceDetectedAt ? new Date(o.entranceDetectedAt).toLocaleString() : ''),
     o.firstDetectedCamera?.name || o.entranceCamera?.name || '',
@@ -1666,6 +1720,7 @@ function AiCameraListScreen() {
                       <Th>CAPTURE NO</Th>
                       <Th>PLATE</Th>
                       <Th>STATUS</Th>
+                      <Th>JOB STATUS</Th>
                       <Th>BRANCH</Th>
                       <Th>FIRST DETECTED</Th>
                       <Th>LAST SEEN</Th>
@@ -1708,6 +1763,16 @@ function AiCameraListScreen() {
                             <span style={{ background: st.bg, color: st.color, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
                               {st.label}
                             </span>
+                          </Td>
+                          <Td>
+                            {(() => {
+                              const jm = JOB_MATCH_COLORS[order.jobMatchStatus] || JOB_MATCH_COLORS.PENDING;
+                              return (
+                                <span style={{ background: jm.bg, color: jm.color, padding: '2px 10px', borderRadius: 6, fontSize: 11, fontWeight: 800 }}>
+                                  {jm.label}
+                                </span>
+                              );
+                            })()}
                           </Td>
                           <Td>{order.branch?.name || '-'}</Td>
                           <Td>
