@@ -144,14 +144,59 @@ export const MarketingPromotions = () => {
   const openRiderPromotions = () => navigate(`${listPath}/rider-app`);
   const openNewRiderPromotion = () => navigate(`${listPath}/rider-app/new`);
 
+  /**
+   * After a toggle, check every few seconds until the Rider sync has reported
+   * the expected outcome (it runs about every 30 s), then say what happened.
+   * The offer is only shown in the app while the ERP promotion itself is active.
+   */
+  const waitForRiderSync = async (promotionId, expectedStatus) => {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      try {
+        const rows = listFrom(await riderAppListWorkshopOffers());
+        const map = Object.fromEntries(
+          rows.map((row) => [String(row.filterPromotionId), row]),
+        );
+        setRiderOffers(map);
+        const row = map[String(promotionId)];
+        if (row?.syncStatus === 'ERROR') return row;
+        if (row?.syncStatus === expectedStatus) return row;
+      } catch (error) {
+        console.error('Rider app offers poll error:', error);
+      }
+    }
+    return null;
+  };
+
   const handleToggleRiderOffer = async (item) => {
     const current = riderOffers[String(item.id)];
     const nextEnabled = !current?.enabled;
+    // Same rule as the Rider sync: the Rider toggle decides (POS on/off does not),
+    // but the ERP promotion must be approved (not draft / pending / rejected / expired).
+    const promotionLive = ['approved', 'scheduled', 'active', 'inactive'].includes(
+      String(item.status || '').trim().toLowerCase().replace(/\s+/g, '_'),
+    );
+    const expectedStatus = nextEnabled && promotionLive ? 'LIVE' : 'INACTIVE';
     try {
       setTogglingOfferId(item.id);
+      setPageError('');
       const saved = await riderAppSetWorkshopOffer(item.id, { enabled: nextEnabled });
       setRiderOffers((prev) => ({ ...prev, [String(item.id)]: { ...current, ...saved } }));
       setSuccessMessage(rt('sync.waiting'));
+
+      const result = await waitForRiderSync(item.id, expectedStatus);
+      if (!result) {
+        setSuccessMessage(rt('offer.slow'));
+      } else if (result.syncStatus === 'ERROR') {
+        setSuccessMessage('');
+        setPageError(`${rt('sync.ERROR')}: ${result.syncError || ''}`);
+      } else if (result.syncStatus === 'LIVE') {
+        setSuccessMessage(rt('offer.liveNow'));
+      } else if (nextEnabled && !promotionLive) {
+        setSuccessMessage(rt('offer.savedNeedsActive'));
+      } else {
+        setSuccessMessage(rt('offer.hiddenNow'));
+      }
     } catch (error) {
       console.error('Toggle Rider app offer error:', error);
       alert(error?.message || rt('err.action'));
