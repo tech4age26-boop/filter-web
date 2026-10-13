@@ -76,7 +76,13 @@ const RIDER_APP_I18N = {
     'offer.label': 'Rider app',
     'offer.toggle': 'Show on Rider app',
     'offer.hint': 'Shown to Rider app customers as a workshop offer (redeemed at the workshop only).',
-    'offer.needsActive': 'Goes live in the Rider app while this promotion is active.',
+    'offer.needsActive': 'Shown in the Rider app while this is on (POS on/off does not matter). The promotion must be approved.',
+    'offer.liveNow': 'Done: this offer is now live in the Rider app.',
+    'offer.hiddenNow': 'Done: this offer is no longer shown in the Rider app.',
+    'offer.savedNeedsActive':
+      'Saved, but not shown in the Rider app yet: this promotion must be approved first. It will appear automatically once approved.',
+    'offer.slow':
+      'Saved. The Rider app has not confirmed yet (usually under a minute). Refresh the page to see the latest status.',
     'err.load': 'Could not load. Check the network/API.',
     'err.action': 'Action failed.',
     'banner.label': 'Banner image',
@@ -164,7 +170,13 @@ const RIDER_APP_I18N = {
     'offer.label': 'تطبيق رايدر',
     'offer.toggle': 'عرض في تطبيق رايدر',
     'offer.hint': 'يظهر لعملاء تطبيق رايدر كعرض ورشة (يستخدم في الورشة فقط).',
-    'offer.needsActive': 'يظهر في تطبيق رايدر طالما العرض مفعل.',
+    'offer.needsActive': 'يظهر في تطبيق رايدر طالما هذا الخيار مفعل (حالة نقطة البيع لا تؤثر). يجب أن يكون العرض معتمداً.',
+    'offer.liveNow': 'تم: العرض الآن ظاهر في تطبيق رايدر.',
+    'offer.hiddenNow': 'تم: لم يعد العرض ظاهراً في تطبيق رايدر.',
+    'offer.savedNeedsActive':
+      'تم الحفظ، لكنه لن يظهر في تطبيق رايدر حتى يتم اعتماد هذا العرض. سيظهر تلقائياً بعد الاعتماد.',
+    'offer.slow':
+      'تم الحفظ. لم يؤكد تطبيق رايدر بعد (عادة أقل من دقيقة). حدّث الصفحة لرؤية آخر حالة.',
     'err.load': 'تعذر التحميل. تحقق من الشبكة.',
     'err.action': 'فشل الإجراء.',
     'banner.label': 'صورة البانر',
