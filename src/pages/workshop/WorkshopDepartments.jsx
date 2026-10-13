@@ -34,6 +34,10 @@ import {
     getCatalogCategories,
     getCatalogUnitsOfMeasure,
     submitCatalogProductRequest,
+    patchBranchProduct,
+    patchBranchService,
+    postBranchBulkProductPrice,
+    postBranchBulkServicePrice,
 } from '../../services/workshopCatalogApi';
 import {
     unwrapWorkshopBranchListResponse,
@@ -210,6 +214,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const [selectedProductIds, setSelectedProductIds] = useState([]);
     const [selectedServiceIds, setSelectedServiceIds] = useState([]);
     const [isBulkRemoving, setIsBulkRemoving] = useState(false);
+    const [priceEditor, setPriceEditor] = useState(null);
+    const [priceInput, setPriceInput] = useState('');
+    const [priceError, setPriceError] = useState('');
+    const [priceSaving, setPriceSaving] = useState(false);
+    const workshopIdQuery = workshop?.id != null ? String(workshop.id) : undefined;
 
     /** True only for "Request Product" new-item flow (not edit / not service). */
     const [isProductRequestFlow, setIsProductRequestFlow] = useState(false);
@@ -481,6 +490,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
             unit: product.unit || 'piece',
             purchase_price: Number(product.purchasePrice ?? product.purchase_price) || 0,
             sale_price: Number(product.salePrice ?? product.sale_price) || 0,
+            sale_price_override: firstFiniteNumber([
+                product.salePriceOverride,
+                product.sale_price_override,
+            ]),
+            catalog_sale_price: firstFiniteNumber([
+                product.catalogSalePrice,
+                product.catalog_sale_price,
+            ]),
+            has_price_override:
+                firstFiniteNumber([
+                    product.salePriceOverride,
+                    product.sale_price_override,
+                ]) != null,
             adoption_opening_qty: adoptionOpening,
             stock_qty: effectiveStock,
             critical_level: Number(product.criticalStockPoint ?? product.critical_stock_point) || 0,
@@ -510,6 +532,21 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         unit: 'service',
         purchase_price: 0,
         sale_price: Number(service.sellingPrice ?? service.salePrice ?? service.selling_price) || 0,
+        sale_price_override: firstFiniteNumber([
+            service.sellingPriceOverride,
+            service.salePriceOverride,
+            service.selling_price_override,
+        ]),
+        catalog_sale_price: firstFiniteNumber([
+            service.catalogSellingPrice,
+            service.catalogSalePrice,
+        ]),
+        has_price_override:
+            firstFiniteNumber([
+                service.sellingPriceOverride,
+                service.salePriceOverride,
+                service.selling_price_override,
+            ]) != null,
         stock_qty: 0,
         critical_level: 0,
         reorder_level: 0,
@@ -544,7 +581,9 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     qtyOnHand: row?.qtyOnHand ?? master?.qtyOnHand,
                     qty_on_hand: row?.qty_on_hand ?? master?.qty_on_hand,
                     criticalStockPoint: row?.criticalStockPoint ?? row?.critical_stock_point,
-                salePrice: row?.salePriceOverride ?? master?.salePrice ?? row?.salePrice,
+                salePrice: row?.salePrice ?? row?.salePriceOverride ?? master?.salePrice,
+                salePriceOverride: row?.salePriceOverride !== undefined ? row.salePriceOverride : null,
+                catalogSalePrice: master?.salePrice ?? row?.catalogSalePrice ?? null,
                 purchasePrice: row?.purchasePriceOverride ?? master?.purchasePrice ?? row?.purchasePrice,
             };
             return normalizeProduct(merged, master?.category || row?.category);
@@ -556,11 +595,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                 ...master,
                 id: master.id ?? row.serviceId ?? row.service_id ?? row.id,
                 sellingPrice:
+                    row?.sellingPrice ??
                     row?.sellingPriceOverride ??
                     master?.sellingPrice ??
                     master?.salePrice ??
-                    row?.sellingPrice ??
                     row?.salePrice,
+                sellingPriceOverride:
+                    row?.sellingPriceOverride !== undefined ? row.sellingPriceOverride : null,
+                catalogSellingPrice: master?.sellingPrice ?? row?.catalogSellingPrice ?? null,
             };
             return normalizeService(merged);
         };
@@ -1041,6 +1083,154 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         }
     };
 
+    const applyPriceToItem = (item, nextOverride, catalogFallback) => {
+        const override =
+            nextOverride == null || nextOverride === ''
+                ? null
+                : Number(nextOverride);
+        const overrideNum = Number.isFinite(override) ? override : null;
+        const catalog = firstFiniteNumber([catalogFallback, item.catalog_sale_price, item.sale_price]);
+        return {
+            ...item,
+            sale_price_override: overrideNum,
+            catalog_sale_price: catalog,
+            sale_price: overrideNum ?? catalog ?? 0,
+            has_price_override: overrideNum != null,
+        };
+    };
+
+    const openPriceEditor = (kind, item) => {
+        if (!branchScope) {
+            setProductsError(t('err.pricePickBranch'));
+            return;
+        }
+        setPriceEditor({ mode: 'one', kind, item });
+        setPriceInput(item?.sale_price != null ? String(item.sale_price) : '');
+        setPriceError('');
+    };
+
+    const openBulkPriceEditor = (kind) => {
+        if (!branchScope) {
+            setProductsError(t('err.pricePickBranch'));
+            return;
+        }
+        const ids = kind === 'service' ? selectedServiceIds : selectedProductIds;
+        if (!ids.length) return;
+        setPriceEditor({ mode: 'bulk', kind });
+        setPriceInput('');
+        setPriceError('');
+    };
+
+    const closePriceEditor = () => {
+        setPriceEditor(null);
+        setPriceInput('');
+        setPriceError('');
+    };
+
+    const handlePriceSave = async ({ reset } = {}) => {
+        if (!priceEditor || !branchScope) return;
+        let nextOverride = null;
+        if (!reset) {
+            const parsed = Number.parseFloat(String(priceInput).trim().replace(/,/g, ''));
+            if (!Number.isFinite(parsed) || parsed < 0) {
+                setPriceError(t('err.priceNumber'));
+                return;
+            }
+            nextOverride = Math.round(parsed * 100) / 100;
+        }
+        const isService = priceEditor.kind === 'service';
+        setPriceSaving(true);
+        setPriceError('');
+        try {
+            if (priceEditor.mode === 'one') {
+                const id = String(priceEditor.item.sourceId);
+                const res = isService
+                    ? await patchBranchService(
+                        branchScope,
+                        id,
+                        { sellingPriceOverride: nextOverride },
+                        { workshopId: workshopIdQuery },
+                    )
+                    : await patchBranchProduct(
+                        branchScope,
+                        id,
+                        { salePriceOverride: nextOverride },
+                        { workshopId: workshopIdQuery },
+                    );
+                if (res && res.success === false) throw new Error(res.message || t('err.updatePrice'));
+                const payload = res?.data || {};
+                const catalog = firstFiniteNumber([
+                    payload.catalogSalePrice,
+                    payload.catalogSellingPrice,
+                    priceEditor.item.catalog_sale_price,
+                ]);
+                const sale = firstFiniteNumber([
+                    payload.salePrice,
+                    payload.sellingPrice,
+                    nextOverride,
+                    catalog,
+                ]);
+                setProducts((prev) =>
+                    prev.map((p) =>
+                        String(p.sourceId) === id && p.type === priceEditor.item.type
+                            ? applyPriceToItem(p, nextOverride, catalog ?? sale)
+                            : p,
+                    ),
+                );
+            } else {
+                const ids = isService ? selectedServiceIds : selectedProductIds;
+                const res = isService
+                    ? await postBranchBulkServicePrice(
+                        branchScope,
+                        {
+                            items: ids.map((id) => ({
+                                serviceId: String(id),
+                                sellingPriceOverride: nextOverride,
+                            })),
+                        },
+                        { workshopId: workshopIdQuery },
+                    )
+                    : await postBranchBulkProductPrice(
+                        branchScope,
+                        {
+                            items: ids.map((id) => ({
+                                productId: String(id),
+                                salePriceOverride: nextOverride,
+                            })),
+                        },
+                        { workshopId: workshopIdQuery },
+                    );
+                if (res && res.success === false) throw new Error(res.message || t('err.updatePrice'));
+                const failed = Array.isArray(res?.failed) ? res.failed : [];
+                const failedIds = new Set(failed.map((f) => String(f.id)));
+                const idSet = new Set(ids.map(String));
+                setProducts((prev) =>
+                    prev.map((p) => {
+                        if (!idSet.has(String(p.sourceId))) return p;
+                        if (isService ? p.type !== 'service' : p.type === 'service') return p;
+                        if (failedIds.has(String(p.sourceId))) return p;
+                        return applyPriceToItem(p, nextOverride, p.catalog_sale_price);
+                    }),
+                );
+                if (failed.length > 0) {
+                    setPriceError(
+                        t('err.bulkPricePartial', {
+                            updated: Number(res?.updated) || 0,
+                            total: ids.length,
+                            failed: failed.length,
+                        }),
+                    );
+                    return;
+                }
+            }
+            closePriceEditor();
+        } catch (error) {
+            setPriceError(error.message || t('err.updatePrice'));
+        } finally {
+            setPriceSaving(false);
+        }
+    };
+
     const closeProdForm = () => {
         setShowProdForm(false);
         setIsProductRequestFlow(false);
@@ -1058,6 +1248,70 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         editingProd || prodForm.type === 'service' || activeTab === 'services'
             ? t('prodForm.backServices')
             : t('prodForm.backProducts');
+
+    if (priceEditor) {
+        const isBulk = priceEditor.mode === 'bulk';
+        const item = priceEditor.item;
+        const count = isBulk
+            ? (priceEditor.kind === 'service' ? selectedServiceIds.length : selectedProductIds.length)
+            : 1;
+        return (
+            <WorkshopSubScreen
+                title={isBulk ? t('price.bulkTitle') : t('price.title')}
+                subtitle={
+                    isBulk
+                        ? t('price.bulkApply', { count })
+                        : catalogDisplayName(item, locale) || item?.name || ''
+                }
+                backLabel={t('btn.cancel')}
+                onBack={() => !priceSaving && closePriceEditor()}
+                backDisabled={priceSaving}
+                size="narrow"
+            >
+                <div className="ws-section" style={{ padding: 20 }}>
+                    {branchScope ? (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                            {isBulk ? t('price.bulkHelp') : t('price.help')}
+                        </p>
+                    ) : (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#92400E' }}>{t('price.pickBranch')}</p>
+                    )}
+                    {!isBulk && item ? (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                            {t('price.catalogNow', { amount: t('money.sar', { amount: Number(item.catalog_sale_price ?? item.sale_price || 0).toFixed(2) }) })}
+                            {' · '}
+                            {t('price.currentNow', { amount: t('money.sar', { amount: Number(item.sale_price || 0).toFixed(2) }) })}
+                        </p>
+                    ) : null}
+                    <div className="ws-field" style={{ marginBottom: 16 }}>
+                        <label>{t('price.label')}</label>
+                        <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={priceInput}
+                            onChange={(e) => setPriceInput(e.target.value)}
+                            disabled={priceSaving || !branchScope}
+                        />
+                    </div>
+                    {priceError ? (
+                        <p style={{ margin: '0 0 16px', color: '#B91C1C', background: '#FEF2F2', padding: 12, borderRadius: 8, fontSize: '0.8125rem' }}>
+                            {priceError}
+                        </p>
+                    ) : null}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <button type="button" className="btn-secondary" onClick={closePriceEditor} disabled={priceSaving}>{t('btn.cancel')}</button>
+                        <button type="button" className="btn-secondary" onClick={() => handlePriceSave({ reset: true })} disabled={priceSaving || !branchScope}>
+                            {priceSaving ? t('btn.saving') : t('btn.resetCatalog')}
+                        </button>
+                        <button type="button" className="btn-submit" onClick={() => handlePriceSave()} disabled={priceSaving || !branchScope}>
+                            {priceSaving ? t('btn.saving') : t('btn.save')}
+                        </button>
+                    </div>
+                </div>
+            </WorkshopSubScreen>
+        );
+    }
 
     if (showRequestForm) {
         const stockItem = showRequestForm;
@@ -1594,6 +1848,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         {t('btn.removeSelected', { count: selectedProductIds.length })}
                                     </button>
                                 )}
+                                {branchScope && selectedProductIds.length > 0 ? (
+                                    <button
+                                        className="btn-portal"
+                                        onClick={() => openBulkPriceEditor('product')}
+                                        disabled={isBulkRemoving}
+                                    >
+                                        {t('btn.bulkPrice')}
+                                    </button>
+                                ) : null}
                                 {canCreateProduct && (
                                     <button className="btn-portal" onClick={() => openAddProd('product')}><Plus size={14}/> {t('btn.requestProduct')}</button>
                                 )}
@@ -1649,7 +1912,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             <td><strong>{catalogDisplayName(p, locale) || p.name}</strong></td>
                                             <td style={{fontFamily:'monospace',fontSize:'0.8rem',color:'var(--color-text-muted)'}}>{p.sku || t('emdash')}</td>
                                             <td style={{textTransform:'capitalize'}}>{p.unit}</td>
-                                            <td>{t('money.sar', { amount: (p.sale_price||0).toFixed(2) })}</td>
+                                            <td>
+                                                {t('money.sar', { amount: (p.sale_price||0).toFixed(2) })}
+                                                {branchScope ? (
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: p.has_price_override ? '#1D4ED8' : 'var(--color-text-muted)' }}>
+                                                        {p.has_price_override ? t('price.custom') : t('price.catalog')}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td style={{color:'var(--color-text-muted)'}}>{t('money.sar', { amount: (p.purchase_price||0).toFixed(2) })}</td>
                                             {branchScope ? (
                                                 <>
@@ -1665,6 +1935,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                 <span className={`ws-badge ${isActive ? (isCritical ? 'ws-badge--red' : 'ws-badge--green') : 'ws-badge--gray'}`}>
                                                     {!isActive ? t('status.inactive') : isCritical ? t('badge.critical') : t('status.active')}
                                                 </span>
+                                                {branchScope ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPriceEditor('product', p)}
+                                                        style={{ marginLeft: 8, padding: '4px 10px', background: '#fff', color: 'var(--color-text-dark)', border: '1px solid var(--color-border)', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                    >
+                                                        {t('btn.editPrice')}
+                                                    </button>
+                                                ) : null}
                                                 {canDeleteProduct && (
                                                     <button
                                                         type="button"
@@ -1713,6 +1992,15 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         {t('btn.removeSelected', { count: selectedServiceIds.length })}
                                     </button>
                                 )}
+                                {branchScope && selectedServiceIds.length > 0 ? (
+                                    <button
+                                        className="btn-portal"
+                                        onClick={() => openBulkPriceEditor('service')}
+                                        disabled={isBulkRemoving}
+                                    >
+                                        {t('btn.bulkPrice')}
+                                    </button>
+                                ) : null}
                                 {canCreateService && (
                                     <button className="btn-portal" onClick={() => openAddProd('service')}><Plus size={14}/> {t('btn.requestService')}</button>
                                 )}
@@ -1746,10 +2034,26 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                             </td>
                                             <td><strong>{catalogDisplayName(s, locale) || s.name}</strong></td>
                                             <td style={{color:'var(--color-text-muted)'}}>{s.dept || t('emdash')}</td>
-                                            <td>{t('money.sar', { amount: (s.sale_price||0).toFixed(2) })}</td>
+                                            <td>
+                                                {t('money.sar', { amount: (s.sale_price||0).toFixed(2) })}
+                                                {branchScope ? (
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: s.has_price_override ? '#1D4ED8' : 'var(--color-text-muted)' }}>
+                                                        {s.has_price_override ? t('price.custom') : t('price.catalog')}
+                                                    </div>
+                                                ) : null}
+                                            </td>
                                             <td style={{color:'var(--color-text-muted)'}}>{formatRowBranches(s)}</td>
                                             <td>
                                                 <span className={`ws-badge ${isActive ? 'ws-badge--green' : 'ws-badge--gray'}`}>{isActive ? t('status.active') : t('status.inactive')}</span>
+                                                {branchScope ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openPriceEditor('service', s)}
+                                                        style={{ marginLeft: 8, padding: '4px 10px', background: '#fff', color: 'var(--color-text-dark)', border: '1px solid var(--color-border)', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                                                    >
+                                                        {t('btn.editPrice')}
+                                                    </button>
+                                                ) : null}
                                                 {canDeleteService && (
                                                     <button
                                                         type="button"

@@ -8,7 +8,7 @@ import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { MOCK_SUPPLIERS_CATALOG } from './constants';
-import { getMyProducts, getBranchProducts, patchBranchProduct } from '../../services/workshopCatalogApi';
+import { getMyProducts, getBranchProducts, patchBranchProduct, postBranchBulkProductPrice } from '../../services/workshopCatalogApi';
 import {
     getWorkshopStaffBranchProducts,
     getWorkshopStaffProducts,
@@ -659,7 +659,8 @@ function mergeBranchProductRowForInventory(row) {
         stock_qty: row?.stock_qty ?? master?.stock_qty,
         criticalStockPoint: row?.criticalStockPoint ?? row?.critical_stock_point,
         critical_stock_point: row?.critical_stock_point ?? row?.criticalStockPoint,
-        salePriceOverride: row?.salePriceOverride ?? master?.salePriceOverride,
+        salePriceOverride: row?.salePriceOverride !== undefined ? row.salePriceOverride : master?.salePriceOverride,
+        catalogSalePrice: row?.catalogSalePrice ?? master?.salePrice ?? row?.salePrice,
         salePriceBeforeVat: row?.salePriceBeforeVat ?? master?.salePriceBeforeVat,
         sellingPriceBeforeVat: row?.sellingPriceBeforeVat ?? master?.sellingPriceBeforeVat,
         salePrice: row?.salePrice ?? master?.salePrice,
@@ -743,6 +744,23 @@ function mapApiRowToInventory(row) {
         master?.purchasePrice,
         master?.purchase_price,
     );
+    const salePriceOverride = firstFiniteNumber([
+        merged.salePriceOverride,
+        row?.salePriceOverride,
+    ]);
+    const catalogSalePrice = firstFiniteNumber([
+        merged.catalogSalePrice,
+        master?.salePrice,
+        master?.sale_price,
+        row?.product?.salePrice,
+    ]);
+    const salePrice = firstFiniteNumber([
+        salePriceOverride,
+        merged.salePrice,
+        row?.salePrice,
+        merged.sellingPrice,
+        catalogSalePrice,
+    ]);
 
     const unit =
         master?.unit ??
@@ -816,6 +834,10 @@ function mapApiRowToInventory(row) {
             return raw != null && String(raw).trim() !== '' ? String(raw) : null;
         })(),
         purchasePrice,
+        salePrice: salePrice ?? 0,
+        salePriceOverride,
+        catalogSalePrice,
+        hasSalePriceOverride: salePriceOverride != null,
         openingQty,
         isInfiniteQty,
         allowMinusQty: Boolean(
@@ -944,6 +966,7 @@ export default function WorkshopInventory({
     const canRequestFromSupplier = hasPermission('workshop.inventory.request-from-supplier');
     const canManualAdjust = hasPermission('workshop.inventory.manual-adjust');
     const canCriticalLevel = hasPermission('workshop.inventory.critical-level');
+    const canEditSalePrice = canManualAdjust || canCriticalLevel;
     const canAnyInventoryAction = canRequestFromSupplier || canManualAdjust || canCriticalLevel;
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -1257,6 +1280,15 @@ export default function WorkshopInventory({
     const [criticalInput, setCriticalInput] = useState('');
     const [criticalSubmitError, setCriticalSubmitError] = useState('');
     const [criticalSaving, setCriticalSaving] = useState(false);
+    const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
+    const [priceItem, setPriceItem] = useState(null);
+    const [priceInput, setPriceInput] = useState('');
+    const [priceSubmitError, setPriceSubmitError] = useState('');
+    const [priceSaving, setPriceSaving] = useState(false);
+    const [isBulkPriceModalOpen, setIsBulkPriceModalOpen] = useState(false);
+    const [bulkPriceInput, setBulkPriceInput] = useState('');
+    const [bulkPriceError, setBulkPriceError] = useState('');
+    const [bulkPriceSaving, setBulkPriceSaving] = useState(false);
     const [isInvValueProofOpen, setIsInvValueProofOpen] = useState(false);
     const [isLowStockProofOpen, setIsLowStockProofOpen] = useState(false);
 
@@ -1479,6 +1511,161 @@ export default function WorkshopInventory({
             setCriticalSubmitError(err.message || t('err.updateCritical'));
         } finally {
             setCriticalSaving(false);
+        }
+    };
+
+    const applySalePriceToRow = (row, payload, fallbackOverride) => {
+        const overrideRaw =
+            payload?.salePriceOverride !== undefined
+                ? payload.salePriceOverride
+                : fallbackOverride;
+        const override =
+            overrideRaw == null || overrideRaw === ''
+                ? null
+                : Number(overrideRaw);
+        const overrideNum = override != null && Number.isFinite(override) ? override : null;
+        const catalog = pickNumber(
+            payload?.catalogSalePrice,
+            row.catalogSalePrice,
+        );
+        const sale = pickNumber(payload?.salePrice, overrideNum, catalog, row.salePrice);
+        return {
+            ...row,
+            salePriceOverride: overrideNum,
+            catalogSalePrice: catalog,
+            salePrice: sale,
+            hasSalePriceOverride: overrideNum != null,
+        };
+    };
+
+    const closePriceModal = () => {
+        setIsPriceModalOpen(false);
+        setPriceItem(null);
+        setPriceInput('');
+        setPriceSubmitError('');
+        setPriceSaving(false);
+    };
+
+    const handleOpenPrice = (item) => {
+        if (!canEditSalePrice) return;
+        setPriceItem(item);
+        setPriceInput(
+            item.salePrice != null && item.salePrice !== '' ? String(item.salePrice) : '',
+        );
+        setPriceSubmitError('');
+        setIsPriceModalOpen(true);
+    };
+
+    const handlePriceSubmit = async ({ reset } = {}) => {
+        if (!priceItem || isAllBranches) return;
+        let nextOverride = null;
+        if (!reset) {
+            const parsed = Number.parseFloat(String(priceInput).trim().replace(/,/g, ''));
+            if (!Number.isFinite(parsed) || parsed < 0) {
+                setPriceSubmitError(t('err.priceNumber'));
+                return;
+            }
+            nextOverride = Math.round(parsed * 100) / 100;
+        }
+        const pid = String(priceItem.id);
+        const bid = String(selectedBranchId);
+        setPriceSaving(true);
+        setPriceSubmitError('');
+        try {
+            const res = await patchBranchProduct(
+                bid,
+                pid,
+                { salePriceOverride: nextOverride },
+                { workshopId: workshopIdQuery },
+            );
+            if (res && typeof res === 'object' && res.success === false) {
+                throw new Error(res.message || t('err.updateFailed'));
+            }
+            const payload = res?.data && typeof res.data === 'object' ? res.data : res || {};
+            setProductRows((prev) =>
+                prev.map((p) => (p.id === pid ? applySalePriceToRow(p, payload, nextOverride) : p)),
+            );
+            closePriceModal();
+        } catch (err) {
+            setPriceSubmitError(err.message || t('err.updatePrice'));
+        } finally {
+            setPriceSaving(false);
+        }
+    };
+
+    const closeBulkPriceModal = () => {
+        if (bulkPriceSaving) return;
+        setIsBulkPriceModalOpen(false);
+        setBulkPriceInput('');
+        setBulkPriceError('');
+    };
+
+    const openBulkPriceModal = () => {
+        if (!canEditSalePrice || selectedProductsForBulk.length === 0) return;
+        setBulkPriceInput('');
+        setBulkPriceError('');
+        setIsBulkPriceModalOpen(true);
+    };
+
+    const handleBulkPriceSubmit = async ({ reset } = {}) => {
+        if (isAllBranches) {
+            setBulkPriceError(t('err.pricePickBranch'));
+            return;
+        }
+        if (selectedProductsForBulk.length === 0) return;
+        let nextOverride = null;
+        if (!reset) {
+            const parsed = Number.parseFloat(String(bulkPriceInput).trim().replace(/,/g, ''));
+            if (!Number.isFinite(parsed) || parsed < 0) {
+                setBulkPriceError(t('err.priceNumber'));
+                return;
+            }
+            nextOverride = Math.round(parsed * 100) / 100;
+        }
+        const bid = String(selectedBranchId);
+        setBulkPriceSaving(true);
+        setBulkPriceError('');
+        try {
+            const res = await postBranchBulkProductPrice(
+                bid,
+                {
+                    items: selectedProductsForBulk.map((p) => ({
+                        productId: String(p.id),
+                        salePriceOverride: nextOverride,
+                    })),
+                },
+                { workshopId: workshopIdQuery },
+            );
+            if (res && typeof res === 'object' && res.success === false) {
+                throw new Error(res.message || t('err.updateFailed'));
+            }
+            const failed = Array.isArray(res?.failed) ? res.failed : [];
+            const failedIds = new Set(failed.map((f) => String(f.id)));
+            setProductRows((prev) =>
+                prev.map((p) =>
+                    failedIds.has(String(p.id))
+                        ? p
+                        : selectedIdSet.has(String(p.id))
+                          ? applySalePriceToRow(p, { salePriceOverride: nextOverride }, nextOverride)
+                          : p,
+                ),
+            );
+            if (failed.length > 0) {
+                setBulkPriceError(
+                    t('err.bulkPartial', {
+                        updated: Number(res?.updated) || 0,
+                        total: selectedProductsForBulk.length,
+                        failed: failed.length,
+                        detail: failed[0]?.message ? `: ${failed[0].message}` : '',
+                    }),
+                );
+                return;
+            }
+            closeBulkPriceModal();
+        } catch (err) {
+            setBulkPriceError(err.message || t('err.updatePrice'));
+        } finally {
+            setBulkPriceSaving(false);
         }
     };
 
@@ -2164,6 +2351,157 @@ export default function WorkshopInventory({
                             }
                         >
                             {criticalSaving ? t('btn.saving') : t('btn.save')}
+                        </button>
+                    </div>
+                </div>
+            </WorkshopSubScreen>
+        );
+    }
+
+    if (isPriceModalOpen && priceItem) {
+        const catalogAmt = formatSar(priceItem.catalogSalePrice ?? priceItem.salePrice, t, { decimals: 2 });
+        const currentAmt = formatSar(priceItem.salePrice, t, { decimals: 2 });
+        return (
+            <WorkshopSubScreen
+                title={t('price.title')}
+                subtitle={displayName(priceItem, t('price.subtitleDefault'))}
+                backLabel={t('price.back')}
+                onBack={closePriceModal}
+                backDisabled={priceSaving}
+                size="narrow"
+            >
+                <div className="ws-section" style={{ padding: 20 }}>
+                    <div style={{ marginBottom: 20, padding: 16, background: '#F9FAFB', borderRadius: 12, border: '1px solid var(--color-border-light)' }}>
+                        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>{t('price.product')}</p>
+                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{displayName(priceItem)}</h4>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+                            <span dangerouslySetInnerHTML={{ __html: t('price.catalogLabel', { amount: catalogAmt }) }} />
+                            {' · '}
+                            <span dangerouslySetInnerHTML={{ __html: t('price.currentLabel', { amount: currentAmt }) }} />
+                        </p>
+                    </div>
+                    {isAllBranches ? (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#92400E', background: '#FFFBEB', padding: 12, borderRadius: 8 }}>
+                            <span dangerouslySetInnerHTML={{ __html: t('price.pickBranch') }} />
+                        </p>
+                    ) : (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                            {t('price.help')}
+                        </p>
+                    )}
+                    <div className="mc-form-group" style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 8, display: 'block' }}>
+                            {t('price.label')}
+                        </label>
+                        <input
+                            type="number"
+                            className="mc-filter-select"
+                            style={{ width: '100%', height: 45 }}
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={priceInput}
+                            onChange={(e) => setPriceInput(e.target.value)}
+                            disabled={priceSaving || isAllBranches}
+                        />
+                    </div>
+                    {priceSubmitError && (
+                        <p style={{ margin: '0 0 16px', padding: 12, background: '#FEE2E2', borderRadius: 8, color: '#991B1B', fontSize: '0.8125rem' }}>
+                            {priceSubmitError}
+                        </p>
+                    )}
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: 12 }} onClick={closePriceModal} disabled={priceSaving}>
+                            {t('btn.cancel')}
+                        </button>
+                        {priceItem.hasSalePriceOverride ? (
+                            <button
+                                type="button"
+                                className="mc-btn-ghost"
+                                style={{ flex: 1, padding: 12, border: '1px solid var(--color-border)' }}
+                                onClick={() => handlePriceSubmit({ reset: true })}
+                                disabled={priceSaving || isAllBranches}
+                            >
+                                {priceSaving ? t('btn.saving') : t('btn.resetCatalog')}
+                            </button>
+                        ) : null}
+                        <button
+                            type="button"
+                            className="mc-btn-primary"
+                            style={{ flex: 2, padding: 12 }}
+                            onClick={() => handlePriceSubmit()}
+                            disabled={priceSaving || isAllBranches}
+                        >
+                            {priceSaving ? t('btn.saving') : t('btn.save')}
+                        </button>
+                    </div>
+                </div>
+            </WorkshopSubScreen>
+        );
+    }
+
+    if (isBulkPriceModalOpen) {
+        return (
+            <WorkshopSubScreen
+                title={t('price.bulkTitle')}
+                subtitle={t('price.bulkApply', { count: selectedProductsForBulk.length })}
+                backLabel={t('price.back')}
+                onBack={closeBulkPriceModal}
+                backDisabled={bulkPriceSaving}
+                size="narrow"
+            >
+                <div className="ws-section" style={{ padding: 20 }}>
+                    {isAllBranches ? (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: '#92400E', background: '#FFFBEB', padding: 12, borderRadius: 8 }}>
+                            <span dangerouslySetInnerHTML={{ __html: t('price.pickBranch') }} />
+                        </p>
+                    ) : (
+                        <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+                            {t('price.bulkHelp')}
+                        </p>
+                    )}
+                    <div className="mc-form-group" style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 8, display: 'block' }}>
+                            {t('price.label')}
+                        </label>
+                        <input
+                            type="number"
+                            className="mc-filter-select"
+                            style={{ width: '100%', height: 45 }}
+                            min={0}
+                            step="0.01"
+                            placeholder="0.00"
+                            value={bulkPriceInput}
+                            onChange={(e) => setBulkPriceInput(e.target.value)}
+                            disabled={bulkPriceSaving || isAllBranches}
+                        />
+                    </div>
+                    {bulkPriceError && (
+                        <p style={{ margin: '0 0 16px', padding: 12, background: '#FEE2E2', borderRadius: 8, color: '#991B1B', fontSize: '0.8125rem' }}>
+                            {bulkPriceError}
+                        </p>
+                    )}
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <button type="button" className="mc-btn-ghost" style={{ flex: 1, padding: 12 }} onClick={closeBulkPriceModal} disabled={bulkPriceSaving}>
+                            {t('btn.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            className="mc-btn-ghost"
+                            style={{ flex: 1, padding: 12, border: '1px solid var(--color-border)' }}
+                            onClick={() => handleBulkPriceSubmit({ reset: true })}
+                            disabled={bulkPriceSaving || isAllBranches}
+                        >
+                            {bulkPriceSaving ? t('btn.saving') : t('btn.resetCatalog')}
+                        </button>
+                        <button
+                            type="button"
+                            className="mc-btn-primary"
+                            style={{ flex: 2, padding: 12 }}
+                            onClick={() => handleBulkPriceSubmit()}
+                            disabled={bulkPriceSaving || isAllBranches}
+                        >
+                            {bulkPriceSaving ? t('btn.saving') : t('price.bulkApply', { count: selectedProductsForBulk.length })}
                         </button>
                     </div>
                 </div>
@@ -3204,6 +3542,18 @@ export default function WorkshopInventory({
                                         >
                                             {t('btn.bulkAdjust')}
                                         </button>
+                                        {canEditSalePrice ? (
+                                        <button
+                                            type="button"
+                                            className="mc-btn-ghost"
+                                            style={{ padding: '8px 14px', fontSize: '0.8125rem', border: '1px solid var(--color-border)', borderRadius: 10 }}
+                                            onClick={openBulkPriceModal}
+                                            disabled={isAllBranches}
+                                            title={isAllBranches ? t('tip.pricePickBranch') : t('tip.priceSet')}
+                                        >
+                                            {t('btn.bulkPrice')}
+                                        </button>
+                                        ) : null}
                                         <button
                                             type="button"
                                             className="mc-btn-ghost"
@@ -3416,6 +3766,19 @@ export default function WorkshopInventory({
                                                 color: 'var(--color-text-muted)',
                                                 textTransform: 'uppercase',
                                             }}
+                                            title={t('tip.saleCol')}
+                                        >
+                                            {t('th.salePrice')}
+                                        </th>
+                                        <th
+                                            style={{
+                                                padding: '16px 24px',
+                                                textAlign: 'center',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 800,
+                                                color: 'var(--color-text-muted)',
+                                                textTransform: 'uppercase',
+                                            }}
                                         >
                                             {t('th.status')}
                                         </th>
@@ -3437,10 +3800,10 @@ export default function WorkshopInventory({
                                 </thead>
                                 <tbody>
                                     {isLoading ? (
-                                        <ShimmerTableBodyRows rows={8} columns={12} />
+                                        <ShimmerTableBodyRows rows={8} columns={13} />
                                     ) : filteredProducts.length === 0 ? (
                                         <tr>
-                                            <td colSpan={canAnyInventoryAction ? 12 : 11} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                                            <td colSpan={canAnyInventoryAction ? 13 : 12} style={{ padding: '60px', textAlign: 'center', color: 'var(--color-text-muted)' }}>
                                                 <div style={{ marginBottom: '16px', opacity: 0.3 }}>
                                                     <Package size={48} style={{ margin: '0 auto' }} />
                                                 </div>
@@ -3629,6 +3992,15 @@ export default function WorkshopInventory({
                                                     >
                                                         {formatSar(item.purchasePrice, t, { decimals: 2 })}
                                                     </td>
+                                                    <td
+                                                        style={{ padding: '16px 24px', textAlign: 'center', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-text-dark)' }}
+                                                        title={t('tip.saleCol')}
+                                                    >
+                                                        <div>{formatSar(item.salePrice, t, { decimals: 2 })}</div>
+                                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, color: item.hasSalePriceOverride ? '#1D4ED8' : 'var(--color-text-muted)' }}>
+                                                            {item.hasSalePriceOverride ? t('price.custom') : t('price.catalog')}
+                                                        </div>
+                                                    </td>
                                                     <td style={{ padding: '16px 24px', textAlign: 'center' }}>
                                                         <span
                                                             style={{
@@ -3693,6 +4065,25 @@ export default function WorkshopInventory({
                                                                 }}
                                                             >
                                                                 {t('btn.criticalLevel')}
+                                                            </button>
+                                                            ) : null}
+                                                            {canEditSalePrice ? (
+                                                            <button
+                                                                type="button"
+                                                                className="mc-btn-ghost"
+                                                                style={{ padding: '6px 12px', fontSize: '0.75rem', border: '1px solid var(--color-border)' }}
+                                                                title={
+                                                                    isAllBranches
+                                                                        ? t('tip.pricePickBranch')
+                                                                        : t('tip.priceSet')
+                                                                }
+                                                                disabled={isAllBranches}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleOpenPrice(item);
+                                                                }}
+                                                            >
+                                                                {t('btn.editPrice')}
                                                             </button>
                                                             ) : null}
                                                         </div>
