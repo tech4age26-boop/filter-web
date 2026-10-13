@@ -234,6 +234,36 @@ export const patchBranchProduct = (branchId, productId, body, { workshopId, sign
     );
 
 /**
+ * PATCH /workshop-catalog/branches/:branchId/services/:serviceId
+ * Body: `{ sellingPriceOverride: number | null }` (null resets to catalog).
+ */
+export const patchBranchService = (branchId, serviceId, body, { workshopId, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/services/${encodeURIComponent(serviceId)}${qs({ workshopId })}`,
+        { method: 'PATCH', body: JSON.stringify(body), signal },
+    );
+
+/**
+ * POST /workshop-catalog/branches/:branchId/products/bulk-price
+ * Body: `{ items: [{ productId, salePriceOverride }] }` (`null` override = reset).
+ */
+export const postBranchBulkProductPrice = (branchId, body, { workshopId, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/products/bulk-price${qs({ workshopId })}`,
+        { method: 'POST', body: JSON.stringify(body), signal },
+    );
+
+/**
+ * POST /workshop-catalog/branches/:branchId/services/bulk-price
+ * Body: `{ items: [{ serviceId, sellingPriceOverride }] }` (`null` override = reset).
+ */
+export const postBranchBulkServicePrice = (branchId, body, { workshopId, signal } = {}) =>
+    apiFetch(
+        `/workshop-catalog/branches/${encodeURIComponent(branchId)}/services/bulk-price${qs({ workshopId })}`,
+        { method: 'POST', body: JSON.stringify(body), signal },
+    );
+
+/**
  * Apply the same UOM rule to many branch products.
  * POST /workshop-catalog/branches/:branchId/products/bulk-uom
  */
