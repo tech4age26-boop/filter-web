@@ -48,6 +48,8 @@ import {
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import InvoiceRefField from '../../components/invoices/InvoiceRefField';
+import InactiveTag from '../../components/InactiveTag';
+import { inactiveLastWhenSearching, isInactiveRecord } from '../../utils/inactiveRecords';
 import { getNextWorkshopPurchaseInvoiceReference } from '../../services/invoiceReferenceApi';
 import { PI_ACCOUNT_OPTIONS } from './constants';
 import {
@@ -361,7 +363,6 @@ function pickPriceInclusivePurchaseUnit(row) {
 function normalizeBranchProductOption(row) {
     if (!row || typeof row !== 'object') return null;
     const nested = row?.product ?? row?.service;
-    if (!isBranchCatalogRowActive(row, nested)) return null;
     const id = pickBranchCatalogItemId(row, nested);
     if (!id) return null;
     const name =
@@ -392,7 +393,7 @@ function normalizeBranchProductOption(row) {
         type,
         priceExcl,
         priceIncl,
-        isActive: true,
+        isActive: isBranchCatalogRowActive(row, nested),
         sku: row.sku ?? nested?.sku ?? null,
         warehouseUnit,
         workshopUnit,
@@ -1315,9 +1316,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         (searchText) => {
             const q = String(searchText || '').trim().toLowerCase();
             if (!q) return [];
-            return branchProductOptions
-                .filter((p) => String(p.name || '').toLowerCase().includes(q))
-                .slice(0, PRODUCT_SEARCH_RESULT_LIMIT);
+            return inactiveLastWhenSearching(
+                branchProductOptions.filter((p) => String(p.name || '').toLowerCase().includes(q)),
+                { searching: true },
+            ).slice(0, PRODUCT_SEARCH_RESULT_LIMIT);
         },
         [branchProductOptions],
     );
@@ -1432,7 +1434,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             return;
         }
         const opt = branchProductOptions.find((o) => o.id === productId);
-        if (!opt) return;
+        if (!opt || isInactiveRecord(opt)) return;
         setProductSearchByLineId((prev) => ({ ...prev, [lineId]: opt.name }));
         setHighlightedProductIndex(-1);
         setActiveProductSearchLineId(null);
@@ -2244,7 +2246,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 const pid = String(line.productId ?? '').trim();
                 if (!pid) continue;
                 const opt = branchProductOptions.find((o) => String(o.id) === pid);
-                if (!opt) {
+                if (!opt || isInactiveRecord(opt)) {
                     const originalIndex = lineItems.findIndex((l) => l.id === line.id);
                     setSubmitInvoiceError(
                         t('err.lineInactive', {
@@ -2631,7 +2633,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         )}
                         {!branchProductsLoading &&
                             invoiceBranchId &&
-                            branchProductOptions.length === 0 &&
+                            !branchProductOptions.some((o) => !isInactiveRecord(o)) &&
                             !branchProductsError && (
                                 <p
                                     style={{
@@ -2938,11 +2940,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                             e.preventDefault();
                                                                             if (showProductResults && productResults.length > 0) {
                                                                                 const h = highlightedProductIndexRef.current;
-                                                                                const pick =
+                                                                                const target =
                                                                                     h >= 0 && h < productResults.length
-                                                                                        ? h
-                                                                                        : 0;
-                                                                                handleLineProductChange(line.id, productResults[pick].id);
+                                                                                        ? productResults[h]
+                                                                                        : productResults.find((p) => !isInactiveRecord(p));
+                                                                                if (target && !isInactiveRecord(target)) {
+                                                                                    handleLineProductChange(line.id, target.id);
+                                                                                }
                                                                                 return;
                                                                             }
                                                                             // Keep an already-selected product when the list is closed.
@@ -2981,21 +2985,29 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                             >
                                                                                 {String(searchText || '').trim() ? (
                                                                                     productResults.length > 0 ? (
-                                                                                        productResults.map((p, ri) => (
+                                                                                        productResults.map((p, ri) => {
+                                                                                            const inactive = isInactiveRecord(p);
+                                                                                            return (
                                                                                             <button
                                                                                                 type="button"
                                                                                                 key={p.id}
                                                                                                 role="option"
                                                                                                 aria-selected={ri === highlightedProductIndex}
+                                                                                                aria-disabled={inactive || undefined}
                                                                                                 data-pi-product-result-index={ri}
-                                                                                                className={`ws-pi-product-result${ri === highlightedProductIndex ? ' is-highlighted' : ''}`}
-                                                                                                onMouseEnter={() => setHighlightedProductIndex(ri)}
+                                                                                                className={`ws-pi-product-result${ri === highlightedProductIndex && !inactive ? ' is-highlighted' : ''}${inactive ? ' is-inactive-option is-locked' : ''}`}
+                                                                                                onMouseEnter={() => {
+                                                                                                    if (!inactive) setHighlightedProductIndex(ri);
+                                                                                                }}
                                                                                                 onMouseDown={(e) => {
                                                                                                     e.preventDefault();
-                                                                                                    handleLineProductChange(line.id, p.id);
+                                                                                                    if (!inactive) handleLineProductChange(line.id, p.id);
                                                                                                 }}
                                                                                             >
-                                                                                                <span>{p.name}</span>
+                                                                                                <span>
+                                                                                                    {p.name}
+                                                                                                    {inactive ? <InactiveTag /> : null}
+                                                                                                </span>
                                                                                                 <small>
                                                                                                     {p.warehouseUnit &&
                                                                                                     Number(p.conversionFactor) > 1
@@ -3003,7 +3015,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                                                         : p.unit || 'piece'}
                                                                                                 </small>
                                                                                             </button>
-                                                                                        ))
+                                                                                            );
+                                                                                        })
                                                                                     ) : (
                                                                                         <div className="ws-pi-product-empty">
                                                                                             {t('line.noMatch')}

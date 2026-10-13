@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Eye, FileText, Loader2, Plus, RotateCcw, Search, Trash2, Building2, Package, Zap, Info, Calendar, Hash, Link2 } from 'lucide-react';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import { isInactiveRecord } from '../../utils/inactiveRecords';
 import WorkshopPurchaseReturnDetailView from '../../components/workshop/WorkshopPurchaseReturnDetailView';
 import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import {
@@ -199,6 +200,7 @@ function normalizeBranchProductOption(row, productFallback = 'Product') {
                   : null,
         uomProfileId: row.uomProfileId ?? nestedObj?.uomProfileId ?? null,
         supplierProductId: row.supplierProductId ?? nestedObj?.supplierProductId ?? null,
+        isActive: !isInactiveRecord(row) && !isInactiveRecord(nestedObj),
     };
 }
 
@@ -578,7 +580,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 .filter(Boolean)
                 .sort((a, b) => a.name.localeCompare(b.name));
             setBranchProductOptions(opts);
-            if (opts.length === 0) {
+            if (!opts.some((o) => o.isActive)) {
                 setProductsLoadError(t('err.noProducts'));
             }
         } catch (err) {
@@ -830,6 +832,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                 unitPrice: opt.priceExcl,
                 productOption: opt,
                 searchTokens: [opt.name, opt.sku].filter(Boolean),
+                inactive: isInactiveRecord(opt),
             })),
         [branchProductOptions, t, money],
     );

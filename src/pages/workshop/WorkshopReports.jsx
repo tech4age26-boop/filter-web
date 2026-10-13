@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import { isInactiveRecord } from '../../utils/inactiveRecords';
 import RowActionsMenu from '../../components/RowActionsMenu';
 import '../../styles/RowActionsMenu.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -57,6 +58,7 @@ import {
 } from '../../services/workshopStaffApi';
 import { formatPlateLettersFirst } from '../../utils/formatPlate';
 import { wrColT, wrT } from '../../utils/workshopReportsI18n';
+import { formatTransferDate, transferPlaceLabel } from '../../utils/staffTransfer';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -788,6 +790,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 .map((techRow) => ({
                     id: String(techRow?.id ?? techRow?.employeeId ?? ''),
                     name: String(techRow?.name ?? '').trim() || t('fallback.technician'),
+                    inactive: isInactiveRecord(techRow),
                 }))
                 .filter((techRow) => techRow.id);
             opts.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
@@ -872,6 +875,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 id: String(techOpt.id),
                 label: techOpt.name || t('fallback.technician'),
                 subtitle: techOpt.phone ? String(techOpt.phone) : '',
+                ...(techOpt.inactive ? { inactive: true } : {}),
             })),
         [technicianOptions, t],
     );
@@ -983,8 +987,12 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         if (!target) return;
         const isOpen = target.startsWith('so:');
         setRecentOrderActionBusyId(target);
+        // Open before any await so the browser still treats this as the click
+        // and allows the WhatsApp tab. Download then points that tab at the chat.
+        const waTab = actionType === 'download' ? window.open('', '_blank') : null;
         try {
             if (isOpen) {
+                if (waTab) waTab.close();
                 if (actionType === 'view') {
                     void openRecentOrderDetails(target);
                 } else {
@@ -1002,6 +1010,27 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 setInvoicePreviewData(invoiceObj);
             } else if (actionType === 'download') {
                 await downloadPosInvoicePdf(invoiceObj);
+                try {
+                    const linkRes = await apiFetch(
+                        `/workshop-staff/invoices/${encodeURIComponent(String(invoiceId))}/whatsapp-link`,
+                    );
+                    const waMeUrl = linkRes?.waMeUrl || linkRes?.data?.waMeUrl;
+                    if (!waMeUrl) {
+                        if (waTab) waTab.close();
+                        window.alert(t('orders.whatsappNoPhone'));
+                    } else {
+                        if (waTab) waTab.location.href = waMeUrl;
+                        else window.open(waMeUrl, '_blank', 'noopener,noreferrer');
+                        window.alert(
+                            linkRes?.pdfUrl
+                                ? t('orders.whatsappOpenedPdf')
+                                : t('orders.whatsappOpened'),
+                        );
+                    }
+                } catch (waErr) {
+                    if (waTab) waTab.close();
+                    window.alert(waErr?.message || t('orders.whatsappNoPhone'));
+                }
             } else if (actionType === 'whatsapp') {
                 try {
                     const waRes = await apiFetch(
@@ -1031,6 +1060,9 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 }
             }
         } catch (error) {
+            if (waTab && !waTab.closed) {
+                try { waTab.close(); } catch { /* tab already left this page */ }
+            }
             window.alert(error?.message || t('err.actionFailed'));
         } finally {
             setRecentOrderActionBusyId('');
@@ -1341,6 +1373,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
             completedJobs: toNumber(e.completed_jobs ?? e.totalJobs ?? e.orders),
             commission: toNumber(e.commission_sar ?? e.commission),
             revenue: toNumber(e.revenue_sar ?? e.revenue),
+            transfer: e.transfer ?? null,
         }));
 
         const kpiProof = r.kpi_proof ?? r.kpiProof ?? null;
@@ -2123,6 +2156,22 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             >
                                                 <td>
                                                     <strong>{tech.name}</strong>
+                                                    {tech.transfer ? (
+                                                        <div>
+                                                            <span
+                                                                className="ws-badge ws-badge--yellow"
+                                                                style={{ marginTop: 4, fontSize: '0.6875rem' }}
+                                                                title={t('transfer.tagTitle', {
+                                                                    to: transferPlaceLabel(tech.transfer, 'to') || t('fallback.unknown'),
+                                                                })}
+                                                            >
+                                                                {t('transfer.tag', {
+                                                                    from: tech.transfer.from_branch_name || t('fallback.unknown'),
+                                                                    date: formatTransferDate(tech.transfer.date, locale),
+                                                                })}
+                                                            </span>
+                                                        </div>
+                                                    ) : null}
                                                 </td>
                                                 <td>{tech.completedJobs}</td>
                                                 <td className="ws-font-bold">{t('money.sar', { amount: tech.revenue.toLocaleString() })}</td>
@@ -2222,6 +2271,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         id="ws-by-product-technician"
                                         className="ws-report-tab-combobox"
                                         options={technicianComboboxOptions}
+                                        inactiveSelectable
                                         value={byProductTechnicianId}
                                         displayText={byProductTechnicianFilterText}
                                         entityLabel={t('entity.technician')}
@@ -2334,6 +2384,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         id="ws-by-service-technician"
                                         className="ws-report-tab-combobox"
                                         options={technicianComboboxOptions}
+                                        inactiveSelectable
                                         value={byServiceTechnicianId}
                                         displayText={byServiceTechnicianFilterText}
                                         entityLabel={t('entity.technician')}
@@ -2647,18 +2698,19 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                     <th>{t('th.cashier')}</th>
                                     <th>{t('th.totalOrders')}</th>
                                     <th>{t('th.totalRevenueSar')}</th>
+                                    <th>{t('th.commissionSar')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {(norm?.byCashier ?? []).length === 0 ? (
                                     <tr>
-                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             {t('empty.cashier')}
                                         </td>
                                     </tr>
                                 ) : filteredByCashier.length === 0 ? (
                                     <tr>
-                                        <td colSpan={3} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
+                                        <td colSpan={4} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>
                                             {t('empty.noSearchRows')}
                                         </td>
                                     </tr>
@@ -2683,6 +2735,13 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                                 <td>{toNumber(row.orders_count ?? row.ordersCount)}</td>
                                                 <td className="ws-font-bold">
                                                     {t('money.sar', { amount: toNumber(row.revenue_sar ?? row.revenueSar).toLocaleString() })}
+                                                </td>
+                                                <td className="ws-font-bold">
+                                                    {t('money.sar', {
+                                                        amount: toNumber(
+                                                            row.commission_sar ?? row.commissionSar,
+                                                        ).toLocaleString(),
+                                                    })}
                                                 </td>
                                             </tr>
                                         );

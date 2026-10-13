@@ -18,6 +18,7 @@ import {
     exportCorporateArLedgerPdf,
     formatLedgerTypeShort,
     applyPostDiscountVatToLedgerStatement,
+    platformSellerHeaderFields,
 } from '../../utils/corporateArLedgerExport';
 import {
     loadSaAccountingDateRange,
@@ -124,6 +125,7 @@ export default function CorporateArControlPage() {
             companyName: ledger.corporateAccount?.companyName,
             vatNumber: ledger.corporateAccount?.vatNumber,
             workshopName: ledger.corporateAccount?.workshopName,
+            ...platformSellerHeaderFields(ledger.corporateAccount),
             dateFrom,
             dateTo,
             generatedAt: ledger.generatedAt

@@ -12,6 +12,7 @@ import {
 } from '../services/authApi';
 import { getBranches, getWorkshopOptions, getWorkshops } from '../services/superAdminApi';
 import { filterPortalVisibleBranches } from '../services/workshopStaffApi';
+import { compactTaxId, corporateVatError, taxIdText } from '../utils/saudiTaxId';
 
 const SIGNUP_PORTALS = {
     corporate: 'Corporate',
@@ -40,6 +41,7 @@ export default function PortalSignupPage() {
         companyName: '',
         vatNumber: '',
         crNumber: '',
+        nationalAddress: '',
         contactPerson: '',
         email: '',
         password: '',
@@ -270,10 +272,13 @@ export default function PortalSignupPage() {
         if (!corporateForm.selectedStoreIds.length) {
             throw new Error('Select at least one branch.');
         }
+        const vatError = corporateVatError(corporateForm.vatNumber, 'en');
+        if (vatError) throw new Error(vatError);
         return corporateRegister({
             companyName,
-            vatNumber: text(corporateForm.vatNumber) || undefined,
+            vatNumber: compactTaxId(corporateForm.vatNumber) || undefined,
             crNumber: text(corporateForm.crNumber) || undefined,
+            nationalAddress: text(corporateForm.nationalAddress) || undefined,
             contactPerson,
             email: emailVal,
             password,
@@ -422,11 +427,18 @@ export default function PortalSignupPage() {
                                     </div>
                                     <div className="form-group">
                                         <label>VAT Number</label>
-                                        <input className="signin-input" value={corporateForm.vatNumber} onChange={(e) => setCorporateForm((p) => ({ ...p, vatNumber: e.target.value }))} />
+                                        <input className="signin-input" inputMode="numeric" maxLength={20} value={corporateForm.vatNumber} onChange={(e) => setCorporateForm((p) => ({ ...p, vatNumber: e.target.value }))} />
+                                        <small className={`signup-field-note${corporateVatError(corporateForm.vatNumber, 'en') ? ' signup-field-note--error' : ''}`}>
+                                            {corporateVatError(corporateForm.vatNumber, 'en') || taxIdText('en', 'vatHint')}
+                                        </small>
                                     </div>
                                     <div className="form-group">
                                         <label>CR Number</label>
                                         <input className="signin-input" value={corporateForm.crNumber} onChange={(e) => setCorporateForm((p) => ({ ...p, crNumber: e.target.value }))} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>{taxIdText('en', 'nationalAddress')}</label>
+                                        <input className="signin-input" placeholder={taxIdText('en', 'nationalAddressPh')} value={corporateForm.nationalAddress} onChange={(e) => setCorporateForm((p) => ({ ...p, nationalAddress: e.target.value }))} />
                                     </div>
                                 </div>
 
