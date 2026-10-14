@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import JsBarcode from 'jsbarcode';
+import { toRiyadhDateISO } from './riyadhBusinessRange';
 
 function pdfSafeText(value, fallback = '—') {
     const s = String(value ?? '').trim();
@@ -13,7 +14,7 @@ function pdfSafeText(value, fallback = '—') {
 }
 
 function stampDate() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 function formatPrice(value) {

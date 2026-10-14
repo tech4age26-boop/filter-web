@@ -165,6 +165,9 @@ export default function WorkshopLayout() {
                 }
                 if (!item.permission) return null;
                 if (!hasPermission(item.permission)) return null;
+                if (item.requiresAnyOf?.length && !item.requiresAnyOf.some((code) => hasPermission(code))) {
+                    return null;
+                }
                 return item;
             })
             .filter(Boolean),
@@ -228,6 +231,14 @@ export default function WorkshopLayout() {
         return null;
     });
 
+    const visibleTabIds = useMemo(
+        () => new Set(visibleNavItems.flatMap((i) => (i.subItems ? i.subItems.map((s) => s.id) : [i.id]))),
+        [visibleNavItems],
+    );
+    const activeTabAllowed = WORKSHOP_INTERNAL_TABS.has(activeTab)
+        || visibleTabIds.has(activeTab)
+        || (activeTab === 'catalog' && visibleTabIds.has('departments'));
+
     /** Resolve first visible tab id (top-level OR sub-item). Used for auto-snap. */
     const firstVisibleTabId = (() => {
         // Shortcuts out of the portal are not tabs, so they can never be the snap target.
@@ -276,17 +287,13 @@ export default function WorkshopLayout() {
      * for the current tab (e.g. legacy URL, role change mid-session).
      */
     useEffect(() => {
-        if (!firstVisibleTabId) return;
-        if (WORKSHOP_INTERNAL_TABS.has(activeTab)) return;
-        const allVisible = visibleNavItems.flatMap((i) => i.subItems ? i.subItems.map((s) => s.id) : [i.id]);
-        if (!allVisible.includes(activeTab)) {
-            setActiveTab(firstVisibleTabId);
-            const target = workshopTabToPath(firstVisibleTabId);
-            if (location.pathname !== target) {
-                navigate(target, { replace: true });
-            }
+        if (!firstVisibleTabId || activeTabAllowed) return;
+        setActiveTab(firstVisibleTabId);
+        const target = workshopTabToPath(firstVisibleTabId);
+        if (location.pathname !== target) {
+            navigate(target, { replace: true });
         }
-    }, [activeTab, firstVisibleTabId, visibleNavItems, location.pathname, navigate]);
+    }, [activeTabAllowed, firstVisibleTabId, location.pathname, navigate]);
 
     useEffect(() => {
         const tabFromUrl = getActiveTabFromUrl();
@@ -508,16 +515,16 @@ export default function WorkshopLayout() {
     }, [activeBranches.length, selectedBranch, userBranchLock]);
 
     const selectedBranchName = useMemo(() => {
-        if (selectedBranch === 'all') return 'All Branches';
+        if (selectedBranch === 'all') return lt('layout.allBranches');
         const b = activeBranches.find((branch) => String(branch.id) === String(selectedBranch));
-        if (b) return b.name ?? 'Branch';
+        if (b) return b.name ?? lt('layout.branchFallback');
         const fromRole = user?.role?.branches?.find(
             (br) => String(br.id) === String(selectedBranch),
         );
         if (fromRole?.name) return fromRole.name;
         if (userBranchLock && user?.branchName) return user.branchName;
-        return 'All Branches';
-    }, [activeBranches, selectedBranch, userBranchLock, user?.branchName, user?.role?.branches]);
+        return lt('layout.allBranches');
+    }, [activeBranches, selectedBranch, userBranchLock, user?.branchName, user?.role?.branches, lt]);
 
     useEffect(() => {
         if (activeTab !== 'dashboard') setDashboardLowStockCount(0);
@@ -535,6 +542,16 @@ export default function WorkshopLayout() {
     }, [inventoryBranchOnly, selectedBranch, activeBranches]);
 
     const renderContent = () => {
+        // Never mount a page the user may not open — its API calls would only answer 403.
+        if (!activeTabAllowed) {
+            if (firstVisibleTabId) return null;
+            return (
+                <div className="ws-no-pages" role="status">
+                    <h2 className="ws-no-pages__title">{lt('layout.noPagesTitle')}</h2>
+                    <p className="ws-no-pages__body">{lt('layout.noPagesBody')}</p>
+                </div>
+            );
+        }
         switch (activeTab) {
             case 'acc-chart':
             case 'acc-period-closings':
@@ -673,7 +690,16 @@ export default function WorkshopLayout() {
                 return <AdvancedReportDrilldownPage portal="workshop" />;
             case 'pos-monitoring': return <WorkshopPosMonitoring selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
             case 'logs': return <WorkshopLogs selectedBranchId={selectedBranch} branches={activeBranches} locale={locale} />;
-            case 'locker-management': return <WorkshopLockerManagement locale={locale} />;
+            case 'locker-management':
+                return (
+                    <WorkshopLockerManagement
+                        locale={locale}
+                        selectedBranchId={selectedBranch}
+                        branches={activeBranches}
+                        branchLockedId={userBranchLock}
+                        allowAllBranches={hasFullBranchAccess}
+                    />
+                );
             case 'catalog-new': return (
                 <WorkshopCatalogNew
                     branches={activeBranches}

@@ -3,17 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Camera, CheckCircle, RefreshCw, Upload, X } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import { useLockerPortal } from './useLockerPortal';
 
 const MAX_PROOF_SIZE_BYTES = 2 * 1024 * 1024;
 
-const fmtSar = (n) =>
-    `SAR ${Number(n || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    })}`;
-
-const rowCashierName = (row) =>
-    row?.cashierName || row?.cashier?.name || row?.cashierUser?.name || '—';
+const rowCashierName = (row, fallback) =>
+    row?.cashierName || row?.cashier?.name || row?.cashierUser?.name || fallback;
 
 function paymentBreakdown(detail, key) {
     const cc = detail?.counterClosing;
@@ -35,6 +30,7 @@ function paymentBreakdown(detail, key) {
 }
 
 function ClosingRow({ label, physical, system, diff, editable, value, onChange }) {
+    const { t, money } = useLockerPortal();
     return (
         <div
             style={{
@@ -48,7 +44,7 @@ function ClosingRow({ label, physical, system, diff, editable, value, onChange }
         >
             <div style={{ fontWeight: 700, color: '#1f2937' }}>{label}</div>
             <div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4 }}>Physical</div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4 }}>{t('record.physical')}</div>
                 {editable ? (
                     <input
                         type="number"
@@ -59,17 +55,17 @@ function ClosingRow({ label, physical, system, diff, editable, value, onChange }
                         placeholder="0.00"
                     />
                 ) : (
-                    <strong>{fmtSar(physical)}</strong>
+                    <strong>{money(physical)}</strong>
                 )}
             </div>
             <div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4 }}>System</div>
-                <span style={{ color: '#475569' }}>{fmtSar(system)}</span>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4 }}>{t('record.system')}</div>
+                <span style={{ color: '#475569' }}>{money(system)}</span>
             </div>
             <div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4 }}>Difference</div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: 4 }}>{t('common.difference')}</div>
                 <span style={{ color: diff !== 0 ? '#dc2626' : '#16a34a', fontWeight: 700 }}>
-                    {fmtSar(diff)}
+                    {money(diff)}
                 </span>
             </div>
         </div>
@@ -77,6 +73,7 @@ function ClosingRow({ label, physical, system, diff, editable, value, onChange }
 }
 
 function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, onPick, onClear }) {
+    const { t } = useLockerPortal();
     return (
         <div>
             <div
@@ -113,7 +110,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                     <>
                         <img
                             src={proofPreview}
-                            alt="Collection proof"
+                            alt={t('record.proofAlt')}
                             style={{
                                 width: '100%',
                                 minHeight: 150,
@@ -126,7 +123,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                             style={{
                                 position: 'absolute',
                                 top: 8,
-                                right: 8,
+                                insetInlineEnd: 8,
                                 display: 'flex',
                                 gap: 6,
                             }}
@@ -150,7 +147,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                                     gap: 4,
                                 }}
                             >
-                                <Upload size={12} /> Replace
+                                <Upload size={12} /> {t('record.replace')}
                             </button>
                             <button
                                 type="button"
@@ -172,7 +169,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                                     gap: 4,
                                 }}
                             >
-                                <X size={12} /> Remove
+                                <X size={12} /> {t('record.remove')}
                             </button>
                         </div>
                         {proofFile ? (
@@ -180,7 +177,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                                 style={{
                                     position: 'absolute',
                                     bottom: 8,
-                                    left: 8,
+                                    insetInlineStart: 8,
                                     padding: '4px 10px',
                                     borderRadius: 8,
                                     background: 'rgba(255,255,255,0.92)',
@@ -197,10 +194,10 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                     <div style={{ textAlign: 'center', color: '#64748b', padding: 20 }}>
                         <Upload size={28} color="#94a3b8" style={{ marginBottom: 8 }} />
                         <p style={{ margin: 0, fontWeight: 700, color: '#1E2124' }}>
-                            Attach proof of collection
+                            {t('record.proofAttach')}
                         </p>
                         <p style={{ margin: '4px 0 0', fontSize: '0.75rem' }}>
-                            JPG / PNG · max 2 MB
+                            {t('record.proofHint')}
                         </p>
                     </div>
                 )}
@@ -212,7 +209,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                     onClick={() => fileInputRef.current?.click()}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <Upload size={14} /> Upload image
+                    <Upload size={14} /> {t('record.upload')}
                 </button>
                 <button
                     type="button"
@@ -220,7 +217,7 @@ function ProofPicker({ fileInputRef, cameraInputRef, proofFile, proofPreview, on
                     onClick={() => cameraInputRef.current?.click()}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <Camera size={14} /> Take photo
+                    <Camera size={14} /> {t('record.photo')}
                 </button>
             </div>
         </div>
@@ -232,6 +229,9 @@ export default function RecordCollection({
     selectedBranchId = 'all',
     branchLockedId = null,
 } = {}) {
+    const { t, can, money } = useLockerPortal();
+    const dash = t('emdash');
+    const canRecord = can('collections.record');
     const isCollector = portalRole === 'collector';
     const [searchParams, setSearchParams] = useSearchParams();
     const requestIdFromUrl = searchParams.get('requestId') || '';
@@ -250,6 +250,18 @@ export default function RecordCollection({
     const fileInputRef = useRef(null);
     const cameraInputRef = useRef(null);
 
+    const setRequestParam = useCallback(
+        (requestId) => {
+            setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                if (requestId) next.set('requestId', requestId);
+                else next.delete('requestId');
+                return next;
+            });
+        },
+        [setSearchParams],
+    );
+
     const loadRequests = useCallback(async () => {
         setLoading(true);
         setError('');
@@ -265,11 +277,11 @@ export default function RecordCollection({
             const list = res?.items || res?.rows || res?.data || [];
             setRequests(list);
         } catch (e) {
-            setError(e?.message || 'Failed to load requests');
+            setError(e?.message || t('record.errLoadRequests'));
         } finally {
             setLoading(false);
         }
-    }, [isCollector, scopeBranch]);
+    }, [isCollector, scopeBranch, t]);
 
     const loadDetail = useCallback(async (requestId) => {
         if (!requestId) {
@@ -292,11 +304,11 @@ export default function RecordCollection({
             }));
         } catch (e) {
             setDetail(null);
-            setError(e?.message || 'Failed to load request details');
+            setError(e?.message || t('record.errLoadDetail'));
         } finally {
             setDetailLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         loadRequests();
@@ -324,12 +336,12 @@ export default function RecordCollection({
         const f = e.target.files?.[0];
         if (!f) return;
         if (!/^image\//.test(f.type)) {
-            setError('Please pick an image file.');
+            setError(t('record.errPickImage'));
             e.target.value = '';
             return;
         }
         if (f.size > MAX_PROOF_SIZE_BYTES) {
-            setError('Image is too large (max 2 MB).');
+            setError(t('record.errImageTooLarge'));
             e.target.value = '';
             return;
         }
@@ -346,23 +358,22 @@ export default function RecordCollection({
         setForm({ requestId, receivedAmount: '', notes: '' });
         clearProof();
         setSuccess(null);
+        setRequestParam(requestId);
         if (requestId) {
-            setSearchParams({ requestId });
             loadDetail(requestId);
         } else {
-            setSearchParams({});
             setDetail(null);
         }
     };
 
     const submit = async () => {
         if (!form.requestId) {
-            setError('Select a request');
+            setError(t('record.errSelectRequest'));
             return;
         }
         const amt = Number(form.receivedAmount);
         if (!(amt >= 0)) {
-            setError('Received amount must be a number');
+            setError(t('record.errReceivedNumber'));
             return;
         }
         setSubmitting(true);
@@ -378,15 +389,15 @@ export default function RecordCollection({
                     ...(proofPreview ? { proofUrl: proofPreview } : {}),
                 }),
             });
-            if (res?.success === false) throw new Error(res?.message || 'Failed to record');
+            if (res?.success === false) throw new Error(res?.message || t('record.errRecord'));
             setSuccess(res);
             setForm({ requestId: '', receivedAmount: '', notes: '' });
             clearProof();
             setDetail(null);
-            setSearchParams({});
+            setRequestParam('');
             await loadRequests();
         } catch (e) {
-            setError(e?.message || 'Failed to record collection');
+            setError(e?.message || t('record.errRecord'));
         } finally {
             setSubmitting(false);
         }
@@ -397,16 +408,15 @@ export default function RecordCollection({
     const tabbyBreakdown = detail ? paymentBreakdown(detail, 'tabby') : null;
     const tamaraBreakdown = detail ? paymentBreakdown(detail, 'tamara') : null;
     const corporateBreakdown = detail ? paymentBreakdown(detail, 'corporate') : null;
+    const successPending = success?.collection?.status === 'pending_approval';
 
     return (
         <div>
             <div className="ws-page-header" style={{ alignItems: 'center' }}>
                 <div>
-                    <h2 className="ws-page-title">Record Collection</h2>
+                    <h2 className="ws-page-title">{t('record.title')}</h2>
                     <p className="ws-page-sub">
-                        {isCollector
-                            ? 'Collect assigned cash from the POS cashier and attach proof'
-                            : 'Review counter closing, record cash received, and attach proof'}
+                        {isCollector ? t('record.subCollector') : t('record.subSupervisor')}
                     </p>
                 </div>
                 <button
@@ -418,7 +428,7 @@ export default function RecordCollection({
                     disabled={loading || detailLoading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <RefreshCw size={14} className={loading || detailLoading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={14} className={loading || detailLoading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -437,12 +447,11 @@ export default function RecordCollection({
                         borderColor: '#bbf7d0',
                     }}
                 >
-                    <CheckCircle size={14} /> {success.message}
-                    {success.collection?.status === 'pending_approval' ? (
-                        <> · Variance sent to locker supervisor / workshop admin for approval</>
-                    ) : null}
+                    <CheckCircle size={14} />{' '}
+                    {successPending ? t('record.successPending') : t('record.successApproved')}
+                    {successPending ? <> · {t('record.varianceSent')}</> : null}
                     {success.collection?.journalId ? (
-                        <> · JE #{success.collection.journalId}</>
+                        <> · {t('record.jeNo', { id: success.collection.journalId })}</>
                     ) : null}
                 </div>
             ) : null}
@@ -451,16 +460,16 @@ export default function RecordCollection({
                 {!requestIdFromUrl ? (
                     <div className="ws-form-grid" style={{ marginBottom: 20 }}>
                         <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                            <label>Request *</label>
+                            <label>{t('record.request')}</label>
                             <select
                                 value={form.requestId}
                                 onChange={(e) => onRequestChange(e.target.value)}
                             >
-                                <option value="">Select request…</option>
+                                <option value="">{t('record.selectRequest')}</option>
                                 {requests.map((r) => (
                                     <option key={r.id} value={r.id}>
-                                        {r.referenceCode} — {r.branchName} — {rowCashierName(r)} —{' '}
-                                        {fmtSar(r.expectedAmount)}
+                                        {r.referenceCode} — {r.branchName} — {rowCashierName(r, dash)} —{' '}
+                                        {money(r.expectedAmount)}
                                     </option>
                                 ))}
                             </select>
@@ -469,7 +478,7 @@ export default function RecordCollection({
                 ) : null}
 
                 {detailLoading ? (
-                    <p style={{ color: '#64748b' }}>Loading request details…</p>
+                    <p style={{ color: '#64748b' }}>{t('record.loadingDetail')}</p>
                 ) : null}
 
                 {selected && detail ? (
@@ -485,34 +494,33 @@ export default function RecordCollection({
                         >
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
                                 <div>
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Request</div>
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{t('record.requestLabel')}</div>
                                     <strong>{detail.referenceCode}</strong>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Branch</div>
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{t('common.branch')}</div>
                                     <strong>{detail.branch?.name}</strong>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Cashier</div>
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{t('common.cashier')}</div>
                                     <strong>{detail.cashier?.name}</strong>
                                 </div>
                                 <div>
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Expected cash</div>
-                                    <strong>{fmtSar(detail.totalSecuredAsset)}</strong>
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{t('record.expectedCash')}</div>
+                                    <strong>{money(detail.totalSecuredAsset)}</strong>
                                 </div>
                                 {detail.assignedOfficer?.name ? (
                                     <div>
-                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Collector</div>
+                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{t('record.collector')}</div>
                                         <strong>{detail.assignedOfficer.name}</strong>
                                     </div>
                                 ) : null}
                             </div>
                         </div>
 
-                        <h3 style={{ margin: '0 0 8px', fontSize: '1rem' }}>Counter closing</h3>
+                        <h3 style={{ margin: '0 0 8px', fontSize: '1rem' }}>{t('record.closing')}</h3>
                         <p style={{ margin: '0 0 12px', color: '#64748b', fontSize: '0.85rem' }}>
-                            Enter the cash collected from the cashier. Other payment methods are shown
-                            for reference only.
+                            {t('record.closingHint')}
                         </p>
 
                         <div style={{ marginBottom: 20 }}>
@@ -529,90 +537,90 @@ export default function RecordCollection({
                                     letterSpacing: '0.04em',
                                 }}
                             >
-                                <div>Method</div>
-                                <div>Physical</div>
-                                <div>System</div>
-                                <div>Difference</div>
+                                <div>{t('record.method')}</div>
+                                <div>{t('record.physical')}</div>
+                                <div>{t('record.system')}</div>
+                                <div>{t('common.difference')}</div>
                             </div>
 
                             <ClosingRow
-                                label="Cash"
+                                label={t('method.cash')}
                                 physical={cashBreakdown.physical}
                                 system={cashBreakdown.system}
                                 diff={cashBreakdown.diff}
-                                editable
+                                editable={canRecord}
                                 value={form.receivedAmount}
                                 onChange={(value) => setForm((f) => ({ ...f, receivedAmount: value }))}
                             />
                             <ClosingRow
-                                label="Bank"
+                                label={t('method.bank')}
                                 physical={bankBreakdown.physical}
                                 system={bankBreakdown.system}
                                 diff={bankBreakdown.diff}
                             />
                             <ClosingRow
-                                label="Tabby"
+                                label={t('method.tabby')}
                                 physical={tabbyBreakdown.physical}
                                 system={tabbyBreakdown.system}
                                 diff={tabbyBreakdown.diff}
                             />
                             <ClosingRow
-                                label="Tamara"
+                                label={t('method.tamara')}
                                 physical={tamaraBreakdown.physical}
                                 system={tamaraBreakdown.system}
                                 diff={tamaraBreakdown.diff}
                             />
                             <ClosingRow
-                                label="Corporate"
+                                label={t('method.corporate')}
                                 physical={corporateBreakdown.physical}
                                 system={corporateBreakdown.system}
                                 diff={corporateBreakdown.diff}
                             />
                         </div>
 
-                        <div className="ws-form-grid">
-                            <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Remarks / notes</label>
-                                <textarea
-                                    value={form.notes}
-                                    onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                                    placeholder="Variance reason, witness name, or other remarks"
-                                    rows={3}
-                                    style={{
-                                        width: '100%',
-                                        border: '1px solid #d1d5db',
-                                        borderRadius: 8,
-                                        padding: 10,
-                                        resize: 'vertical',
-                                    }}
-                                />
+                        {canRecord ? (
+                            <div className="ws-form-grid">
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>{t('record.notes')}</label>
+                                    <textarea
+                                        value={form.notes}
+                                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                                        placeholder={t('record.notesPh')}
+                                        rows={3}
+                                        style={{
+                                            width: '100%',
+                                            border: '1px solid #d1d5db',
+                                            borderRadius: 8,
+                                            padding: 10,
+                                            resize: 'vertical',
+                                        }}
+                                    />
+                                </div>
+                                <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
+                                    <label>{t('record.proof')}</label>
+                                    <ProofPicker
+                                        fileInputRef={fileInputRef}
+                                        cameraInputRef={cameraInputRef}
+                                        proofFile={proofFile}
+                                        proofPreview={proofPreview}
+                                        onPick={onPickProof}
+                                        onClear={clearProof}
+                                    />
+                                </div>
                             </div>
-                            <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
-                                <label>Proof attachment (optional)</label>
-                                <ProofPicker
-                                    fileInputRef={fileInputRef}
-                                    cameraInputRef={cameraInputRef}
-                                    proofFile={proofFile}
-                                    proofPreview={proofPreview}
-                                    onPick={onPickProof}
-                                    onClear={clearProof}
-                                />
-                            </div>
-                        </div>
+                        ) : null}
                     </>
                 ) : null}
 
                 {!detailLoading && !detail && form.requestId ? (
-                    <p style={{ color: '#64748b' }}>Could not load details for this request.</p>
+                    <p style={{ color: '#64748b' }}>{t('record.noDetail')}</p>
                 ) : null}
 
                 {!detailLoading && !form.requestId ? (
-                    <p style={{ color: '#64748b' }}>
-                        Select a request from Pending Requests or use the dropdown above.
-                    </p>
+                    <p style={{ color: '#64748b' }}>{t('record.pickHint')}</p>
                 ) : null}
 
-                {detail ? (
+                {detail && canRecord ? (
                     <div
                         style={{
                             display: 'flex',
@@ -627,7 +635,7 @@ export default function RecordCollection({
                             onClick={() => onRequestChange('')}
                             disabled={submitting}
                         >
-                            Cancel
+                            {t('common.cancel')}
                         </button>
                         <button
                             type="button"
@@ -635,7 +643,11 @@ export default function RecordCollection({
                             onClick={submit}
                             disabled={submitting}
                         >
-                            {submitting ? 'Recording…' : isCollector ? 'Submit collection' : 'Approve and record collection'}
+                            {submitting
+                                ? t('record.recording')
+                                : isCollector
+                                  ? t('record.submitCollector')
+                                  : t('record.submitSupervisor')}
                         </button>
                     </div>
                 ) : null}

@@ -37,6 +37,7 @@ import {
 } from './workshopPurchaseUomUtils';
 import '../../styles/admin/AccountingPage.css';
 import { wprT } from '../../utils/workshopPurchaseReturnsI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const SUPPLIERS_PAGE_LIMIT = 50;
 
@@ -397,7 +398,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
     const [supplierUomByProductId, setSupplierUomByProductId] = useState({});
     const [invoiceLineUom, setInvoiceLineUom] = useState({});
 
-    const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10));
+    const [issueDate, setIssueDate] = useState(toRiyadhDateISO());
     const [reference, setReference] = useState('');
     const [referenceAuto, setReferenceAuto] = useState(true);
     const [description, setDescription] = useState('');

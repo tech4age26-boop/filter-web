@@ -8,9 +8,23 @@ import { qs } from '../../services/workshopStaffApi';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import { exportRowsToExcel, exportRowsToPdf } from '../../utils/tableExport';
 import { LOCKER_EXPENSE_CATEGORIES } from './lockerExpenseCategories';
-import { fmtSar } from './lockerFilterUtils';
+import { useLockerPortal } from './useLockerPortal';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const TX_TYPES = [
+    'collection',
+    'bank_deposit',
+    'petty_cash',
+    'expense',
+    'payment',
+    'receipt',
+    'advance',
+    'salary',
+    'coa_adjust',
+    'opening_balance',
+    'manual_journal',
+    'other',
+];
 
 function pad2(n) {
     return String(n).padStart(2, '0');
@@ -39,15 +53,6 @@ function localToIso(local) {
     return d.toISOString();
 }
 
-function fmtWhen(iso) {
-    if (!iso) return '—';
-    try {
-        return new Date(iso).toLocaleString();
-    } catch {
-        return String(iso);
-    }
-}
-
 function buildQueryParams(active, { page, limit }) {
     return {
         from: localToIso(active.from),
@@ -67,44 +72,21 @@ function buildQueryParams(active, { page, limit }) {
     };
 }
 
-function mapExportRows(list) {
-    return (list || []).map((r) => [
-        fmtWhen(r.at),
-        r.typeLabel || r.type || '',
-        r.branchName || '',
-        r.receivedFrom || '',
-        r.paidTo || '',
-        r.expenseCategory || '',
-        r.reference || r.journalEntryNumber || '',
-        r.direction === 'IN' ? Number(r.amount || 0) : '',
-        r.direction === 'OUT' ? Number(r.amount || 0) : '',
-        Number(r.runningBalance || 0),
-        r.description || '',
-    ]);
-}
-
-const EXPORT_HEADERS = [
-    'Date & time',
-    'Type',
-    'Branch',
-    'Received from',
-    'Paid to',
-    'Category',
-    'Reference',
-    'IN',
-    'OUT',
-    'Running balance',
-    'Description',
-];
-
 /**
  * Complete locker vault register (IN / OUT) with running balance.
+ * `allowHq` is false when the caller is limited to specific branches
+ * (HQ-level expenses are outside a branch-scoped admin's view).
  */
 function TransactionLog({
     selectedBranchId = 'all',
     branches: layoutBranches = null,
     branchLockedId = null,
+    allowHq = true,
 } = {}) {
+    const { t, money, dateTime, isRtl } = useLockerPortal();
+    const dash = t('emdash');
+    const PrevIcon = isRtl ? ChevronRight : ChevronLeft;
+    const NextIcon = isRtl ? ChevronLeft : ChevronRight;
     const defaults = useMemo(() => defaultDateTimeRange(), []);
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [filters, setFilters] = useState({
@@ -142,6 +124,11 @@ function TransactionLog({
     const [exporting, setExporting] = useState(false);
     const [error, setError] = useState('');
 
+    const typeLabel = useCallback(
+        (r) => (TX_TYPES.includes(r?.type) ? t(`tl.label.${r.type}`) : r?.typeLabel || r?.type || ''),
+        [t],
+    );
+
     useEffect(() => {
         const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
         setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
@@ -164,8 +151,10 @@ function TransactionLog({
             ...(branchLockedId
                 ? []
                 : [
-                    { id: 'all', label: 'All branches', searchText: 'All branches' },
-                    { id: 'hq', label: 'HQ / Workshop expenses', searchText: 'HQ Workshop' },
+                    { id: 'all', label: t('common.allBranches'), searchText: t('common.allBranches') },
+                    ...(allowHq
+                        ? [{ id: 'hq', label: t('tl.hq'), searchText: `HQ Workshop ${t('tl.hq')}` }]
+                        : []),
                 ]),
             ...(branches || []).map((b) => ({
                 id: String(b.id),
@@ -173,54 +162,55 @@ function TransactionLog({
                 searchText: b.name,
             })),
         ],
-        [branches, branchLockedId],
+        [branches, branchLockedId, allowHq, t],
     );
 
     const categoryOpts = useMemo(
         () => [
-            { id: 'all', label: 'All categories', searchText: 'All categories' },
+            { id: 'all', label: t('common.allCategories'), searchText: t('common.allCategories') },
             ...LOCKER_EXPENSE_CATEGORIES.map((c) => ({
                 id: c,
                 label: c,
                 searchText: c,
             })),
         ],
-        [],
+        [t],
     );
 
     const typeOpts = useMemo(
         () => [
-            { id: 'all', label: 'All types', searchText: 'All types' },
-            { id: 'collection', label: 'Collection (IN)', searchText: 'Collection' },
-            { id: 'bank_deposit', label: 'Bank deposit (OUT)', searchText: 'Bank deposit' },
-            { id: 'petty_cash', label: 'Petty cash issue (OUT)', searchText: 'Petty cash' },
-            { id: 'expense', label: 'Expense (OUT)', searchText: 'Expense' },
+            { id: 'all', label: t('tl.allTypes'), searchText: t('tl.allTypes') },
+            ...TX_TYPES.map((id) => ({
+                id,
+                label: t(`tl.type.${id}`),
+                searchText: `${id.replace(/_/g, ' ')} ${t(`tl.type.${id}`)}`,
+            })),
         ],
-        [],
+        [t],
     );
 
     const paidToOpts = useMemo(
         () => [
-            { id: 'all', label: 'All paid to', searchText: 'All paid to' },
+            { id: 'all', label: t('tl.allPaidTo'), searchText: t('tl.allPaidTo') },
             ...(partyOpts.paidTo || []).map((name) => ({
                 id: name,
                 label: name,
                 searchText: name,
             })),
         ],
-        [partyOpts.paidTo],
+        [partyOpts.paidTo, t],
     );
 
     const receivedFromOpts = useMemo(
         () => [
-            { id: 'all', label: 'All received from', searchText: 'All received from' },
+            { id: 'all', label: t('tl.allReceivedFrom'), searchText: t('tl.allReceivedFrom') },
             ...(partyOpts.receivedFrom || []).map((name) => ({
                 id: name,
                 label: name,
                 searchText: name,
             })),
         ],
-        [partyOpts.receivedFrom],
+        [partyOpts.receivedFrom, t],
     );
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
@@ -240,14 +230,14 @@ function TransactionLog({
                 receivedFrom: res?.filterOptions?.receivedFrom || [],
             });
         } catch (e) {
-            setError(e?.message || 'Failed to load transaction log');
+            setError(e?.message || t('tl.loadError'));
             setRows([]);
             setSummary(null);
             setTotal(0);
         } finally {
             setLoading(false);
         }
-    }, [applied, page, pageSize]);
+    }, [applied, page, pageSize, t]);
 
     useEffect(() => {
         void load(applied, page, pageSize);
@@ -268,10 +258,11 @@ function TransactionLog({
 
     const resetFilters = () => {
         const d = defaultDateTimeRange();
+        const nextBranch = branchLockedId || 'all';
         setFilters({
             from: d.from,
             to: d.to,
-            branchId: 'all',
+            branchId: nextBranch,
             category: 'all',
             paidTo: 'all',
             receivedFrom: 'all',
@@ -286,7 +277,7 @@ function TransactionLog({
         setApplied({
             from: d.from,
             to: d.to,
-            branchId: 'all',
+            branchId: nextBranch,
             category: 'all',
             paidTo: 'all',
             receivedFrom: 'all',
@@ -314,31 +305,64 @@ function TransactionLog({
         return all;
     };
 
+    const exportHeaders = () => [
+        t('tl.dateTime'),
+        t('tl.type'),
+        t('common.branch'),
+        t('tl.receivedFrom'),
+        t('tl.paidTo'),
+        t('common.category'),
+        t('common.reference'),
+        t('tl.in'),
+        t('tl.out'),
+        t('tl.running'),
+        t('common.description'),
+    ];
+
+    const mapExportRows = (list) =>
+        (list || []).map((r) => [
+            r.at ? dateTime(r.at) : dash,
+            typeLabel(r),
+            r.branchName || '',
+            r.receivedFrom || '',
+            r.paidTo || '',
+            r.expenseCategory || '',
+            r.reference || r.journalEntryNumber || '',
+            r.direction === 'IN' ? Number(r.amount || 0) : '',
+            r.direction === 'OUT' ? Number(r.amount || 0) : '',
+            Number(r.runningBalance || 0),
+            r.description || '',
+        ]);
+
     const exportData = async (kind) => {
         setExporting(true);
         setError('');
         try {
             const list = await fetchAllForExport();
             const body = mapExportRows(list);
-            const subtitle = `From ${applied.from || '—'} to ${applied.to || '—'} · ${list.length} transactions`;
+            const subtitle = t('tl.exportSubtitle', {
+                from: applied.from || dash,
+                to: applied.to || dash,
+                count: list.length,
+            });
             if (kind === 'pdf') {
                 exportRowsToPdf({
-                    title: 'Locker wallet transaction log',
+                    title: t('tl.exportTitle'),
                     subtitle,
-                    headers: EXPORT_HEADERS,
+                    headers: exportHeaders(),
                     rows: body,
                     filenameBase: 'locker-transaction-log',
                 });
             } else {
                 exportRowsToExcel({
-                    sheetName: 'Transaction log',
-                    headers: EXPORT_HEADERS,
+                    sheetName: t('tl.sheet'),
+                    headers: exportHeaders(),
                     rows: body,
                     filenameBase: 'locker-transaction-log',
                 });
             }
         } catch (e) {
-            setError(e?.message || 'Export failed');
+            setError(e?.message || t('tl.errExport'));
         } finally {
             setExporting(false);
         }
@@ -351,11 +375,8 @@ function TransactionLog({
         <div className="wlk-page">
             <div className="wlk-topbar">
                 <div>
-                    <h2 className="wlk-title">Transaction log</h2>
-                    <p className="wlk-subtitle">
-                        Complete locker wallet register — every IN &amp; OUT with running balance
-                        (collections, bank deposits, petty cash, expenses).
-                    </p>
+                    <h2 className="wlk-title">{t('tl.title')}</h2>
+                    <p className="wlk-subtitle">{t('tl.sub')}</p>
                 </div>
                 <div className="wlk-topbar-actions">
                     <button
@@ -380,7 +401,7 @@ function TransactionLog({
                         onClick={() => void load(applied, page, pageSize)}
                         disabled={loading}
                     >
-                        <RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh
+                        <RefreshCw size={16} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                     </button>
                 </div>
             </div>
@@ -389,35 +410,35 @@ function TransactionLog({
                 <div className="wlk-stat wlk-stat--info">
                     <div className="wlk-stat-icon"><ArrowDownLeft size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">IN</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.totalIn)}</div>
-                        <div className="wlk-stat-hint">Into locker (filtered range)</div>
+                        <div className="wlk-stat-label">{t('tl.in')}</div>
+                        <div className="wlk-stat-value">{money(summary?.totalIn)}</div>
+                        <div className="wlk-stat-hint">{t('tl.inHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-icon"><ArrowUpRight size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">OUT</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.totalOut)}</div>
-                        <div className="wlk-stat-hint">Out of locker (filtered range)</div>
+                        <div className="wlk-stat-label">{t('tl.out')}</div>
+                        <div className="wlk-stat-value">{money(summary?.totalOut)}</div>
+                        <div className="wlk-stat-hint">{t('tl.outHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat wlk-stat--info">
                     <div className="wlk-stat-icon"><Wallet size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Available balance</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.availableBalance)}</div>
-                        <div className="wlk-stat-hint">Vault as of range end (1004)</div>
+                        <div className="wlk-stat-label">{t('tl.available')}</div>
+                        <div className="wlk-stat-value">{money(summary?.availableBalance)}</div>
+                        <div className="wlk-stat-hint">{t('tl.availableHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-icon"><BookOpen size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Opening → Closing</div>
+                        <div className="wlk-stat-label">{t('tl.openClose')}</div>
                         <div className="wlk-stat-value" style={{ fontSize: 16 }}>
-                            {fmtSar(summary?.openingBalance)} → {fmtSar(summary?.closingBalance)}
+                            {money(summary?.openingBalance)} {isRtl ? '←' : '→'} {money(summary?.closingBalance)}
                         </div>
-                        <div className="wlk-stat-hint">Period vault movement</div>
+                        <div className="wlk-stat-hint">{t('tl.openCloseHint')}</div>
                     </div>
                 </div>
             </div>
@@ -425,19 +446,19 @@ function TransactionLog({
             <div className="wlk-section">
                 <div className="wlk-filter-bar" style={{ margin: '0 0 12px' }}>
                     <div className="wlk-filter-bar__head">
-                        <span className="wlk-filter-bar__title">Filters</span>
+                        <span className="wlk-filter-bar__title">{t('common.filters')}</span>
                         <div className="wlk-filter-bar__actions">
                             <button type="button" className="btn-secondary" onClick={resetFilters} disabled={loading}>
-                                Reset
+                                {t('common.reset')}
                             </button>
                             <button type="button" className="btn-submit" onClick={applyFilters} disabled={loading}>
-                                Apply
+                                {t('common.apply')}
                             </button>
                         </div>
                     </div>
                     <div className="wlk-filter-grid">
                         <div className="ws-field">
-                            <label>From date &amp; time</label>
+                            <label>{t('tl.fromDt')}</label>
                             <input
                                 type="datetime-local"
                                 value={filters.from || ''}
@@ -445,7 +466,7 @@ function TransactionLog({
                             />
                         </div>
                         <div className="ws-field">
-                            <label>To date &amp; time</label>
+                            <label>{t('tl.toDt')}</label>
                             <input
                                 type="datetime-local"
                                 value={filters.to || ''}
@@ -453,11 +474,11 @@ function TransactionLog({
                             />
                         </div>
                         <div className="ws-field">
-                            <label>Branch</label>
+                            <label>{t('common.branch')}</label>
                             <SearchableEntityCombobox
                                 id="tl-branch"
                                 options={branchOpts}
-                                value={filters.branchId || 'all'}
+                                value={branchLockedId || filters.branchId || 'all'}
                                 displayText={filters.branchText || ''}
                                 onDisplayTextChange={(text) => setFilters((f) => ({ ...f, branchText: text }))}
                                 onSelect={(opt) => setFilters((f) => ({
@@ -465,14 +486,15 @@ function TransactionLog({
                                     branchId: opt?.id || 'all',
                                     branchText: '',
                                 }))}
-                                placeholder="All branches — type to search"
+                                placeholder={t('common.searchBranches')}
                                 entityLabel="branch"
                                 maxInitial={40}
                                 maxFiltered={60}
+                                disabled={Boolean(branchLockedId)}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>Type</label>
+                            <label>{t('tl.type')}</label>
                             <SearchableEntityCombobox
                                 id="tl-type"
                                 options={typeOpts}
@@ -484,14 +506,14 @@ function TransactionLog({
                                     type: opt?.id || 'all',
                                     typeText: '',
                                 }))}
-                                placeholder="All types — type to search"
+                                placeholder={t('tl.searchTypes')}
                                 entityLabel="type"
                                 maxInitial={10}
                                 maxFiltered={10}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>Expense category</label>
+                            <label>{t('tl.expenseCategory')}</label>
                             <SearchableEntityCombobox
                                 id="tl-category"
                                 options={categoryOpts}
@@ -503,14 +525,14 @@ function TransactionLog({
                                     category: opt?.id || 'all',
                                     categoryText: '',
                                 }))}
-                                placeholder="All categories — type to search"
+                                placeholder={t('common.searchCategories')}
                                 entityLabel="category"
                                 maxInitial={30}
                                 maxFiltered={40}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>Paid to</label>
+                            <label>{t('tl.paidTo')}</label>
                             <SearchableEntityCombobox
                                 id="tl-paid-to"
                                 options={paidToOpts}
@@ -522,14 +544,14 @@ function TransactionLog({
                                     paidTo: opt?.id || 'all',
                                     paidToText: '',
                                 }))}
-                                placeholder="All paid to — type to search"
+                                placeholder={t('tl.searchPaidTo')}
                                 entityLabel="payee"
                                 maxInitial={40}
                                 maxFiltered={60}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>Received from</label>
+                            <label>{t('tl.receivedFrom')}</label>
                             <SearchableEntityCombobox
                                 id="tl-received-from"
                                 options={receivedFromOpts}
@@ -541,7 +563,7 @@ function TransactionLog({
                                     receivedFrom: opt?.id || 'all',
                                     receivedFromText: '',
                                 }))}
-                                placeholder="All received from — type to search"
+                                placeholder={t('tl.searchReceivedFrom')}
                                 entityLabel="payer"
                                 maxInitial={40}
                                 maxFiltered={60}
@@ -556,12 +578,12 @@ function TransactionLog({
 
                 <div className="wlk-section-header" style={{ flexWrap: 'wrap', gap: 12 }}>
                     <h3>
-                        Register
+                        {t('tl.register')}
                         <span className="wlk-count">{total}</span>
                     </h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginInlineStart: 'auto', flexWrap: 'wrap' }}>
                         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#64748b' }}>
-                            Per page
+                            {t('tl.perPage')}
                             <select
                                 value={pageSize}
                                 onChange={(e) => {
@@ -582,28 +604,30 @@ function TransactionLog({
                             </select>
                         </label>
                         <span style={{ fontSize: 13, color: '#64748b' }}>
-                            {total === 0 ? '0' : `${fromIdx}–${toIdx}`} of {total}
+                            {total === 0
+                                ? t('tl.rangeOf', { from: 0, to: 0, total: 0 })
+                                : t('tl.rangeOf', { from: fromIdx, to: toIdx, total })}
                         </span>
                         <button
                             type="button"
                             className="btn-secondary"
                             disabled={loading || page <= 1}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            title="Previous page"
+                            title={t('tl.prevPage')}
                         >
-                            <ChevronLeft size={16} />
+                            <PrevIcon size={16} />
                         </button>
                         <span style={{ fontSize: 13, fontWeight: 600, minWidth: 72, textAlign: 'center' }}>
-                            Page {Math.min(page, totalPages)} / {totalPages}
+                            {t('tl.page', { page: Math.min(page, totalPages), pages: totalPages })}
                         </span>
                         <button
                             type="button"
                             className="btn-secondary"
                             disabled={loading || page >= totalPages}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            title="Next page"
+                            title={t('tl.nextPage')}
                         >
-                            <ChevronRight size={16} />
+                            <NextIcon size={16} />
                         </button>
                     </div>
                 </div>
@@ -612,52 +636,52 @@ function TransactionLog({
                     <table className="wlk-table">
                         <thead>
                             <tr>
-                                <th>Date &amp; time</th>
-                                <th>Type</th>
-                                <th>Branch</th>
-                                <th>Received from</th>
-                                <th>Paid to</th>
-                                <th>Category</th>
-                                <th>Reference</th>
-                                <th>IN</th>
-                                <th>OUT</th>
-                                <th>Running balance</th>
+                                <th>{t('tl.dateTime')}</th>
+                                <th>{t('tl.type')}</th>
+                                <th>{t('common.branch')}</th>
+                                <th>{t('tl.receivedFrom')}</th>
+                                <th>{t('tl.paidTo')}</th>
+                                <th>{t('common.category')}</th>
+                                <th>{t('common.reference')}</th>
+                                <th>{t('tl.in')}</th>
+                                <th>{t('tl.out')}</th>
+                                <th>{t('tl.running')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {rows.map((r) => (
                                 <tr key={r.id}>
-                                    <td>{fmtWhen(r.at)}</td>
-                                    <td>{r.typeLabel || r.type}</td>
-                                    <td>{r.branchName || '—'}</td>
-                                    <td>{r.receivedFrom || '—'}</td>
-                                    <td>{r.paidTo || '—'}</td>
-                                    <td>{r.expenseCategory || '—'}</td>
+                                    <td>{dateTime(r.at)}</td>
+                                    <td>{typeLabel(r)}</td>
+                                    <td>{r.branchName || dash}</td>
+                                    <td>{r.receivedFrom || dash}</td>
+                                    <td>{r.paidTo || dash}</td>
+                                    <td>{r.expenseCategory || dash}</td>
                                     <td>
                                         <div style={{ fontSize: 12 }}>
-                                            {r.reference || '—'}
+                                            {r.reference || dash}
                                             {r.journalEntryNumber ? (
                                                 <div style={{ color: '#64748b' }}>{r.journalEntryNumber}</div>
                                             ) : null}
                                         </div>
                                     </td>
                                     <td style={{ color: r.direction === 'IN' ? '#15803d' : undefined, fontWeight: 600 }}>
-                                        {r.direction === 'IN' ? fmtSar(r.amount) : '—'}
+                                        {r.direction === 'IN' ? money(r.amount) : dash}
                                     </td>
                                     <td style={{ color: r.direction === 'OUT' ? '#b91c1c' : undefined, fontWeight: 600 }}>
-                                        {r.direction === 'OUT' ? fmtSar(r.amount) : '—'}
+                                        {r.direction === 'OUT' ? money(r.amount) : dash}
                                     </td>
-                                    <td style={{ fontWeight: 700 }}>{fmtSar(r.runningBalance)}</td>
+                                    <td style={{ fontWeight: 700 }}>{money(r.runningBalance)}</td>
                                 </tr>
                             ))}
                             {!loading && !rows.length ? (
                                 <tr>
-                                    <td colSpan={10}>No vault transactions for these filters.</td>
+                                    <td colSpan={10}>{t('tl.empty')}</td>
                                 </tr>
                             ) : null}
                             {loading ? (
                                 <tr>
-                                    <td colSpan={10}>Loading…</td>
+                                    <td colSpan={10}>{t('common.loading')}</td>
                                 </tr>
                             ) : null}
                         </tbody>
@@ -676,7 +700,7 @@ function TransactionLog({
                         }}
                     >
                         <span style={{ fontSize: 13, color: '#64748b' }}>
-                            Showing {fromIdx}–{toIdx} of {total}
+                            {t('tl.showing', { from: fromIdx, to: toIdx, total })}
                         </span>
                         <button
                             type="button"
@@ -684,7 +708,7 @@ function TransactionLog({
                             disabled={loading || page <= 1}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
                         >
-                            <ChevronLeft size={16} /> Prev
+                            <PrevIcon size={16} /> {t('tl.prev')}
                         </button>
                         <button
                             type="button"
@@ -692,7 +716,7 @@ function TransactionLog({
                             disabled={loading || page >= totalPages}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                         >
-                            Next <ChevronRight size={16} />
+                            {t('tl.next')} <NextIcon size={16} />
                         </button>
                     </div>
                 ) : null}
@@ -702,4 +726,3 @@ function TransactionLog({
 }
 
 export default TransactionLog;
-

@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useMemo } from 'react';
+import React, { useCallback, useContext, useMemo } from 'react';
+import { createStableContext } from '../utils/stableContext';
 
-const StaffAppScopeContext = createContext({
+const StaffAppScopeContext = createStableContext('staff-app-scope', {
   workshopId: null,
   scopeParams: () => ({}),
   locale: null,

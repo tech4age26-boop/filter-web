@@ -7,6 +7,7 @@ import SearchableEntityCombobox from './SearchableEntityCombobox';
 import StorageFacilityVatTotals, { fmtSar } from './StorageFacilityVatTotals';
 import { computeStorageTotals, unitAmountForApi } from './storageFacilityTotals';
 import { productEffectiveUom, normUomKey } from './storageFacilityUomUtils';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 /** Units the qty can be entered in for a product (warehouse pack + stock unit). */
 function productUnitOptions(product) {
@@ -80,7 +81,7 @@ export default function RecordBulkStockMovementModal({
 }) {
     const sfApi = useStorageFacilityApi();
     const [movementType, setMovementType] = useState('IN');
-    const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [issueDate, setIssueDate] = useState(() => toRiyadhDateISO());
     const [dueDateType, setDueDateType] = useState('Net');
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');

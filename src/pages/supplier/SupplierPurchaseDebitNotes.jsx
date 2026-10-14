@@ -47,6 +47,7 @@ import {
     isLikelyGlAccountLabel,
 } from '../../utils/invoiceLineLabel';
 import { navigateToSupplierCustomerLedger } from './openSupplierCustomerLedger';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const TAXES = [
     { id: 0, name: 'No tax', percent: 0, code: 'No tax', rate: 0 },
@@ -460,7 +461,7 @@ export default function SupplierPurchaseDebitNotes({ locale: localeProp } = {}) 
     const [showDiscount, setShowDiscount] = useState(false);
     const [amountsTaxInclusive, setAmountsTaxInclusive] = useState(false);
 
-    const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [issueDate, setIssueDate] = useState(() => toRiyadhDateISO());
     const [refNo, setRefNo] = useState('');
     const [refAutoGenerate, setRefAutoGenerate] = useState(false);
     const [superSupplierId, setSuperSupplierId] = useState('');
@@ -731,7 +732,7 @@ export default function SupplierPurchaseDebitNotes({ locale: localeProp } = {}) 
         setSuperSupplierId('');
         setPurchaseId('');
         setDescription('');
-        setIssueDate(new Date().toISOString().slice(0, 10));
+        setIssueDate(toRiyadhDateISO());
         setCreateError('');
         setShowLineNum(false);
         setShowDesc(false);

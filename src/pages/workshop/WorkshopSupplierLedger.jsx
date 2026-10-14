@@ -6,13 +6,14 @@ import {
     exportSupplierLedgerExcel,
 } from '../../utils/supplierLedgerExport';
 import { ledgerRowDescriptionAndReference } from '../../utils/accountLedgerStatementUtils';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const firstOfMonthIso = () => {
     const d = new Date();
     d.setDate(1);
     return d.toISOString().slice(0, 10);
 };
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => toRiyadhDateISO();
 
 /**
  * Per-supplier ledger statement (affiliated / non-affiliated).

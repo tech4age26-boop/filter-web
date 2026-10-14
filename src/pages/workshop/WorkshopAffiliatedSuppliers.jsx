@@ -13,8 +13,9 @@ import { listCoaAccounts } from '../../services/workshopAccountingApi';
 import WorkshopCoaAdjustModal from '../../components/accounting/WorkshopCoaAdjustModal';
 import { useAuth } from '../../context/AuthContext';
 import { wasT } from '../../utils/workshopAffiliatedSuppliersI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => toRiyadhDateISO();
 const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString(undefined, {
         minimumFractionDigits: 2,

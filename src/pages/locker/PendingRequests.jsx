@@ -3,26 +3,24 @@ import { DollarSign, RefreshCw, X } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
 import LockerFilterBar from './LockerFilterBar';
-import { buildLockerFilterQuery, fmtSarWhole } from './lockerFilterUtils';
+import { buildLockerFilterQuery } from './lockerFilterUtils';
+import { useLockerPortal } from './useLockerPortal';
 
-function rowCashierName(row) {
+function rowCashierName(row, fallback) {
     return (
         row?.cashierName ||
         row?.cashier?.name ||
         row?.cashierUser?.name ||
-        '—'
+        fallback
     );
 }
 
-function rowRequestStatus(row) {
-    const raw = row?.status ?? row?.requestStatus ?? '';
-    if (!raw) return '—';
-    return String(raw).replace(/_/g, ' ');
+function rowStatus(row) {
+    return row?.status ?? row?.requestStatus ?? '';
 }
 
 function isPendingStatus(row) {
-    const status = String(row?.status ?? row?.requestStatus ?? '').toLowerCase();
-    return status === 'pending';
+    return String(rowStatus(row)).toLowerCase() === 'pending';
 }
 
 const EMPTY_FILTERS = {
@@ -40,6 +38,10 @@ export default function PendingRequests({
     branches: layoutBranches = null,
     branchLockedId = null,
 } = {}) {
+    const { t, can, moneyWhole, dateTime, statusLabel } = useLockerPortal();
+    const dash = t('emdash');
+    const canAssign = can('collections.assign');
+    const canRecord = can('collections.record');
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [rows, setRows] = useState([]);
     const [summary, setSummary] = useState(null);
@@ -90,11 +92,11 @@ export default function PendingRequests({
             setRows(res?.items || res?.rows || res?.data || []);
             setSummary(res?.summary || null);
         } catch (e) {
-            setError(e?.message || 'Failed to load pending requests');
+            setError(e?.message || t('pending.loadError'));
         } finally {
             setLoading(false);
         }
-    }, [appliedFilters]);
+    }, [appliedFilters, t]);
 
     useEffect(() => {
         load(appliedFilters);
@@ -119,18 +121,18 @@ export default function PendingRequests({
             setOfficers(list);
             if (list.length === 1) setSelectedOfficerId(String(list[0].id));
         } catch (e) {
-            setForwardError(e?.message || 'Failed to load cash collectors');
+            setForwardError(e?.message || t('pending.errLoadCollectors'));
         } finally {
             setOfficersLoading(false);
         }
-    }, []);
+    }, [t]);
 
     const openForwardModal = (row) => {
         setForwardModal({
             id: row.id,
             referenceCode: row.referenceCode,
             branchName: row.branchName,
-            cashierName: rowCashierName(row),
+            cashierName: rowCashierName(row, dash),
         });
         setSelectedOfficerId('');
         setForwardError('');
@@ -147,7 +149,7 @@ export default function PendingRequests({
     const submitForward = async () => {
         if (!forwardModal?.id) return;
         if (!selectedOfficerId) {
-            setForwardError('Select a cash collector');
+            setForwardError(t('pending.errSelectCollector'));
             return;
         }
         setForwardSubmitting(true);
@@ -160,11 +162,12 @@ export default function PendingRequests({
                     body: JSON.stringify({ officerUserId: selectedOfficerId }),
                 },
             );
-            if (res?.success === false) throw new Error(res?.message || 'Failed to forward request');
-            closeForwardModal();
+            if (res?.success === false) throw new Error(res?.message || t('pending.errForward'));
+            setForwardModal(null);
+            setSelectedOfficerId('');
             await load(appliedFilters);
         } catch (e) {
-            setForwardError(e?.message || 'Failed to forward request');
+            setForwardError(e?.message || t('pending.errForward'));
         } finally {
             setForwardSubmitting(false);
         }
@@ -174,14 +177,14 @@ export default function PendingRequests({
         onTabChange?.(`record?requestId=${encodeURIComponent(requestId)}`);
     };
 
+    const showActions = canAssign || canRecord;
+
     return (
         <div>
             <div className="ws-page-header" style={{ alignItems: 'center' }}>
                 <div>
-                    <h2 className="ws-page-title">Pending Requests</h2>
-                    <p className="ws-page-sub">
-                        Branch cash collection requests awaiting pickup
-                    </p>
+                    <h2 className="ws-page-title">{t('pending.title')}</h2>
+                    <p className="ws-page-sub">{t('pending.sub')}</p>
                 </div>
                 <button
                     className="btn-secondary"
@@ -189,7 +192,7 @@ export default function PendingRequests({
                     disabled={loading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -210,10 +213,10 @@ export default function PendingRequests({
             <div className="ws-kpi-grid wlk-summary-kpi" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Total Expected (filtered)</p>
-                        <p className="ws-kpi-value">{fmtSarWhole(summary?.totalExpected)}</p>
+                        <p className="ws-kpi-label">{t('pending.totalExpected')}</p>
+                        <p className="ws-kpi-value">{moneyWhole(summary?.totalExpected)}</p>
                         <p className="ws-kpi-sub">
-                            {summary?.requestCount ?? rows.length} request(s) in range
+                            {t('pending.inRange', { count: summary?.requestCount ?? rows.length })}
                         </p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--yellow">
@@ -226,21 +229,21 @@ export default function PendingRequests({
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Request #</th>
-                            <th>Branch</th>
-                            <th>Cashier</th>
-                            <th>Officer</th>
-                            <th>Requested</th>
-                            <th>Expected</th>
-                            <th>Status</th>
-                            <th>Action</th>
+                            <th>{t('common.requestNo')}</th>
+                            <th>{t('common.branch')}</th>
+                            <th>{t('common.cashier')}</th>
+                            <th>{t('common.officer')}</th>
+                            <th>{t('common.requested')}</th>
+                            <th>{t('common.expected')}</th>
+                            <th>{t('common.status')}</th>
+                            {showActions ? <th>{t('common.action')}</th> : null}
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
                             <tr>
-                                <td colSpan={8} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
-                                    No pending requests match filters
+                                <td colSpan={showActions ? 8 : 7} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
+                                    {t('pending.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -252,49 +255,55 @@ export default function PendingRequests({
                                         </strong>
                                     </td>
                                     <td>{p.branchName}</td>
-                                    <td>{rowCashierName(p)}</td>
-                                    <td>{p.assignedOfficerName || '—'}</td>
+                                    <td>{rowCashierName(p, dash)}</td>
+                                    <td>{p.assignedOfficerName || dash}</td>
                                     <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                                        {p.createdAt ? new Date(p.createdAt).toLocaleString() : '—'}
+                                        {dateTime(p.createdAt)}
                                     </td>
                                     <td>
-                                        <strong>{fmtSarWhole(p.expectedAmount)}</strong>
+                                        <strong>{moneyWhole(p.expectedAmount)}</strong>
                                     </td>
                                     <td>
                                         <span
                                             className={`ws-badge ${
-                                                (p.status ?? p.requestStatus) === 'assigned'
+                                                rowStatus(p) === 'assigned'
                                                     ? 'ws-badge--blue'
                                                     : 'ws-badge--yellow'
                                             }`}
                                         >
-                                            {rowRequestStatus(p)}
+                                            {statusLabel(rowStatus(p))}
                                         </span>
                                     </td>
-                                    <td>
-                                        <div className="wlk-action-group">
-                                            <button
-                                                type="button"
-                                                className="wlk-action-btn wlk-action-btn--forward"
-                                                onClick={() => openForwardModal(p)}
-                                                disabled={!isPendingStatus(p)}
-                                                title={
-                                                    isPendingStatus(p)
-                                                        ? 'Assign to a locker cash collector'
-                                                        : 'Already forwarded to a collector'
-                                                }
-                                            >
-                                                Approve &amp; forward to collector
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="wlk-action-btn wlk-action-btn--record"
-                                                onClick={() => goToRecordCollection(p.id)}
-                                            >
-                                                Approve &amp; record collection
-                                            </button>
-                                        </div>
-                                    </td>
+                                    {showActions ? (
+                                        <td>
+                                            <div className="wlk-action-group">
+                                                {canAssign ? (
+                                                    <button
+                                                        type="button"
+                                                        className="wlk-action-btn wlk-action-btn--forward"
+                                                        onClick={() => openForwardModal(p)}
+                                                        disabled={!isPendingStatus(p)}
+                                                        title={
+                                                            isPendingStatus(p)
+                                                                ? t('pending.forwardHint')
+                                                                : t('pending.alreadyForwarded')
+                                                        }
+                                                    >
+                                                        {t('pending.forward')}
+                                                    </button>
+                                                ) : null}
+                                                {canRecord ? (
+                                                    <button
+                                                        type="button"
+                                                        className="wlk-action-btn wlk-action-btn--record"
+                                                        onClick={() => goToRecordCollection(p.id)}
+                                                    >
+                                                        {t('pending.record')}
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        </td>
+                                    ) : null}
                                 </tr>
                             ))
                         )}
@@ -332,7 +341,7 @@ export default function PendingRequests({
                             }}
                         >
                             <div>
-                                <h3 style={{ margin: 0 }}>Forward to cash collector</h3>
+                                <h3 style={{ margin: 0 }}>{t('pending.modalTitle')}</h3>
                                 <p style={{ margin: '6px 0 0', color: '#64748b', fontSize: '0.85rem' }}>
                                     {forwardModal.referenceCode} · {forwardModal.branchName} ·{' '}
                                     {forwardModal.cashierName}
@@ -353,14 +362,14 @@ export default function PendingRequests({
                         ) : null}
 
                         <div className="ws-field" style={{ marginTop: 16 }}>
-                            <label>Cash collector *</label>
+                            <label>{t('pending.collector')}</label>
                             <select
                                 value={selectedOfficerId}
                                 onChange={(e) => setSelectedOfficerId(e.target.value)}
                                 disabled={officersLoading || forwardSubmitting}
                             >
                                 <option value="">
-                                    {officersLoading ? 'Loading collectors…' : 'Select collector…'}
+                                    {officersLoading ? t('pending.loadingCollectors') : t('pending.selectCollector')}
                                 </option>
                                 {officers.map((o) => (
                                     <option key={o.id} value={o.id}>
@@ -385,7 +394,7 @@ export default function PendingRequests({
                                 onClick={closeForwardModal}
                                 disabled={forwardSubmitting}
                             >
-                                Cancel
+                                {t('common.cancel')}
                             </button>
                             <button
                                 type="button"
@@ -393,7 +402,7 @@ export default function PendingRequests({
                                 onClick={submitForward}
                                 disabled={forwardSubmitting || officersLoading}
                             >
-                                {forwardSubmitting ? 'Forwarding…' : 'Approve & forward'}
+                                {forwardSubmitting ? t('pending.forwarding') : t('pending.forwardBtn')}
                             </button>
                         </div>
                     </div>

@@ -21,6 +21,7 @@ import {
     getTrialBalance,
     updateAccount,
 } from '../../services/accountsApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -182,7 +183,7 @@ export default function COAView({ readOnly = false }) {
     const [plData, setPlData] = useState(null);
     const [plLoading, setPlLoading] = useState(false);
 
-    const [bsFilters, setBsFilters] = useState({ asOf: new Date().toISOString().slice(0, 10) });
+    const [bsFilters, setBsFilters] = useState({ asOf: toRiyadhDateISO() });
     const [bsData, setBsData] = useState(null);
     const [bsLoading, setBsLoading] = useState(false);
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
+import { createStableContext } from '../utils/stableContext';
 import {
     setAccountingWorkshopScopeId,
     setAccountingHqBooksMode,
@@ -37,7 +38,7 @@ export function AccountingWorkshopScopeProvider({
     );
 }
 
-const AccountingWorkshopScopeContext = React.createContext({
+const AccountingWorkshopScopeContext = createStableContext('accounting-workshop-scope', {
     workshopId: null,
     hqBooks: false,
 });

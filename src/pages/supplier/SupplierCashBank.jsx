@@ -11,6 +11,7 @@ import {
 } from '../../services/supplierApi';
 import { Shimmer, ShimmerListRows, ShimmerTable } from '../../components/supplier/Shimmer';
 import { scbT } from '../../utils/supplierCashBankI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 /** Backend may nest lists under different keys or return an array directly. */
 function extractArray(res, keys) {
@@ -90,14 +91,14 @@ export default function SupplierCashBank({ locale: localeProp }) {
     const [receiveForm, setReceiveForm] = useState({
         accountId: '',
         amount: '',
-        date: new Date().toISOString().slice(0, 10),
+        date: toRiyadhDateISO(),
         description: '',
         reference: '',
     });
     const [payForm, setPayForm] = useState({
         accountId: '',
         amount: '',
-        date: new Date().toISOString().slice(0, 10),
+        date: toRiyadhDateISO(),
         description: '',
         reference: '',
     });
@@ -252,7 +253,7 @@ export default function SupplierCashBank({ locale: localeProp }) {
             setReceiveForm({
                 accountId: '',
                 amount: '',
-                date: new Date().toISOString().slice(0, 10),
+                date: toRiyadhDateISO(),
                 description: '',
                 reference: '',
             });
@@ -293,7 +294,7 @@ export default function SupplierCashBank({ locale: localeProp }) {
             setPayForm({
                 accountId: '',
                 amount: '',
-                date: new Date().toISOString().slice(0, 10),
+                date: toRiyadhDateISO(),
                 description: '',
                 reference: '',
             });
@@ -392,7 +393,7 @@ export default function SupplierCashBank({ locale: localeProp }) {
                     style={{ background: '#16A34A', border: 'none' }}
                     onClick={() => {
                         setReceiveSubmitError('');
-                        setReceiveForm((f) => ({ ...f, date: f.date || new Date().toISOString().slice(0, 10) }));
+                        setReceiveForm((f) => ({ ...f, date: f.date || toRiyadhDateISO() }));
                         setReceiveModalOpen(true);
                     }}
                     disabled={bootstrapLoading || !!bootstrapError}
@@ -405,7 +406,7 @@ export default function SupplierCashBank({ locale: localeProp }) {
                     style={{ background: '#DC2626', border: 'none' }}
                     onClick={() => {
                         setPaySubmitError('');
-                        setPayForm((f) => ({ ...f, date: f.date || new Date().toISOString().slice(0, 10) }));
+                        setPayForm((f) => ({ ...f, date: f.date || toRiyadhDateISO() }));
                         setPayModalOpen(true);
                     }}
                     disabled={bootstrapLoading || !!bootstrapError}

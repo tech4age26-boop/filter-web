@@ -1,5 +1,4 @@
 import React, {
-    createContext,
     useCallback,
     useContext,
     useEffect,
@@ -10,8 +9,9 @@ import React, {
 import { useAuth } from './AuthContext';
 import { usePlatformChatSocket } from '../hooks/usePlatformChatSocket';
 import { isPlatformChatUser, resolvePlatformChatApi } from '../utils/platformChatForUser';
+import { createStableContext } from '../utils/stableContext';
 
-const PlatformChatUnreadContext = createContext(null);
+const PlatformChatUnreadContext = createStableContext('platform-chat-unread', null);
 
 export function PlatformChatUnreadProvider({ children }) {
     const { user, token } = useAuth();

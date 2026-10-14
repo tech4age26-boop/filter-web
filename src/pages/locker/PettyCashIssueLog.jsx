@@ -3,7 +3,8 @@ import { Coins, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
-import { defaultHistoryDateRange, fmtSar } from './lockerFilterUtils';
+import { defaultHistoryDateRange } from './lockerFilterUtils';
+import { useLockerPortal } from './useLockerPortal';
 
 /**
  * Dedicated log of locker vault → cashier petty cash float issues.
@@ -14,6 +15,9 @@ export default function PettyCashIssueLog({
     branches: layoutBranches = null,
     branchLockedId = null,
 } = {}) {
+    const { t, money } = useLockerPortal();
+    const dash = t('emdash');
+    const allCashiersLabel = t('common.allCashiers');
     const defaults = useMemo(() => defaultHistoryDateRange(), []);
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [filters, setFilters] = useState({
@@ -22,7 +26,7 @@ export default function PettyCashIssueLog({
         branchId: scopeBranch,
         cashierId: 'all',
         branchText: '',
-        cashierText: 'All cashiers',
+        cashierText: allCashiersLabel,
     });
     const [applied, setApplied] = useState({
         from: defaults.from,
@@ -59,26 +63,26 @@ export default function PettyCashIssueLog({
         () => [
             ...(branchLockedId
                 ? []
-                : [{ id: 'all', label: 'All branches', searchText: 'All branches' }]),
+                : [{ id: 'all', label: t('common.allBranches'), searchText: t('common.allBranches') }]),
             ...(branches || []).map((b) => ({
                 id: String(b.id),
                 label: b.name,
                 searchText: b.name,
             })),
         ],
-        [branches, branchLockedId],
+        [branches, branchLockedId, t],
     );
 
     const cashierOpts = useMemo(
         () => [
-            { id: 'all', label: 'All cashiers', searchText: 'All cashiers' },
+            { id: 'all', label: allCashiersLabel, searchText: allCashiersLabel },
             ...(cashiers || []).map((c) => {
                 const id = String(c.userId || c.id);
-                const label = `${c.name || c.email || `Cashier ${id}`}${c.branchName ? ` — ${c.branchName}` : ''}`;
+                const label = `${c.name || c.email || t('common.cashierFallback', { id })}${c.branchName ? ` — ${c.branchName}` : ''}`;
                 return { id, label, searchText: label };
             }),
         ],
-        [cashiers],
+        [cashiers, allCashiersLabel, t],
     );
 
     const load = useCallback(async (active = applied) => {
@@ -97,13 +101,13 @@ export default function PettyCashIssueLog({
             setIssues(Array.isArray(res?.issues) ? res.issues : []);
             setSummary(res?.summary || null);
         } catch (e) {
-            setError(e?.message || 'Failed to load petty cash issue log');
+            setError(e?.message || t('pcl.loadError'));
             setIssues([]);
             setSummary(null);
         } finally {
             setLoading(false);
         }
-    }, [applied]);
+    }, [applied, t]);
 
     useEffect(() => {
         void load(applied);
@@ -127,7 +131,7 @@ export default function PettyCashIssueLog({
             branchId: nextBranch,
             cashierId: 'all',
             branchText: '',
-            cashierText: 'All cashiers',
+            cashierText: allCashiersLabel,
         };
         setFilters(next);
         setApplied({
@@ -142,14 +146,11 @@ export default function PettyCashIssueLog({
         <div className="wlk-page">
             <div className="wlk-topbar">
                 <div>
-                    <h2 className="wlk-title">Petty Cash Issue Log</h2>
-                    <p className="wlk-subtitle">
-                        History of floats issued from the locker vault (1004) to cashier petty cash wallets.
-                        KPIs follow the selected date range, branch, and cashier.
-                    </p>
+                    <h2 className="wlk-title">{t('pcl.title')}</h2>
+                    <p className="wlk-subtitle">{t('pcl.sub')}</p>
                 </div>
                 <button className="btn-secondary" type="button" onClick={() => void load(applied)} disabled={loading}>
-                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -159,49 +160,49 @@ export default function PettyCashIssueLog({
                 <div className="wlk-stat wlk-stat--info">
                     <div className="wlk-stat-icon"><Coins size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Locker vault balance</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.lockerVaultBalance)}</div>
-                        <div className="wlk-stat-hint">1004 Locker Cash</div>
+                        <div className="wlk-stat-label">{t('common.vaultBalance')}</div>
+                        <div className="wlk-stat-value">{money(summary?.lockerVaultBalance)}</div>
+                        <div className="wlk-stat-hint">{t('common.vaultHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Total issued (filtered)</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.totalAmount)}</div>
-                        <div className="wlk-stat-hint">Selected period / filters</div>
+                        <div className="wlk-stat-label">{t('pcl.total')}</div>
+                        <div className="wlk-stat-value">{money(summary?.totalAmount)}</div>
+                        <div className="wlk-stat-hint">{t('pcl.totalHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Issue count</div>
+                        <div className="wlk-stat-label">{t('pcl.count')}</div>
                         <div className="wlk-stat-value">{summary?.issueCount ?? 0}</div>
-                        <div className="wlk-stat-hint">Floats in filter</div>
+                        <div className="wlk-stat-hint">{t('pcl.countHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Average issue</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.averageAmount)}</div>
-                        <div className="wlk-stat-hint">Per float</div>
+                        <div className="wlk-stat-label">{t('pcl.avg')}</div>
+                        <div className="wlk-stat-value">{money(summary?.averageAmount)}</div>
+                        <div className="wlk-stat-hint">{t('pcl.avgHint')}</div>
                     </div>
                 </div>
             </div>
 
             <div className="wlk-filter-bar" style={{ marginBottom: 14 }}>
                 <div className="wlk-filter-bar__head">
-                    <span className="wlk-filter-bar__title">Filters</span>
+                    <span className="wlk-filter-bar__title">{t('common.filters')}</span>
                     <div className="wlk-filter-bar__actions">
                         <button type="button" className="btn-secondary" onClick={resetFilters} disabled={loading}>
-                            Reset
+                            {t('common.reset')}
                         </button>
                         <button type="button" className="btn-submit" onClick={applyFilters} disabled={loading}>
-                            Apply
+                            {t('common.apply')}
                         </button>
                     </div>
                 </div>
                 <div className="wlk-filter-grid">
                     <div className="ws-field">
-                        <label>From date</label>
+                        <label>{t('common.fromDate')}</label>
                         <input
                             type="date"
                             value={filters.from || ''}
@@ -209,7 +210,7 @@ export default function PettyCashIssueLog({
                         />
                     </div>
                     <div className="ws-field">
-                        <label>To date</label>
+                        <label>{t('common.toDate')}</label>
                         <input
                             type="date"
                             value={filters.to || ''}
@@ -217,7 +218,7 @@ export default function PettyCashIssueLog({
                         />
                     </div>
                     <div className="ws-field">
-                        <label>Branch</label>
+                        <label>{t('common.branch')}</label>
                         <SearchableEntityCombobox
                             id="pci-filter-branch"
                             options={branchOpts}
@@ -229,7 +230,7 @@ export default function PettyCashIssueLog({
                                 branchId: opt?.id || 'all',
                                 branchText: opt?.label || '',
                             }))}
-                            placeholder="All branches — type to search"
+                            placeholder={t('common.searchBranches')}
                             entityLabel="branch"
                             maxInitial={40}
                             maxFiltered={60}
@@ -237,7 +238,7 @@ export default function PettyCashIssueLog({
                         />
                     </div>
                     <div className="ws-field">
-                        <label>Cashier</label>
+                        <label>{t('common.cashier')}</label>
                         <SearchableEntityCombobox
                             id="pci-filter-cashier"
                             options={cashierOpts}
@@ -249,7 +250,7 @@ export default function PettyCashIssueLog({
                                 cashierId: opt?.id || 'all',
                                 cashierText: opt?.label || '',
                             }))}
-                            placeholder="All cashiers — type to search"
+                            placeholder={t('common.searchCashiers')}
                             entityLabel="cashier"
                             maxInitial={40}
                             maxFiltered={60}
@@ -262,7 +263,7 @@ export default function PettyCashIssueLog({
             <div className="wlk-section">
                 <div className="wlk-section-header">
                     <h3>
-                        Issued floats
+                        {t('pcl.issued')}
                         <span className="wlk-count">{issues.length}</span>
                     </h3>
                 </div>
@@ -270,30 +271,30 @@ export default function PettyCashIssueLog({
                     <table className="wlk-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Branch</th>
-                                <th>Cashier</th>
-                                <th>Amount</th>
-                                <th>Reference</th>
-                                <th>JE</th>
+                                <th>{t('common.date')}</th>
+                                <th>{t('common.branch')}</th>
+                                <th>{t('common.cashier')}</th>
+                                <th>{t('common.amount')}</th>
+                                <th>{t('common.reference')}</th>
+                                <th>{t('common.je')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {issues.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} style={{ color: '#64748B', textAlign: 'center' }}>
-                                        {loading ? 'Loading…' : 'No petty cash issues for these filters.'}
+                                        {loading ? t('common.loading') : t('pcl.empty')}
                                     </td>
                                 </tr>
                             ) : (
                                 issues.map((r) => (
                                     <tr key={r.id}>
                                         <td>{r.date}</td>
-                                        <td>{r.branchName || '—'}</td>
-                                        <td>{r.cashierName || '—'}</td>
-                                        <td>{fmtSar(r.amount)}</td>
-                                        <td>{r.description || '—'}</td>
-                                        <td>{r.journalEntryNumber || '—'}</td>
+                                        <td>{r.branchName || dash}</td>
+                                        <td>{r.cashierName || dash}</td>
+                                        <td>{money(r.amount)}</td>
+                                        <td>{r.description || dash}</td>
+                                        <td>{r.journalEntryNumber || dash}</td>
                                     </tr>
                                 ))
                             )}

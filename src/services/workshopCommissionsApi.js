@@ -59,9 +59,32 @@ export const postWorkshopCommissionsPayout = (body) =>
         body: JSON.stringify(mergeAccountingScopeBody(body)),
     });
 
-/** Commission Rules — workshop-scoped CRUD via /workshop-staff/commissions/rules. */
-export const getWorkshopCommissionRules = (search = '') =>
-    apiFetch(`/workshop-staff/commissions/rules${search ? `?search=${encodeURIComponent(search)}` : ''}`);
+/** Plain query string (rules endpoints read camelCase `workshopId`; arrays → comma list). */
+function ruleQs(params = {}) {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+        if (Array.isArray(v)) {
+            const list = v.map(String).filter((x) => x.trim() !== '');
+            if (list.length) p.set(k, list.join(','));
+            continue;
+        }
+        if (v != null && String(v).trim() !== '' && String(v) !== 'undefined') {
+            p.set(k, String(v));
+        }
+    }
+    const s = p.toString();
+    return s ? `?${s}` : '';
+}
+
+/**
+ * Commission rule engine — workshop's own rules + read-only platform rules.
+ * @param {{ search?: string, workshopId?: string }} params
+ */
+export const getWorkshopCommissionRules = (params = {}, options = {}) =>
+    apiFetch(`/workshop-staff/commissions/rules${ruleQs(params)}`, options);
+
+export const getWorkshopCommissionRule = (id, params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rules/${encodeURIComponent(id)}${ruleQs(params)}`);
 
 export const createWorkshopCommissionRule = (body) =>
     apiFetch('/workshop-staff/commissions/rules', {
@@ -75,13 +98,33 @@ export const updateWorkshopCommissionRule = (id, body) =>
         body: JSON.stringify(body),
     });
 
-export const deleteWorkshopCommissionRule = (id) =>
-    apiFetch(`/workshop-staff/commissions/rules/${encodeURIComponent(id)}`, {
+export const deleteWorkshopCommissionRule = (id, params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rules/${encodeURIComponent(id)}${ruleQs(params)}`, {
         method: 'DELETE',
     });
 
-export const getWorkshopCommissionRuleServices = () =>
-    apiFetch('/workshop-staff/commissions/rule-services');
+/** Rule form pickers — the workshop's adopted catalog only. */
+export const getCommissionRuleDepartments = (params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rule-options/departments${ruleQs(params)}`);
+
+/** @param {{ departmentIds?: string[], type?: 'product'|'service', workshopId?: string }} params */
+export const getCommissionRuleCategories = (params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rule-options/categories${ruleQs(params)}`);
+
+/** Products incl. `kmTypeValue`. @param {{ departmentIds?: string[], categoryIds?: string[], workshopId?: string }} params */
+export const getCommissionRuleProducts = (params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rule-options/products${ruleQs(params)}`);
+
+export const getCommissionRuleServices = (params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rule-options/services${ruleQs(params)}`);
+
+/** Distinct oil KM values: `{ kmValues: [{ value, productCount }] }`. */
+export const getCommissionRuleKmValues = (params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rule-options/km-values${ruleQs(params)}`);
+
+/** People a rule can target: `{ people: [{ id, name, branchName, detail, isActive }] }`. @param {{ role: string, workshopId?: string }} params */
+export const getCommissionRulePeople = (params = {}) =>
+    apiFetch(`/workshop-staff/commissions/rule-options/people${ruleQs(params)}`);
 
 /** Merge branch / all-branches rule with arbitrary extra query params. */
 export function workshopCommissionsScopeParams(selectedBranchId, extra = {}) {

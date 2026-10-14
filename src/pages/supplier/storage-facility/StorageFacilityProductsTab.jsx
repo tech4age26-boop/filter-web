@@ -21,9 +21,10 @@ import {
     exportStorageTimelinePdf,
 } from './storageFacilityTimelineExport';
 import '../../../styles/admin/AccountingPage.css';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 function todayYmd() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 function firstOfYearYmd() {

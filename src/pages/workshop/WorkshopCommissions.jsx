@@ -8,6 +8,7 @@ import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import WorkshopCommissionRules from '../../components/commissions/WorkshopCommissionRules';
+import CommissionRuleForm from '../../components/commissions/CommissionRuleForm';
 import { useAuth } from '../../context/AuthContext';
 import { wcomT } from '../../utils/workshopCommissionsI18n';
 import { formatTransferDate, transferPlaceLabel } from '../../utils/staffTransfer';
@@ -112,6 +113,12 @@ function initialsFromName(name) {
     return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase() || '?';
 }
 
+/** Non-technician roles a person earned rule commission as (cashier, manager, …). */
+function staffRolesOf(rolesOrRole) {
+    const list = Array.isArray(rolesOrRole) ? rolesOrRole : [rolesOrRole];
+    return [...new Set(list.filter((r) => r && r !== 'technician'))];
+}
+
 function normalizeSummary(res) {
     if (!res || typeof res !== 'object') {
         return { totalAccrued: 0, totalPaid: 0, pendingEmployeeCount: 0 };
@@ -140,6 +147,7 @@ function mapCommissionRow(raw) {
         employeeId: raw?.employee_id != null ? String(raw.employee_id) : '',
         employee: raw?.employee_name ?? raw?.employeeName ?? '',
         initials: raw?.initials || initialsFromName(raw?.employee_name ?? raw?.employeeName),
+        staffRoles: staffRolesOf(raw?.recipient_role ?? raw?.recipientRole),
         service: raw?.service_name ?? raw?.serviceName ?? '',
         date: raw?.date ?? raw?.commission_date ?? '',
         rate: rateNum != null && !Number.isNaN(Number(rateNum)) ? `${Number(rateNum)}%` : null,
@@ -238,6 +246,9 @@ export default function WorkshopCommissions({
             setActiveTab(visibleCommissionTabs[0].key);
         }
     }, [visibleCommissionTabs, activeTab]);
+    /** `{ rule, readOnly }` while the full-page rule editor is open; `rule` is null for a new rule. */
+    const [ruleEditor, setRuleEditor] = useState(null);
+    const [rulesReloadKey, setRulesReloadKey] = useState(0);
     const [summary, setSummary] = useState({ totalAccrued: 0, totalPaid: 0, pendingEmployeeCount: 0 });
     const [pendingByEmployee, setPendingByEmployee] = useState([]);
     const [commissionRows, setCommissionRows] = useState([]);
@@ -294,10 +305,13 @@ export default function WorkshopCommissions({
                 const lc = e.line_count ?? e.lineCount;
                 const entries = lc != null ? t('employee.entries', { count: lc }) : '';
                 const tag = e.transfer ? transferTagText(e.transfer) : '';
+                const roles = staffRolesOf(e.roles)
+                    .map((r) => t(`recipient.${r}`))
+                    .join(', ');
                 return {
                     id: String(id),
                     label: nm || t('employee.fallback'),
-                    subtitle: [entries, tag].filter(Boolean).join(' · '),
+                    subtitle: [roles, entries, tag].filter(Boolean).join(' · '),
                     ...(isInactiveRecord(e) ? { inactive: true } : {}),
                 };
             }),
@@ -712,6 +726,24 @@ export default function WorkshopCommissions({
         return status;
     };
 
+    if (ruleEditor) {
+        return (
+            <CommissionRuleForm
+                key={ruleEditor.rule?.id ?? 'new'}
+                locale={locale}
+                t={t}
+                rule={ruleEditor.rule}
+                readOnly={ruleEditor.readOnly}
+                workshopId={adminMode ? workshopId : ''}
+                onCancel={() => setRuleEditor(null)}
+                onSaved={() => {
+                    setRuleEditor(null);
+                    setRulesReloadKey((k) => k + 1);
+                }}
+            />
+        );
+    }
+
     if (payoutModalOpen) {
         const payoutSubtitle =
             selectedCount === 1
@@ -844,7 +876,14 @@ export default function WorkshopCommissions({
             </div>
 
             {activeTab === 'rules' ? (
-                <WorkshopCommissionRules locale={locale} />
+                <WorkshopCommissionRules
+                    locale={locale}
+                    t={t}
+                    adminMode={adminMode}
+                    workshopId={adminMode ? workshopId : ''}
+                    reloadKey={rulesReloadKey}
+                    onOpenRule={(rule, readOnly = false) => setRuleEditor({ rule, readOnly })}
+                />
             ) : (
             <>
             <p style={{ margin: '0 0 14px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
@@ -1005,6 +1044,15 @@ export default function WorkshopCommissions({
                                                         </div>
                                                         <span>{name}</span>
                                                     </button>
+                                                    {staffRolesOf(emp.roles).map((r) => (
+                                                        <span
+                                                            key={r}
+                                                            className="ws-badge ws-badge--purple"
+                                                            style={{ marginInlineStart: 6, fontSize: '0.6875rem' }}
+                                                        >
+                                                            {t(`recipient.${r}`)}
+                                                        </span>
+                                                    ))}
                                                     {emp.transfer ? (
                                                         <span
                                                             className="ws-badge ws-badge--yellow"
@@ -1204,6 +1252,15 @@ export default function WorkshopCommissions({
                                         <div className="ws-table-emp">
                                             <div className="ws-table-avatar">{c.initials}</div>
                                             <span>{c.employee}</span>
+                                            {c.staffRoles.map((r) => (
+                                                <span
+                                                    key={r}
+                                                    className="ws-badge ws-badge--purple"
+                                                    style={{ fontSize: '0.6875rem' }}
+                                                >
+                                                    {t(`recipient.${r}`)}
+                                                </span>
+                                            ))}
                                         </div>
                                     </td>
                                     <td>

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useMemo } from 'react';
+import React, { useContext, useMemo } from 'react';
+import { createStableContext } from '../../../utils/stableContext';
 import * as supplierStorageFacilityApi from '../../../services/storageFacilityApi';
 import * as supplierStorageFacilityAccountingApi from '../../../services/storageFacilityAccountingApi';
 import { createAdminStorageFacilityApi } from '../../../services/adminStorageFacilityApi';
@@ -13,7 +14,7 @@ const defaultValue = {
     accountingApi: supplierStorageFacilityAccountingApi,
 };
 
-const StorageFacilityPortalContext = createContext(defaultValue);
+const StorageFacilityPortalContext = createStableContext('storage-facility-portal', defaultValue);
 
 export function useStorageFacilityPortal() {
     return useContext(StorageFacilityPortalContext);

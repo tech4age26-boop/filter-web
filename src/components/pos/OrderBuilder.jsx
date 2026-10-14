@@ -3,6 +3,7 @@ import { ArrowLeft, Search, Package, Plus, Minus, Trash2, Receipt, Tag, Check, L
 import { apiFetch } from '../../services/api';
 import { usePOS } from '../../context/POSContext';
 import TechnicianAssignment from './TechnicianAssignment';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const PAYMENT_METHODS = ['Cash', 'Card', 'Bank Transfer', 'Tamara', 'Tabby', 'Monthly billing'];
 
@@ -125,7 +126,7 @@ export default function OrderBuilder({ orderInfo, department, createdOrderId, de
                 body: JSON.stringify({
                     orderId: String(orderId),
                     discountAmount: totalDiscount,
-                    invoiceDate: new Date().toISOString().split('T')[0],
+                    invoiceDate: toRiyadhDateISO(),
                     paymentMethod: paymentRows[0]?.method || 'Cash',
                     payments,
                 }),

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createStableContext } from '../../utils/stableContext';
 import { ChevronDown, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -27,7 +28,7 @@ export const INITIAL_LOYALTY_PROGRAM = {
     isActive: true,
 };
 
-export const MarketingContext = React.createContext();
+export const MarketingContext = createStableContext('marketing', undefined);
 
 export const MarketingProvider = ({ children }) => {
     const [promotions, setPromotions] = useState(INITIAL_PROMOTIONS);

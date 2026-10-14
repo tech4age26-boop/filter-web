@@ -8,6 +8,7 @@ import { rfT } from '../../utils/referrerPortalI18n';
 import { useReferrerPortal } from './useReferrerPortal';
 import { referrerPortalGetReports } from '../../services/referrerPortalApi';
 import { exportRowsToExcel, exportRowsToPdf } from '../../utils/tableExport';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const MIX_COLORS = { converted: '#15803d', pending: '#a16207' };
 const PAGE_SIZE = 20;
@@ -26,7 +27,7 @@ function defaultFrom() {
 }
 
 function todayIso() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 export default function ReferrerReports() {

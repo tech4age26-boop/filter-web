@@ -1,6 +1,7 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useMemo, useState } from 'react';
+import { createStableContext } from '../utils/stableContext';
 
-const AdminPageMetaContext = createContext({
+const AdminPageMetaContext = createStableContext('admin-page-meta', {
     pageTitle: null,
     setPageTitle: () => {},
     clearPageTitle: () => {},

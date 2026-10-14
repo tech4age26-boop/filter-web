@@ -166,17 +166,26 @@ function adminSidebarEntryAllowed(user, codes, entry) {
  *   - otherwise pick the first sidebar item their role permits (never dashboard
  *     unless they have dashboard.view)
  */
+/** No role and no per-user override → signup default (everything visible), same as the API guard. */
+function isUnrestrictedRoleless(user) {
+    return !user.role && user.permissionSource !== 'override';
+}
+
 export function firstVisibleAdminPath(user, options = {}) {
     if (!user) return '/admin/dashboard';
 
-    if (user.userType === 'platform_admin' && (!user.role || user.role?.isSystem)) {
+    if (
+        user.userType === 'platform_admin'
+        && user.permissionSource !== 'override'
+        && (!user.role || user.role?.isSystem)
+    ) {
         return '/admin/dashboard';
     }
 
     const codes = Array.isArray(user.permissions) ? new Set(user.permissions) : null;
     if (!codes) return '/admin/dashboard';
 
-    if (!user.role) return '/admin/dashboard';
+    if (isUnrestrictedRoleless(user)) return '/admin/dashboard';
 
     const excludePaths = new Set(
         (options.excludePaths ?? []).map((p) => String(p).replace(/\/$/, '')),
@@ -249,7 +258,7 @@ function workshopUserCanAccessCode(user, codes, permission) {
         return true;
     }
     if (!codes) return true;
-    if (!user.role) return true;
+    if (isUnrestrictedRoleless(user)) return true;
     if (codes.has(permission)) return true;
     if (permission === 'workshop.platform-chat.view' && codes.has('chat.view')) return true;
     if (permission === 'workshop.platform-chat.create' && codes.has('chat.create')) return true;
@@ -260,7 +269,11 @@ function workshopNavItemAllowed(user, codes, item) {
     if (item.walletRequired) return Boolean(user?.walletEnabled);
     if (item.subItems?.length) return false;
     if (!item.permission) return true;
-    return workshopUserCanAccessCode(user, codes, item.permission);
+    if (!workshopUserCanAccessCode(user, codes, item.permission)) return false;
+    if (item.requiresAnyOf?.length) {
+        return item.requiresAnyOf.some((code) => workshopUserCanAccessCode(user, codes, code));
+    }
+    return true;
 }
 
 /**
@@ -275,7 +288,7 @@ export function firstVisibleWorkshopPath(user) {
     if (user.userType === 'workshop_owner' && (!user.role || user.role?.isSystem)) {
         return '/workshop/dashboard';
     }
-    if (!codes || !user.role) return '/workshop/dashboard';
+    if (!codes || isUnrestrictedRoleless(user)) return '/workshop/dashboard';
 
     for (const item of NAV_ITEMS) {
         // Shortcuts to other portals are not workshop tabs and must never be a landing target.

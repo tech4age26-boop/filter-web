@@ -61,6 +61,7 @@ import {
     isLikelyGlAccountLabel,
     isManualInvoiceLineComplete,
 } from '../../utils/invoiceLineLabel';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function roundMoney2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
@@ -505,7 +506,7 @@ function fmtApMoney(value) {
 }
 
 function todayIsoDate() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 const EMPTY_SS_FORM = {
@@ -563,7 +564,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
     const [invoiceDiscountValue, setInvoiceDiscountValue] = useState('0');
     const [invoiceDiscountMode, setInvoiceDiscountMode] = useState('fixed_sar');
 
-    const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [issueDate, setIssueDate] = useState(() => toRiyadhDateISO());
     const [dueDateType, setDueDateType] = useState('Net');
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');
@@ -1812,7 +1813,7 @@ export default function SupplierPurchaseInvoices({ locale: localeProp } = {}) {
         setSuperSupplierId('');
         setDescription('');
         setInternalNotes('');
-        setIssueDate(new Date().toISOString().slice(0, 10));
+        setIssueDate(toRiyadhDateISO());
         setDueDateType('Net');
         setNetDays(30);
         setCustomDueDate('');

@@ -10,6 +10,7 @@ import {
     ClipboardList,
     Receipt,
     BookOpen,
+    Wallet,
 } from 'lucide-react';
 
 const SUPERVISOR_NAV = [
@@ -21,6 +22,7 @@ const SUPERVISOR_NAV = [
     { id: 'issue_petty_cash', label: 'Issue Petty Cash', icon: Coins },
     { id: 'petty_cash_issue_log', label: 'Petty Cash Issue Log', icon: ClipboardList },
     { id: 'expenses', label: 'Expenses', icon: Receipt },
+    { id: 'vault_vouchers', label: 'Vault Payments & Receipts', icon: Wallet },
     { id: 'transaction_log', label: 'Transaction log', icon: BookOpen },
     { id: 'history', label: 'Collections History', icon: History },
     { id: 'differences', label: 'Differences Report', icon: FileText },

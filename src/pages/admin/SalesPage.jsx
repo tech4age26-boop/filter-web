@@ -13,6 +13,7 @@ import AdvancedReportsPage from '../advanced-reports/AdvancedReportsPage';
 import { useAuth } from '../../context/AuthContext';
 import { salesT, SALES_SUB_LABEL_KEYS } from '../../utils/salesI18n';
 import '../../styles/admin/SalesPage.css';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const SUB_TABS = [
     { path: 'sales-reports',              labelKey: 'sub.reports',    permission: 'sales.sales-reports.view' },
@@ -27,7 +28,7 @@ const SUB_TABS = [
 
 const EMPTY_INVOICE = {
     invNo: 'INV-' + Math.floor(Math.random() * 100000000),
-    invDate: new Date().toISOString().split('T')[0],
+    invDate: toRiyadhDateISO(),
     dueDateType: 'Net',
     dueDateValue: '30',
     branch: 'Select branch',
