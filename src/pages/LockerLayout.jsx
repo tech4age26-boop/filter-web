@@ -16,6 +16,7 @@ import DepositToBank from './locker/DepositToBank';
 import IssuePettyCash from './locker/IssuePettyCash';
 import PettyCashIssueLog from './locker/PettyCashIssueLog';
 import LockerExpenses from './locker/LockerExpenses';
+import VaultVouchers from './locker/VaultVouchers';
 import TransactionLog from './locker/TransactionLog';
 import './workshop/Workshop.css';
 
@@ -124,6 +125,7 @@ export default function LockerLayout() {
         'deposit_to_bank',
         'issue_petty_cash',
         'petty_cash_issue_log',
+        'vault_vouchers',
     ]);
 
     useEffect(() => {
@@ -168,6 +170,8 @@ export default function LockerLayout() {
                 return <PettyCashIssueLog {...branchProps} />;
             case 'expenses':
                 return <LockerExpenses {...branchProps} />;
+            case 'vault_vouchers':
+                return <VaultVouchers {...branchProps} />;
             case 'transaction_log':
                 return <TransactionLog {...branchProps} />;
             case 'history':

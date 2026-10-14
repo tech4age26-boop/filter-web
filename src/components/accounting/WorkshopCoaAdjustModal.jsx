@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import Modal from '../Modal';
 import SupplierAccountingCombobox from '../../pages/supplier/accounting/SupplierAccountingCombobox';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => toRiyadhDateISO();
 
 const fmtMoney = (v) =>
     Number(v ?? 0).toLocaleString(undefined, {

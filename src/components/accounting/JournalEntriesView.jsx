@@ -20,6 +20,7 @@ import {
     getJournalEntries,
     getStats,
 } from '../../services/journalEntriesApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -119,7 +120,7 @@ export default function JournalEntriesView({ readOnly = false }) {
     const [submitting, setSubmitting] = useState(false);
     const [formError, setFormError] = useState('');
     const [newForm, setNewForm] = useState({
-        date: new Date().toISOString().slice(0, 10),
+        date: toRiyadhDateISO(),
         type: 'General',
         description: '',
         lines: [{ ...baseLine }, { ...baseLine }],
@@ -209,7 +210,7 @@ export default function JournalEntriesView({ readOnly = false }) {
             });
             setNewOpen(false);
             setNewForm({
-                date: new Date().toISOString().slice(0, 10),
+                date: toRiyadhDateISO(),
                 type: 'General',
                 description: '',
                 lines: [{ ...baseLine }, { ...baseLine }],

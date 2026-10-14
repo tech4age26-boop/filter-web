@@ -1,5 +1,6 @@
 import React from 'react';
 import { Filter, RotateCcw } from 'lucide-react';
+import { useLockerPortal } from './useLockerPortal';
 
 export default function LockerFilterBar({
     filters,
@@ -14,6 +15,7 @@ export default function LockerFilterBar({
     loading = false,
     branchLockedId = null,
 }) {
+    const { t } = useLockerPortal();
     const set = (key, value) => onChange({ ...filters, [key]: value });
     const branchLocked = Boolean(branchLockedId);
 
@@ -21,20 +23,20 @@ export default function LockerFilterBar({
         <div className="wlk-filter-bar">
             <div className="wlk-filter-bar__head">
                 <span className="wlk-filter-bar__title">
-                    <Filter size={14} /> Filters
+                    <Filter size={14} /> {t('common.filters')}
                 </span>
                 <div className="wlk-filter-bar__actions">
                     <button type="button" className="btn-secondary" onClick={onReset} disabled={loading}>
-                        <RotateCcw size={13} /> Reset
+                        <RotateCcw size={13} /> {t('common.reset')}
                     </button>
                     <button type="button" className="btn-submit" onClick={onApply} disabled={loading}>
-                        Apply
+                        {t('common.apply')}
                     </button>
                 </div>
             </div>
             <div className="wlk-filter-grid">
                 <div className="ws-field">
-                    <label>From date</label>
+                    <label>{t('common.fromDate')}</label>
                     <input
                         type="date"
                         value={filters.from || ''}
@@ -42,7 +44,7 @@ export default function LockerFilterBar({
                     />
                 </div>
                 <div className="ws-field">
-                    <label>To date</label>
+                    <label>{t('common.toDate')}</label>
                     <input
                         type="date"
                         value={filters.to || ''}
@@ -50,14 +52,14 @@ export default function LockerFilterBar({
                     />
                 </div>
                 <div className="ws-field">
-                    <label>Branch</label>
+                    <label>{t('common.branch')}</label>
                     <select
                         value={branchLockedId || filters.branchId || 'all'}
                         disabled={branchLocked}
-                        title={branchLocked ? 'Branch locked by workshop admin' : undefined}
+                        title={branchLocked ? t('common.branchLocked') : undefined}
                         onChange={(e) => set('branchId', e.target.value)}
                     >
-                        {!branchLocked ? <option value="all">All branches</option> : null}
+                        {!branchLocked ? <option value="all">{t('common.allBranches')}</option> : null}
                         {branches.map((b) => (
                             <option key={b.id} value={String(b.id)}>
                                 {b.name}
@@ -66,12 +68,12 @@ export default function LockerFilterBar({
                     </select>
                 </div>
                 <div className="ws-field">
-                    <label>Cashier</label>
+                    <label>{t('common.cashier')}</label>
                     <select
                         value={filters.cashierId || 'all'}
                         onChange={(e) => set('cashierId', e.target.value)}
                     >
-                        <option value="all">All cashiers</option>
+                        <option value="all">{t('common.allCashiers')}</option>
                         {cashiers.map((c) => {
                             const id = String(c.id || c.userId);
                             return (
@@ -84,12 +86,12 @@ export default function LockerFilterBar({
                 </div>
                 {showOfficer ? (
                     <div className="ws-field">
-                        <label>Officer</label>
+                        <label>{t('common.officer')}</label>
                         <select
                             value={filters.officerId || 'all'}
                             onChange={(e) => set('officerId', e.target.value)}
                         >
-                            <option value="all">All officers</option>
+                            <option value="all">{t('common.allOfficers')}</option>
                             {officers.map((o) => (
                                 <option key={o.id} value={String(o.id)}>
                                     {o.name}
@@ -101,7 +103,7 @@ export default function LockerFilterBar({
                 {showExpectedRange ? (
                     <>
                         <div className="ws-field">
-                            <label>Min expected (SAR)</label>
+                            <label>{t('common.minExpected')}</label>
                             <input
                                 type="number"
                                 min="0"
@@ -112,12 +114,12 @@ export default function LockerFilterBar({
                             />
                         </div>
                         <div className="ws-field">
-                            <label>Max expected (SAR)</label>
+                            <label>{t('common.maxExpected')}</label>
                             <input
                                 type="number"
                                 min="0"
                                 step="0.01"
-                                placeholder="Any"
+                                placeholder={t('common.any')}
                                 value={filters.maxExpected ?? ''}
                                 onChange={(e) => set('maxExpected', e.target.value)}
                             />

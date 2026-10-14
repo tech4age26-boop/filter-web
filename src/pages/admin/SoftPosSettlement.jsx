@@ -54,6 +54,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import AdminModalAsScreen from '../../components/admin/AdminModalAsScreen';
 import { softPosT } from '../../utils/softPosSettlementI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const SAR = (n) => `SAR ${(Number(n) || 0).toFixed(2)}`;
 
@@ -2051,7 +2052,7 @@ function RulesTab({ onError, t }) {
 }
 
 function RuleModal({ initial = {}, onClose, onDone, t }) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toRiyadhDateISO();
     const [form, setForm] = useState({
         terminalId: initial.terminalId || '',
         workshopId: initial.workshopId || '',
@@ -2287,7 +2288,7 @@ function HqSettlementTab({ onError, t }) {
     const [form, setForm] = useState({
         workshopId: '',
         periodStart: firstOfMonth.toISOString().slice(0, 10),
-        periodEnd: new Date().toISOString().slice(0, 10),
+        periodEnd: toRiyadhDateISO(),
     });
     const [preview, setPreview] = useState(null);
     const [loadingPreview, setLoadingPreview] = useState(false);

@@ -15,6 +15,7 @@ import {
 } from '../internal/supplierUomLineUtils';
 import StorageUomSelect from './StorageUomSelect';
 import { lineInventoryCapsForInvoice } from './storageFacilityUomUtils';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 function newLine() {
     return {
@@ -50,7 +51,7 @@ export default function StorageFacilityNewInvoiceModal({
     const [invoiceType, setInvoiceType] = useState(
         isPurchase ? 'stock_purchase' : 'storage_fee',
     );
-    const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [issueDate, setIssueDate] = useState(() => toRiyadhDateISO());
     const [dueDateType, setDueDateType] = useState('Net');
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');

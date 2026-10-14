@@ -6,9 +6,11 @@ import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
 import { LOCKER_EXPENSE_CATEGORIES } from './lockerExpenseCategories';
-import { defaultHistoryDateRange, fmtSar } from './lockerFilterUtils';
+import { defaultHistoryDateRange } from './lockerFilterUtils';
+import { useLockerPortal } from './useLockerPortal';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => toRiyadhDateISO();
 
 function emptyLine(defaults = {}) {
     return {
@@ -35,12 +37,12 @@ function statusBadgeStyle(status) {
     return { background: '#fef9c3', color: '#a16207', border: '1px solid #fde68a' };
 }
 
-function statusLabel(status) {
+function expenseStatusLabel(status, t) {
     const s = String(status || '').toLowerCase();
-    if (s === 'posted') return 'Posted';
-    if (s === 'rejected') return 'Rejected';
-    if (s === 'pending') return 'Pending approval';
-    return status || '—';
+    if (s === 'posted') return t('status.posted');
+    if (s === 'rejected') return t('status.rejected');
+    if (s === 'pending') return t('status.pendingApproval');
+    return status || t('emdash');
 }
 
 export default function LockerExpenses({
@@ -48,7 +50,11 @@ export default function LockerExpenses({
     branches: layoutBranches = null,
     branchLockedId = null,
 } = {}) {
-    const [pageTab, setPageTab] = useState('record');
+    const { t, can, money } = useLockerPortal();
+    const dash = t('emdash');
+    const canCreate = can('expenses.create');
+    const canDecide = can('expenses.decide');
+    const [pageTab, setPageTab] = useState(canCreate ? 'record' : 'log');
     const [branches, setBranches] = useState([]);
     const [categories, setCategories] = useState(LOCKER_EXPENSE_CATEGORIES);
     const [expenses, setExpenses] = useState([]);
@@ -57,6 +63,8 @@ export default function LockerExpenses({
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(null);
+    const [decidingId, setDecidingId] = useState(null);
+    const [decisionMsg, setDecisionMsg] = useState('');
 
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
 
@@ -81,6 +89,10 @@ export default function LockerExpenses({
 
     const [lines, setLines] = useState(() => [emptyLine()]);
 
+    useEffect(() => {
+        if (!canCreate && pageTab === 'record') setPageTab('log');
+    }, [canCreate, pageTab]);
+
     const branchOpts = useMemo(
         () =>
             (branches || []).map((b) => ({
@@ -93,10 +105,12 @@ export default function LockerExpenses({
 
     const filterBranchOpts = useMemo(
         () => [
-            { id: 'all', label: 'All branches', searchText: 'All branches' },
+            ...(branchLockedId
+                ? []
+                : [{ id: 'all', label: t('common.allBranches'), searchText: t('common.allBranches') }]),
             ...branchOpts,
         ],
-        [branchOpts],
+        [branchOpts, branchLockedId, t],
     );
 
     const categoryOpts = useMemo(
@@ -111,20 +125,20 @@ export default function LockerExpenses({
 
     const filterCategoryOpts = useMemo(
         () => [
-            { id: 'all', label: 'All categories', searchText: 'All categories' },
+            { id: 'all', label: t('common.allCategories'), searchText: t('common.allCategories') },
             ...categoryOpts,
         ],
-        [categoryOpts],
+        [categoryOpts, t],
     );
 
     const filterStatusOpts = useMemo(
         () => [
-            { id: 'all', label: 'All statuses', searchText: 'All statuses' },
-            { id: 'pending', label: 'Pending approval', searchText: 'Pending' },
-            { id: 'posted', label: 'Posted', searchText: 'Posted approved' },
-            { id: 'rejected', label: 'Rejected', searchText: 'Rejected' },
+            { id: 'all', label: t('common.allStatuses'), searchText: t('common.allStatuses') },
+            { id: 'pending', label: t('status.pendingApproval'), searchText: `Pending ${t('status.pendingApproval')}` },
+            { id: 'posted', label: t('status.posted'), searchText: `Posted approved ${t('status.posted')}` },
+            { id: 'rejected', label: t('status.rejected'), searchText: `Rejected ${t('status.rejected')}` },
         ],
-        [],
+        [t],
     );
 
     useEffect(() => {
@@ -185,11 +199,11 @@ export default function LockerExpenses({
             setExpenses(Array.isArray(res?.expenses) ? res.expenses : []);
             setSummary(res?.summary || null);
         } catch (e) {
-            setError(e?.message || 'Failed to load expenses');
+            setError(e?.message || t('exp.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [applied]);
+    }, [applied, t]);
 
     useEffect(() => {
         void loadMeta();
@@ -234,15 +248,15 @@ export default function LockerExpenses({
             const ln = lines[i];
             const amt = Number(ln.amount);
             if (!ln.branchId) {
-                setError(`Line ${i + 1}: select a branch`);
+                setError(t('exp.errLineBranch', { n: i + 1 }));
                 return;
             }
             if (!ln.category) {
-                setError(`Line ${i + 1}: select a category`);
+                setError(t('exp.errLineCategory', { n: i + 1 }));
                 return;
             }
             if (!(amt > 0)) {
-                setError(`Line ${i + 1}: amount must be greater than 0`);
+                setError(t('exp.errLineAmount', { n: i + 1 }));
                 return;
             }
             items.push({
@@ -257,7 +271,7 @@ export default function LockerExpenses({
 
         if (linesTotal > lockerBalance + 0.01) {
             const ok = window.confirm(
-                `Bulk total ${fmtSar(linesTotal)} exceeds locker vault balance ${fmtSar(lockerBalance)}. Submit for approval anyway?`,
+                t('exp.confirmOverVault', { total: money(linesTotal), balance: money(lockerBalance) }),
             );
             if (!ok) return;
         }
@@ -268,8 +282,8 @@ export default function LockerExpenses({
                 method: 'POST',
                 body: JSON.stringify({ items }),
             });
-            if (res?.success === false) throw new Error(res?.message || 'Submit failed');
-            setSuccess(res);
+            if (res?.success === false) throw new Error(res?.message || t('exp.errSubmit'));
+            setSuccess({ ...res, lineCount: items.length });
             const keep = lines[0] || {};
             setLines([
                 emptyLine({
@@ -283,9 +297,36 @@ export default function LockerExpenses({
             await loadLog(applied);
             setPageTab('log');
         } catch (err) {
-            setError(err?.message || 'Submit failed');
+            setError(err?.message || t('exp.errSubmit'));
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const decide = async (row, status) => {
+        let rejectionReason;
+        if (status === 'rejected') {
+            rejectionReason = window.prompt(t('common.rejectPrompt')) || '';
+            if (!rejectionReason.trim()) return;
+        }
+        setDecidingId(row.id);
+        setError('');
+        setDecisionMsg('');
+        try {
+            const res = await apiFetch(
+                `/locker/expenses/${encodeURIComponent(row.id)}/${status === 'approved' ? 'approve' : 'reject'}`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify(status === 'rejected' ? { rejectionReason } : {}),
+                },
+            );
+            if (res?.success === false) throw new Error(res?.message || t('exp.errDecide'));
+            setDecisionMsg(status === 'approved' ? t('exp.approved') : t('exp.rejected'));
+            await loadLog(applied);
+        } catch (err) {
+            setError(err?.message || t('exp.errDecide'));
+        } finally {
+            setDecidingId(null);
         }
     };
 
@@ -301,10 +342,11 @@ export default function LockerExpenses({
 
     const resetFilters = () => {
         const d = defaultHistoryDateRange();
+        const nextBranch = branchLockedId || 'all';
         const next = {
             from: d.from,
             to: d.to,
-            branchId: 'all',
+            branchId: nextBranch,
             category: 'all',
             status: 'all',
             branchText: '',
@@ -315,21 +357,20 @@ export default function LockerExpenses({
         setApplied({
             from: d.from,
             to: d.to,
-            branchId: 'all',
+            branchId: nextBranch,
             category: 'all',
             status: 'all',
         });
     };
 
+    const logColumns = canDecide ? 9 : 8;
+
     return (
         <div className="wlk-page">
             <div className="wlk-topbar">
                 <div>
-                    <h2 className="wlk-title">Expenses</h2>
-                    <p className="wlk-subtitle">
-                        Record expenses for Super Admin / Workshop Admin approval. After approval, books post
-                        (DR [6110] / CR [1004]) and the locker vault balance decreases.
-                    </p>
+                    <h2 className="wlk-title">{t('exp.title')}</h2>
+                    <p className="wlk-subtitle">{canDecide ? t('exp.subAdmin') : t('exp.sub')}</p>
                 </div>
                 <button
                     className="btn-secondary"
@@ -337,7 +378,7 @@ export default function LockerExpenses({
                     onClick={() => void loadLog(applied)}
                     disabled={loading}
                 >
-                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -345,30 +386,30 @@ export default function LockerExpenses({
                 <div className="wlk-stat wlk-stat--info">
                     <div className="wlk-stat-icon"><Receipt size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Locker vault balance</div>
-                        <div className="wlk-stat-value">{fmtSar(lockerBalance)}</div>
-                        <div className="wlk-stat-hint">1004 Locker Cash</div>
+                        <div className="wlk-stat-label">{t('common.vaultBalance')}</div>
+                        <div className="wlk-stat-value">{money(lockerBalance)}</div>
+                        <div className="wlk-stat-hint">{t('common.vaultHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Posted expenses (filtered)</div>
-                        <div className="wlk-stat-value">{fmtSar(summary?.totalAmount)}</div>
-                        <div className="wlk-stat-hint">Approved &amp; posted to books</div>
+                        <div className="wlk-stat-label">{t('exp.posted')}</div>
+                        <div className="wlk-stat-value">{money(summary?.totalAmount)}</div>
+                        <div className="wlk-stat-hint">{t('exp.postedHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Posted count</div>
+                        <div className="wlk-stat-label">{t('exp.postedCount')}</div>
                         <div className="wlk-stat-value">{summary?.expenseCount ?? 0}</div>
-                        <div className="wlk-stat-hint">Lines in filter (posted)</div>
+                        <div className="wlk-stat-hint">{t('exp.postedCountHint')}</div>
                     </div>
                 </div>
                 <div className="wlk-stat">
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Pending approval</div>
+                        <div className="wlk-stat-label">{t('exp.pending')}</div>
                         <div className="wlk-stat-value">{summary?.pendingCount ?? 0}</div>
-                        <div className="wlk-stat-hint">Awaiting admin review</div>
+                        <div className="wlk-stat-hint">{t('exp.pendingHint')}</div>
                     </div>
                 </div>
             </div>
@@ -376,18 +417,20 @@ export default function LockerExpenses({
             <div
                 className="wlk-segmented"
                 role="tablist"
-                aria-label="Expenses sections"
+                aria-label={t('exp.sections')}
             >
-                <button
-                    type="button"
-                    role="tab"
-                    aria-selected={pageTab === 'record'}
-                    className={`wlk-segmented__btn${pageTab === 'record' ? ' wlk-segmented__btn--active' : ''}`}
-                    onClick={() => setPageTab('record')}
-                >
-                    <Receipt size={14} />
-                    Record expenses
-                </button>
+                {canCreate ? (
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={pageTab === 'record'}
+                        className={`wlk-segmented__btn${pageTab === 'record' ? ' wlk-segmented__btn--active' : ''}`}
+                        onClick={() => setPageTab('record')}
+                    >
+                        <Receipt size={14} />
+                        {t('exp.tabRecord')}
+                    </button>
+                ) : null}
                 <button
                     type="button"
                     role="tab"
@@ -396,14 +439,14 @@ export default function LockerExpenses({
                     onClick={() => setPageTab('log')}
                 >
                     <ClipboardList size={14} />
-                    Expenses log
+                    {t('exp.tabLog')}
                     {summary?.pendingCount > 0 ? (
                         <span className="wlk-segmented__badge">{summary.pendingCount}</span>
                     ) : null}
                 </button>
             </div>
 
-            {pageTab === 'record' ? (
+            {pageTab === 'record' && canCreate ? (
                 <form className="wlk-create-user" onSubmit={submitBulk}>
                     {error ? (
                         <div className="wlk-error" style={{ marginBottom: 12 }}>
@@ -421,17 +464,21 @@ export default function LockerExpenses({
                             }}
                         >
                             <CheckCircle size={14} />{' '}
-                            {success.message || 'Expenses submitted for approval'}
-                            {success.totalAmount != null ? ` · ${fmtSar(success.totalAmount)}` : ''}
+                            {success.lineCount
+                                ? t('exp.submittedCount', { count: success.lineCount })
+                                : t('exp.submitted')}
+                            {success.totalAmount != null ? ` · ${money(success.totalAmount)}` : ''}
                         </div>
                     ) : null}
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-                        <strong style={{ color: '#0f172a' }}>Expense lines</strong>
+                        <strong style={{ color: '#0f172a' }}>{t('exp.lines')}</strong>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <span style={{ fontSize: 13, color: '#64748b' }}>Lines total: {fmtSar(linesTotal)}</span>
+                            <span style={{ fontSize: 13, color: '#64748b' }}>
+                                {t('exp.linesTotal', { amount: money(linesTotal) })}
+                            </span>
                             <button type="button" className="btn-secondary" onClick={addLine}>
-                                <Plus size={14} /> Add line
+                                <Plus size={14} /> {t('exp.addLine')}
                             </button>
                         </div>
                     </div>
@@ -449,19 +496,21 @@ export default function LockerExpenses({
                                 }}
                             >
                                 <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>Line {idx + 1}</span>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>
+                                        {t('exp.line', { n: idx + 1 })}
+                                    </span>
                                     <button
                                         type="button"
                                         className="btn-secondary"
                                         onClick={() => removeLine(ln.key)}
                                         disabled={lines.length <= 1}
-                                        title="Remove line"
+                                        title={t('exp.removeLine')}
                                     >
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
                                 <label>
-                                    <span>Branch</span>
+                                    <span>{t('common.branch')}</span>
                                     <SearchableEntityCombobox
                                         id={`le-branch-${ln.key}`}
                                         options={branchOpts}
@@ -472,15 +521,15 @@ export default function LockerExpenses({
                                             branchId: opt?.id || '',
                                             branchText: '',
                                         })}
-                                        placeholder="Search branch…"
+                                        placeholder={t('exp.searchBranch')}
                                         entityLabel="branch"
                                         maxInitial={40}
                                         maxFiltered={60}
-                                        disabled={submitting}
+                                        disabled={submitting || Boolean(branchLockedId)}
                                     />
                                 </label>
                                 <label>
-                                    <span>Category</span>
+                                    <span>{t('common.category')}</span>
                                     <SearchableEntityCombobox
                                         id={`le-cat-${ln.key}`}
                                         options={categoryOpts}
@@ -491,7 +540,7 @@ export default function LockerExpenses({
                                             category: opt?.id || '',
                                             categoryText: '',
                                         })}
-                                        placeholder="Search category…"
+                                        placeholder={t('exp.searchCategory')}
                                         entityLabel="category"
                                         maxInitial={30}
                                         maxFiltered={40}
@@ -499,7 +548,7 @@ export default function LockerExpenses({
                                     />
                                 </label>
                                 <label>
-                                    <span>Amount (SAR)</span>
+                                    <span>{t('common.amountSar')}</span>
                                     <input
                                         type="number"
                                         min="0.01"
@@ -510,7 +559,7 @@ export default function LockerExpenses({
                                     />
                                 </label>
                                 <label>
-                                    <span>Expense date</span>
+                                    <span>{t('exp.date')}</span>
                                     <input
                                         type="date"
                                         value={ln.expenseDate}
@@ -518,16 +567,16 @@ export default function LockerExpenses({
                                     />
                                 </label>
                                 <label>
-                                    <span>Description (optional)</span>
+                                    <span>{t('exp.descOptional')}</span>
                                     <input
                                         type="text"
                                         value={ln.description}
                                         onChange={(e) => updateLine(ln.key, { description: e.target.value })}
-                                        placeholder="Notes"
+                                        placeholder={t('exp.notesPh')}
                                     />
                                 </label>
                                 <label>
-                                    <span>Proof URL (optional)</span>
+                                    <span>{t('exp.proofUrl')}</span>
                                     <input
                                         type="url"
                                         value={ln.proofUrl}
@@ -543,8 +592,8 @@ export default function LockerExpenses({
                         <button className="btn-primary" type="submit" disabled={submitting}>
                             <Receipt size={14} />{' '}
                             {submitting
-                                ? 'Submitting…'
-                                : `Submit ${lines.length} line${lines.length === 1 ? '' : 's'} for approval`}
+                                ? t('exp.submitting')
+                                : t('exp.submitLines', { count: lines.length })}
                         </button>
                     </div>
                 </form>
@@ -552,7 +601,7 @@ export default function LockerExpenses({
                 <div className="wlk-section">
                     <div className="wlk-section-header">
                         <h3>
-                            Expenses log
+                            {t('exp.tabLog')}
                             <span className="wlk-count">{expenses.length}</span>
                         </h3>
                     </div>
@@ -561,21 +610,34 @@ export default function LockerExpenses({
                             <AlertTriangle size={14} /> {error}
                         </div>
                     ) : null}
+                    {decisionMsg ? (
+                        <div
+                            className="wlk-error"
+                            style={{
+                                margin: '0 0 12px',
+                                background: '#dcfce7',
+                                color: '#15803d',
+                                borderColor: '#bbf7d0',
+                            }}
+                        >
+                            <CheckCircle size={14} /> {decisionMsg}
+                        </div>
+                    ) : null}
                     <div className="wlk-filter-bar" style={{ margin: '0 0 12px' }}>
                         <div className="wlk-filter-bar__head">
-                            <span className="wlk-filter-bar__title">Filters</span>
+                            <span className="wlk-filter-bar__title">{t('common.filters')}</span>
                             <div className="wlk-filter-bar__actions">
                                 <button type="button" className="btn-secondary" onClick={resetFilters} disabled={loading}>
-                                    Reset
+                                    {t('common.reset')}
                                 </button>
                                 <button type="button" className="btn-submit" onClick={applyFilters} disabled={loading}>
-                                    Apply
+                                    {t('common.apply')}
                                 </button>
                             </div>
                         </div>
                         <div className="wlk-filter-grid">
                             <div className="ws-field">
-                                <label>From date</label>
+                                <label>{t('common.fromDate')}</label>
                                 <input
                                     type="date"
                                     value={filters.from || ''}
@@ -583,7 +645,7 @@ export default function LockerExpenses({
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>To date</label>
+                                <label>{t('common.toDate')}</label>
                                 <input
                                     type="date"
                                     value={filters.to || ''}
@@ -591,11 +653,11 @@ export default function LockerExpenses({
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Branch</label>
+                                <label>{t('common.branch')}</label>
                                 <SearchableEntityCombobox
                                     id="le-filter-branch"
                                     options={filterBranchOpts}
-                                    value={filters.branchId || 'all'}
+                                    value={branchLockedId || filters.branchId || 'all'}
                                     displayText={filters.branchText || ''}
                                     onDisplayTextChange={(text) => setFilters((f) => ({ ...f, branchText: text }))}
                                     onSelect={(opt) => setFilters((f) => ({
@@ -603,15 +665,15 @@ export default function LockerExpenses({
                                         branchId: opt?.id || 'all',
                                         branchText: '',
                                     }))}
-                                    placeholder="All branches — type to search"
+                                    placeholder={t('common.searchBranches')}
                                     entityLabel="branch"
                                     maxInitial={40}
                                     maxFiltered={60}
-                                    disabled={loading}
+                                    disabled={loading || Boolean(branchLockedId)}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Category</label>
+                                <label>{t('common.category')}</label>
                                 <SearchableEntityCombobox
                                     id="le-filter-category"
                                     options={filterCategoryOpts}
@@ -623,7 +685,7 @@ export default function LockerExpenses({
                                         category: opt?.id || 'all',
                                         categoryText: '',
                                     }))}
-                                    placeholder="All categories — type to search"
+                                    placeholder={t('common.searchCategories')}
                                     entityLabel="category"
                                     maxInitial={30}
                                     maxFiltered={40}
@@ -631,7 +693,7 @@ export default function LockerExpenses({
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>Status</label>
+                                <label>{t('common.status')}</label>
                                 <SearchableEntityCombobox
                                     id="le-filter-status"
                                     options={filterStatusOpts}
@@ -643,7 +705,7 @@ export default function LockerExpenses({
                                         status: opt?.id || 'all',
                                         statusText: '',
                                     }))}
-                                    placeholder="All statuses"
+                                    placeholder={t('common.allStatuses')}
                                     entityLabel="status"
                                     maxInitial={10}
                                     maxFiltered={10}
@@ -656,56 +718,84 @@ export default function LockerExpenses({
                         <table className="wlk-table">
                             <thead>
                                 <tr>
-                                    <th>Date</th>
-                                    <th>Branch</th>
-                                    <th>Category</th>
-                                    <th>Description</th>
-                                    <th>Amount</th>
-                                    <th>Status</th>
-                                    <th>Recorded by</th>
-                                    <th>JE</th>
+                                    <th>{t('common.date')}</th>
+                                    <th>{t('common.branch')}</th>
+                                    <th>{t('common.category')}</th>
+                                    <th>{t('common.description')}</th>
+                                    <th>{t('common.amount')}</th>
+                                    <th>{t('common.status')}</th>
+                                    <th>{t('exp.recordedBy')}</th>
+                                    <th>{t('common.je')}</th>
+                                    {canDecide ? <th>{t('common.actions')}</th> : null}
                                 </tr>
                             </thead>
                             <tbody>
                                 {expenses.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} style={{ color: '#64748B', textAlign: 'center' }}>
-                                            {loading ? 'Loading…' : 'No locker expenses for these filters.'}
+                                        <td colSpan={logColumns} style={{ color: '#64748B', textAlign: 'center' }}>
+                                            {loading ? t('common.loading') : t('exp.empty')}
                                         </td>
                                     </tr>
                                 ) : (
-                                    expenses.map((r) => (
-                                        <tr key={r.id}>
-                                            <td>{r.expenseDate}</td>
-                                            <td>{r.branchName || '—'}</td>
-                                            <td>{r.category}</td>
-                                            <td>
-                                                {r.description || '—'}
-                                                {r.status === 'rejected' && r.rejectionReason ? (
-                                                    <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 2 }}>
-                                                        {r.rejectionReason}
-                                                    </div>
+                                    expenses.map((r) => {
+                                        const isPending = String(r.status || '').toLowerCase() === 'pending';
+                                        return (
+                                            <tr key={r.id}>
+                                                <td>{r.expenseDate}</td>
+                                                <td>{r.branchName || dash}</td>
+                                                <td>{r.category}</td>
+                                                <td>
+                                                    {r.description || dash}
+                                                    {r.status === 'rejected' && r.rejectionReason ? (
+                                                        <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 2 }}>
+                                                            {r.rejectionReason}
+                                                        </div>
+                                                    ) : null}
+                                                </td>
+                                                <td>{money(r.amount)}</td>
+                                                <td>
+                                                    <span
+                                                        style={{
+                                                            display: 'inline-block',
+                                                            padding: '2px 8px',
+                                                            borderRadius: 999,
+                                                            fontSize: 11,
+                                                            fontWeight: 700,
+                                                            ...statusBadgeStyle(r.status),
+                                                        }}
+                                                    >
+                                                        {expenseStatusLabel(r.status, t)}
+                                                    </span>
+                                                </td>
+                                                <td>{r.createdByName || dash}</td>
+                                                <td>{r.journalEntryNumber || dash}</td>
+                                                {canDecide ? (
+                                                    <td>
+                                                        {isPending ? (
+                                                            <div className="wlk-action-group">
+                                                                <button
+                                                                    type="button"
+                                                                    className="wlk-action-btn wlk-action-btn--record"
+                                                                    onClick={() => decide(r, 'approved')}
+                                                                    disabled={decidingId === r.id}
+                                                                >
+                                                                    {t('exp.approve')}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="wlk-action-btn wlk-action-btn--reject"
+                                                                    onClick={() => decide(r, 'rejected')}
+                                                                    disabled={decidingId === r.id}
+                                                                >
+                                                                    {t('common.reject')}
+                                                                </button>
+                                                            </div>
+                                                        ) : dash}
+                                                    </td>
                                                 ) : null}
-                                            </td>
-                                            <td>{fmtSar(r.amount)}</td>
-                                            <td>
-                                                <span
-                                                    style={{
-                                                        display: 'inline-block',
-                                                        padding: '2px 8px',
-                                                        borderRadius: 999,
-                                                        fontSize: 11,
-                                                        fontWeight: 700,
-                                                        ...statusBadgeStyle(r.status),
-                                                    }}
-                                                >
-                                                    {statusLabel(r.status)}
-                                                </span>
-                                            </td>
-                                            <td>{r.createdByName || '—'}</td>
-                                            <td>{r.journalEntryNumber || '—'}</td>
-                                        </tr>
-                                    ))
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

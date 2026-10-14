@@ -3,7 +3,8 @@ import { DollarSign, FileText, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
 import LockerFilterBar from './LockerFilterBar';
-import { buildLockerFilterQuery, defaultHistoryDateRange, fmtSar } from './lockerFilterUtils';
+import { buildLockerFilterQuery, defaultHistoryDateRange } from './lockerFilterUtils';
+import { useLockerPortal } from './useLockerPortal';
 
 const EMPTY_FILTERS = {
     from: '',
@@ -17,6 +18,8 @@ export default function DifferencesReport({
     branches: layoutBranches = null,
     branchLockedId = null,
 } = {}) {
+    const { t, money, dateTime, statusLabel } = useLockerPortal();
+    const dash = t('emdash');
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [data, setData] = useState(null);
     const [filters, setFilters] = useState(() => {
@@ -59,11 +62,11 @@ export default function DifferencesReport({
             );
             setData(res);
         } catch (e) {
-            setError(e?.message || 'Failed to load analytics');
+            setError(e?.message || t('diff.loadError'));
         } finally {
             setLoading(false);
         }
-    }, [appliedFilters]);
+    }, [appliedFilters, t]);
 
     useEffect(() => {
         load(appliedFilters);
@@ -94,8 +97,8 @@ export default function DifferencesReport({
         <div>
             <div className="ws-page-header" style={{ alignItems: 'center' }}>
                 <div>
-                    <h2 className="ws-page-title">Differences Report</h2>
-                    <p className="ws-page-sub">Cash variance analysis</p>
+                    <h2 className="ws-page-title">{t('diff.title')}</h2>
+                    <p className="ws-page-sub">{t('diff.sub')}</p>
                 </div>
                 <button
                     className="btn-secondary"
@@ -103,7 +106,7 @@ export default function DifferencesReport({
                     disabled={loading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -123,8 +126,8 @@ export default function DifferencesReport({
             <div className="ws-kpi-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Total Shorts</p>
-                        <p className="ws-kpi-value">{fmtSar(short)}</p>
+                        <p className="ws-kpi-label">{t('diff.short')}</p>
+                        <p className="ws-kpi-value">{money(short)}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--red">
                         <DollarSign size={22} />
@@ -132,8 +135,8 @@ export default function DifferencesReport({
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Total Overs</p>
-                        <p className="ws-kpi-value">{fmtSar(over)}</p>
+                        <p className="ws-kpi-label">{t('diff.over')}</p>
+                        <p className="ws-kpi-value">{money(over)}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--green">
                         <DollarSign size={22} />
@@ -141,8 +144,8 @@ export default function DifferencesReport({
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Net Variance</p>
-                        <p className="ws-kpi-value">{fmtSar(net)}</p>
+                        <p className="ws-kpi-label">{t('diff.net')}</p>
+                        <p className="ws-kpi-value">{money(net)}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--blue">
                         <FileText size={22} />
@@ -154,38 +157,34 @@ export default function DifferencesReport({
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Branch</th>
-                            <th>Cashier</th>
-                            <th>Expected</th>
-                            <th>Received</th>
-                            <th>Difference</th>
-                            <th>Status</th>
+                            <th>{t('common.date')}</th>
+                            <th>{t('common.branch')}</th>
+                            <th>{t('common.cashier')}</th>
+                            <th>{t('common.expected')}</th>
+                            <th>{t('common.received')}</th>
+                            <th>{t('common.difference')}</th>
+                            <th>{t('common.status')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {recent.length === 0 ? (
                             <tr>
                                 <td colSpan={7} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
-                                    No variance rows for this filter
+                                    {t('diff.empty')}
                                 </td>
                             </tr>
                         ) : (
                             recent.map((r, idx) => (
                                 <tr key={r.id || idx}>
-                                    <td>
-                                        {r.date || r.collectedAt
-                                            ? new Date(r.date || r.collectedAt).toLocaleString()
-                                            : '—'}
-                                    </td>
-                                    <td>{r.branchName || r.branch?.name || '—'}</td>
-                                    <td>{r.cashierName || '—'}</td>
-                                    <td>{fmtSar(r.expectedAmount)}</td>
-                                    <td>{fmtSar(r.receivedAmount)}</td>
-                                    <td>{fmtSar(r.difference)}</td>
+                                    <td>{dateTime(r.date || r.collectedAt)}</td>
+                                    <td>{r.branchName || r.branch?.name || dash}</td>
+                                    <td>{r.cashierName || dash}</td>
+                                    <td>{money(r.expectedAmount)}</td>
+                                    <td>{money(r.receivedAmount)}</td>
+                                    <td>{money(r.difference)}</td>
                                     <td>
                                         <span className="ws-badge ws-badge--yellow">
-                                            {String(r.status || '—').replace(/_/g, ' ')}
+                                            {statusLabel(r.status)}
                                         </span>
                                     </td>
                                 </tr>

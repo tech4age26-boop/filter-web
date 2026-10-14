@@ -24,6 +24,16 @@ import {
   getBranches,
   getDepartments,
 } from '../../services/superAdminApi';
+import { toPosCompactPlate } from '../../utils/formatPlate';
+
+function displayAiPlate(orderOrPlate) {
+  if (!orderOrPlate) return '';
+  if (typeof orderOrPlate === 'string') {
+    return toPosCompactPlate(orderOrPlate) || orderOrPlate;
+  }
+  const raw = orderOrPlate.plateNumber || '';
+  return toPosCompactPlate(raw) || raw;
+}
 
 const LIST_PATH = '/admin/ai-camera';
 
@@ -626,12 +636,22 @@ function OrderDetailScreen() {
   const st = STATUS_COLORS[order.status] || STATUS_COLORS.VEHICLE_ENTERED;
   const bayEvents = order.serviceBayEvents || [];
 
-  // Determine which event was the very first detection
+  // First detection is the camera that actually saw the car first.
+  // Missed-entrance rows copy the bay timestamp onto entranceDetectedAt, so
+  // do not treat a synthetic entrance card as first detection.
   const firstDetAt = order.firstDetectedAt ? new Date(order.firstDetectedAt).getTime() : null;
   const entranceAt = order.entranceDetectedAt ? new Date(order.entranceDetectedAt).getTime() : null;
-  const entranceIsFirst = firstDetAt && entranceAt && Math.abs(firstDetAt - entranceAt) < 2000;
+  const firstCamId = String(order.firstDetectedCameraId || order.firstDetectedCamera?.id || '');
+  const entranceCamId = String(order.entranceCameraId || order.entranceCamera?.id || '');
+  const hasRealEntrance = Boolean(entranceCamId);
+  const entranceIsFirst = hasRealEntrance && (
+    firstCamId
+      ? firstCamId === entranceCamId
+      : !!(firstDetAt && entranceAt && Math.abs(firstDetAt - entranceAt) < 2000)
+  );
 
   // Visit timeline: entrance first, then bay events in order
+  let bayFirstTagged = false;
   const timeline = [
     {
       key: 'entrance',
@@ -646,7 +666,18 @@ function OrderDetailScreen() {
     },
     ...bayEvents.map((ev, i) => {
       const evTime = new Date(ev.detectedAt).getTime();
-      const isBayFirst = firstDetAt && Math.abs(evTime - firstDetAt) < 2000 && !entranceIsFirst;
+      const evCamId = String(ev.cameraId || ev.camera?.id || '');
+      let isBayFirst = false;
+      if (!entranceIsFirst && !bayFirstTagged) {
+        if (firstCamId && evCamId && evCamId === firstCamId) {
+          isBayFirst = true;
+        } else if (!firstCamId && firstDetAt && Math.abs(evTime - firstDetAt) < 2000) {
+          isBayFirst = true;
+        } else if (!hasRealEntrance && i === 0) {
+          isBayFirst = true;
+        }
+        if (isBayFirst) bayFirstTagged = true;
+      }
       return {
         key: `bay-${ev.id || i}`,
         kind: 'SERVICE_BAY',
@@ -715,10 +746,10 @@ function OrderDetailScreen() {
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, fontFamily: 'monospace' }}>{order.plateNumber}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, fontFamily: 'monospace' }}>{displayAiPlate(order)}</span>
               <button
                 type="button"
-                onClick={() => { setNewPlate(order.plateNumber || ''); setEditingPlate(true); }}
+                onClick={() => { setNewPlate(displayAiPlate(order)); setEditingPlate(true); }}
                 style={{ padding: '2px 6px', border: '1px solid #E5E7EB', background: '#fff', borderRadius: 4, cursor: 'pointer' }}
                 title="Correct plate number"
               >
@@ -1009,7 +1040,7 @@ function OrderDetailScreen() {
                                 type="button"
                                 disabled={matching === s.salesOrder.id}
                                 onClick={async () => {
-                                  if (!window.confirm(`Match this AI Order (${order.plateNumber}) with POS plate ${s.posPlate} (${pct}% similar)?`)) return;
+                                  if (!window.confirm(`Match this AI Order (${displayAiPlate(order)}) with POS plate ${s.posPlate} (${pct}% similar)?`)) return;
                                   setMatching(s.salesOrder.id);
                                   try {
                                     await matchAiOrder(orderId, s.salesOrder.id);
@@ -1083,7 +1114,7 @@ function exportOrdersToCSV(orders) {
   const headers = ['Capture No', 'Plate', 'Status', 'Job Status', 'Branch', 'First Detected', 'First Detected Camera', 'Last Seen', 'Last Seen Camera', 'Bays', 'Staff Vehicle'];
   const rows = (orders || []).map((o) => [
     o.captureNo || '',
-    o.plateNumber || '',
+    displayAiPlate(o),
     o.status || '',
     o.jobMatchStatus || 'PENDING',
     o.branch?.name || '',
@@ -1108,7 +1139,7 @@ function exportOrdersToPDF(orders) {
   const headers = ['Capture No', 'Plate', 'Status', 'Job Status', 'Branch', 'First Detected', 'First Camera', 'Last Seen', 'Last Camera', 'Bays', 'Staff'];
   const rows = (orders || []).map((o) => [
     o.captureNo || '',
-    o.plateNumber || '',
+    displayAiPlate(o),
     o.status || '',
     o.jobMatchStatus || 'PENDING',
     o.branch?.name || '',
@@ -1747,7 +1778,7 @@ function AiCameraListScreen() {
                           <Td mono>{order.captureNo}</Td>
                           <Td>
                             <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>
-                              {order.plateNumber}
+                              {displayAiPlate(order)}
                             </span>
                             {isStaff ? (
                               <span style={{

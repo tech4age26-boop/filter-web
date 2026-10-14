@@ -4,6 +4,7 @@ import {
   mktExpStatusLabel,
   mktExpT,
 } from '../../utils/marketingExpensesI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 export const categoryOptions = [
   'social_media_ads',
@@ -24,7 +25,7 @@ export const initialForm = {
   vendorName: '',
   description: '',
   amount: '',
-  expenseDate: new Date().toISOString().slice(0, 10),
+  expenseDate: toRiyadhDateISO(),
   receiptUrl: '',
   notes: '',
   status: '',

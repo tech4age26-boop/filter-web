@@ -9,6 +9,7 @@ import {
     productEffectiveUom,
     stockQtyToEntryQty,
 } from './storageFacilityUomUtils';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 function isStorageHub(loc) {
     return loc?.locationKind === 'brand_storage' && loc?.isSystem;
@@ -62,7 +63,7 @@ export default function StorageFacilityTransfersTab({
     const [editingTransferId, setEditingTransferId] = useState(null);
     const [busy, setBusy] = useState(false);
     const [form, setForm] = useState({
-        transferDate: new Date().toISOString().slice(0, 10),
+        transferDate: toRiyadhDateISO(),
         fromLocationId: '',
         toLocationId: '',
         notes: '',
@@ -179,7 +180,7 @@ export default function StorageFacilityTransfersTab({
         const hubDefault = locations.find((l) => isStorageHub(l));
         const sourceDefault = locations.find((l) => isTransferSource(l));
         setForm({
-            transferDate: new Date().toISOString().slice(0, 10),
+            transferDate: toRiyadhDateISO(),
             fromLocationId: sourceDefault?.id || locations[0]?.id || '',
             toLocationId: hubDefault?.id || locations[1]?.id || '',
             notes: '',
@@ -195,7 +196,7 @@ export default function StorageFacilityTransfersTab({
             const t = res?.transfer ?? transfer;
             setEditingTransferId(t.id);
             setForm({
-                transferDate: t.transferDate || new Date().toISOString().slice(0, 10),
+                transferDate: t.transferDate || toRiyadhDateISO(),
                 fromLocationId: t.fromLocation?.id || '',
                 toLocationId: t.toLocation?.id || '',
                 notes: t.notes || '',

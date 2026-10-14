@@ -48,6 +48,7 @@ import { buildHqCoaNavigationUrl } from './hqCoaAccountRouting';
 import { isMonitorBooksScope, useMonitorAccountIndex } from './useMonitorAccountIndex';
 import { accT, ACC_TAB_LABEL_KEYS } from '../../utils/accountingI18n';
 import AdminScreenShell from '../../components/admin/AdminScreenShell';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 /* ────────────────────────────────────────────────────────────────────────
  * Super Admin Accounting — cross-workshop / supplier monitor + HQ workshop clone.
@@ -1007,7 +1008,7 @@ function LedgerTab({ scope, dateRange, t }) {
 /* ── HQ manual Journal Entry modal (HQ scope only) ──────────────────────── */
 function HqJournalEntryModal({ scope, onClose, onPosted, t }) {
     const [accounts, setAccounts] = useState([]);
-    const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(() => toRiyadhDateISO());
     const [description, setDescription] = useState('');
     const [lines, setLines] = useState([
         { accountId: '', debit: '', credit: '' },

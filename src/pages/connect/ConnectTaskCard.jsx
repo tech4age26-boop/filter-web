@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Ban, Trash2 } from 'lucide-react';
 import { assigneeLine } from './assigneeLine';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function sar(n) {
     return `SAR ${Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -27,7 +28,7 @@ export default function ConnectTaskCard({
     const over = task.budgetStatus === 'over';
     const warn = task.budgetStatus === 'warning';
     const noBudget = !task.budget;
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = toRiyadhDateISO();
     const overdue = Boolean(
         task.deadline &&
             task.deadline < todayIso &&

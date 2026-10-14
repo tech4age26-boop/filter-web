@@ -1,11 +1,11 @@
+import { addCalendarDaysYmd, toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
+
 export function todayIsoDate() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 export function daysAgoIsoDate(days) {
-    const d = new Date();
-    d.setDate(d.getDate() - days);
-    return d.toISOString().slice(0, 10);
+    return addCalendarDaysYmd(toRiyadhDateISO(), -days);
 }
 
 export function defaultHistoryDateRange() {

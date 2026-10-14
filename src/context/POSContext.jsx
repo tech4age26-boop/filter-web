@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useContext, useState, useEffect, useCallback } from 'react';
+import { createStableContext } from '../utils/stableContext';
 import { io } from 'socket.io-client';
 import { BASE_URL, apiFetch, clientUtcOffsetMinutes } from '../services/api';
 import { useAuth } from './AuthContext';
 
-const POSContext = createContext(null);
+const POSContext = createStableContext('pos', null);
 
 function cashierOrderInstant(o) {
     const raw = String(o?.createdAt ?? o?.orderDateTime ?? '').trim();

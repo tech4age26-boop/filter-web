@@ -32,6 +32,7 @@ import {
   mktCampTypeLabel,
 } from '../../utils/marketingCampaignsI18n';
 import './MarketingUniversal.css';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function useMarketingLocale() {
   const outletCtx = useOutletContext() || {};
@@ -383,7 +384,7 @@ function downloadCsv(campaigns, locale, t) {
   const link = document.createElement('a');
 
   link.href = url;
-  link.download = `campaign-report-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `campaign-report-${toRiyadhDateISO()}.csv`;
   link.click();
 
   URL.revokeObjectURL(url);

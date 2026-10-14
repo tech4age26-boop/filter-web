@@ -34,6 +34,7 @@ import {
   SelectField,
 } from './expenseShared';
 import './MarketingUniversal.css';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 export default function ExpenseFormPage() {
   const { id } = useParams();
@@ -51,7 +52,7 @@ export default function ExpenseFormPage() {
 
   const [form, setForm] = useState({
     ...initialForm,
-    expenseDate: new Date().toISOString().slice(0, 10),
+    expenseDate: toRiyadhDateISO(),
   });
   const [campaigns, setCampaigns] = useState([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);

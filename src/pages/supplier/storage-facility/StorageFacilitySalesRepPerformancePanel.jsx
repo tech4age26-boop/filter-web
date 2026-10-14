@@ -10,6 +10,7 @@ import {
 import Modal from '../../../components/Modal';
 import { ShimmerKpiGrid, ShimmerStatStrip, ShimmerTable } from '../../../components/supplier/Shimmer';
 import { useStorageFacilityApi } from './StorageFacilityPortalContext';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 
 function fmtSar(n) {
@@ -25,7 +26,7 @@ function firstDayOfMonthISO() {
 }
 
 function todayISO() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 const STATUS_STYLES = {

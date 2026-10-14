@@ -14,7 +14,19 @@ export const NAV_ITEMS = [
     { id: 'my-wallet', label: 'My Wallet', icon: Wallet, walletRequired: true },
     { id: 'platform-chat', label: 'Chat', icon: MessageCircle, permission: 'workshop.platform-chat.view' },
     { id: 'departments', label: 'View Inventory and Departments', icon: Layers, permission: 'workshop.departments.view' },
-    { id: 'catalog-new', label: 'Master Catalog', icon: Package, permission: 'workshop.catalog.view' },
+    {
+        id: 'catalog-new',
+        label: 'Master Catalog',
+        icon: Package,
+        permission: 'workshop.catalog.view',
+        // The page itself only renders these tabs; without one of them it would be empty.
+        requiresAnyOf: [
+            'workshop.catalog.departments.view',
+            'workshop.catalog.categories.view',
+            'workshop.catalog.products.view',
+            'workshop.catalog.services.view',
+        ],
+    },
     { id: 'inventory', label: 'Manage Inventory', icon: Archive, permission: 'workshop.inventory.view' },
     { id: 'purchases', label: 'Purchase Invoices', icon: ShoppingCart, permission: 'workshop.purchases.view' },
     { id: 'purchase-quotes', label: 'Purchase Quotes', icon: FileText, permission: 'workshop.purchases.view' },

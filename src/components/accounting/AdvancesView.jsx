@@ -28,6 +28,7 @@ import {
     getSalaryPayments,
     getStats,
 } from '../../services/advancesApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -43,8 +44,8 @@ const parseArr = (res) => {
     return [];
 };
 
-const makeAdvanceRow = () => ({ id: Date.now() + Math.random(), employeeId: '', amount: '', date: new Date().toISOString().slice(0, 10), payFromAccountId: '', reason: '' });
-const makeSalaryRow = () => ({ id: Date.now() + Math.random(), employeeId: '', grossSalary: '', advanceDeduction: '0', period: 'March 2026', paymentDate: new Date().toISOString().slice(0, 10), payFromAccountId: '' });
+const makeAdvanceRow = () => ({ id: Date.now() + Math.random(), employeeId: '', amount: '', date: toRiyadhDateISO(), payFromAccountId: '', reason: '' });
+const makeSalaryRow = () => ({ id: Date.now() + Math.random(), employeeId: '', grossSalary: '', advanceDeduction: '0', period: 'March 2026', paymentDate: toRiyadhDateISO(), payFromAccountId: '' });
 
 export default function AdvancesView({ readOnly = false }) {
     const [activeTab, setActiveTab] = useState('Advances');
@@ -66,8 +67,8 @@ export default function AdvancesView({ readOnly = false }) {
     const [ledgerEmployeeId, setLedgerEmployeeId] = useState('');
     const [ledgerRows, setLedgerRows] = useState([]);
 
-    const [advanceForm, setAdvanceForm] = useState({ employeeId: '', amount: '', date: new Date().toISOString().slice(0, 10), payFromAccountId: '', reason: '' });
-    const [salaryForm, setSalaryForm] = useState({ employeeId: '', period: 'March 2026', paymentDate: new Date().toISOString().slice(0, 10), grossSalary: '', advanceDeduction: '0', payFromAccountId: '', notes: '' });
+    const [advanceForm, setAdvanceForm] = useState({ employeeId: '', amount: '', date: toRiyadhDateISO(), payFromAccountId: '', reason: '' });
+    const [salaryForm, setSalaryForm] = useState({ employeeId: '', period: 'March 2026', paymentDate: toRiyadhDateISO(), grossSalary: '', advanceDeduction: '0', payFromAccountId: '', notes: '' });
     const [bulkAdvanceRows, setBulkAdvanceRows] = useState([makeAdvanceRow()]);
     const [bulkSalaryRows, setBulkSalaryRows] = useState([makeSalaryRow()]);
 
@@ -131,7 +132,7 @@ export default function AdvancesView({ readOnly = false }) {
             reason: advanceForm.reason || undefined,
         });
         setPayAdvanceOpen(false);
-        setAdvanceForm({ employeeId: '', amount: '', date: new Date().toISOString().slice(0, 10), payFromAccountId: '', reason: '' });
+        setAdvanceForm({ employeeId: '', amount: '', date: toRiyadhDateISO(), payFromAccountId: '', reason: '' });
         await refresh();
     };
 
@@ -169,7 +170,7 @@ export default function AdvancesView({ readOnly = false }) {
             notes: salaryForm.notes || undefined,
         });
         setPaySalaryOpen(false);
-        setSalaryForm({ employeeId: '', period: 'March 2026', paymentDate: new Date().toISOString().slice(0, 10), grossSalary: '', advanceDeduction: '0', payFromAccountId: '', notes: '' });
+        setSalaryForm({ employeeId: '', period: 'March 2026', paymentDate: toRiyadhDateISO(), grossSalary: '', advanceDeduction: '0', payFromAccountId: '', notes: '' });
         await refresh();
     };
 

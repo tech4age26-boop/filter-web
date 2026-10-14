@@ -27,6 +27,7 @@ import WsSearchSuggest from '../../../components/workshop/WsSearchSuggest';
 import WsTablePagination from '../../../components/workshop/WsTablePagination';
 import usePagedSearch, { WS_PAGE_SIZES } from '../../../components/workshop/usePagedSearch';
 import { staffMeta, staffName, staffSearchText } from './staffPickerOptions';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -55,7 +56,7 @@ const ackBadge = (status, ackAt) => {
     return <span className="status-badge pending">Awaiting technician</span>;
 };
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => toRiyadhDateISO();
 
 const filterChipStyle = {
     padding: '2px 8px',

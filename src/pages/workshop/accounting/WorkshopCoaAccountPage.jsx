@@ -26,6 +26,7 @@ import {
 } from '../workshopCoaStatementSplit';
 import { accT } from '../../../utils/accountingI18n';
 import '../../../styles/admin/AccountingPage.css';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 const SUBTYPE_BY_TYPE = {
     ASSET: ['CURRENT', 'FIXED', 'OTHER'],
@@ -44,7 +45,7 @@ const TYPE_META = {
 };
 
 function todayIsoDate() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 function unwrapAccount(res) {

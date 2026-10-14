@@ -21,6 +21,7 @@ import {
 import { getAccounts as getCoaAccounts } from '../../services/accountsApi';
 import { getBranches } from '../../services/superAdminApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -59,7 +60,7 @@ const baseTxnForm = {
     accountId: '',
     type: 'credit',
     amount: '',
-    entryDate: new Date().toISOString().slice(0, 10),
+    entryDate: toRiyadhDateISO(),
     description: '',
     reference: '',
 };

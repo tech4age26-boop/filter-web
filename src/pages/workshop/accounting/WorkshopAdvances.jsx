@@ -37,6 +37,7 @@ import { AdvanceBulkPage, AdvancePayPage } from './WorkshopAdvancePayPages';
 import { exportAdvancesExcel, exportAdvancesPdf } from './workshopAdvancesExport';
 import '../../../styles/admin/AccountingPage.css';
 import './WorkshopAdvancePayPages.css';
+import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -44,7 +45,7 @@ const fmt = (n) => {
     return x.toLocaleString('en-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => toRiyadhDateISO();
 
 const ADV_TABS = [
     { id: 'By Employee', labelKey: 'adv.tab.byEmployee' },

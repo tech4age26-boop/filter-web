@@ -15,6 +15,7 @@ import {
     exportCashBankRegisterPdf,
 } from '../../utils/cashBankRegisterExport';
 import { accT } from '../../utils/accountingI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function startOfMonthISO() {
     const d = new Date();
@@ -22,7 +23,7 @@ function startOfMonthISO() {
 }
 
 function todayISO() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 function fmt(n) {
