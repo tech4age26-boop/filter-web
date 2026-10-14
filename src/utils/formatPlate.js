@@ -33,6 +33,13 @@ export function formatPlateLettersFirst(raw) {
   return original;
 }
 
+/** POS compact plate: letters then digits, no spaces (`TXA3857`). */
+export function toPosCompactPlate(raw) {
+  const formatted = formatPlateLettersFirst(raw);
+  if (!formatted) return '';
+  return String(formatted).replace(/[\s-]/g, '').toUpperCase();
+}
+
 /** Prefer API plateDisplay / plateNumber; else format legacy plateNo. */
 export function resolvePlateDisplay(orderOrVehicle) {
   if (!orderOrVehicle) return '';
