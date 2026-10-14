@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Clock, CheckCircle2, Receipt, RefreshCw, Package, Plus, Minus, Trash2, Check, X, Banknote, CreditCard, Building2 } from 'lucide-react';
 import { apiFetch, clientUtcOffsetMinutes } from '../../services/api';
 import { sortCashierOrdersOldestFirst } from '../../context/POSContext';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const WF_LABELS = {
     draft:              { label: 'Draft — Add items & proceed', color: '#f1f5f9', textColor: '#475569' },
@@ -114,7 +115,7 @@ export default function ActiveOrdersManager() {
                 body: JSON.stringify({
                     orderId: String(paymentOrder.id),
                     discountAmount: 0,
-                    invoiceDate: new Date().toISOString().split('T')[0],
+                    invoiceDate: toRiyadhDateISO(),
                     paymentMethod: payMethod,
                     payments: [{ method: payMethod, amount: paymentOrder.total }],
                 }),

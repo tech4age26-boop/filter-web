@@ -15,6 +15,7 @@ import { ShimmerTable, ShimmerTextBlock } from '../../components/supplier/Shimme
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import { spiT } from '../../utils/supplierPurchaseInvoicesI18n';
 import { SortableTh, useColumnSort } from '../../components/TableSort';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function sspInvoiceSeries(row) {
     const fromNo = String(row?.invoiceNo ?? '').match(/(\d+)\s*$/);
@@ -136,7 +137,7 @@ export default function SupplierSuperSupplierPurchasesPanel({
             mode: 'create',
             purchaseId: null,
             superSupplierId: sid,
-            purchaseDate: new Date().toISOString().slice(0, 10),
+            purchaseDate: toRiyadhDateISO(),
             vendorRef: '',
             description: '',
             notes: '',

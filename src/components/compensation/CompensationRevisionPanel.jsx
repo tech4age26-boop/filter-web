@@ -11,6 +11,7 @@ import {
     previewTechnicianCompensation,
 } from '../../services/superAdminApi';
 import './CompensationRevisionPanel.css';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const COPY = {
     en: {
@@ -107,7 +108,7 @@ export default function CompensationRevisionPanel({
 }) {
     const t = COPY[locale] || COPY.en;
     const isCashier = recordType === 'cashier';
-    const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
+    const [effectiveFrom, setEffectiveFrom] = useState(() => toRiyadhDateISO());
     const [revisions, setRevisions] = useState([]);
     const [currentRates, setCurrentRates] = useState({ basicSalary: 0, commissionPercent: 0 });
     const [preview, setPreview] = useState(null);

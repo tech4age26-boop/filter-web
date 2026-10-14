@@ -8,6 +8,7 @@ import {
     X,
 } from 'lucide-react';
 import { getLedger, getLedgerAccounts } from '../../services/transactionsApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -65,7 +66,7 @@ export default function LedgerView({ readOnly = false }) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `general-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `general-ledger-${toRiyadhDateISO()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
     };

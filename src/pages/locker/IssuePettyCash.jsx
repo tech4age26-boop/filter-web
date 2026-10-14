@@ -2,17 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Coins, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
-
-const fmtSar = (n) =>
-    `SAR ${Number(n || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    })}`;
+import { useLockerPortal } from './useLockerPortal';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 export default function IssuePettyCash({
     selectedBranchId = 'all',
     branchLockedId = null,
 } = {}) {
+    const { t, can, money, date } = useLockerPortal();
+    const dash = t('emdash');
+    const canIssue = can('pettyCash.issue');
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : undefined);
     const [cashiers, setCashiers] = useState([]);
     const [overview, setOverview] = useState(null);
@@ -22,7 +21,7 @@ export default function IssuePettyCash({
         cashierUserId: '',
         amount: '',
         reference: '',
-        issuedAt: new Date().toISOString().slice(0, 10),
+        issuedAt: toRiyadhDateISO(),
     });
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(null);
@@ -46,11 +45,11 @@ export default function IssuePettyCash({
             setOverview(overRes);
             setHistory(Array.isArray(logRes?.issues) ? logRes.issues : []);
         } catch (e) {
-            setError(e?.message || 'Failed to load data');
+            setError(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [scopeBranch]);
+    }, [scopeBranch, t]);
 
     useEffect(() => {
         load();
@@ -68,18 +67,16 @@ export default function IssuePettyCash({
         setSuccess(null);
         const amt = Number(form.amount);
         if (!form.cashierUserId) {
-            setError('Select a cashier');
+            setError(t('err.selectCashier'));
             return;
         }
         if (!(amt > 0)) {
-            setError('Amount must be greater than 0');
+            setError(t('err.amountPositive'));
             return;
         }
         if (amt > lockerBalance + 0.01) {
             const ok = window.confirm(
-                `Issue amount ${fmtSar(amt)} is greater than locker vault balance ${fmtSar(
-                    lockerBalance,
-                )}. Continue anyway?`,
+                t('confirm.overVault', { amount: money(amt), balance: money(lockerBalance) }),
             );
             if (!ok) return;
         }
@@ -94,12 +91,12 @@ export default function IssuePettyCash({
                     issuedAt: form.issuedAt || undefined,
                 }),
             });
-            if (res?.success === false) throw new Error(res?.message || 'Failed to issue');
+            if (res?.success === false) throw new Error(res?.message || t('issue.errIssue'));
             setSuccess(res);
             setForm((f) => ({ ...f, amount: '', reference: '' }));
             await load();
         } catch (e) {
-            setError(e?.message || 'Issue failed');
+            setError(e?.message || t('issue.errIssue'));
         } finally {
             setSubmitting(false);
         }
@@ -109,14 +106,11 @@ export default function IssuePettyCash({
         <div className="wlk-page">
             <div className="wlk-topbar">
                 <div>
-                    <h2 className="wlk-title">Issue Petty Cash to Cashier</h2>
-                    <p className="wlk-subtitle">
-                        Hand a petty-cash float from the locker vault (1004) to a cashier.
-                        This credits their wallet and posts the GL entry automatically.
-                    </p>
+                    <h2 className="wlk-title">{t('issue.title')}</h2>
+                    <p className="wlk-subtitle">{t('issue.sub')}</p>
                 </div>
                 <button className="btn-secondary" onClick={load} disabled={loading}>
-                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -124,125 +118,131 @@ export default function IssuePettyCash({
                 <div className="wlk-stat wlk-stat--info">
                     <div className="wlk-stat-icon"><Coins size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Locker vault balance</div>
-                        <div className="wlk-stat-value">{fmtSar(lockerBalance)}</div>
-                        <div className="wlk-stat-hint">1004 Locker Cash</div>
+                        <div className="wlk-stat-label">{t('common.vaultBalance')}</div>
+                        <div className="wlk-stat-value">{money(lockerBalance)}</div>
+                        <div className="wlk-stat-hint">{t('common.vaultHint')}</div>
                     </div>
                 </div>
             </div>
 
-            <form className="wlk-create-user" onSubmit={submit}>
-                {error ? (
-                    <div className="wlk-error" style={{ marginBottom: 12 }}>
-                        <AlertTriangle size={14} /> {error}
-                    </div>
-                ) : null}
-                {success ? (
-                    <div
-                        className="wlk-error"
-                        style={{
-                            marginBottom: 12,
-                            background: '#dcfce7',
-                            color: '#15803d',
-                            borderColor: '#bbf7d0',
-                        }}
-                    >
-                        <CheckCircle size={14} /> Float issued — JE #{success.journalId}
-                    </div>
-                ) : null}
-                <div className="wlk-grid wlk-grid--form">
-                    <label>
-                        <span>Cashier</span>
-                        <select
-                            value={form.cashierUserId}
-                            onChange={(e) =>
-                                setForm((f) => ({ ...f, cashierUserId: e.target.value }))
-                            }
-                            required
+            {canIssue ? (
+                <form className="wlk-create-user" onSubmit={submit}>
+                    {error ? (
+                        <div className="wlk-error" style={{ marginBottom: 12 }}>
+                            <AlertTriangle size={14} /> {error}
+                        </div>
+                    ) : null}
+                    {success ? (
+                        <div
+                            className="wlk-error"
+                            style={{
+                                marginBottom: 12,
+                                background: '#dcfce7',
+                                color: '#15803d',
+                                borderColor: '#bbf7d0',
+                            }}
                         >
-                            <option value="">Select cashier…</option>
-                            {cashiers.map((c) => (
-                                <option key={c.userId || c.id} value={c.userId || c.id}>
-                                    {c.name || c.email || `Cashier ${c.userId || c.id}`}
-                                    {c.branchName ? ` — ${c.branchName}` : ''}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <label>
-                        <span>Amount (SAR)</span>
-                        <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={form.amount}
-                            onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                            required
-                        />
-                    </label>
-                    <label>
-                        <span>Issue date</span>
-                        <input
-                            type="date"
-                            value={form.issuedAt}
-                            onChange={(e) =>
-                                setForm((f) => ({ ...f, issuedAt: e.target.value }))
-                            }
-                        />
-                    </label>
-                    <label>
-                        <span>Reference (optional)</span>
-                        <input
-                            value={form.reference}
-                            onChange={(e) =>
-                                setForm((f) => ({ ...f, reference: e.target.value }))
-                            }
-                            placeholder="Weekly float, ad-hoc top-up, etc."
-                        />
-                    </label>
+                            <CheckCircle size={14} /> {t('issue.success', { je: success.journalId })}
+                        </div>
+                    ) : null}
+                    <div className="wlk-grid wlk-grid--form">
+                        <label>
+                            <span>{t('common.cashier')}</span>
+                            <select
+                                value={form.cashierUserId}
+                                onChange={(e) =>
+                                    setForm((f) => ({ ...f, cashierUserId: e.target.value }))
+                                }
+                                required
+                            >
+                                <option value="">{t('issue.selectCashier')}</option>
+                                {cashiers.map((c) => (
+                                    <option key={c.userId || c.id} value={c.userId || c.id}>
+                                        {c.name || c.email || t('common.cashierFallback', { id: c.userId || c.id })}
+                                        {c.branchName ? ` — ${c.branchName}` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <label>
+                            <span>{t('common.amountSar')}</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={form.amount}
+                                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                                required
+                            />
+                        </label>
+                        <label>
+                            <span>{t('issue.date')}</span>
+                            <input
+                                type="date"
+                                value={form.issuedAt}
+                                onChange={(e) =>
+                                    setForm((f) => ({ ...f, issuedAt: e.target.value }))
+                                }
+                            />
+                        </label>
+                        <label>
+                            <span>{t('common.referenceOptional')}</span>
+                            <input
+                                value={form.reference}
+                                onChange={(e) =>
+                                    setForm((f) => ({ ...f, reference: e.target.value }))
+                                }
+                                placeholder={t('issue.refPh')}
+                            />
+                        </label>
+                    </div>
+                    <div className="wlk-create-user-footer">
+                        <button className="btn-primary" type="submit" disabled={submitting}>
+                            <Coins size={14} /> {submitting ? t('common.posting') : t('issue.submit')}
+                        </button>
+                    </div>
+                </form>
+            ) : error ? (
+                <div className="wlk-error" style={{ marginBottom: 12 }}>
+                    <AlertTriangle size={14} /> {error}
                 </div>
-                <div className="wlk-create-user-footer">
-                    <button className="btn-primary" type="submit" disabled={submitting}>
-                        <Coins size={14} /> {submitting ? 'Posting…' : 'Issue & Post GL'}
-                    </button>
-                </div>
-            </form>
+            ) : null}
 
             <div className="wlk-section">
                 <div className="wlk-section-header">
-                    <h3>Recent petty cash floats issued<span className="wlk-count">{history.length}</span></h3>
+                    <h3>{t('issue.recent')}<span className="wlk-count">{history.length}</span></h3>
                     <p className="wlk-subtitle" style={{ margin: 0 }}>
-                        Full filtered log: open <strong>Petty Cash Issue Log</strong> in the sidebar.
+                        {t('issue.fullLog')}
                     </p>
                 </div>
                 <div className="wlk-section-body">
                     <table className="wlk-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Cashier</th>
-                                <th>Branch</th>
-                                <th>Amount</th>
-                                <th>Reference</th>
-                                <th>JE</th>
+                                <th>{t('common.date')}</th>
+                                <th>{t('common.cashier')}</th>
+                                <th>{t('common.branch')}</th>
+                                <th>{t('common.amount')}</th>
+                                <th>{t('common.reference')}</th>
+                                <th>{t('common.je')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {history.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} className="wlk-empty">
-                                        No floats issued yet
+                                        {t('issue.empty')}
                                     </td>
                                 </tr>
                             ) : (
                                 history.map((p) => (
                                     <tr key={p.id}>
-                                        <td>{p.date || (p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—')}</td>
-                                        <td>{p.cashierName || '—'}</td>
-                                        <td>{p.branchName || '—'}</td>
-                                        <td>{fmtSar(p.amount)}</td>
-                                        <td>{p.description || '—'}</td>
-                                        <td>{p.journalEntryNumber || '—'}</td>
+                                        <td>{p.date || date(p.createdAt)}</td>
+                                        <td>{p.cashierName || dash}</td>
+                                        <td>{p.branchName || dash}</td>
+                                        <td>{money(p.amount)}</td>
+                                        <td>{p.description || dash}</td>
+                                        <td>{p.journalEntryNumber || dash}</td>
                                     </tr>
                                 ))
                             )}

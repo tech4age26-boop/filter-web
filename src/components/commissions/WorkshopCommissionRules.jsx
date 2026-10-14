@@ -1,555 +1,355 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Search } from 'lucide-react';
-import WorkshopSubScreen from '../workshop/WorkshopSubScreen';
+import { Eye, Info, Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import {
-    createWorkshopCommissionRule,
     deleteWorkshopCommissionRule,
-    getWorkshopCommissionRuleServices,
     getWorkshopCommissionRules,
-    updateWorkshopCommissionRule,
 } from '../../services/workshopCommissionsApi';
 import { wcomT } from '../../utils/workshopCommissionsI18n';
+import { useAuth } from '../../context/AuthContext';
+import { COMMISSION_RULE_ROLES } from './commissionRuleConstants';
+import '../../pages/workshop/Workshop.css';
 
-const ROLE_OPTIONS = [
-    'Technician',
-    'Senior Technician',
-    'Master Technician',
-    'Supervisor',
-    'Manager',
-];
+const FILTERS = ['all', 'active', 'inactive', 'platform'];
+const SEARCH_DEBOUNCE_MS = 300;
 
-const ROLE_LABEL_KEY = {
-    Technician: 'rules.role.technician',
-    'Senior Technician': 'rules.role.seniorTechnician',
-    'Master Technician': 'rules.role.masterTechnician',
-    Supervisor: 'rules.role.supervisor',
-    Manager: 'rules.role.manager',
-};
-
-const TYPE_OPTIONS = [
-    { value: 'Percentage', labelKey: 'rules.typeOpt.percentage' },
-    { value: 'Fixed', labelKey: 'rules.typeOpt.fixed' },
-];
-
-const TYPE_LABEL_KEY = {
-    Percentage: 'rules.type.percentage',
-    Fixed: 'rules.type.fixed',
-};
-
-const baseForm = {
-    serviceId: '',
-    serviceName: '',
-    employeeRole: 'Technician',
-    commissionType: 'Percentage',
-    value: 0,
-    priority: 1,
-    status: 'active',
-    notes: '',
-};
-
-function getErrorMessage(err, t) {
-    return err?.message || t('rules.err.generic');
+/** Up to two named chips, then one "+N" chip whose tooltip lists the rest. */
+function pushNamedChips(chips, names, cls) {
+    const list = names.filter(Boolean);
+    list.slice(0, 2).forEach((text) => chips.push({ cls, text }));
+    if (list.length > 2) {
+        chips.push({ cls, text: `+${list.length - 2}`, title: list.slice(2).join(', ') });
+    }
 }
 
-function parseRules(res) {
-    if (Array.isArray(res)) return res;
-    if (Array.isArray(res?.data)) return res.data;
-    return [];
+function ScopeChips({ rule, t }) {
+    const chips = [];
+    pushNamedChips(chips, (rule.departments || []).map((d) => d.name), 'dept');
+    pushNamedChips(chips, (rule.categories || []).map((c) => c.name), 'cat');
+    for (const km of rule.kmValues || []) {
+        chips.push({ cls: 'km', text: t('rules.scope.km', { km: Number(km).toLocaleString('en-US') }) });
+    }
+    const productCount = (rule.productIds || []).length;
+    const serviceCount = (rule.serviceIds || []).length;
+    if (productCount) {
+        const names = (rule.products || []).map((p) => p.name).filter(Boolean);
+        chips.push({
+            cls: 'items',
+            text: productCount === 1 && names[0] ? names[0] : t('rules.scope.productsCount', { count: productCount }),
+            title: names.join(', '),
+        });
+    }
+    if (serviceCount) {
+        const names = (rule.services || []).map((s) => s.name).filter(Boolean);
+        chips.push({
+            cls: 'items',
+            text: serviceCount === 1 && names[0] ? names[0] : t('rules.scope.servicesCount', { count: serviceCount }),
+            title: names.join(', '),
+        });
+    }
+    if (!productCount && !serviceCount && rule.appliesTo && rule.appliesTo !== 'all') {
+        chips.push({ cls: 'items', text: t(`rules.scope.${rule.appliesTo}`) });
+    }
+    if (!chips.length) chips.push({ cls: '', text: t('rules.scope.allLines') });
+    return (
+        <div className="wcr-scope">
+            {chips.map((c, i) => (
+                <span
+                    key={`${c.cls}-${i}`}
+                    className={`wcr-scope__chip${c.cls ? ` wcr-scope__chip--${c.cls}` : ''}`}
+                    title={c.title || c.text}
+                >
+                    {c.text}
+                </span>
+            ))}
+        </div>
+    );
 }
 
-function parseServices(res) {
-    if (Array.isArray(res)) return res;
-    if (Array.isArray(res?.services)) return res.services;
-    if (Array.isArray(res?.data)) return res.data;
-    return [];
-}
-
-/** A self-contained Commission Rules CRUD panel (workshop-scoped). */
-export default function WorkshopCommissionRules({ locale: localeProp } = {}) {
-    const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
-    const t = useCallback((key, vars) => wcomT(locale, key, vars), [locale]);
+/** Workshop commission rules: searchable list; create / edit / view open the full-page editor via `onOpenRule`. */
+export default function WorkshopCommissionRules({
+    locale: localeProp,
+    t: tProp,
+    adminMode = false,
+    workshopId = '',
+    reloadKey = 0,
+    onOpenRule,
+} = {}) {
+    const locale =
+        localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
+    const tLocal = useCallback((key, vars) => wcomT(locale, key, vars), [locale]);
+    const t = tProp || tLocal;
+    const { hasPermission } = useAuth();
+    const can = useCallback(
+        (action) => adminMode || hasPermission(`workshop.commissions.rules.${action}`),
+        [adminMode, hasPermission],
+    );
 
     const [rules, setRules] = useState([]);
-    const [services, setServices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [reloadTick, setReloadTick] = useState(0);
+    const [searchInput, setSearchInput] = useState('');
     const [search, setSearch] = useState('');
-
-    const [modalOpen, setModalOpen] = useState(false);
-    const [editingId, setEditingId] = useState('');
-    const [form, setForm] = useState(baseForm);
-    const [submitting, setSubmitting] = useState(false);
-    const [submitError, setSubmitError] = useState('');
-
+    const [filter, setFilter] = useState('all');
     const [pendingDeleteId, setPendingDeleteId] = useState('');
     const [deleteLoadingId, setDeleteLoadingId] = useState('');
 
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await getWorkshopCommissionRuleServices();
-                if (!cancelled) setServices(parseServices(res));
-            } catch {
-                /* services dropdown is optional */
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+        const id = window.setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(id);
+    }, [searchInput]);
 
     useEffect(() => {
-        let cancelled = false;
-        const load = async () => {
+        const controller = new AbortController();
+        (async () => {
             setLoading(true);
             setError('');
             try {
-                const res = await getWorkshopCommissionRules(search);
-                if (cancelled) return;
-                setRules(parseRules(res));
+                const res = await getWorkshopCommissionRules(
+                    { search: search || undefined, workshopId: workshopId || undefined },
+                    { signal: controller.signal },
+                );
+                setRules(Array.isArray(res?.rules) ? res.rules : []);
             } catch (err) {
-                if (!cancelled) setError(getErrorMessage(err, t));
+                if (controller.signal.aborted || err?.name === 'AbortError') return;
+                setError(err?.message || t('rules.err.generic'));
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!controller.signal.aborted) setLoading(false);
             }
-        };
-        load();
-        return () => {
-            cancelled = true;
-        };
-    }, [reloadTick, search, t]);
-
-    const openCreate = () => {
-        setEditingId('');
-        setForm(baseForm);
-        setSubmitError('');
-        setModalOpen(true);
-    };
-
-    const openEdit = (rule) => {
-        setEditingId(String(rule.id));
-        setForm({
-            serviceId: rule.serviceId ? String(rule.serviceId) : '',
-            serviceName: rule.serviceName || '',
-            employeeRole: rule.employeeRole || 'Technician',
-            commissionType: rule.commissionType || 'Percentage',
-            value: Number(rule.value || 0),
-            priority: Number(rule.priority || 1),
-            status: rule.status || 'active',
-            notes: rule.notes || '',
-        });
-        setSubmitError('');
-        setModalOpen(true);
-    };
-
-    const closeModal = () => {
-        if (submitting) return;
-        setModalOpen(false);
-        setSubmitError('');
-    };
-
-    const onSubmit = async () => {
-        if (!form.serviceName.trim()) {
-            setSubmitError(t('rules.err.serviceRequired'));
-            return;
-        }
-        if (form.value === '' || form.value === null || Number.isNaN(Number(form.value))) {
-            setSubmitError(t('rules.err.valueRequired'));
-            return;
-        }
-        setSubmitting(true);
-        setSubmitError('');
-        try {
-            const payload = {
-                serviceId: form.serviceId || undefined,
-                serviceName: form.serviceName.trim(),
-                employeeRole: form.employeeRole,
-                commissionType: form.commissionType,
-                value: Number(form.value),
-                priority: Number(form.priority || 1),
-                status: form.status,
-                notes: form.notes?.trim() || undefined,
-            };
-            if (editingId) {
-                await updateWorkshopCommissionRule(editingId, payload);
-            } else {
-                await createWorkshopCommissionRule(payload);
-            }
-            setModalOpen(false);
-            setReloadTick((x) => x + 1);
-        } catch (err) {
-            setSubmitError(getErrorMessage(err, t));
-        } finally {
-            setSubmitting(false);
-        }
-    };
+        })();
+        return () => controller.abort();
+    }, [search, workshopId, reloadTick, reloadKey, t]);
 
     const onDelete = async (id) => {
         setDeleteLoadingId(id);
+        setError('');
         try {
-            await deleteWorkshopCommissionRule(id);
+            await deleteWorkshopCommissionRule(id, workshopId ? { workshopId } : {});
             setPendingDeleteId('');
             setReloadTick((x) => x + 1);
         } catch (err) {
-            setError(getErrorMessage(err, t));
+            setPendingDeleteId('');
+            setError(err?.status === 409 ? t('rules.err.inUse') : err?.message || t('rules.err.generic'));
         } finally {
             setDeleteLoadingId('');
         }
     };
 
-    const onServicePick = (id) => {
-        const svc = services.find((s) => String(s.id) === String(id));
-        setForm((p) => ({
-            ...p,
-            serviceId: id,
-            serviceName: svc?.name || svc?.serviceName || p.serviceName,
-        }));
-    };
-
-    const sortedRules = useMemo(() => {
-        return [...rules].sort((a, b) => {
-            const pri = Number(a.priority || 0) - Number(b.priority || 0);
-            if (pri !== 0) return pri;
-            return String(a.serviceName || '').localeCompare(String(b.serviceName || ''));
+    const visibleRules = useMemo(() => {
+        const rows = rules.filter((r) => {
+            if (filter === 'active') return r.status !== 'inactive';
+            if (filter === 'inactive') return r.status === 'inactive';
+            if (filter === 'platform') return r.scope === 'platform';
+            return true;
         });
-    }, [rules]);
+        return rows.sort((a, b) => {
+            const activeDiff = (a.status === 'inactive') - (b.status === 'inactive');
+            if (activeDiff) return activeDiff;
+            const pri = Number(a.priority || 0) - Number(b.priority || 0);
+            if (pri) return pri;
+            return String(a.name || '').localeCompare(String(b.name || ''));
+        });
+    }, [rules, filter]);
 
-    const tableHeaders = [
-        t('rules.th.priority'),
-        t('rules.th.service'),
+    const hasPlatformRules = rules.some((r) => r.scope === 'platform');
+    const filters = FILTERS.filter((f) => f !== 'platform' || hasPlatformRules);
+    const roleLabel = (role) => (COMMISSION_RULE_ROLES.includes(role) ? t(`rules.role.${role}`) : role || '—');
+
+    const headers = [
+        t('rules.th.rule'),
+        t('rules.th.scope'),
         t('rules.th.role'),
-        t('rules.th.type'),
-        t('rules.th.value'),
+        t('rules.th.rate'),
+        t('rules.th.priority'),
         t('rules.th.status'),
         t('rules.th.actions'),
     ];
 
-    if (modalOpen) {
-        return (
-            <WorkshopSubScreen
-                title={editingId ? t('rules.editFormTitle') : t('rules.newFormTitle')}
-                subtitle={t('rules.formSubtitle')}
-                backLabel={t('rules.back')}
-                onBack={closeModal}
-                backDisabled={submitting}
-                size="form"
-                maxWidth="600px"
-                footer={(
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
-                        <button
-                            type="button"
-                            onClick={closeModal}
-                            disabled={submitting}
-                            className="ws-btn-secondary"
-                        >
-                            {t('btn.cancel')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onSubmit}
-                            disabled={submitting}
-                            className="ws-btn-confirm"
-                        >
-                            {submitting
-                                ? t('rules.saving')
-                                : editingId
-                                    ? t('rules.updateRule')
-                                    : t('rules.createRule')}
-                        </button>
-                    </div>
-                )}
-            >
-                <div className="ws-section" style={{ padding: 20 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                        <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.priority')}</label>
-                            <input
-                                type="number"
-                                min={1}
-                                value={form.priority}
-                                onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
-                                style={inputStyle}
-                            />
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.status')}</label>
-                            <select
-                                value={form.status}
-                                onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
-                                style={inputStyle}
-                            >
-                                <option value="active">{t('rules.status.active')}</option>
-                                <option value="inactive">{t('rules.status.inactive')}</option>
-                            </select>
-                        </div>
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.service')}</label>
-                            <select
-                                value={form.serviceId}
-                                onChange={(e) => onServicePick(e.target.value)}
-                                style={inputStyle}
-                            >
-                                <option value="">{t('rules.customService')}</option>
-                                {services.map((s) => (
-                                    <option key={String(s.id)} value={String(s.id)}>
-                                        {s.name || s.serviceName}
-                                    </option>
-                                ))}
-                            </select>
-                            <input
-                                placeholder={t('rules.serviceNamePlaceholder')}
-                                value={form.serviceName}
-                                onChange={(e) => setForm((p) => ({ ...p, serviceName: e.target.value }))}
-                                style={{ ...inputStyle, marginTop: 8 }}
-                            />
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.employeeRole')}</label>
-                            <select
-                                value={form.employeeRole}
-                                onChange={(e) => setForm((p) => ({ ...p, employeeRole: e.target.value }))}
-                                style={inputStyle}
-                            >
-                                {ROLE_OPTIONS.map((r) => (
-                                    <option key={r} value={r}>
-                                        {t(ROLE_LABEL_KEY[r])}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.type')}</label>
-                            <select
-                                value={form.commissionType}
-                                onChange={(e) => setForm((p) => ({ ...p, commissionType: e.target.value }))}
-                                style={inputStyle}
-                            >
-                                {TYPE_OPTIONS.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>
-                                        {t(opt.labelKey)}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>
-                                {form.commissionType === 'Percentage' ? t('rules.valuePercent') : t('rules.valueSar')}
-                            </label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                value={form.value}
-                                onChange={(e) => setForm((p) => ({ ...p, value: e.target.value }))}
-                                style={inputStyle}
-                            />
-                        </div>
-                        <div></div>
-                        <div style={{ gridColumn: 'span 2' }}>
-                            <label style={{ display: 'block', fontSize: 13, color: '#374151', marginBottom: 4 }}>{t('rules.notes')}</label>
-                            <textarea
-                                rows={3}
-                                value={form.notes}
-                                onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
-                                style={{ ...inputStyle, resize: 'vertical', minHeight: 60 }}
-                            />
-                        </div>
-                        {submitError && (
-                            <div style={{ gridColumn: 'span 2', color: '#dc2626', fontSize: 13 }}>{submitError}</div>
-                        )}
-                    </div>
-                </div>
-            </WorkshopSubScreen>
-        );
-    }
-
     return (
-        <div style={{ padding: 16, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontSize: '1.0625rem', fontWeight: 700 }}>{t('rules.title')}</h3>
-                <span style={{ color: '#6b7280', fontSize: 13 }}>
-                    {t('rules.subtitle')}
-                </span>
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                    <div style={{ position: 'relative' }}>
-                        <Search size={14} color="#6b7280" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+        <div className="wcr-list">
+            <div className="wcr-list__head">
+                <div>
+                    <h3 className="wcr-list__title">{t('rules.title')}</h3>
+                    <p className="wcr-list__sub">{t('rules.subtitle')}</p>
+                </div>
+                <div className="wcr-list__actions">
+                    <label className="wcr-search">
+                        <Search size={15} aria-hidden />
                         <input
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
+                            className="wcr-input"
+                            type="search"
+                            value={searchInput}
+                            aria-label={t('rules.searchPlaceholder')}
                             placeholder={t('rules.searchPlaceholder')}
-                            style={{
-                                border: '1px solid #e5e7eb',
-                                borderRadius: 6,
-                                padding: '8px 12px 8px 30px',
-                                fontSize: 13,
-                                outline: 'none',
-                            }}
+                            onChange={(e) => setSearchInput(e.target.value)}
                         />
-                    </div>
-                    <button
-                        type="button"
-                        onClick={openCreate}
-                        style={{
-                            border: 'none',
-                            background: '#D4A017',
-                            color: '#fff',
-                            borderRadius: 6,
-                            padding: '8px 14px',
-                            display: 'inline-flex',
-                            gap: 6,
-                            alignItems: 'center',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                        }}
-                    >
-                        <Plus size={14} /> {t('rules.newRule')}
-                    </button>
+                    </label>
+                    {can('create') ? (
+                        <button type="button" className="wcr-new-btn" onClick={() => onOpenRule?.(null, false)}>
+                            <Plus size={16} aria-hidden /> {t('rules.newRule')}
+                        </button>
+                    ) : null}
                 </div>
             </div>
 
-            {error && <div style={{ color: '#dc2626', marginBottom: 8, fontSize: 13 }}>{error}</div>}
+            <div className="wcr-howto">
+                <Info size={16} aria-hidden />
+                <span>{t('rules.howItWorks')}</span>
+            </div>
 
-            <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="wcr-filters" role="tablist">
+                {filters.map((f) => (
+                    <button
+                        key={f}
+                        type="button"
+                        role="tab"
+                        aria-selected={filter === f}
+                        className={`wcr-filter${filter === f ? ' is-on' : ''}`}
+                        onClick={() => setFilter(f)}
+                    >
+                        {t(`rules.filter.${f}`)}
+                    </button>
+                ))}
+                {!loading ? (
+                    <span className="wcr-filters__count">{t('rules.count', { count: visibleRules.length })}</span>
+                ) : null}
+            </div>
+
+            {error ? <div className="wcr-error">{error}</div> : null}
+
+            <div className="wcr-table-wrap">
+                <table className="ws-table wcr-table">
                     <thead>
                         <tr>
-                            {tableHeaders.map((h) => (
-                                <th
-                                    key={h}
-                                    style={{
-                                        textAlign: 'left',
-                                        padding: '10px 8px',
-                                        fontSize: 12,
-                                        color: '#6b7280',
-                                        borderBottom: '1px solid #e5e7eb',
-                                    }}
-                                >
-                                    {h}
-                                </th>
+                            {headers.map((h) => (
+                                <th key={h}>{h}</th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={7} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} className="wcr-empty">
                                     {t('rules.loading')}
                                 </td>
                             </tr>
-                        ) : sortedRules.length === 0 ? (
+                        ) : visibleRules.length === 0 ? (
                             <tr>
-                                <td colSpan={7} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-                                    {t('rules.empty')}
+                                <td colSpan={headers.length} className="wcr-empty">
+                                    {search || filter !== 'all' ? t('rules.emptySearch') : t('rules.empty')}
                                 </td>
                             </tr>
                         ) : (
-                            sortedRules.map((r) => {
+                            visibleRules.map((r) => {
                                 const id = String(r.id);
-                                const amount = Number(r.value || 0);
-                                const value =
-                                    r.commissionType === 'Percentage'
-                                        ? t('rules.valuePercentFmt', { amount })
-                                        : t('money.sar', { amount: amount.toLocaleString() });
-                                const roleKey = ROLE_LABEL_KEY[r.employeeRole];
-                                const typeKey = TYPE_LABEL_KEY[r.commissionType];
-                                const statusKey =
-                                    (r.status || 'active').toLowerCase() === 'inactive'
-                                        ? 'rules.status.inactive'
-                                        : 'rules.status.active';
+                                const isPlatform = r.scope === 'platform' || r.readOnly;
+                                const inactive = r.status === 'inactive';
+                                const canEdit = !isPlatform && can('edit');
+                                const canDelete = !isPlatform && can('delete');
                                 return (
-                                    <tr key={id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{r.priority || 1}</td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ fontWeight: 600 }}>{r.serviceName || t('emDash')}</div>
-                                            {r.notes && (
-                                                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>{r.notes}</div>
-                                            )}
+                                    <tr key={id} className={inactive ? 'is-inactive' : undefined}>
+                                        <td>
+                                            <div className="wcr-rule-name">
+                                                {r.name || '—'}
+                                                {isPlatform ? (
+                                                    <span className="wcr-platform-tag" title={t('rules.badge.platformHint')}>
+                                                        <Lock size={11} aria-hidden />
+                                                        {t('rules.badge.platform')}
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                            {r.notes ? (
+                                                <div className="wcr-rule-notes" title={r.notes}>
+                                                    {r.notes}
+                                                </div>
+                                            ) : null}
                                         </td>
-                                        <td style={{ padding: '10px 8px', color: '#374151' }}>
-                                            {roleKey ? t(roleKey) : (r.employeeRole || t('rules.role.technician'))}
+                                        <td>
+                                            <ScopeChips rule={r} t={t} />
                                         </td>
-                                        <td style={{ padding: '10px 8px', color: '#374151' }}>
-                                            {typeKey ? t(typeKey) : (r.commissionType || t('rules.type.percentage'))}
+                                        <td>
+                                            <div className="wcr-role-cell">{roleLabel(r.employeeRole)}</div>
+                                            {(r.people || []).length ? (
+                                                <div className="wcr-scope">
+                                                    {(r.people.length > 2 ? r.people.slice(0, 2) : r.people).map((p) => (
+                                                        <span key={p.id} className="wcr-scope__chip wcr-scope__chip--person" title={p.name}>
+                                                            {p.name}
+                                                        </span>
+                                                    ))}
+                                                    {r.people.length > 2 ? (
+                                                        <span
+                                                            className="wcr-scope__chip wcr-scope__chip--person"
+                                                            title={r.people.slice(2).map((p) => p.name).join(', ')}
+                                                        >
+                                                            +{r.people.length - 2}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         </td>
-                                        <td style={{ padding: '10px 8px', fontWeight: 600 }}>{value}</td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <span
-                                                style={{
-                                                    background: (r.status || 'active') === 'active' ? '#dcfce7' : '#fee2e2',
-                                                    color: (r.status || 'active') === 'active' ? '#16a34a' : '#dc2626',
-                                                    padding: '2px 8px',
-                                                    borderRadius: 999,
-                                                    fontSize: 12,
-                                                    fontWeight: 600,
-                                                }}
-                                            >
-                                                {t(statusKey)}
+                                        <td className="wcr-rate-cell">
+                                            <bdi>{Number(r.value || 0)}%</bdi>
+                                        </td>
+                                        <td>{r.priority || 1}</td>
+                                        <td>
+                                            <span className={`ws-badge ws-badge--${inactive ? 'gray' : 'green'}`}>
+                                                {t(inactive ? 'rules.status.inactive' : 'rules.status.active')}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '10px 8px' }}>
+                                        <td>
                                             {pendingDeleteId === id ? (
-                                                <span style={{ display: 'inline-flex', gap: 8, fontSize: 12 }}>
+                                                <span className="wcr-confirm">
                                                     <span>{t('rules.deleteConfirm')}</span>
                                                     <button
                                                         type="button"
+                                                        className="is-danger"
                                                         onClick={() => onDelete(id)}
                                                         disabled={deleteLoadingId === id}
-                                                        style={{
-                                                            border: '1px solid #ef4444',
-                                                            background: '#fff',
-                                                            color: '#ef4444',
-                                                            borderRadius: 4,
-                                                            padding: '2px 8px',
-                                                            cursor: 'pointer',
-                                                        }}
                                                     >
                                                         {deleteLoadingId === id ? t('rules.deleting') : t('rules.yes')}
                                                     </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => setPendingDeleteId('')}
-                                                        style={{
-                                                            border: '1px solid #e5e7eb',
-                                                            background: '#fff',
-                                                            borderRadius: 4,
-                                                            padding: '2px 8px',
-                                                            cursor: 'pointer',
-                                                        }}
+                                                        disabled={deleteLoadingId === id}
                                                     >
                                                         {t('btn.cancel')}
                                                     </button>
                                                 </span>
                                             ) : (
-                                                <span style={{ display: 'inline-flex', gap: 12 }}>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openEdit(r)}
-                                                        title={t('rules.editTitle')}
-                                                        style={{
-                                                            border: 'none',
-                                                            background: 'transparent',
-                                                            color: '#6b7280',
-                                                            cursor: 'pointer',
-                                                            padding: 0,
-                                                        }}
-                                                    >
-                                                        <Pencil size={16} />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setPendingDeleteId(id)}
-                                                        title={t('rules.deleteTitle')}
-                                                        style={{
-                                                            border: 'none',
-                                                            background: 'transparent',
-                                                            color: '#ef4444',
-                                                            cursor: 'pointer',
-                                                            padding: 0,
-                                                        }}
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
+                                                <span className="wcr-actions">
+                                                    {canEdit ? (
+                                                        <button
+                                                            type="button"
+                                                            className="wcr-icon-btn"
+                                                            title={t('rules.editTitle')}
+                                                            aria-label={t('rules.editTitle')}
+                                                            onClick={() => onOpenRule?.(r, false)}
+                                                        >
+                                                            <Pencil size={15} />
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            className="wcr-icon-btn"
+                                                            title={t('rules.viewTitle')}
+                                                            aria-label={t('rules.viewTitle')}
+                                                            onClick={() => onOpenRule?.(r, true)}
+                                                        >
+                                                            <Eye size={15} />
+                                                        </button>
+                                                    )}
+                                                    {canDelete ? (
+                                                        <button
+                                                            type="button"
+                                                            className="wcr-icon-btn wcr-icon-btn--danger"
+                                                            title={t('rules.deleteTitle')}
+                                                            aria-label={t('rules.deleteTitle')}
+                                                            onClick={() => setPendingDeleteId(id)}
+                                                        >
+                                                            <Trash2 size={15} />
+                                                        </button>
+                                                    ) : null}
                                                 </span>
                                             )}
                                         </td>
@@ -560,17 +360,6 @@ export default function WorkshopCommissionRules({ locale: localeProp } = {}) {
                     </tbody>
                 </table>
             </div>
-
         </div>
     );
 }
-
-const inputStyle = {
-    width: '100%',
-    border: '1px solid #e5e7eb',
-    borderRadius: 6,
-    padding: '8px 10px',
-    fontSize: 13,
-    outline: 'none',
-    boxSizing: 'border-box',
-};

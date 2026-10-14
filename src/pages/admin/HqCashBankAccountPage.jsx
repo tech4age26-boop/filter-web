@@ -13,9 +13,10 @@ import {
 } from '../../utils/accountingWorkshopScope';
 import { loadSaAccountingScope } from './saAccountingScope';
 import '../../styles/admin/AccountingPage.css';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function todayIsoDate() {
-    return new Date().toISOString().slice(0, 10);
+    return toRiyadhDateISO();
 }
 
 function uiCashBankTypeToApi(ui) {

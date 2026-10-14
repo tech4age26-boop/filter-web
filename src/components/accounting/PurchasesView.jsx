@@ -7,6 +7,7 @@ import {
     getSummary,
 } from '../../services/purchasesApi';
 import { getAccounts } from '../../services/accountsApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -46,7 +47,7 @@ export default function PurchasesView({ readOnly = false }) {
     const [showDiscount, setShowDiscount] = useState(true);
     const [taxInclusive, setTaxInclusive] = useState(false);
     const [form, setForm] = useState({
-        issueDate: new Date().toISOString().slice(0, 10),
+        issueDate: toRiyadhDateISO(),
         dueDateType: 'Net',
         netDays: 30,
         customDueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),

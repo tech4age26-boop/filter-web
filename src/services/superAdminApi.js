@@ -1,4 +1,5 @@
 import { apiFetch, BASE_URL, getAuthToken } from './api';
+import { toRiyadhDateISO } from '../utils/riyadhBusinessRange';
 
 // Build query string — skips undefined/null/empty values
 function qs(params) {
@@ -412,7 +413,7 @@ export async function downloadProductsCsv() {
     const match = /filename="?([^";\n]+)"?/i.exec(disposition);
     const filename =
         match?.[1]?.trim() ||
-        `master-catalog-products-${new Date().toISOString().slice(0, 10)}.csv`;
+        `master-catalog-products-${toRiyadhDateISO()}.csv`;
 
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement('a');

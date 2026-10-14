@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { clearLastActivityTimestamp, touchLastActivityTimestamp } from '../utils/sessionIdle';
+import { BASE_URL, PERMISSION_DENIED_EVENT } from '../services/api';
+import { createStableContext } from '../utils/stableContext';
 
-const AuthContext = createContext(null);
+const AuthContext = createStableContext('auth', null);
 
 /**
  * Whether `user` has permission `code`.
@@ -39,14 +41,18 @@ function userHas(user, permissionSet, code) {
     if (!code) return true;
     if (!user) return false;
 
-    // 1. Super-admin bypass
-    if (user.userType === 'platform_admin' && (!user.role || user.role?.isSystem)) {
+    // 1. Super-admin bypass (a per-user override is still enforced, like the API guard)
+    if (
+        user.userType === 'platform_admin'
+        && user.permissionSource !== 'override'
+        && (!user.role || user.role?.isSystem)
+    ) {
         return true;
     }
     // 2. Legacy / pre-Phase-2 session — no permissions field at all
     if (!permissionSet) return true;
-    // 3. Fresh signup — no role assigned yet → default = everything visible
-    if (!user.role) return true;
+    // 3. Fresh signup — no role and no per-user override → default = everything visible
+    if (!user.role && user.permissionSource !== 'override') return true;
     // 4. Wallet-enabled workshop users — My Wallet + Platform Chat
     if (user.walletEnabled && WALLET_IMPLICIT_PERMISSIONS.has(code)) {
         return true;
@@ -59,10 +65,42 @@ function userHas(user, permissionSet, code) {
     ) {
         return true;
     }
-    // 5. Role assigned → strict check (empty role.permissions blocks everything)
+    // 5. Role or override assigned → strict check (an empty list blocks everything)
     if (permissionSet.has(code)) return true;
     const aliases = WORKSHOP_CHAT_PERMISSION_ALIASES[code];
     return Boolean(aliases?.some((alias) => permissionSet.has(alias)));
+}
+
+const SESSION_ACCESS_POLL_MS = 60 * 1000;
+const SESSION_ACCESS_MIN_GAP_MS = 3 * 1000;
+const SESSION_ACCESS_KEYS = [
+    'role',
+    'permissions',
+    'permissionSource',
+    'branchId',
+    'branchName',
+    'lockerPortalRole',
+    'workshopStaffRole',
+    'walletEnabled',
+];
+
+function comparableAccessValue(key, value) {
+    if (key === 'permissions' && Array.isArray(value)) {
+        return JSON.stringify([...value].map(String).sort());
+    }
+    return JSON.stringify(value ?? null);
+}
+
+/** Fields of the live `/auth/session-access` payload that differ from the stored session. */
+function changedAccessFields(user, access) {
+    const patch = {};
+    for (const key of SESSION_ACCESS_KEYS) {
+        if (!(key in access)) continue;
+        if (comparableAccessValue(key, user?.[key]) !== comparableAccessValue(key, access[key])) {
+            patch[key] = access[key];
+        }
+    }
+    return Object.keys(patch).length ? patch : null;
 }
 
 export const AuthProvider = ({ children }) => {
@@ -135,6 +173,69 @@ export const AuthProvider = ({ children }) => {
             return next;
         });
     };
+
+    const userRef = useRef(user);
+    useEffect(() => {
+        userRef.current = user;
+    }, [user]);
+
+    const syncInFlightRef = useRef(false);
+    const lastSyncAtRef = useRef(0);
+    const permissionAware = Array.isArray(user?.permissions);
+
+    /**
+     * Pull the user's current role / permissions so menus follow role changes made
+     * after login (otherwise the menu keeps showing pages the API now rejects).
+     * Plain fetch on purpose: `apiFetch` counts as user activity and would defeat
+     * the idle logout when polled.
+     */
+    const syncSessionAccess = useCallback(async () => {
+        if (!token || !Array.isArray(userRef.current?.permissions)) return;
+        const now = Date.now();
+        if (syncInFlightRef.current || now - lastSyncAtRef.current < SESSION_ACCESS_MIN_GAP_MS) return;
+        syncInFlightRef.current = true;
+        lastSyncAtRef.current = now;
+        try {
+            const res = await fetch(`${BASE_URL}/auth/session-access`, {
+                headers: { Accept: 'application/json', Authorization: `Bearer ${token.trim()}` },
+            });
+            if (!res.ok) return;
+            const body = await res.json().catch(() => null);
+            if (!body?.access || localStorage.getItem('filter_auth_token') !== token) return;
+            const patch = changedAccessFields(userRef.current, body.access);
+            if (!patch) return;
+            setUser((prev) => {
+                if (!prev) return prev;
+                const next = { ...prev, ...patch };
+                localStorage.setItem('filter_auth_user', JSON.stringify(next));
+                return next;
+            });
+        } catch {
+            // Offline or older API — keep the login snapshot.
+        } finally {
+            syncInFlightRef.current = false;
+        }
+    }, [token]);
+
+    useEffect(() => {
+        if (!token || !permissionAware) return undefined;
+        syncSessionAccess();
+        const timer = window.setInterval(() => {
+            if (document.visibilityState === 'visible') syncSessionAccess();
+        }, SESSION_ACCESS_POLL_MS);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') syncSessionAccess();
+        };
+        window.addEventListener('focus', syncSessionAccess);
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener(PERMISSION_DENIED_EVENT, syncSessionAccess);
+        return () => {
+            window.clearInterval(timer);
+            window.removeEventListener('focus', syncSessionAccess);
+            document.removeEventListener('visibilitychange', onVisible);
+            window.removeEventListener(PERMISSION_DENIED_EVENT, syncSessionAccess);
+        };
+    }, [token, permissionAware, syncSessionAccess]);
 
     const permissions = useMemo(() => {
         const arr = Array.isArray(user?.permissions) ? user.permissions : null;

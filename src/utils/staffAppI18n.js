@@ -1,5 +1,6 @@
 /** Staff App Management UI copy — keyed by portal locale (`en` | `ar`). */
-import { createContext, useContext } from 'react';
+import { useContext } from 'react';
+import { createStableContext } from './stableContext';
 
 const STAFF_APP_I18N = {
     en: {
@@ -837,7 +838,7 @@ export const CHAT_PURPOSE_KEYS = [
     { value: 'approvals', labelKey: 'chat.purpose.approvals' },
 ];
 
-export const StaffAppI18nContext = createContext({
+export const StaffAppI18nContext = createStableContext('staff-app-i18n', {
     locale: 'en',
     t: (key, vars) => staffAppT('en', key, vars),
 });

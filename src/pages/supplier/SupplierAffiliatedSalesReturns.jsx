@@ -18,6 +18,7 @@ import { mapSupplierAffiliatedReturnForView } from '../../utils/mapAffiliatedRet
 import { supplierProfileFromApi } from '../../utils/supplierProfile';
 import { ssrT } from '../../utils/supplierSalesReturnsI18n';
 import '../../styles/admin/AccountingPage.css';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function sarFmt(v) {
     return Number(v ?? 0).toLocaleString(undefined, {
@@ -161,7 +162,7 @@ export default function SupplierAffiliatedSalesReturns({ locale: localeProp }) {
     const [returnHistory, setReturnHistory] = useState([]);
     const [lineQty, setLineQty] = useState({});
     const [lineReason, setLineReason] = useState({});
-    const [returnDate, setReturnDate] = useState(new Date().toISOString().slice(0, 10));
+    const [returnDate, setReturnDate] = useState(toRiyadhDateISO());
     const [reference, setReference] = useState('');
     const [description, setDescription] = useState('');
     const [notes, setNotes] = useState('');
@@ -284,7 +285,7 @@ export default function SupplierAffiliatedSalesReturns({ locale: localeProp }) {
         setReference('');
         setDescription('');
         setNotes('');
-        setReturnDate(new Date().toISOString().slice(0, 10));
+        setReturnDate(toRiyadhDateISO());
         setFormOpen(true);
         void loadSalesInvoicesForPicker();
     };

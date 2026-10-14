@@ -12,6 +12,7 @@ import { getAccounts } from '../../services/accountsApi';
 import { apiFetch } from '../../services/api';
 import { createJournalEntry } from '../../services/journalEntriesApi';
 import { createPayments, createReceipts, getRecentTransactions } from '../../services/transactionsApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -30,7 +31,7 @@ const parseArr = (res) => {
 const makeRow = (prefix, idx) => ({
     id: `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     voucher: `${prefix}${String(idx).padStart(4, '0')}`,
-    date: new Date().toISOString().slice(0, 10),
+    date: toRiyadhDateISO(),
     payeeType: prefix === 'PE' ? 'Supplier' : 'Customer',
     payeeName: '',
     accountId: '',
@@ -41,7 +42,7 @@ const makeRow = (prefix, idx) => ({
 
 export default function TransactionEntryView({ readOnly = false }) {
     const [activeTab, setActiveTab] = useState('Payments');
-    const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    const [date, setDate] = useState(toRiyadhDateISO());
     const [generalNote, setGeneralNote] = useState('');
     const [selectedPaidFromAccountId, setSelectedPaidFromAccountId] = useState('');
     const [selectedReceivedIntoAccountId, setSelectedReceivedIntoAccountId] = useState('');

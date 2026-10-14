@@ -51,6 +51,7 @@ import {
 } from '../../services/supplierAccountingApi';
 import { activeLeafAccounts } from './accounting/SupplierAccountingShared';
 import SupplierAccountingCombobox from './accounting/SupplierAccountingCombobox';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 function localizeCustomerGroup(group, t) {
     const g = String(group || '').trim();
@@ -302,7 +303,7 @@ function salesInvoiceMgrStatus(inv, t) {
     const balance = Number(inv?.balance ?? 0);
     const paid = Number(inv?.paid ?? 0);
     const due = String(inv?.dueDate ?? '').slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toRiyadhDateISO();
     if (balance <= 0.005) {
         return { label: t('status.paidInFull'), cls: 'mgr-si-status mgr-si-status--paid' };
     }
@@ -352,7 +353,7 @@ function mapSupplierCashBankAccountForPickers(raw, t = (k, v) => ssiT('en', k, v
 
 /** Prefill payload for Accounting → Transaction Hub → Receipts tab. */
 function buildTransactionHubReceiptPrefill(inv, t = (k, v) => ssiT('en', k, v)) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toRiyadhDateISO();
     const balance = Number(inv?.balance ?? 0);
     let payeeValue = '';
     if (inv?.branchId != null && String(inv.branchId).trim() !== '') {
@@ -1105,7 +1106,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     const [editingInvoiceStatus, setEditingInvoiceStatus] = useState(null);
     const saveErrorRef = useRef(null);
 
-    const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
+    const [issueDate, setIssueDate] = useState(() => toRiyadhDateISO());
     const [dueDateType, setDueDateType] = useState('Net');
     const [netDays, setNetDays] = useState(30);
     const [customDueDate, setCustomDueDate] = useState('');
@@ -1657,7 +1658,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
     };
 
     const resetInvoiceForm = () => {
-        setIssueDate(new Date().toISOString().slice(0, 10));
+        setIssueDate(toRiyadhDateISO());
         setDueDateType('Net');
         setNetDays(30);
         setCustomDueDate('');
@@ -2615,7 +2616,7 @@ export default function SupplierSalesInvoices({ locale: localeProp } = {}) {
                 return hay.includes(q);
             });
         }
-        const today = new Date().toISOString().slice(0, 10);
+        const today = toRiyadhDateISO();
         if (invoiceListFilter === 'unpaid') {
             rows = rows.filter((inv) => Number(inv.balance ?? 0) > 0.005);
         } else if (invoiceListFilter === 'paid') {

@@ -3,7 +3,8 @@ import { DollarSign, RefreshCw, TrendingUp } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
 import LockerFilterBar from './LockerFilterBar';
-import { buildLockerFilterQuery, defaultHistoryDateRange, fmtSar } from './lockerFilterUtils';
+import { buildLockerFilterQuery, defaultHistoryDateRange } from './lockerFilterUtils';
+import { useLockerPortal } from './useLockerPortal';
 
 const EMPTY_FILTERS = {
     from: '',
@@ -18,6 +19,8 @@ export default function CollectionsHistory({
     branches: layoutBranches = null,
     branchLockedId = null,
 } = {}) {
+    const { t, money, dateTime, statusLabel } = useLockerPortal();
+    const dash = t('emdash');
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [rows, setRows] = useState([]);
     const [summary, setSummary] = useState(null);
@@ -73,11 +76,11 @@ export default function CollectionsHistory({
             setRows(Array.isArray(list) ? list : []);
             setSummary(res?.summary || null);
         } catch (e) {
-            setError(e?.message || 'Failed to load history');
+            setError(e?.message || t('hist.loadError'));
         } finally {
             setLoading(false);
         }
-    }, [appliedFilters]);
+    }, [appliedFilters, t]);
 
     useEffect(() => {
         load(appliedFilters);
@@ -100,8 +103,8 @@ export default function CollectionsHistory({
         <div>
             <div className="ws-page-header" style={{ alignItems: 'center' }}>
                 <div>
-                    <h2 className="ws-page-title">Collections History</h2>
-                    <p className="ws-page-sub">Past cash collection records</p>
+                    <h2 className="ws-page-title">{t('hist.title')}</h2>
+                    <p className="ws-page-sub">{t('hist.sub')}</p>
                 </div>
                 <button
                     className="btn-secondary"
@@ -109,7 +112,7 @@ export default function CollectionsHistory({
                     disabled={loading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -131,9 +134,9 @@ export default function CollectionsHistory({
             <div className="ws-kpi-grid wlk-summary-kpi">
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Expected Amount</p>
-                        <p className="ws-kpi-value">{fmtSar(summary?.totalExpected)}</p>
-                        <p className="ws-kpi-sub">Filtered collections</p>
+                        <p className="ws-kpi-label">{t('hist.expected')}</p>
+                        <p className="ws-kpi-value">{money(summary?.totalExpected)}</p>
+                        <p className="ws-kpi-sub">{t('hist.expectedSub')}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--blue">
                         <DollarSign size={22} />
@@ -141,9 +144,9 @@ export default function CollectionsHistory({
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Received Amount</p>
-                        <p className="ws-kpi-value">{fmtSar(summary?.totalReceived)}</p>
-                        <p className="ws-kpi-sub">Cash collected</p>
+                        <p className="ws-kpi-label">{t('hist.received')}</p>
+                        <p className="ws-kpi-value">{money(summary?.totalReceived)}</p>
+                        <p className="ws-kpi-sub">{t('hist.receivedSub')}</p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--green">
                         <DollarSign size={22} />
@@ -151,12 +154,16 @@ export default function CollectionsHistory({
                 </div>
                 <div className="ws-kpi-card">
                     <div>
-                        <p className="ws-kpi-label">Differences</p>
-                        <p className="ws-kpi-value">{fmtSar(summary?.totalDifference)}</p>
+                        <p className="ws-kpi-label">{t('hist.diff')}</p>
+                        <p className="ws-kpi-value">{money(summary?.totalDifference)}</p>
                         <p className="ws-kpi-sub">
-                            Over {summary?.overCount ?? 0} ({fmtSar(summary?.overAmount)}) · Short{' '}
-                            {summary?.shortCount ?? 0} ({fmtSar(summary?.shortAmount)}) · Matched{' '}
-                            {summary?.matchedCount ?? 0}
+                            {t('hist.diffSub', {
+                                over: summary?.overCount ?? 0,
+                                overAmount: money(summary?.overAmount),
+                                short: summary?.shortCount ?? 0,
+                                shortAmount: money(summary?.shortAmount),
+                                matched: summary?.matchedCount ?? 0,
+                            })}
                         </p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--yellow">
@@ -169,22 +176,22 @@ export default function CollectionsHistory({
                 <table className="ws-table">
                     <thead>
                         <tr>
-                            <th>Request #</th>
-                            <th>Branch</th>
-                            <th>Cashier</th>
-                            <th>Officer</th>
-                            <th>Date</th>
-                            <th>Expected</th>
-                            <th>Received</th>
-                            <th>Difference</th>
-                            <th>Match</th>
+                            <th>{t('common.requestNo')}</th>
+                            <th>{t('common.branch')}</th>
+                            <th>{t('common.cashier')}</th>
+                            <th>{t('common.officer')}</th>
+                            <th>{t('common.date')}</th>
+                            <th>{t('common.expected')}</th>
+                            <th>{t('common.received')}</th>
+                            <th>{t('common.difference')}</th>
+                            <th>{t('hist.match')}</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.length === 0 ? (
                             <tr>
                                 <td colSpan={9} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
-                                    No history matches filters
+                                    {t('hist.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -195,15 +202,15 @@ export default function CollectionsHistory({
                                             {c.referenceCode || c.requestReference || c.id}
                                         </strong>
                                     </td>
-                                    <td>{c.branchName || '—'}</td>
-                                    <td>{c.cashierName || c.cashier?.name || '—'}</td>
-                                    <td>{c.officerName || '—'}</td>
+                                    <td>{c.branchName || dash}</td>
+                                    <td>{c.cashierName || c.cashier?.name || dash}</td>
+                                    <td>{c.officerName || dash}</td>
                                     <td style={{ fontSize: '0.8rem' }}>
-                                        {c.collectedAt ? new Date(c.collectedAt).toLocaleString() : '—'}
+                                        {dateTime(c.collectedAt)}
                                     </td>
-                                    <td>{fmtSar(c.expectedAmount)}</td>
+                                    <td>{money(c.expectedAmount)}</td>
                                     <td>
-                                        <strong>{fmtSar(c.receivedAmount ?? c.receivedFund)}</strong>
+                                        <strong>{money(c.receivedAmount ?? c.receivedFund)}</strong>
                                     </td>
                                     <td
                                         style={{
@@ -216,9 +223,9 @@ export default function CollectionsHistory({
                                                     : '#059669',
                                         }}
                                     >
-                                        {Number(c.difference) === 0 ? '—' : fmtSar(c.difference)}
+                                        {Number(c.difference) === 0 ? dash : money(c.difference)}
                                     </td>
-                                    <td>{c.matchStatus || c.status || '—'}</td>
+                                    <td>{statusLabel(c.matchStatus || c.status)}</td>
                                 </tr>
                             ))
                         )}

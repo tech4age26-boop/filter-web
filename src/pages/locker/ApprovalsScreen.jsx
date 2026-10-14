@@ -1,17 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
-
-const fmtSar = (n) =>
-    `SAR ${Number(n || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    })}`;
+import { useLockerPortal } from './useLockerPortal';
 
 export default function ApprovalsScreen({
     selectedBranchId = 'all',
     branchLockedId = null,
 } = {}) {
+    const { t, can, money, dateTime, statusLabel } = useLockerPortal();
+    const canDecide = can('approvals.decide');
     const [approvals, setApprovals] = useState([]);
     const [loading, setLoading] = useState(false);
     const [busyId, setBusyId] = useState(null);
@@ -26,11 +23,11 @@ export default function ApprovalsScreen({
             const res = await apiFetch(`/locker/approvals${q}`);
             setApprovals(res?.approvals || []);
         } catch (e) {
-            setError(e?.message || 'Failed to load approvals');
+            setError(e?.message || t('approvals.loadError'));
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, branchLockedId]);
+    }, [selectedBranchId, branchLockedId, t]);
 
     useEffect(() => {
         load();
@@ -39,7 +36,7 @@ export default function ApprovalsScreen({
     const review = async (collectionId, status) => {
         let rejectionReason;
         if (status === 'rejected') {
-            rejectionReason = window.prompt('Reason for rejection?') || '';
+            rejectionReason = window.prompt(t('common.rejectPrompt')) || '';
             if (!rejectionReason.trim()) return;
         }
         setBusyId(collectionId);
@@ -48,10 +45,10 @@ export default function ApprovalsScreen({
                 method: 'POST',
                 body: JSON.stringify({ collectionId, status, rejectionReason }),
             });
-            if (res?.success === false) throw new Error(res?.message || 'Failed');
+            if (res?.success === false) throw new Error(res?.message || t('approvals.updateError'));
             await load();
         } catch (e) {
-            alert(e?.message || 'Failed to update approval');
+            alert(e?.message || t('approvals.updateError'));
         } finally {
             setBusyId(null);
         }
@@ -61,10 +58,8 @@ export default function ApprovalsScreen({
         <div>
             <div className="ws-page-header" style={{ alignItems: 'center' }}>
                 <div>
-                    <h2 className="ws-page-title">Pending Approvals</h2>
-                    <p className="ws-page-sub">
-                        Cash difference approvals — locker supervisor &amp; workshop admin
-                    </p>
+                    <h2 className="ws-page-title">{t('approvals.title')}</h2>
+                    <p className="ws-page-sub">{t('approvals.sub')}</p>
                 </div>
                 <button
                     className="btn-secondary"
@@ -72,7 +67,7 @@ export default function ApprovalsScreen({
                     disabled={loading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={14} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -80,7 +75,7 @@ export default function ApprovalsScreen({
 
             {approvals.length === 0 ? (
                 <div className="ws-section" style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>
-                    No variance awaiting approval
+                    {t('approvals.empty')}
                 </div>
             ) : (
                 approvals.map((a) => (
@@ -91,10 +86,11 @@ export default function ApprovalsScreen({
                                     {a.branchName} — {a.cashierName}
                                 </p>
                                 <p className="ws-approval-meta">
-                                    Officer: {a.officerName} · Expected {fmtSar(a.expectedAmount)} ·
-                                    Received {fmtSar(a.receivedAmount)} · Diff {fmtSar(a.difference)}
-                                    {a.notes ? ` · ${a.notes}` : ''} ·{' '}
-                                    {new Date(a.date).toLocaleString()}
+                                    {t('approvals.officer', { name: a.officerName || t('emdash') })} ·{' '}
+                                    {t('approvals.expected', { amount: money(a.expectedAmount) })} ·{' '}
+                                    {t('approvals.received', { amount: money(a.receivedAmount) })} ·{' '}
+                                    {t('approvals.diff', { amount: money(a.difference) })}
+                                    {a.notes ? ` · ${a.notes}` : ''} · {dateTime(a.date)}
                                 </p>
                             </div>
                             <span
@@ -102,25 +98,27 @@ export default function ApprovalsScreen({
                                     a.status === 'short' ? 'ws-badge--red' : 'ws-badge--green'
                                 }`}
                             >
-                                {a.status}
+                                {statusLabel(a.status)}
                             </span>
                         </div>
-                        <div className="ws-approval-actions">
-                            <button
-                                className="ws-btn-approve"
-                                onClick={() => review(a.id, 'approved')}
-                                disabled={busyId === a.id}
-                            >
-                                Approve
-                            </button>
-                            <button
-                                className="ws-btn-reject"
-                                onClick={() => review(a.id, 'rejected')}
-                                disabled={busyId === a.id}
-                            >
-                                Reject
-                            </button>
-                        </div>
+                        {canDecide ? (
+                            <div className="ws-approval-actions">
+                                <button
+                                    className="ws-btn-approve"
+                                    onClick={() => review(a.id, 'approved')}
+                                    disabled={busyId === a.id}
+                                >
+                                    {t('common.approve')}
+                                </button>
+                                <button
+                                    className="ws-btn-reject"
+                                    onClick={() => review(a.id, 'rejected')}
+                                    disabled={busyId === a.id}
+                                >
+                                    {t('common.reject')}
+                                </button>
+                            </div>
+                        ) : null}
                     </div>
                 ))
             )}

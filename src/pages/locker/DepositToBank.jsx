@@ -2,14 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Send, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
-
-const fmtSar = (n) =>
-    `SAR ${Number(n || 0).toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    })}`;
+import { useLockerPortal } from './useLockerPortal';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 export default function DepositToBank() {
+    const { t, can, money, dateTime } = useLockerPortal();
+    const canCreate = can('deposits.create');
     const [accounts, setAccounts] = useState([]);
     const [overview, setOverview] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -18,7 +16,7 @@ export default function DepositToBank() {
         cashBankAccountId: '',
         amount: '',
         reference: '',
-        depositedAt: new Date().toISOString().slice(0, 10),
+        depositedAt: toRiyadhDateISO(),
     });
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(null);
@@ -40,11 +38,11 @@ export default function DepositToBank() {
             setOverview(adminOverview);
             setHistory(adminOverview?.recentBankDeposits || []);
         } catch (e) {
-            setError(e?.message || 'Failed to load data');
+            setError(e?.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [t]);
 
     useEffect(() => {
         load();
@@ -61,18 +59,16 @@ export default function DepositToBank() {
         setSuccess(null);
         const amt = Number(form.amount);
         if (!form.cashBankAccountId) {
-            setError('Select a bank register');
+            setError(t('deposit.errSelectRegister'));
             return;
         }
         if (!(amt > 0)) {
-            setError('Amount must be greater than 0');
+            setError(t('err.amountPositive'));
             return;
         }
         if (amt > lockerBalance + 0.01) {
             const ok = window.confirm(
-                `Deposit amount ${fmtSar(amt)} is greater than locker vault balance ${fmtSar(
-                    lockerBalance,
-                )}. Continue anyway?`,
+                t('confirm.overVault', { amount: money(amt), balance: money(lockerBalance) }),
             );
             if (!ok) return;
         }
@@ -87,12 +83,12 @@ export default function DepositToBank() {
                     depositedAt: form.depositedAt || undefined,
                 }),
             });
-            if (res?.success === false) throw new Error(res?.message || 'Failed to deposit');
+            if (res?.success === false) throw new Error(res?.message || t('deposit.errDeposit'));
             setSuccess(res);
             setForm((f) => ({ ...f, amount: '', reference: '' }));
             await load();
         } catch (e) {
-            setError(e?.message || 'Deposit failed');
+            setError(e?.message || t('deposit.errDeposit'));
         } finally {
             setSubmitting(false);
         }
@@ -107,14 +103,11 @@ export default function DepositToBank() {
         <div className="wlk-page">
             <div className="wlk-topbar">
                 <div>
-                    <h2 className="wlk-title">Deposit to Bank</h2>
-                    <p className="wlk-subtitle">
-                        Move collected cash from the locker vault (1004) into a workshop
-                        bank register. This posts the GL entry automatically.
-                    </p>
+                    <h2 className="wlk-title">{t('deposit.title')}</h2>
+                    <p className="wlk-subtitle">{t('deposit.sub')}</p>
                 </div>
                 <button className="btn-secondary" onClick={load} disabled={loading}>
-                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> Refresh
+                    <RefreshCw size={16} className={loading ? 'spin' : ''} /> {t('common.refresh')}
                 </button>
             </div>
 
@@ -122,127 +115,134 @@ export default function DepositToBank() {
                 <div className="wlk-stat wlk-stat--info">
                     <div className="wlk-stat-icon"><Send size={18} /></div>
                     <div className="wlk-stat-body">
-                        <div className="wlk-stat-label">Locker vault balance</div>
-                        <div className="wlk-stat-value">{fmtSar(lockerBalance)}</div>
-                        <div className="wlk-stat-hint">1004 Locker Cash</div>
+                        <div className="wlk-stat-label">{t('common.vaultBalance')}</div>
+                        <div className="wlk-stat-value">{money(lockerBalance)}</div>
+                        <div className="wlk-stat-hint">{t('common.vaultHint')}</div>
                     </div>
                 </div>
             </div>
 
-            <form className="wlk-create-user" onSubmit={submit}>
-                {error ? (
-                    <div className="wlk-error" style={{ marginBottom: 12 }}>
-                        <AlertTriangle size={14} /> {error}
-                    </div>
-                ) : null}
-                {success ? (
-                    <div
-                        className="wlk-error"
-                        style={{
-                            marginBottom: 12,
-                            background: '#dcfce7',
-                            color: '#15803d',
-                            borderColor: '#bbf7d0',
-                        }}
-                    >
-                        <CheckCircle size={14} /> Deposit recorded — JE #{success.journalId},
-                        reference <code>{success.reference}</code>
-                    </div>
-                ) : null}
-                <div className="wlk-grid wlk-grid--form">
-                    <label>
-                        <span>Bank register</span>
-                        <select
-                            value={form.cashBankAccountId}
-                            onChange={(e) =>
-                                setForm((f) => ({ ...f, cashBankAccountId: e.target.value }))
-                            }
-                            required
+            {canCreate ? (
+                <form className="wlk-create-user" onSubmit={submit}>
+                    {error ? (
+                        <div className="wlk-error" style={{ marginBottom: 12 }}>
+                            <AlertTriangle size={14} /> {error}
+                        </div>
+                    ) : null}
+                    {success ? (
+                        <div
+                            className="wlk-error"
+                            style={{
+                                marginBottom: 12,
+                                background: '#dcfce7',
+                                color: '#15803d',
+                                borderColor: '#bbf7d0',
+                            }}
                         >
-                            <option value="">Select bank register…</option>
-                            {accounts.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                    {a.name}
-                                    {a.branch?.name ? ` — ${a.branch.name}` : ''}
-                                    {a.currentBalance != null ? ` (${fmtSar(a.currentBalance)})` : ''}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-                    <label>
-                        <span>Amount (SAR)</span>
-                        <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={form.amount}
-                            onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                            required
-                        />
-                    </label>
-                    <label>
-                        <span>Deposit date</span>
-                        <input
-                            type="date"
-                            value={form.depositedAt}
-                            onChange={(e) =>
-                                setForm((f) => ({ ...f, depositedAt: e.target.value }))
-                            }
-                        />
-                    </label>
-                    <label>
-                        <span>Reference (optional)</span>
-                        <input
-                            value={form.reference}
-                            onChange={(e) =>
-                                setForm((f) => ({ ...f, reference: e.target.value }))
-                            }
-                            placeholder="Bank slip #, branch run, etc."
-                        />
-                    </label>
+                            <CheckCircle size={14} /> {t('deposit.success', { je: success.journalId })}{' '}
+                            <code>{success.reference}</code>
+                        </div>
+                    ) : null}
+                    <div className="wlk-grid wlk-grid--form">
+                        <label>
+                            <span>{t('deposit.register')}</span>
+                            <select
+                                value={form.cashBankAccountId}
+                                onChange={(e) =>
+                                    setForm((f) => ({ ...f, cashBankAccountId: e.target.value }))
+                                }
+                                required
+                            >
+                                <option value="">{t('deposit.selectRegister')}</option>
+                                {accounts.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                        {a.name}
+                                        {a.branch?.name ? ` — ${a.branch.name}` : ''}
+                                        {a.currentBalance != null ? ` (${money(a.currentBalance)})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <label>
+                            <span>{t('common.amountSar')}</span>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={form.amount}
+                                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                                required
+                            />
+                        </label>
+                        <label>
+                            <span>{t('deposit.date')}</span>
+                            <input
+                                type="date"
+                                value={form.depositedAt}
+                                onChange={(e) =>
+                                    setForm((f) => ({ ...f, depositedAt: e.target.value }))
+                                }
+                            />
+                        </label>
+                        <label>
+                            <span>{t('common.referenceOptional')}</span>
+                            <input
+                                value={form.reference}
+                                onChange={(e) =>
+                                    setForm((f) => ({ ...f, reference: e.target.value }))
+                                }
+                                placeholder={t('deposit.refPh')}
+                            />
+                        </label>
+                    </div>
+                    {selectedAcc ? (
+                        <p className="wlk-stat-hint" style={{ marginTop: 8 }}>
+                            {t('deposit.willCreditBefore')} <strong>{selectedAcc.name}</strong> (
+                            {selectedAcc.coaAccount?.code}) {t('deposit.willCreditAfter')}
+                        </p>
+                    ) : null}
+                    <div className="wlk-create-user-footer">
+                        <button className="btn-primary" type="submit" disabled={submitting}>
+                            <Send size={14} /> {submitting ? t('common.posting') : t('deposit.submit')}
+                        </button>
+                    </div>
+                </form>
+            ) : error ? (
+                <div className="wlk-error" style={{ marginBottom: 12 }}>
+                    <AlertTriangle size={14} /> {error}
                 </div>
-                {selectedAcc ? (
-                    <p className="wlk-stat-hint" style={{ marginTop: 8 }}>
-                        Will credit <strong>{selectedAcc.name}</strong> ({selectedAcc.coaAccount?.code}) and clear locker vault by the same amount.
-                    </p>
-                ) : null}
-                <div className="wlk-create-user-footer">
-                    <button className="btn-primary" type="submit" disabled={submitting}>
-                        <Send size={14} /> {submitting ? 'Posting…' : 'Deposit & Post GL'}
-                    </button>
-                </div>
-            </form>
+            ) : null}
 
             <div className="wlk-section">
                 <div className="wlk-section-header">
-                    <h3>Recent locker → bank deposits<span className="wlk-count">{history.length}</span></h3>
+                    <h3>{t('deposit.recent')}<span className="wlk-count">{history.length}</span></h3>
                 </div>
                 <div className="wlk-section-body">
                     <table className="wlk-table">
                         <thead>
                             <tr>
-                                <th>Reference</th>
-                                <th>Register</th>
-                                <th>Branch</th>
-                                <th>Amount</th>
-                                <th>Date</th>
+                                <th>{t('common.reference')}</th>
+                                <th>{t('deposit.th.register')}</th>
+                                <th>{t('common.branch')}</th>
+                                <th>{t('common.amount')}</th>
+                                <th>{t('common.date')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {history.length === 0 ? (
                                 <tr>
                                     <td colSpan={5} className="wlk-empty">
-                                        No deposits yet
+                                        {t('deposit.empty')}
                                     </td>
                                 </tr>
                             ) : (
                                 history.map((d) => (
                                     <tr key={d.id}>
-                                        <td><code>{d.reference || '—'}</code></td>
+                                        <td><code>{d.reference || t('emdash')}</code></td>
                                         <td>{d.registerName}</td>
-                                        <td>{d.branchName || '—'}</td>
-                                        <td>{fmtSar(d.amount)}</td>
-                                        <td>{new Date(d.entryDate).toLocaleString()}</td>
+                                        <td>{d.branchName || t('emdash')}</td>
+                                        <td>{money(d.amount)}</td>
+                                        <td>{dateTime(d.entryDate)}</td>
                                     </tr>
                                 ))
                             )}

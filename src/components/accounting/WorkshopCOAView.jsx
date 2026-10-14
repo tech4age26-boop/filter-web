@@ -71,6 +71,7 @@ import {
     inclusiveCalendarRangeToDatetimeLocal,
     riyadhPlRangeToLedgerQueryParams,
     riyadhRangeToApiIso,
+    toRiyadhDateISO,
 } from '../../utils/riyadhBusinessRange';
 import {
     loadWorkshopAdminDatetimeRange,
@@ -369,7 +370,7 @@ export default function WorkshopCOAView({
     const plFetchGen = useRef(0);
 
     const [bsFilters, setBsFilters] = useState({
-        asOf: new Date().toISOString().slice(0, 10),
+        asOf: toRiyadhDateISO(),
         branchId: '',
     });
     const [bsData, setBsData] = useState(null);

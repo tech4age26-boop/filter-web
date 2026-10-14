@@ -14,6 +14,7 @@ import {
 } from '../../services/supplierApi';
 import { ShimmerTable } from '../../components/supplier/Shimmer';
 import { sexpT } from '../../utils/supplierExpensesI18n';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const STATUS_BADGE = {
     approved: 'ws-badge--green',
@@ -47,7 +48,7 @@ export default function SupplierExpenses({ locale: localeProp }) {
         categoryId: '',
         amount: '',
         vatAmount: '',
-        date: new Date().toISOString().slice(0, 10),
+        date: toRiyadhDateISO(),
         description: '',
         proofUrl: '',
     });
@@ -69,7 +70,7 @@ export default function SupplierExpenses({ locale: localeProp }) {
             categoryId: '',
             amount: '',
             vatAmount: '',
-            date: new Date().toISOString().slice(0, 10),
+            date: toRiyadhDateISO(),
             description: '',
             proofUrl: '',
         });
@@ -213,7 +214,7 @@ export default function SupplierExpenses({ locale: localeProp }) {
             categoryId: expense.categoryId || '',
             amount: String(expense.amount || ''),
             vatAmount: String(expense.vatAmount || ''),
-            date: expense.date || new Date().toISOString().slice(0, 10),
+            date: expense.date || toRiyadhDateISO(),
             description: expense.description || '',
             proofUrl: expense.proofUrl || '',
         });

@@ -24,6 +24,7 @@ import {
 } from '../../services/expensesApi';
 import { getAccounts } from '../../services/accountsApi';
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
+import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -53,7 +54,7 @@ export default function ExpensesView({ readOnly = false }) {
     const [openAccount, setOpenAccount] = useState(false);
     const [openExpense, setOpenExpense] = useState(false);
     const [newAccount, setNewAccount] = useState({ name: '', code: '', category: 'Other', monthlyBudget: '', description: '' });
-    const [expenseForm, setExpenseForm] = useState({ expenseAccountId: '', coaAccountId: '', category: 'Other', amount: '', date: new Date().toISOString().slice(0, 10), paymentMethod: 'Cash', branchId: '', description: '', proofUrl: '' });
+    const [expenseForm, setExpenseForm] = useState({ expenseAccountId: '', coaAccountId: '', category: 'Other', amount: '', date: toRiyadhDateISO(), paymentMethod: 'Cash', branchId: '', description: '', proofUrl: '' });
 
     const load = async () => {
         const [s, e, a, coa, b] = await Promise.all([
