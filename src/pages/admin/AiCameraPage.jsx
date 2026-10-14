@@ -636,12 +636,22 @@ function OrderDetailScreen() {
   const st = STATUS_COLORS[order.status] || STATUS_COLORS.VEHICLE_ENTERED;
   const bayEvents = order.serviceBayEvents || [];
 
-  // Determine which event was the very first detection
+  // First detection is the camera that actually saw the car first.
+  // Missed-entrance rows copy the bay timestamp onto entranceDetectedAt, so
+  // do not treat a synthetic entrance card as first detection.
   const firstDetAt = order.firstDetectedAt ? new Date(order.firstDetectedAt).getTime() : null;
   const entranceAt = order.entranceDetectedAt ? new Date(order.entranceDetectedAt).getTime() : null;
-  const entranceIsFirst = firstDetAt && entranceAt && Math.abs(firstDetAt - entranceAt) < 2000;
+  const firstCamId = String(order.firstDetectedCameraId || order.firstDetectedCamera?.id || '');
+  const entranceCamId = String(order.entranceCameraId || order.entranceCamera?.id || '');
+  const hasRealEntrance = Boolean(entranceCamId);
+  const entranceIsFirst = hasRealEntrance && (
+    firstCamId
+      ? firstCamId === entranceCamId
+      : !!(firstDetAt && entranceAt && Math.abs(firstDetAt - entranceAt) < 2000)
+  );
 
   // Visit timeline: entrance first, then bay events in order
+  let bayFirstTagged = false;
   const timeline = [
     {
       key: 'entrance',
@@ -656,7 +666,18 @@ function OrderDetailScreen() {
     },
     ...bayEvents.map((ev, i) => {
       const evTime = new Date(ev.detectedAt).getTime();
-      const isBayFirst = firstDetAt && Math.abs(evTime - firstDetAt) < 2000 && !entranceIsFirst;
+      const evCamId = String(ev.cameraId || ev.camera?.id || '');
+      let isBayFirst = false;
+      if (!entranceIsFirst && !bayFirstTagged) {
+        if (firstCamId && evCamId && evCamId === firstCamId) {
+          isBayFirst = true;
+        } else if (!firstCamId && firstDetAt && Math.abs(evTime - firstDetAt) < 2000) {
+          isBayFirst = true;
+        } else if (!hasRealEntrance && i === 0) {
+          isBayFirst = true;
+        }
+        if (isBayFirst) bayFirstTagged = true;
+      }
       return {
         key: `bay-${ev.id || i}`,
         kind: 'SERVICE_BAY',
