@@ -109,3 +109,18 @@ export const deleteSoftPosDevice = (id) =>
     apiFetch(`/super-admin/softpos/devices/${encodeURIComponent(id)}`, {
         method: 'DELETE',
     });
+
+export const getSoftPosAccess = (params = {}) =>
+    apiFetch(`/super-admin/softpos/access${qs(params)}`);
+
+export const setSoftPosGlobalAccess = (enabled) =>
+    apiFetch('/super-admin/softpos/access/global', {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !!enabled }),
+    });
+
+export const setSoftPosBranchAccess = (branchId, enabled) =>
+    apiFetch(`/super-admin/softpos/access/branches/${encodeURIComponent(branchId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: !!enabled }),
+    });

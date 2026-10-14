@@ -19,6 +19,7 @@ import {
     Ban,
     Link2,
     AlertTriangle,
+    ShieldCheck,
 } from 'lucide-react';
 import {
     assignSoftPosTransactionTerminal,
@@ -28,6 +29,7 @@ import {
     deleteSoftPosDevice,
     deleteSoftPosRule,
     deleteSoftPosTerminal,
+    getSoftPosAccess,
     getSoftPosOptions,
     getSoftPosStats,
     listSoftPosBatches,
@@ -38,6 +40,8 @@ import {
     refundSoftPosTransaction,
     regenerateSoftPosDeviceCode,
     revokeSoftPosDevice,
+    setSoftPosBranchAccess,
+    setSoftPosGlobalAccess,
     updateSoftPosDevice,
     updateSoftPosRule,
     updateSoftPosTerminal,
@@ -61,6 +65,8 @@ const TABS = [
     { key: 'hqsettlement', labelKey: 'tab.hqsettlement', icon: Banknote,        permission: 'softpos-settlement.batches.view' },
     { key: 'rules',        labelKey: 'tab.rules',        icon: Settings,        permission: 'softpos-settlement.rules.view' },
     { key: 'refunds',      labelKey: 'tab.refunds',      icon: RefreshCw,       permission: 'softpos-settlement.refunds.view' },
+    // Parent page permission so Access appears without re-seeding role codes.
+    { key: 'access',       labelKey: 'tab.access',       icon: ShieldCheck,     permission: 'softpos-settlement.view' },
 ];
 
 const card = {
@@ -386,6 +392,17 @@ export default function SoftPosSettlement() {
             {activeTab === 'hqsettlement' && hasPermission('softpos-settlement.batches.view')      && <HqSettlementTab onError={setError} t={t} />}
             {activeTab === 'rules'        && hasPermission('softpos-settlement.rules.view')        && <RulesTab onError={setError} t={t} />}
             {activeTab === 'refunds'      && hasPermission('softpos-settlement.refunds.view')      && <RefundsTab onError={setError} t={t} />}
+            {activeTab === 'access'       && hasPermission('softpos-settlement.view')       && (
+                <AccessTab
+                    onError={setError}
+                    t={t}
+                    canEdit={
+                        hasPermission('softpos-settlement.access.edit') ||
+                        hasPermission('softpos-settlement.terminals.edit') ||
+                        hasPermission('softpos-settlement.view')
+                    }
+                />
+            )}
             {visibleTabs.length === 0 && (
                 <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>
                     {t('page.noPerm')}
@@ -2521,3 +2538,246 @@ function Field({ label, full, children }) {
         </div>
     );
 }
+
+function SoftPosToggle({ checked, disabled, onChange, ariaLabel }) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={ariaLabel}
+            disabled={disabled}
+            onClick={() => onChange(!checked)}
+            style={{
+                width: 46,
+                height: 26,
+                borderRadius: 999,
+                border: 'none',
+                padding: 2,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                background: checked ? '#D4A017' : '#d1d5db',
+                opacity: disabled ? 0.55 : 1,
+                transition: 'background 0.15s ease',
+                flexShrink: 0,
+            }}
+        >
+            <span
+                style={{
+                    display: 'block',
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transform: checked ? 'translateX(20px)' : 'translateX(0)',
+                    transition: 'transform 0.15s ease',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                }}
+            />
+        </button>
+    );
+}
+
+function AccessTab({ onError, t, canEdit }) {
+    const [loading, setLoading] = useState(true);
+    const [savingKey, setSavingKey] = useState('');
+    const [globalEnabled, setGlobalEnabled] = useState(true);
+    const [branches, setBranches] = useState([]);
+    const [workshopId, setWorkshopId] = useState('');
+    const [workshops, setWorkshops] = useState([]);
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        try {
+            const [access, opts] = await Promise.all([
+                getSoftPosAccess(workshopId ? { workshopId } : {}),
+                getSoftPosOptions(),
+            ]);
+            setGlobalEnabled(access?.globalEnabled !== false);
+            setBranches(Array.isArray(access?.branches) ? access.branches : []);
+            setWorkshops(pickArr(opts, 'workshops'));
+        } catch (err) {
+            onError?.(err?.message || t('access.loadError'));
+        } finally {
+            setLoading(false);
+        }
+    }, [workshopId, onError, t]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    const onToggleGlobal = async (next) => {
+        if (!canEdit) return;
+        setSavingKey('global');
+        const prev = globalEnabled;
+        setGlobalEnabled(next);
+        try {
+            await setSoftPosGlobalAccess(next);
+            setBranches((rows) =>
+                rows.map((b) => ({
+                    ...b,
+                    effectiveEnabled: next && b.softPosEnabled !== false,
+                })),
+            );
+        } catch (err) {
+            setGlobalEnabled(prev);
+            onError?.(err?.message || t('access.saveError'));
+        } finally {
+            setSavingKey('');
+        }
+    };
+
+    const onToggleBranch = async (branch, next) => {
+        if (!canEdit) return;
+        const key = branch.id;
+        setSavingKey(key);
+        setBranches((rows) =>
+            rows.map((b) =>
+                b.id === key
+                    ? {
+                          ...b,
+                          softPosEnabled: next,
+                          effectiveEnabled: globalEnabled && next,
+                      }
+                    : b,
+            ),
+        );
+        try {
+            await setSoftPosBranchAccess(key, next);
+        } catch (err) {
+            setBranches((rows) =>
+                rows.map((b) =>
+                    b.id === key
+                        ? {
+                              ...b,
+                              softPosEnabled: !next,
+                              effectiveEnabled: globalEnabled && !next,
+                          }
+                        : b,
+                ),
+            );
+            onError?.(err?.message || t('access.saveError'));
+        } finally {
+            setSavingKey('');
+        }
+    };
+
+    return (
+        <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{t('access.title')}</div>
+                <div style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>{t('access.subtitle')}</div>
+            </div>
+
+            <div
+                style={{
+                    padding: '14px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    background: globalEnabled ? '#fffbeb' : '#fef2f2',
+                    borderBottom: '1px solid #e5e7eb',
+                }}
+            >
+                <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t('access.global')}</div>
+                    <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>{t('access.globalHint')}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: globalEnabled ? '#16a34a' : '#dc2626' }}>
+                        {globalEnabled ? t('access.enabled') : t('access.disabled')}
+                    </span>
+                    <SoftPosToggle
+                        checked={globalEnabled}
+                        disabled={!canEdit || savingKey === 'global' || loading}
+                        onChange={onToggleGlobal}
+                        ariaLabel={t('access.global')}
+                    />
+                </div>
+            </div>
+
+            <div
+                style={{
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    borderBottom: '1px solid #e5e7eb',
+                }}
+            >
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{t('access.branches')}</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select
+                        value={workshopId}
+                        onChange={(e) => setWorkshopId(e.target.value)}
+                        style={{ ...inputStyle, width: 220, padding: '6px 10px' }}
+                    >
+                        <option value="">{t('access.workshopFilter')}</option>
+                        {workshops.map((w) => (
+                            <option key={w.id} value={w.id}>
+                                {w.name}
+                            </option>
+                        ))}
+                    </select>
+                    <button type="button" style={btn} onClick={load} disabled={loading}>
+                        {t('common.refresh')}
+                    </button>
+                </div>
+            </div>
+
+            {loading ? (
+                <div style={{ padding: 28, textAlign: 'center', color: '#94a3b8' }}>{t('common.loading')}</div>
+            ) : branches.length === 0 ? (
+                <div style={{ padding: 28, textAlign: 'center', color: '#94a3b8' }}>{t('access.empty')}</div>
+            ) : (
+                <div>
+                    {branches.map((b) => {
+                        const on = b.softPosEnabled !== false;
+                        const effective = globalEnabled && on;
+                        return (
+                            <div
+                                key={b.id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 12,
+                                    padding: '12px 18px',
+                                    borderBottom: '1px solid #f3f4f6',
+                                }}
+                            >
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 13, color: '#111827' }}>{b.name}</div>
+                                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                                        {b.workshopName || t('common.emDash')}
+                                        {!effective ? ` · ${t('access.effectiveOff')}` : ''}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span
+                                        style={{
+                                            fontSize: 12,
+                                            fontWeight: 600,
+                                            color: effective ? '#16a34a' : '#dc2626',
+                                        }}
+                                    >
+                                        {effective ? t('access.enabled') : t('access.disabled')}
+                                    </span>
+                                    <SoftPosToggle
+                                        checked={on}
+                                        disabled={!canEdit || savingKey === b.id || loading}
+                                        onChange={(next) => onToggleBranch(b, next)}
+                                        ariaLabel={`${b.name} SoftPOS`}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+

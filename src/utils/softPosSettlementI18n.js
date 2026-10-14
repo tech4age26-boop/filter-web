@@ -12,6 +12,22 @@ const SP_I18N = {
         'tab.hqsettlement': 'HQ Settlement',
         'tab.rules': 'Bank Rules',
         'tab.refunds': 'Refunds',
+        'tab.access': 'Access',
+
+        'access.title': 'SoftPOS / NFC Access',
+        'access.subtitle':
+            'Control SoftPOS on POS app-bar and Tap to Pay. Changes apply to cashiers in real time.',
+        'access.global': 'All branches (master switch)',
+        'access.globalHint':
+            'When off, SoftPOS is hidden on every branch regardless of the toggles below.',
+        'access.branches': 'Branches',
+        'access.enabled': 'Enabled',
+        'access.disabled': 'Disabled',
+        'access.effectiveOff': 'Hidden on POS (master off)',
+        'access.empty': 'No active branches found.',
+        'access.loadError': 'Could not load SoftPOS access settings.',
+        'access.saveError': 'Could not update SoftPOS access.',
+        'access.workshopFilter': 'All workshops',
 
         'kpi.activeTerminals': 'Active Terminals',
         'kpi.capturedVolume': 'Captured Volume',
@@ -260,6 +276,22 @@ const SP_I18N = {
         'tab.hqsettlement': 'تسوية المقر',
         'tab.rules': 'قواعد البنك',
         'tab.refunds': 'الاستردادات',
+        'tab.access': 'الوصول',
+
+        'access.title': 'وصول SoftPOS / NFC',
+        'access.subtitle':
+            'التحكم في SoftPOS في شريط التطبيق وTap to Pay. التغييرات تصل للكاشير فوراً.',
+        'access.global': 'جميع الفروع (المفتاح الرئيسي)',
+        'access.globalHint':
+            'عند الإيقاف يُخفى SoftPOS من كل فرع بغض النظر عن المفاتيح أدناه.',
+        'access.branches': 'الفروع',
+        'access.enabled': 'مفعّل',
+        'access.disabled': 'معطّل',
+        'access.effectiveOff': 'مخفي في نقطة البيع (المفتاح الرئيسي متوقف)',
+        'access.empty': 'لا توجد فروع نشطة.',
+        'access.loadError': 'تعذر تحميل إعدادات وصول SoftPOS.',
+        'access.saveError': 'تعذر تحديث وصول SoftPOS.',
+        'access.workshopFilter': 'كل الورش',
 
         'kpi.activeTerminals': 'الأجهزة النشطة',
         'kpi.capturedVolume': 'حجم التحصيل',
