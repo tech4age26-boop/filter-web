@@ -1278,7 +1278,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     )}
                     {!isBulk && item ? (
                         <p style={{ margin: '0 0 16px', fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            {t('price.catalogNow', { amount: t('money.sar', { amount: Number(item.catalog_sale_price ?? item.sale_price || 0).toFixed(2) }) })}
+                            {t('price.catalogNow', { amount: t('money.sar', { amount: Number(item.catalog_sale_price ?? item.sale_price ?? 0).toFixed(2) }) })}
                             {' · '}
                             {t('price.currentNow', { amount: t('money.sar', { amount: Number(item.sale_price || 0).toFixed(2) }) })}
                         </p>
