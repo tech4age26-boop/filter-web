@@ -1,6 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Filter, RefreshCw, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Filter, RefreshCw, Wallet } from 'lucide-react';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../../hooks/usePagedRows';
 import {
     listLogFilterUsers,
     listPettyCashExpensesLog,
@@ -14,7 +17,6 @@ import { ADMIN_WALLET_EXPENSE_CATEGORIES } from '../../../constants/adminWalletE
 import { riyadhBoundToApiIso } from '../../../utils/riyadhBusinessRange';
 import '../../../styles/admin/AccountingPage.css';
 
-const PAGE_SIZE = 50;
 const EXPORT_LIMIT = 10000;
 
 const fmt = (n) => {
@@ -108,6 +110,8 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         branchId: sidebarBranchToFilter(selectedBranchId),
     }));
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
+    const tableTopRef = useRef(null);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [totalAmount, setTotalAmount] = useState(0);
@@ -116,7 +120,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
     const [exporting, setExporting] = useState(false);
     const [error, setError] = useState('');
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
 
     const branchComboOptions = useMemo(() => [
         { id: 'all', label: t('opt.allBranches') },
@@ -161,8 +165,8 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         try {
             const res = await listPettyCashExpensesLog(
                 buildListParams(applied, {
-                    limit: PAGE_SIZE,
-                    offset: (page - 1) * PAGE_SIZE,
+                    limit: pageSize,
+                    offset: (page - 1) * pageSize,
                 }),
             );
             setRows(Array.isArray(res?.items) ? res.items : []);
@@ -179,7 +183,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
         } finally {
             setLoading(false);
         }
-    }, [applied, page, buildListParams, t]);
+    }, [applied, page, pageSize, buildListParams, t]);
 
     useEffect(() => {
         const nextBranch = sidebarBranchToFilter(selectedBranchId);
@@ -379,7 +383,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                 </div>
             </div>
 
-            <section className="premium-table cash-bank-table">
+            <section className="premium-table cash-bank-table" ref={tableTopRef}>
                 <header style={{
                     padding: '12px 16px',
                     borderBottom: '1px solid #E2E8F0',
@@ -412,6 +416,7 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                         </button>
                     </div>
                 </header>
+                <WsTableScroll>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
@@ -453,42 +458,21 @@ export default function WorkshopExpensesLog({ branches = [], selectedBranchId = 
                         ))}
                     </tbody>
                 </table>
-                <footer style={{
-                    padding: '12px 16px',
-                    borderTop: '1px solid #E2E8F0',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                    flexWrap: 'wrap',
-                }}>
-                    <span style={{ color: '#64748B', fontSize: 13 }}>
-                        {t('pageSizeHint', { n: PAGE_SIZE })}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={loading || page <= 1}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        >
-                            <ChevronLeft size={14} style={{ marginRight: 4 }} />
-                            {t('prev')}
-                        </button>
-                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 90, textAlign: 'center' }}>
-                            {t('pageOf', { page, pages: totalPages })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={loading || page >= totalPages}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        >
-                            {t('next')}
-                            <ChevronRight size={14} style={{ marginLeft: 4 }} />
-                        </button>
-                    </div>
-                </footer>
+                </WsTableScroll>
+                <WsTablePagination
+                    page={Math.min(page, totalPages)}
+                    pageCount={totalPages}
+                    pageSize={pageSize}
+                    total={total}
+                    onPageChange={(p) => {
+                        setPage(p);
+                        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    onPageSizeChange={(n) => {
+                        setPageSize(n);
+                        setPage(1);
+                    }}
+                />
             </section>
         </div>
     );

@@ -288,7 +288,7 @@ export default function WorkshopCommissionRules({
                                             ) : null}
                                         </td>
                                         <td className="wcr-rate-cell">
-                                            <bdi>{Number(r.value || 0)}%</bdi>
+                                            <bdi>{r.useProfilePercent ? t('rules.rate.profile') : `${Number(r.value || 0)}%`}</bdi>
                                         </td>
                                         <td>{r.priority || 1}</td>
                                         <td>

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Filter, RotateCcw } from 'lucide-react';
+import SearchSelect from '../../components/SearchSelect';
 import { useLockerPortal } from './useLockerPortal';
 
 export default function LockerFilterBar({
@@ -18,6 +19,32 @@ export default function LockerFilterBar({
     const { t } = useLockerPortal();
     const set = (key, value) => onChange({ ...filters, [key]: value });
     const branchLocked = Boolean(branchLockedId);
+
+    const branchOptions = useMemo(
+        () => [
+            ...(branchLocked ? [] : [{ value: 'all', label: t('common.allBranches') }]),
+            ...branches.map((b) => ({ value: String(b.id), label: b.name })),
+        ],
+        [branches, branchLocked, t],
+    );
+    const cashierOptions = useMemo(
+        () => [
+            { value: 'all', label: t('common.allCashiers') },
+            ...cashiers.map((c) => ({
+                value: String(c.id || c.userId),
+                label: c.name || c.email,
+                hint: c.name && c.email ? c.email : undefined,
+            })),
+        ],
+        [cashiers, t],
+    );
+    const officerOptions = useMemo(
+        () => [
+            { value: 'all', label: t('common.allOfficers') },
+            ...officers.map((o) => ({ value: String(o.id), label: o.name })),
+        ],
+        [officers, t],
+    );
 
     return (
         <div className="wlk-filter-bar">
@@ -53,51 +80,42 @@ export default function LockerFilterBar({
                 </div>
                 <div className="ws-field">
                     <label>{t('common.branch')}</label>
-                    <select
+                    <SearchSelect
+                        size="sm"
+                        options={branchOptions}
                         value={branchLockedId || filters.branchId || 'all'}
                         disabled={branchLocked}
                         title={branchLocked ? t('common.branchLocked') : undefined}
-                        onChange={(e) => set('branchId', e.target.value)}
-                    >
-                        {!branchLocked ? <option value="all">{t('common.allBranches')}</option> : null}
-                        {branches.map((b) => (
-                            <option key={b.id} value={String(b.id)}>
-                                {b.name}
-                            </option>
-                        ))}
-                    </select>
+                        ariaLabel={t('common.branch')}
+                        placeholder={t('common.typeToSearch')}
+                        emptyHint={t('common.noMatches')}
+                        onChange={(v) => set('branchId', v)}
+                    />
                 </div>
                 <div className="ws-field">
                     <label>{t('common.cashier')}</label>
-                    <select
+                    <SearchSelect
+                        size="sm"
+                        options={cashierOptions}
                         value={filters.cashierId || 'all'}
-                        onChange={(e) => set('cashierId', e.target.value)}
-                    >
-                        <option value="all">{t('common.allCashiers')}</option>
-                        {cashiers.map((c) => {
-                            const id = String(c.id || c.userId);
-                            return (
-                                <option key={id} value={id}>
-                                    {c.name || c.email}
-                                </option>
-                            );
-                        })}
-                    </select>
+                        ariaLabel={t('common.cashier')}
+                        placeholder={t('common.typeToSearch')}
+                        emptyHint={t('common.noMatches')}
+                        onChange={(v) => set('cashierId', v)}
+                    />
                 </div>
                 {showOfficer ? (
                     <div className="ws-field">
                         <label>{t('common.officer')}</label>
-                        <select
+                        <SearchSelect
+                            size="sm"
+                            options={officerOptions}
                             value={filters.officerId || 'all'}
-                            onChange={(e) => set('officerId', e.target.value)}
-                        >
-                            <option value="all">{t('common.allOfficers')}</option>
-                            {officers.map((o) => (
-                                <option key={o.id} value={String(o.id)}>
-                                    {o.name}
-                                </option>
-                            ))}
-                        </select>
+                            ariaLabel={t('common.officer')}
+                            placeholder={t('common.typeToSearch')}
+                            emptyHint={t('common.noMatches')}
+                            onChange={(v) => set('officerId', v)}
+                        />
                     </div>
                 ) : null}
                 {showExpectedRange ? (

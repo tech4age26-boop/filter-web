@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Plus, RefreshCw } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { wdT } from '../../utils/workshopDepartmentsI18n';
@@ -49,6 +51,7 @@ import {
     UNIT_OPTIONS,
 } from './constants';
 import { catalogDisplayName } from '../../utils/catalogDisplayName';
+import SelectCombo from '../../components/SelectCombo';
 
 function pickNumber(...vals) {
     for (const v of vals) {
@@ -218,6 +221,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     const [priceInput, setPriceInput] = useState('');
     const [priceError, setPriceError] = useState('');
     const [priceSaving, setPriceSaving] = useState(false);
+    const deptTopRef = useRef(null);
+    const productTopRef = useRef(null);
+    const serviceTopRef = useRef(null);
+    const categoryTopRef = useRef(null);
     const workshopIdQuery = workshop?.id != null ? String(workshop.id) : undefined;
 
     /** True only for "Request Product" new-item flow (not edit / not service). */
@@ -255,11 +262,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         department_id: '',
     });
 
-    const filteredProds = products.filter((p) => {
+    const filteredProds = useMemo(() => products.filter((p) => {
         if (filterDept !== 'all' && !p.department_ids?.some((id) => String(id) === String(filterDept))) return false;
         if (lowStockOnly && !(p.critical_level && p.stock_qty <= p.critical_level)) return false;
         return true;
-    });
+    }), [products, filterDept, lowStockOnly]);
     const criticalCount = products.filter(p => p.critical_level && p.stock_qty <= p.critical_level).length;
 
     const loadDepartments = useCallback(async () => {
@@ -764,10 +771,20 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
         return list.join(', ');
     };
 
-    const productItems = filteredProds.filter((row) => row.type !== 'service');
-    const serviceItems = filteredProds.filter((row) => row.type === 'service');
-    const allProductRowsSelected = productItems.length > 0 && productItems.every((p) => selectedProductIds.includes(String(p.sourceId)));
-    const allServiceRowsSelected = serviceItems.length > 0 && serviceItems.every((s) => selectedServiceIds.includes(String(s.sourceId)));
+    const productItems = useMemo(() => filteredProds.filter((row) => row.type !== 'service'), [filteredProds]);
+    const serviceItems = useMemo(() => filteredProds.filter((row) => row.type === 'service'), [filteredProds]);
+    const scopeKey = branchScope || 'all';
+    const deptPaging = usePagedRows(departments, { resetKey: scopeKey, scrollRef: deptTopRef });
+    const productPaging = usePagedRows(productItems, {
+        resetKey: `${scopeKey}|${filterDept}|${lowStockOnly}`,
+        scrollRef: productTopRef,
+    });
+    const servicePaging = usePagedRows(serviceItems, { resetKey: `${scopeKey}|${filterDept}`, scrollRef: serviceTopRef });
+    const categoryPaging = usePagedRows(categories, { resetKey: scopeKey, scrollRef: categoryTopRef });
+    const productPageRows = productPaging.pagedRows;
+    const servicePageRows = servicePaging.pagedRows;
+    const allProductRowsSelected = productPageRows.length > 0 && productPageRows.every((p) => selectedProductIds.includes(String(p.sourceId)));
+    const allServiceRowsSelected = servicePageRows.length > 0 && servicePageRows.every((s) => selectedServiceIds.includes(String(s.sourceId)));
 
     useEffect(() => {
         const valid = new Set(productItems.map((p) => String(p.sourceId)));
@@ -794,19 +811,17 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
     };
 
     const toggleAllProductsOnPage = () => {
-        if (allProductRowsSelected) {
-            setSelectedProductIds([]);
-            return;
-        }
-        setSelectedProductIds(productItems.map((p) => String(p.sourceId)));
+        const pageIds = productPageRows.map((p) => String(p.sourceId));
+        setSelectedProductIds((prev) => (allProductRowsSelected
+            ? prev.filter((id) => !pageIds.includes(id))
+            : [...new Set([...prev, ...pageIds])]));
     };
 
     const toggleAllServicesOnPage = () => {
-        if (allServiceRowsSelected) {
-            setSelectedServiceIds([]);
-            return;
-        }
-        setSelectedServiceIds(serviceItems.map((s) => String(s.sourceId)));
+        const pageIds = servicePageRows.map((s) => String(s.sourceId));
+        setSelectedServiceIds((prev) => (allServiceRowsSelected
+            ? prev.filter((id) => !pageIds.includes(id))
+            : [...new Set([...prev, ...pageIds])]));
     };
 
     const openEditProd = (p) => {
@@ -1350,7 +1365,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 <span className="ws-badge ws-badge--red" style={{ marginTop: 8, display: 'inline-block' }}>{t('badge.belowCritical')}</span>
                             ) : null}
                         </div>
-                        <div className="ws-field"><label>{t('stock.supplier')}</label><select><option>{t('stock.opt1')}</option><option>{t('stock.opt2')}</option><option>{t('stock.opt3')}</option></select></div>
+                        <div className="ws-field"><label>{t('stock.supplier')}</label><SelectCombo><option>{t('stock.opt1')}</option><option>{t('stock.opt2')}</option><option>{t('stock.opt3')}</option></SelectCombo></div>
                         <div className="ws-field"><label>{t('stock.qty', { unit: stockItem.unit })}</label><input type="number" placeholder={t('stock.qtyPh', { unit: stockItem.unit })} /></div>
                         <div className="ws-field"><label>{t('stock.notes')}</label><input placeholder={t('stock.notesPh')} /></div>
                     </div>
@@ -1384,19 +1399,19 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         </div>
                         <div className="ws-field">
                             <label>{t('catForm.type')}</label>
-                            <select value={categoryForm.type} onChange={(e) => setCategoryForm((f) => ({ ...f, type: e.target.value }))}>
+                            <SelectCombo value={categoryForm.type} onChange={(e) => setCategoryForm((f) => ({ ...f, type: e.target.value }))}>
                                 <option value="product">{t('type.product')}</option>
                                 <option value="service">{t('type.service')}</option>
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="ws-field">
                             <label>{t('catForm.dept')}</label>
-                            <select value={categoryForm.departmentId} onChange={(e) => setCategoryForm((f) => ({ ...f, departmentId: e.target.value }))}>
+                            <SelectCombo value={categoryForm.departmentId} onChange={(e) => setCategoryForm((f) => ({ ...f, departmentId: e.target.value }))}>
                                 <option value="">{t('catForm.selectDept')}</option>
                                 {departments.map((department) => (
                                     <option key={department.id} value={department.id}>{department.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                     </div>
                 </div>
@@ -1426,7 +1441,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                         <div className="ws-field"><label>{t('deptForm.name')}</label><input value={deptForm.name} onChange={(e) => setDeptForm((f) => ({ ...f, name: e.target.value }))} /></div>
                         <div className="ws-field">
                             <label>{t('prodForm.branch')}</label>
-                            <select
+                            <SelectCombo
                                 value={deptForm.branch_id}
                                 disabled={!isAllBranches}
                                 onChange={(e) => setDeptForm((f) => ({ ...f, branch_id: e.target.value }))}
@@ -1436,7 +1451,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 {scopedBranchesForForms.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                     </div>
                 </div>
@@ -1499,14 +1514,14 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             </div>
                             <div className="ws-field">
                                 <label>{t('prodForm.unit')}</label>
-                                <select value={prodForm.unit} onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}>
+                                <SelectCombo value={prodForm.unit} onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}>
                                     {(uomSelectOptions.length
                                         ? uomSelectOptions
                                         : (productUnits || []).map((u) => (typeof u === 'string' ? { value: u, label: u } : normalizeUomOption(u))).filter(Boolean)
                                     ).map((o) => (
                                         <option key={o.value} value={o.value}>{o.label}</option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
                                 <label>{t('prodForm.desc')}</label>
@@ -1522,7 +1537,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
                                 <label>{t('prodForm.deptMaster')}</label>
-                                <select
+                                <SelectCombo
                                     value={prodForm.master_department_id}
                                     disabled={masterDeptLoading}
                                     onChange={(e) => setProdForm((f) => ({ ...f, master_department_id: e.target.value, master_category_id: '', category_id: '' }))}
@@ -1532,11 +1547,11 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         const id = d.id ?? d.departmentId ?? d.masterId;
                                         return <option key={id} value={id}>{d.name || pickDeptLabel(d)}</option>;
                                     })}
-                                </select>
+                                </SelectCombo>
                             </div>
                             <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
                                 <label>{t('prodForm.catMaster')}</label>
-                                <select
+                                <SelectCombo
                                     value={prodForm.master_category_id}
                                     disabled={!prodForm.master_department_id || masterCatLoading}
                                     onChange={(e) => setProdForm((f) => ({ ...f, master_category_id: e.target.value, category_id: e.target.value }))}
@@ -1548,7 +1563,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                         const id = c.id ?? c.categoryId ?? c.masterId;
                                         return <option key={id} value={id}>{c.name || c.categoryName || t('emdash')}</option>;
                                     })}
-                                </select>
+                                </SelectCombo>
                             </div>
                         </div>
                     ) : (
@@ -1564,45 +1579,45 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 </div>
                                 <div className="ws-field">
                                     <label>{t('prodForm.category')}</label>
-                                    <select value={prodForm.category_id} onChange={(e) => setProdForm((f) => ({ ...f, category_id: e.target.value }))}>
+                                    <SelectCombo value={prodForm.category_id} onChange={(e) => setProdForm((f) => ({ ...f, category_id: e.target.value }))}>
                                         <option value="">{t('prodForm.selectCategory')}</option>
                                         {productCategories.map((c) => (
                                             <option key={c.id} value={c.id}>{c.name}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="ws-field">
                                     <label>{t('prodForm.branch')}</label>
-                                    <select value={prodForm.branch_id} disabled={!isAllBranches} onChange={(e) => setProdForm((f) => ({ ...f, branch_id: e.target.value }))} style={{ opacity: isAllBranches ? 1 : 0.85 }}>
+                                    <SelectCombo value={prodForm.branch_id} disabled={!isAllBranches} onChange={(e) => setProdForm((f) => ({ ...f, branch_id: e.target.value }))} style={{ opacity: isAllBranches ? 1 : 0.85 }}>
                                         {isAllBranches && <option value="">{t('prodForm.selectBranch')}</option>}
                                         {scopedBranchesForForms.map((b) => (
                                             <option key={b.id} value={b.id}>{b.name}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="ws-field">
                                     <label>{t('prodForm.department')}</label>
-                                    <select value={prodForm.department_id} onChange={(e) => setProdForm((f) => ({ ...f, department_id: e.target.value, department_ids: e.target.value ? [e.target.value] : [] }))}>
+                                    <SelectCombo value={prodForm.department_id} onChange={(e) => setProdForm((f) => ({ ...f, department_id: e.target.value, department_ids: e.target.value ? [e.target.value] : [] }))}>
                                         <option value="">{t('prodForm.selectDepartment')}</option>
                                         {departments.map((d) => (
                                             <option key={d.id} value={d.id}>{d.name}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="ws-field">
                                     <label>{t('prodForm.type')}</label>
-                                    <select value={prodForm.type} onChange={(e) => setProdForm((f) => ({ ...f, type: e.target.value }))}>
+                                    <SelectCombo value={prodForm.type} onChange={(e) => setProdForm((f) => ({ ...f, type: e.target.value }))}>
                                         <option value="product">{t('type.product')}</option>
                                         <option value="service">{t('type.service')}</option>
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="ws-field">
                                     <label>{t('prodForm.unitLabel')}</label>
-                                    <select value={prodForm.unit} onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}>
+                                    <SelectCombo value={prodForm.unit} onChange={(e) => setProdForm((f) => ({ ...f, unit: e.target.value }))}>
                                         {productUnits.map((u) => (
                                             <option key={u} value={u}>{u}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="ws-field">
                                     <label>{t('prodForm.purchase')}</label>
@@ -1746,7 +1761,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             {deptError}
                         </div>
                     )}
-                    <div className="ws-section">
+                    <div className="ws-section" ref={deptTopRef}>
                         <WsTableScroll>
                         <table className="ws-table">
                             <thead><tr><th>{t('th.name')}</th><th>{t('th.branches')}</th><th>{t('th.status')}</th>{(canEditDept || (branchScope && canDeleteDept)) && <th>{t('th.actions')}</th>}</tr></thead>
@@ -1759,7 +1774,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                 ? t('empty.noDeptsBranch', { name: selectedBranchName || t('scope.thisBranch') })
                                                 : t('empty.noDeptsWorkshop')}
                                     </td></tr>
-                                ) : departments.map(d => {
+                                ) : deptPaging.pagedRows.map(d => {
                                     const isActive = Boolean(d.isActive ?? d.status === 'active');
                                     const masterId = d.departmentId || d.masterId || d.id;
                                     return (
@@ -1812,6 +1827,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             </tbody>
                         </table>
                         </WsTableScroll>
+                        <WsTablePagination {...deptPaging.pagerProps} />
                     </div>
                 </div>
             )}
@@ -1826,10 +1842,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     <div className="ws-section" style={{marginBottom:16}}>
                         <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'center',justifyContent:'space-between',padding:16}}>
                             <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
-                                <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
+                                <SelectCombo size="sm" value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
                                     <option value="all">{t('filter.allDepartments')}</option>
                                     {departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
+                                </SelectCombo>
                                 <button onClick={()=>setLowStockOnly(!lowStockOnly)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:8,border:`1px solid ${lowStockOnly?'#FCA5A5':'var(--color-border)'}`,background:lowStockOnly?'#FEF2F2':'#fff',color:lowStockOnly?'#DC2626':'var(--color-text-muted)',fontWeight:700,fontSize:'0.8125rem',cursor:'pointer'}}>
                                     <AlertTriangle size={14}/> {t('filter.lowStockOnly')}
                                 </button>
@@ -1863,7 +1879,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             </div>
                         </div>
                     </div>
-                    <div className="ws-section">
+                    <div className="ws-section" ref={productTopRef}>
                         <WsTableScroll>
                             <table className="ws-table">
                                 <thead>
@@ -1896,7 +1912,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 </thead>
                                 <tbody>{productItems.length === 0 ? (
                                     <tr><td colSpan={branchScope ? 11 : 10} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? t('empty.loadingProducts') : t('empty.noProducts')}</td></tr>
-                                ) : productItems.map(p => {
+                                ) : productPageRows.map(p => {
                                     const isCritical = p.critical_level && p.stock_qty <= p.critical_level;
                                     const isActive = Boolean(p.isActive ?? p.status === 'active');
                                     return (
@@ -1959,6 +1975,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 })}</tbody>
                             </table>
                         </WsTableScroll>
+                        <WsTablePagination {...productPaging.pagerProps} />
                     </div>
                 </div>
             )}
@@ -1973,10 +1990,10 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                     <div className="ws-section" style={{marginBottom:16}}>
                         <div style={{display:'flex',flexWrap:'wrap',gap:12,alignItems:'center',justifyContent:'space-between',padding:16}}>
                             <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
-                                <select value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
+                                <SelectCombo size="sm" value={filterDept} onChange={e=>setFilterDept(e.target.value)} style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--color-border)',fontSize:'0.875rem',minWidth:160}}>
                                     <option value="all">{t('filter.allDepartments')}</option>
                                     {departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}
-                                </select>
+                                </SelectCombo>
                             </div>
                             <div style={{display:'flex',gap:10}}>
                                 <button className="btn-portal" onClick={loadProducts} disabled={isProductsLoading}>
@@ -2007,7 +2024,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             </div>
                         </div>
                     </div>
-                    <div className="ws-section">
+                    <div className="ws-section" ref={serviceTopRef}>
                         <WsTableScroll>
                             <table className="ws-table">
                                 <thead><tr><th style={{ width: 44 }}>
@@ -2020,7 +2037,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 </th><th>{t('th.name')}</th><th>{t('th.department')}</th><th>{t('th.salePrice')}</th><th>{t('th.branches')}</th><th>{t('th.status')}</th></tr></thead>
                                 <tbody>{serviceItems.length === 0 ? (
                                     <tr><td colSpan={6} style={{padding:40,textAlign:'center',color:'var(--color-text-muted)'}}>{isProductsLoading ? t('empty.loadingServices') : t('empty.noServices')}</td></tr>
-                                ) : serviceItems.map(s => {
+                                ) : servicePageRows.map(s => {
                                     const isActive = Boolean(s.isActive ?? s.status === 'active');
                                     return (
                                         <tr key={s.id} style={{ opacity: isActive ? 1 : 0.72 }}>
@@ -2069,6 +2086,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 })}</tbody>
                             </table>
                         </WsTableScroll>
+                        <WsTablePagination {...servicePaging.pagerProps} />
                     </div>
                 </div>
             )}
@@ -2090,7 +2108,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                             {categoriesError}
                         </div>
                     )}
-                    <div className="ws-section">
+                    <div className="ws-section" ref={categoryTopRef}>
                         <WsTableScroll>
                             <table className="ws-table">
                                 <thead><tr><th>{t('th.name')}</th><th>{t('th.type')}</th><th>{t('th.department')}</th><th>{t('th.branches')}</th><th>{t('th.status')}</th>{branchScope && <th>{t('th.actions')}</th>}</tr></thead>
@@ -2103,7 +2121,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                                     ? t('empty.noCatsBranch', { name: selectedBranchName || t('scope.thisBranch') })
                                                     : t('empty.noCatsWorkshop')}
                                         </td></tr>
-                                    ) : categories.map((category) => {
+                                    ) : categoryPaging.pagedRows.map((category) => {
                                         const masterId = category.categoryId || category.masterId || category.id;
                                         const isActive = Boolean(category.isActive ?? category.status === 'active');
                                         return (
@@ -2134,6 +2152,7 @@ export default function WorkshopDepartments({ selectedBranchId = 'all', branches
                                 </tbody>
                             </table>
                         </WsTableScroll>
+                        <WsTablePagination {...categoryPaging.pagerProps} />
                     </div>
                 </div>
             )}

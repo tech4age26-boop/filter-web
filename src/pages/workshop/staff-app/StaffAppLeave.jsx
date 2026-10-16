@@ -7,6 +7,9 @@ import {
     staffAppStatusLabel,
     useStaffAppI18n,
 } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 function StatusBadge({ status, locale }) {
     const s = String(status || '').toLowerCase();
@@ -74,6 +77,8 @@ export default function StaffAppLeave({ selectedBranchId = 'all' }) {
         }
     };
 
+    const listPaging = usePagedRows(rows, { resetKey: String(selectedBranchId ?? '') });
+
     return (
         <div>
             <div className="staff-app-toolbar">
@@ -88,9 +93,9 @@ export default function StaffAppLeave({ selectedBranchId = 'all' }) {
             {error && <p style={{ color: '#b91c1c', marginBottom: 8 }}>{error}</p>}
             {formOpen && (
                 <div className="staff-app-table-wrap" style={{ padding: 16, marginBottom: 12 }}>
-                    <select className="staff-app-btn" value={form.leaveType} onChange={(e) => setForm((f) => ({ ...f, leaveType: e.target.value }))}>
+                    <SelectCombo size="sm" className="staff-app-btn" value={form.leaveType} onChange={(e) => setForm((f) => ({ ...f, leaveType: e.target.value }))}>
                         {LEAVE_TYPE_KEYS.map((lt) => <option key={lt.value} value={lt.value}>{t(lt.labelKey)}</option>)}
-                    </select>
+                    </SelectCombo>
                     <input type="date" className="staff-app-btn" style={{ marginTop: 8 }} value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
                     <input type="date" className="staff-app-btn" style={{ marginTop: 8 }} value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
                     <textarea className="staff-app-btn" rows={2} style={{ marginTop: 8, width: '100%' }} placeholder={t('leave.ph.reason')} value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
@@ -117,7 +122,7 @@ export default function StaffAppLeave({ selectedBranchId = 'all' }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((row) => (
+                            {listPaging.pagedRows.map((row) => (
                                 <tr key={row.id}>
                                     <td>{row.employeeName || row.employeeId || t('common.emdash')}</td>
                                     <td>{LEAVE_TYPE_KEYS.find((x) => x.value === row.leaveType) ? t(LEAVE_TYPE_KEYS.find((x) => x.value === row.leaveType).labelKey) : row.leaveType}</td>
@@ -141,6 +146,7 @@ export default function StaffAppLeave({ selectedBranchId = 'all' }) {
                         </tbody>
                     </table>
                 )}
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
         </div>
     );

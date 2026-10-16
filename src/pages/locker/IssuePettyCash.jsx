@@ -1,7 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Coins, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { usePagedRows } from '../../hooks/usePagedRows';
+import LockerTablePager from './LockerTablePager';
 import { useLockerPortal } from './useLockerPortal';
 import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
@@ -26,6 +30,22 @@ export default function IssuePettyCash({
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(null);
     const [history, setHistory] = useState([]);
+    const historyTopRef = useRef(null);
+    const { pagedRows: pagedHistory, pagerProps: historyPager } = usePagedRows(history, {
+        scrollRef: historyTopRef,
+    });
+    const cashierOptions = useMemo(
+        () =>
+            cashiers.map((c) => {
+                const id = String(c.userId || c.id);
+                return {
+                    value: id,
+                    label: c.name || c.email || t('common.cashierFallback', { id }),
+                    hint: c.branchName || undefined,
+                };
+            }),
+        [cashiers, t],
+    );
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -148,21 +168,16 @@ export default function IssuePettyCash({
                     <div className="wlk-grid wlk-grid--form">
                         <label>
                             <span>{t('common.cashier')}</span>
-                            <select
+                            <SearchSelect
+                                options={cashierOptions}
                                 value={form.cashierUserId}
-                                onChange={(e) =>
-                                    setForm((f) => ({ ...f, cashierUserId: e.target.value }))
-                                }
+                                onChange={(v) => setForm((f) => ({ ...f, cashierUserId: String(v) }))}
                                 required
-                            >
-                                <option value="">{t('issue.selectCashier')}</option>
-                                {cashiers.map((c) => (
-                                    <option key={c.userId || c.id} value={c.userId || c.id}>
-                                        {c.name || c.email || t('common.cashierFallback', { id: c.userId || c.id })}
-                                        {c.branchName ? ` — ${c.branchName}` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel={t('common.cashier')}
+                                placeholder={t('issue.selectCashier')}
+                                emptyHint={t('common.noMatches')}
+                                menuMinWidth={300}
+                            />
                         </label>
                         <label>
                             <span>{t('common.amountSar')}</span>
@@ -208,7 +223,7 @@ export default function IssuePettyCash({
                 </div>
             ) : null}
 
-            <div className="wlk-section">
+            <div className="wlk-section" ref={historyTopRef}>
                 <div className="wlk-section-header">
                     <h3>{t('issue.recent')}<span className="wlk-count">{history.length}</span></h3>
                     <p className="wlk-subtitle" style={{ margin: 0 }}>
@@ -216,6 +231,7 @@ export default function IssuePettyCash({
                     </p>
                 </div>
                 <div className="wlk-section-body">
+                    <WsTableScroll>
                     <table className="wlk-table">
                         <thead>
                             <tr>
@@ -235,7 +251,7 @@ export default function IssuePettyCash({
                                     </td>
                                 </tr>
                             ) : (
-                                history.map((p) => (
+                                pagedHistory.map((p) => (
                                     <tr key={p.id}>
                                         <td>{p.date || date(p.createdAt)}</td>
                                         <td>{p.cashierName || dash}</td>
@@ -248,6 +264,8 @@ export default function IssuePettyCash({
                             )}
                         </tbody>
                     </table>
+                    </WsTableScroll>
+                    <LockerTablePager {...historyPager} />
                 </div>
             </div>
         </div>

@@ -8,6 +8,9 @@ import {
 import { branchScopeParams } from '../../../services/workshopStaffApi';
 import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import { staffAppStatusLabel, useStaffAppI18n } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 const fmt = (n, locale) => {
     const x = Number(n);
@@ -84,11 +87,13 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
         }
     };
 
+    const listPaging = usePagedRows(filtered, { resetKey: `${statusFilter}|${selectedBranchId}` });
+
     return (
         <div>
             <div className="staff-app-toolbar">
                 <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>{t('expenses.title')}</h2>
-                <select
+                <SelectCombo size="sm"
                     className="staff-app-btn"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
@@ -97,7 +102,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
                     <option value="pending">{t('status.pending')}</option>
                     <option value="approved">{t('status.approved')}</option>
                     <option value="rejected">{t('status.rejected')}</option>
-                </select>
+                </SelectCombo>
                 <button type="button" className="staff-app-btn" onClick={load} disabled={loading}>
                     <RefreshCw size={14} />
                 </button>
@@ -121,7 +126,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.map((row) => (
+                            {listPaging.pagedRows.map((row) => (
                                 <tr key={row.id}>
                                     <td>{row.expenseDate || row.createdAt?.slice?.(0, 10) || t('common.emdash')}</td>
                                     <td>{row.requestedByName || row.requestedByUserId || t('common.emdash')}</td>
@@ -156,6 +161,7 @@ export default function StaffAppExpenses({ selectedBranchId = 'all' }) {
                         </tbody>
                     </table>
                 )}
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
         </div>
     );

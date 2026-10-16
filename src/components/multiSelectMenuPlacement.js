@@ -8,14 +8,16 @@ export function computeFixedComboMenuStyle(
         gap = 6,
         edge = 12,
         zIndex = 5000,
+        rtl = false,
     } = {},
 ) {
     const width = Math.min(
         Math.max(Number(rect?.width) || 0, menuMinWidth),
         Math.max(viewportWidth - edge * 2, 240),
     );
+    const preferredLeft = rtl ? (Number(rect?.right) || 0) - width : Number(rect?.left) || 0;
     const left = Math.min(
-        Math.max(edge, Number(rect?.left) || 0),
+        Math.max(edge, preferredLeft),
         Math.max(edge, viewportWidth - width - edge),
     );
     const bottom = Number(rect?.bottom) || 0;

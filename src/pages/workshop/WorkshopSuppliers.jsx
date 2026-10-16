@@ -4,6 +4,8 @@ import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WorkshopAddSupplierScreen from './WorkshopAddSupplierScreen';
 import { AnimatePresence } from 'framer-motion';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows, useServerPaging } from '../../hooks/usePagedRows';
 import Modal from '../../components/Modal';
 import { PI_INVENTORY_ITEMS } from './constants';
 import { useAuth } from '../../context/AuthContext';
@@ -26,9 +28,9 @@ import {
     unwrapWorkshopStaffSupplierPurchaseInvoiceGet,
 } from '../../services/workshopSupplierPurchaseInvoices';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import SelectCombo from '../../components/SelectCombo';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
-const PURCHASES_PAGE_SIZE = 25;
 
 function unwrapSuppliersResponse(res) {
     if (Array.isArray(res)) return res;
@@ -122,7 +124,8 @@ function paymentLabel(status, t) {
 
 /** Paginated purchase history + full-page invoice view — remounted when branch changes (key on parent) so page resets. */
 function SuppliersPurchaseHistoryPanel({ selectedBranchId, t }) {
-    const [page, setPage] = useState(1);
+    const paging = useServerPaging();
+    const { page, pageSize } = paging;
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -132,14 +135,14 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId, t }) {
     const [viewLoading, setViewLoading] = useState(false);
     const [viewError, setViewError] = useState('');
 
-    const offset = (page - 1) * PURCHASES_PAGE_SIZE;
+    const offset = (page - 1) * pageSize;
 
     const load = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
             const res = await listWorkshopSupplierPurchaseInvoices({
-                limit: PURCHASES_PAGE_SIZE,
+                limit: pageSize,
                 offset,
                 ...branchScopeParams(selectedBranchId),
             });
@@ -156,13 +159,11 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId, t }) {
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, offset, t]);
+    }, [selectedBranchId, offset, pageSize, t]);
 
     useEffect(() => {
         load();
     }, [load]);
-
-    const totalPages = Math.max(1, Math.ceil(((total ?? 0) || 0) / PURCHASES_PAGE_SIZE));
 
     const closeView = () => {
         setViewRow(null);
@@ -377,41 +378,7 @@ function SuppliersPurchaseHistoryPanel({ selectedBranchId, t }) {
                     </tbody>
                 </table>
                 </WsTableScroll>
-                {!loading && total != null && total > PURCHASES_PAGE_SIZE ? (
-                    <div
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '12px 16px',
-                            borderTop: '1px solid var(--color-border)',
-                            flexWrap: 'wrap',
-                        }}
-                    >
-                        <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            {t('history.pageOf', { page, total: totalPages })}
-                        </span>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            <button
-                                type="button"
-                                className="btn-secondary"
-                                disabled={page <= 1}
-                                onClick={() => setPage((x) => Math.max(1, x - 1))}
-                            >
-                                {t('btn.previous')}
-                            </button>
-                            <button
-                                type="button"
-                                className="btn-secondary"
-                                disabled={page >= totalPages}
-                                onClick={() => setPage((x) => Math.min(totalPages, x + 1))}
-                            >
-                                {t('btn.next')}
-                            </button>
-                        </div>
-                    </div>
-                ) : null}
+                {!loading ? <WsTablePagination {...paging.pagerFor(total)} /> : null}
             </div>
         </>
     );
@@ -556,6 +523,8 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
         return parts.join(' · ');
     }, [suppliers.length, listMeta.total, listMeta.outstanding, listMeta.currencyCode, t]);
 
+    const suppliersPaging = usePagedRows(suppliers, { resetKey: searchInput.trim() });
+
     const subtotal = items.reduce((s, i) => s + (i.total || 0), 0);
     const vat = subtotal * 0.15;
     const grandTotal = subtotal + vat;
@@ -644,7 +613,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                     marginBottom: 8,
                                 }}
                             >
-                                <select
+                                <SelectCombo size="sm"
                                     value={item.product_id}
                                     onChange={(e) => updateItem(idx, 'product_id', e.target.value)}
                                     style={{
@@ -660,7 +629,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                             {p.name}
                                         </option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                                 <input
                                     type="number"
                                     placeholder={t('purchase.qty')}
@@ -912,7 +881,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                                         </td>
                                     </tr>
                                 ) : (
-                                    suppliers.map((s) => (
+                                    suppliersPaging.pagedRows.map((s) => (
                                         <tr key={s.id}>
                                             <td>
                                                 <strong>{s.name === '—' ? t('emdash') : s.name}</strong>
@@ -962,6 +931,7 @@ export default function WorkshopSuppliers({ selectedBranchId = 'all', branches =
                             </tbody>
                         </table>
                         </WsTableScroll>
+                        {!loading ? <WsTablePagination {...suppliersPaging.pagerProps} /> : null}
                     </div>
                 </>
             )}

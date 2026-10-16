@@ -1,9 +1,7 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useOutletContext } from 'react-router-dom';
 import {
     Book,
-    ChevronLeft,
-    ChevronRight,
     FileSpreadsheet,
     FileText,
     Filter,
@@ -58,9 +56,12 @@ import {
 } from '../../../utils/posInvoiceActions';
 import { formatPlateLettersFirst } from '../../../utils/formatPlate';
 import { parseWorkshopLedgerAccountIdFromPath } from '../workshopCoaAccountRouting';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../../hooks/usePagedRows';
 import '../../../styles/admin/AccountingPage.css';
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const CORP_ALL = 'all';
 const CORP_OVERAGE = 'overage';
 const CORP_SHORTAGE = 'shortage';
@@ -111,13 +112,13 @@ function parseApParty(apParty) {
 
 function mapSupplierApLinesToGl(apLedger) {
     return (apLedger?.rows ?? []).map((row) => {
-        const desc = row.description || 'ΓÇö';
+        const desc = row.description || '—';
         const invMatch = String(desc).match(/\b((?:PI|WLPI|INV|SI|DN|CN|JE)-[\w-]+)/i);
         return {
             id: row.id,
             date: row.date,
-            entryNumber: invMatch?.[1] || row.refType || 'ΓÇö',
-            journalType: row.refType || 'ΓÇö',
+            entryNumber: invMatch?.[1] || row.refType || '—',
+            journalType: row.refType || '—',
             journalDescription: desc,
             lineDescription: desc,
             source: 'supplier_ap',
@@ -187,15 +188,15 @@ function mapCorporateArLinesToGl(corpLedger) {
         return {
             id: row.id,
             date: row.date,
-            entryNumber: row.invoiceNo || 'ΓÇö',
-            journalType: row.type || 'ΓÇö',
-            journalDescription: row.productsServicesEn || row.productsServices || 'ΓÇö',
-            lineDescription: row.productsServicesEn || row.productsServices || 'ΓÇö',
+            entryNumber: row.invoiceNo || '—',
+            journalType: row.type || '—',
+            journalDescription: row.productsServicesEn || row.productsServices || '—',
+            lineDescription: row.productsServicesEn || row.productsServices || '—',
             source: 'corporate_ar',
             debit: dr,
             credit: cr,
             runningBalance: Number(row.runningBalance) || 0,
-            vehicleNo: row.vehicleNo || 'ΓÇö',
+            vehicleNo: row.vehicleNo || '—',
             invoiceId: row.invoiceId || null,
         };
     });
@@ -210,7 +211,7 @@ function isJournalEntryRef(text) {
     return /^JE[-_]/i.test(String(text || '').trim());
 }
 
-/** Map workshop-staff PDF/details payload ΓåÆ InvoiceDetailsModal shape. */
+/** Map workshop-staff PDF/details payload → InvoiceDetailsModal shape. */
 function mapRecentPdfToInvoice(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const src = raw?.invoice && typeof raw.invoice === 'object' ? raw.invoice : raw;
@@ -330,7 +331,8 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
     const [error, setError] = useState('');
 
     const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(25);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
+    const tableTopRef = useRef(null);
 
     const [corpParty, setCorpParty] = useState(CORP_ALL);
     const [corpPartyDisplay, setCorpPartyDisplay] = useState('');
@@ -397,9 +399,9 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                 const heading = a.hasChildren || a.isHeading;
                 return {
                     id: String(a.id),
-                    label: `${code} ┬╖ ${name}`,
+                    label: `${code} · ${name}`,
                     subtitle: heading
-                        ? `${a.type || 'Account'} ┬╖ Heading`
+                        ? `${a.type || 'Account'} · Heading`
                         : String(a.type || 'Account'),
                     searchText: `${code} ${name} ${a.type || ''} ${a.subType || ''}`,
                 };
@@ -423,7 +425,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         clearLedgerResults();
     }, [accountId, dateFrom, dateTo, corpParty, apParty, clearLedgerResults]);
 
-    // Reset corporate party filter when leaving 1110 (filter UI only ΓÇö no ledger fetch).
+    // Reset corporate party filter when leaving 1110 (filter UI only — no ledger fetch).
     useEffect(() => {
         if (!showCorpPartyFilter) {
             setCorpParty(CORP_ALL);
@@ -432,7 +434,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         }
     }, [showCorpPartyFilter]);
 
-    // Reset AP supplier filter when leaving AP accounts or switching affiliated Γåö local.
+    // Reset AP supplier filter when leaving AP accounts or switching affiliated ↔ local.
     useEffect(() => {
         if (!showApPartyFilter) {
             setApParty(AP_ALL);
@@ -599,11 +601,11 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         ];
         const customers = (corpCustomers || []).map((c) => ({
             id: `${CORP_PREFIX}${c.corporateAccountId}`,
-            label: c.companyName || c.customerName || 'ΓÇö',
+            label: c.companyName || c.customerName || '—',
             subtitle: [
                 c.vatNumber ? `VAT ${c.vatNumber}` : null,
                 `Due SAR ${fmt(c.dueBalance)}`,
-            ].filter(Boolean).join(' ┬╖ '),
+            ].filter(Boolean).join(' · '),
             trailing: c.dueBalance > 0 ? `SAR ${fmt(c.dueBalance)}` : undefined,
             searchText: `${c.companyName} ${c.customerName} ${c.vatNumber} ${c.contactPerson} ${c.mobile}`,
         }));
@@ -625,7 +627,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             if (!sid || seen.has(sid)) continue;
             seen.add(sid);
             const id = isAff ? `${AP_PREFIX}affiliated:${sid}` : `${AP_PREFIX}local:${sid}`;
-            const name = isAff ? (s.supplierName || 'ΓÇö') : (s.name || 'ΓÇö');
+            const name = isAff ? (s.supplierName || '—') : (s.name || '—');
             const phone = isAff ? s.mobile : s.phone;
             const vat = s.vatId || '';
             suppliers.push({
@@ -636,7 +638,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                     phone || null,
                     s.branchName || null,
                     `Due SAR ${fmt(s.finalBalance)}`,
-                ].filter(Boolean).join(' ┬╖ '),
+                ].filter(Boolean).join(' · '),
                 trailing: Number(s.finalBalance) !== 0 ? `SAR ${fmt(s.finalBalance)}` : undefined,
                 searchText: `${name} ${vat} ${phone || ''} ${s.email || ''} ${s.contactPerson || ''}`,
             });
@@ -793,7 +795,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         companyName: selectedCorpProfile?.companyName
             || selectedApProfile?.companyName
             || (ledger?.account?.code
-                ? `${ledger.account.code} ΓÇö ${ledger.account.name}`
+                ? `${ledger.account.code} — ${ledger.account.name}`
                 : ledger?.account?.name)
             || workshop?.name
             || 'FILTER',
@@ -1018,14 +1020,14 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
         });
         setSelectedJE({
             code: entry.entryNumber,
-            date: entry.date ? new Date(entry.date).toLocaleDateString() : 'ΓÇö',
+            date: entry.date ? new Date(entry.date).toLocaleDateString() : '—',
             type: entry.type,
             status: (entry.status || '').toUpperCase(),
             totalDebit: `SAR ${fmtMoney(entry.totalDebit)}`,
             totalCredit: `SAR ${fmtMoney(entry.totalCredit)}`,
             description: entry.description || '',
             lines: (entry.lines || []).map((l) => ({
-                account: `${l.accountCode || ''}${l.accountCode ? ' ΓÇö ' : ''}${l.accountName || ''}`,
+                account: `${l.accountCode || ''}${l.accountCode ? ' — ' : ''}${l.accountName || ''}`,
                 description: l.description || '',
                 debit: l.debit ? fmtMoney(l.debit) : '',
                 credit: l.credit ? fmtMoney(l.credit) : '',
@@ -1092,7 +1094,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
 
     const handleEntryClick = useCallback(async (line) => {
         const entryNo = String(line?.entryNumber || '').trim();
-        if (!entryNo || entryNo === 'ΓÇö') return;
+        if (!entryNo || entryNo === '—') return;
         const key = String(line.id || entryNo);
         setEntryLoadingKey(key);
         setError('');
@@ -1102,7 +1104,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                 await openPurchaseInvoiceByRef(line);
                 return;
             }
-            // Corporate AR RET rows point invoiceId at the source invoice ΓÇö open that first.
+            // Corporate AR RET rows point invoiceId at the source invoice — open that first.
             if (/^RET-/i.test(entryNo)) {
                 if (line.invoiceId) {
                     await openInvoiceByRef({ invoiceId: line.invoiceId, invoiceNo: entryNo });
@@ -1282,11 +1284,11 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                     <div className="cash-bank-stat-card">
                         <div className="cash-bank-stat-icon"><Book size={24} /></div>
                         <div>
-                            <p className="cash-bank-stat-label">{ledger.account.code} ┬╖ {ledger.account.name}</p>
+                            <p className="cash-bank-stat-label">{ledger.account.code} · {ledger.account.name}</p>
                             <p className="cash-bank-stat-value">SAR {fmt(statementClosing)}</p>
                             <p className="cash-bank-stat-meta">
-                                {ledger.account.type} ┬╖ {t('ledger.meta.normal')} {ledger.account.normalBalance}
-                                {` ┬╖ ${t('ledger.meta.showingPage', {
+                                {ledger.account.type} · {t('ledger.meta.normal')} {ledger.account.normalBalance}
+                                {` · ${t('ledger.meta.showingPage', {
                                     shown: pageLines.length,
                                     total: filteredLines.length,
                                     page,
@@ -1305,10 +1307,10 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                     ? t('ledger.periodRange', {
                                         from: dateFrom
                                             ? new Date(`${dateFrom}T00:00:00`).toLocaleDateString()
-                                            : 'ΓÇö',
+                                            : '—',
                                         to: dateTo
                                             ? new Date(`${dateTo}T00:00:00`).toLocaleDateString()
-                                            : 'ΓÇö',
+                                            : '—',
                                     })
                                     : t('ledger.periodAll')}
                             </p>
@@ -1325,7 +1327,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                 </div>
             ) : null}
 
-            <section className="premium-table cash-bank-table">
+            <section className="premium-table cash-bank-table" ref={tableTopRef}>
                 <header style={{
                     padding: '12px 16px',
                     borderBottom: '1px solid #E2E8F0',
@@ -1363,45 +1365,9 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                         >
                             <FileSpreadsheet size={15} /> {t('ledger.exportExcel')}
                         </button>
-                        <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {t('ledger.pageSize')}
-                            <select
-                                className="form-input-field"
-                                style={{ width: 'auto', minWidth: 80 }}
-                                value={pageSize}
-                                onChange={(e) => {
-                                    setPageSize(Number(e.target.value) || 25);
-                                    setPage(1);
-                                }}
-                            >
-                                {PAGE_SIZE_OPTIONS.map((n) => (
-                                    <option key={n} value={n}>{n}</option>
-                                ))}
-                            </select>
-                        </label>
-                        <span className="form-help-text" style={{ margin: 0 }}>
-                            {t('ledger.pageOf', { page, pages: totalPages })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={page <= 1 || busy}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                            <ChevronLeft size={16} /> {t('ledger.prev')}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={page >= totalPages || busy}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                            {t('ledger.next')} <ChevronRight size={16} />
-                        </button>
                     </div>
                 </header>
+                <WsTableScroll>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
@@ -1429,14 +1395,14 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                             <>
                                 {page === 1 ? (
                                     <tr style={{ background: '#F8FAFC' }}>
-                                        <td className="table-cell">{dateFrom ? new Date(`${dateFrom}T00:00:00`).toLocaleDateString() : 'ΓÇö'}</td>
-                                        <td className="table-cell">ΓÇö</td>
+                                        <td className="table-cell">{dateFrom ? new Date(`${dateFrom}T00:00:00`).toLocaleDateString() : '—'}</td>
+                                        <td className="table-cell">—</td>
                                         <td className="table-cell">{t('ledger.openingType')}</td>
-                                        {showVehicleCol ? <td className="table-cell">ΓÇö</td> : null}
+                                        {showVehicleCol ? <td className="table-cell">—</td> : null}
                                         <td className="table-cell" style={{ fontWeight: 600 }}>{openingPeriodLabel}</td>
-                                        <td className="table-cell">ΓÇö</td>
-                                        <td className="table-cell" style={{ textAlign: 'right' }}>ΓÇö</td>
-                                        <td className="table-cell" style={{ textAlign: 'right' }}>ΓÇö</td>
+                                        <td className="table-cell">—</td>
+                                        <td className="table-cell" style={{ textAlign: 'right' }}>—</td>
+                                        <td className="table-cell" style={{ textAlign: 'right' }}>—</td>
                                         <td className="table-cell" style={{ textAlign: 'right', fontWeight: 700 }}>
                                             SAR {fmt(statementOpening)}
                                         </td>
@@ -1448,7 +1414,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                     const entryNo = String(l.entryNumber || '').trim();
                                     const clickable = Boolean(
                                         entryNo
-                                        && entryNo !== 'ΓÇö'
+                                        && entryNo !== '—'
                                         && (
                                             l.invoiceId
                                             || l.refId
@@ -1463,7 +1429,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                     return (
                             <tr key={l.id}>
                                             <td className="table-cell">
-                                                {l.date ? new Date(l.date).toLocaleDateString() : 'ΓÇö'}
+                                                {l.date ? new Date(l.date).toLocaleDateString() : '—'}
                                             </td>
                                             <td className="table-cell" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
                                                 {clickable ? (
@@ -1484,18 +1450,18 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                                     >
                                                         {loadingThis ? t('loading') : entryNo}
                                                     </button>
-                                                ) : (entryNo || 'ΓÇö')}
+                                                ) : (entryNo || '—')}
                                             </td>
-                                            <td className="table-cell">{l.journalType || 'ΓÇö'}</td>
+                                            <td className="table-cell">{l.journalType || '—'}</td>
                                             {showVehicleCol ? (
-                                                <td className="table-cell">{l.vehicleNo || 'ΓÇö'}</td>
+                                                <td className="table-cell">{l.vehicleNo || '—'}</td>
                                             ) : null}
                                 <td className="table-cell" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {l.lineDescription || l.journalDescription || 'ΓÇö'}
+                                                {l.lineDescription || l.journalDescription || '—'}
                                 </td>
-                                            <td className="table-cell">{l.source ?? 'ΓÇö'}</td>
-                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.debit ? `SAR ${fmt(l.debit)}` : 'ΓÇö'}</td>
-                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.credit ? `SAR ${fmt(l.credit)}` : 'ΓÇö'}</td>
+                                            <td className="table-cell">{l.source ?? '—'}</td>
+                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.debit ? `SAR ${fmt(l.debit)}` : '—'}</td>
+                                            <td className="table-cell" style={{ textAlign: 'right' }}>{l.credit ? `SAR ${fmt(l.credit)}` : '—'}</td>
                                 <td className="table-cell" style={{ textAlign: 'right', fontWeight: 600 }}>SAR {fmt(l.runningBalance)}</td>
                             </tr>
                                     );
@@ -1504,6 +1470,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
 
                 {accountId && ledger?.account ? (
                     <div style={{
@@ -1533,36 +1500,20 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                     </div>
                 ) : null}
 
-                {filteredLines.length > pageSize ? (
-                    <footer style={{
-                        padding: '12px 16px',
-                        borderTop: '1px solid #E2E8F0',
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        gap: 8,
-                        alignItems: 'center',
-                    }}>
-                        <span className="form-help-text" style={{ margin: 0 }}>
-                            {t('ledger.pageOf', { page, pages: totalPages })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={page <= 1 || busy}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        >
-                            <ChevronLeft size={16} style={{ marginRight: 4 }} /> {t('ledger.prev')}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={page >= totalPages || busy}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        >
-                            {t('ledger.next')} <ChevronRight size={16} style={{ marginLeft: 4 }} />
-                        </button>
-                    </footer>
-                ) : null}
+                <WsTablePagination
+                    page={Math.min(page, totalPages)}
+                    pageCount={totalPages}
+                    pageSize={pageSize}
+                    total={filteredLines.length}
+                    onPageChange={(p) => {
+                        setPage(p);
+                        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    onPageSizeChange={(n) => {
+                        setPageSize(n);
+                        setPage(1);
+                    }}
+                />
             </section>
 
             <InvoiceDetailsModal
@@ -1585,7 +1536,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             {piModalOpen && piDetail ? (
                 <Modal
                     title={t('ledger.piTitle', {
-                        no: piDetail.invoiceNumber || piDetail.invoiceNo || piDetail.id || 'ΓÇö',
+                        no: piDetail.invoiceNumber || piDetail.invoiceNo || piDetail.id || '—',
                     })}
                     onClose={() => {
                         setPiModalOpen(false);
@@ -1595,10 +1546,10 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                 >
                     <div style={{ display: 'grid', gap: 10 }}>
                         <div><strong>{t('ledger.th.type')}:</strong> {piDetail.kind === 'local' ? t('ledger.ap.local') : t('ledger.ap.affiliated')}</div>
-                        <div><strong>{t('ledger.th.entryNo')}:</strong> {piDetail.invoiceNumber || piDetail.invoiceNo || 'ΓÇö'}</div>
-                        <div><strong>{t('ledger.th.date')}:</strong> {piDetail.issueDate ? new Date(piDetail.issueDate).toLocaleDateString() : 'ΓÇö'}</div>
-                        <div><strong>Supplier:</strong> {piDetail.supplierName || piDetail.localSupplier?.name || piDetail.supplier?.name || 'ΓÇö'}</div>
-                        <div><strong>Status:</strong> {piDetail.status || 'ΓÇö'}</div>
+                        <div><strong>{t('ledger.th.entryNo')}:</strong> {piDetail.invoiceNumber || piDetail.invoiceNo || '—'}</div>
+                        <div><strong>{t('ledger.th.date')}:</strong> {piDetail.issueDate ? new Date(piDetail.issueDate).toLocaleDateString() : '—'}</div>
+                        <div><strong>Supplier:</strong> {piDetail.supplierName || piDetail.localSupplier?.name || piDetail.supplier?.name || '—'}</div>
+                        <div><strong>Status:</strong> {piDetail.status || '—'}</div>
                         <div><strong>Total:</strong> SAR {fmt(piDetail.grandTotal ?? piDetail.totalAmount ?? piDetail.total)}</div>
                         {piDetail.journalId ? (
                             <button
@@ -1616,7 +1567,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
             {returnModalOpen && returnDetail ? (
                 <Modal
                     title={t('ledger.returnTitle', {
-                        no: returnDetail.creditNoteNo || returnDetail.returnNo || 'ΓÇö',
+                        no: returnDetail.creditNoteNo || returnDetail.returnNo || '—',
                     })}
                     onClose={() => {
                         setReturnModalOpen(false);
@@ -1625,12 +1576,12 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                     width={560}
                 >
                     <div style={{ display: 'grid', gap: 10 }}>
-                        <div><strong>{t('ledger.th.entryNo')}:</strong> {returnDetail.returnNo || returnDetail.creditNoteNo || 'ΓÇö'}</div>
-                        <div><strong>{t('ledger.th.date')}:</strong> {returnDetail.returnDate ? new Date(returnDetail.returnDate).toLocaleDateString() : 'ΓÇö'}</div>
-                        <div><strong>Invoice:</strong> {returnDetail.invoiceNo || 'ΓÇö'}</div>
-                        <div><strong>{t('ledger.th.vehicle')}:</strong> {returnDetail.vehicleNo || returnDetail.plateNo || 'ΓÇö'}</div>
-                        <div><strong>Customer:</strong> {returnDetail.customerName || 'ΓÇö'}</div>
-                        <div><strong>Status:</strong> {returnDetail.status || 'ΓÇö'}</div>
+                        <div><strong>{t('ledger.th.entryNo')}:</strong> {returnDetail.returnNo || returnDetail.creditNoteNo || '—'}</div>
+                        <div><strong>{t('ledger.th.date')}:</strong> {returnDetail.returnDate ? new Date(returnDetail.returnDate).toLocaleDateString() : '—'}</div>
+                        <div><strong>Invoice:</strong> {returnDetail.invoiceNo || '—'}</div>
+                        <div><strong>{t('ledger.th.vehicle')}:</strong> {returnDetail.vehicleNo || returnDetail.plateNo || '—'}</div>
+                        <div><strong>Customer:</strong> {returnDetail.customerName || '—'}</div>
+                        <div><strong>Status:</strong> {returnDetail.status || '—'}</div>
                         <div><strong>Total:</strong> SAR {fmt(returnDetail.totalAmount)}</div>
                         {returnDetail.invoiceId || returnDetail.invoiceNo ? (
                             <button
@@ -1685,7 +1636,7 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                         </div>
                         <div className="je-detail-desc-box">
                             <span className="je-field-label">{t('gj.modal.description')}</span>
-                            <p className="je-field-value">{selectedJE.description || 'ΓÇö'}</p>
+                            <p className="je-field-value">{selectedJE.description || '—'}</p>
                         </div>
                         <div className="je-lines-section">
                             <h4 className="je-section-title">{t('gj.modal.lines')}</h4>
@@ -1704,8 +1655,8 @@ export default function WorkshopLedgerView({ locale: localeProp } = {}) {
                                             <tr key={idx}>
                                                 <td className="font-bold">{line.account}</td>
                                                 <td className="color-muted">{line.description}</td>
-                                                <td className="text-right color-green-dark">{line.debit || 'ΓÇö'}</td>
-                                                <td className="text-right color-blue-dark">{line.credit || 'ΓÇö'}</td>
+                                                <td className="text-right color-green-dark">{line.debit || '—'}</td>
+                                                <td className="text-right color-blue-dark">{line.credit || '—'}</td>
                                             </tr>
                                         ))}
                                     </tbody>

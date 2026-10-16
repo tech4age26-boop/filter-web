@@ -27,6 +27,7 @@ import {
 import { accT } from '../../../utils/accountingI18n';
 import '../../../styles/admin/AccountingPage.css';
 import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
+import SelectCombo from '../../../components/SelectCombo';
 
 const SUBTYPE_BY_TYPE = {
     ASSET: ['CURRENT', 'FIXED', 'OTHER'],
@@ -466,7 +467,7 @@ export default function WorkshopCoaAccountPage({
                                     <label className="form-label" htmlFor="coa-acc-subtype">
                                         {t('coa.field.subtype')}
                                     </label>
-                                    <select
+                                    <SelectCombo
                                         id="coa-acc-subtype"
                                         className="form-input-field"
                                         value={subType}
@@ -475,13 +476,13 @@ export default function WorkshopCoaAccountPage({
                                         {(SUBTYPE_BY_TYPE[type] || []).map((sub) => (
                                             <option key={sub} value={sub}>{toLabel(sub, t)}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="form-group">
                                     <label className="form-label" htmlFor="coa-acc-branch">
                                         {t('coa.field.branch')}
                                     </label>
-                                    <select
+                                    <SelectCombo
                                         id="coa-acc-branch"
                                         className="form-input-field"
                                         value={branchId}
@@ -491,7 +492,7 @@ export default function WorkshopCoaAccountPage({
                                         {branches.map((b) => (
                                             <option key={b.id} value={b.id}>{b.name}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                     <p className="form-help-text">{t('coa.field.branchHelp')}</p>
                                 </div>
                                 <div className="form-group coa-account-span-2">
@@ -507,7 +508,7 @@ export default function WorkshopCoaAccountPage({
                                         onChange={(e) => setParentSearch(e.target.value)}
                                         style={{ marginBottom: 8 }}
                                     />
-                                    <select
+                                    <SelectCombo
                                         className="form-input-field"
                                         value={parentId}
                                         onChange={(e) => setParentId(e.target.value)}
@@ -519,7 +520,7 @@ export default function WorkshopCoaAccountPage({
                                                 {acc.code} — {acc.name}
                                             </option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                             </div>
                         </section>
@@ -560,7 +561,7 @@ export default function WorkshopCoaAccountPage({
                                             <label className="form-label" htmlFor="coa-acc-opening-contra">
                                                 {t('coa.page.openingContra')}
                                             </label>
-                                            <select
+                                            <SelectCombo
                                                 id="coa-acc-opening-contra"
                                                 className="form-input-field"
                                                 value={openingOffsetAccountId}
@@ -572,7 +573,7 @@ export default function WorkshopCoaAccountPage({
                                                         [{acc.code}] {acc.name}
                                                     </option>
                                                 ))}
-                                            </select>
+                                            </SelectCombo>
                                         </div>
                                     </div>
                                     <p className="form-help-text">{t('coa.page.openingHint')}</p>
@@ -652,7 +653,7 @@ export default function WorkshopCoaAccountPage({
                                     <label className="form-label" htmlFor="coa-acc-status">
                                         {t('coa.field.status')}
                                     </label>
-                                    <select
+                                    <SelectCombo
                                         id="coa-acc-status"
                                         className="form-input-field"
                                         value={status}
@@ -660,7 +661,7 @@ export default function WorkshopCoaAccountPage({
                                     >
                                         <option value="active">{t('coa.status.active')}</option>
                                         <option value="inactive">{t('coa.status.inactive')}</option>
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div className="form-group coa-account-span-2">
                                     <label className="form-label" htmlFor="coa-acc-desc">

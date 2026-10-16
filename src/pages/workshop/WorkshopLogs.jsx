@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listWorkshopLogs, workshopStaffListScopeQuery } from '../../services/workshopStaffApi';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../hooks/usePagedRows';
 import { wlT } from '../../utils/workshopLogsI18n';
+import SelectCombo from '../../components/SelectCombo';
 import './Workshop.css';
 
-const PAGE_SIZE = 50;
 
 const CATEGORY_OPTIONS = [
     { value: 'all', labelKey: 'cat.all' },
@@ -44,16 +46,6 @@ function categoryLabel(c, t) {
     return opt ? t(opt.labelKey) : (c || t('emdash'));
 }
 
-function pageNumbers(current, totalPages, maxBtn = 7) {
-    if (totalPages < 1) return [];
-    let start = Math.max(1, current - Math.floor(maxBtn / 2));
-    let end = Math.min(totalPages, start + maxBtn - 1);
-    start = Math.max(1, end - maxBtn + 1);
-    const nums = [];
-    for (let n = start; n <= end; n += 1) nums.push(n);
-    return nums;
-}
-
 export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], locale: localeProp }) {
     const locale = localeProp || (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) || 'en';
     const t = useCallback((key, vars) => wlT(locale, key, vars), [locale]);
@@ -74,6 +66,7 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
     const [searchApplied, setSearchApplied] = useState('');
 
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -90,9 +83,7 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
         toDraft !== to ||
         searchDraft.trim() !== searchApplied;
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
-    const rangeFrom = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-    const rangeTo = total === 0 ? 0 : Math.min(page * PAGE_SIZE, total);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -105,8 +96,8 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
                 from: from || undefined,
                 to: to || undefined,
                 search: searchApplied || undefined,
-                limit: PAGE_SIZE,
-                offset: (Math.max(1, page) - 1) * PAGE_SIZE,
+                limit: pageSize,
+                offset: (Math.max(1, page) - 1) * pageSize,
             });
             setRows(Array.isArray(res?.items) ? res.items : []);
             setTotal(Number(res?.total) || 0);
@@ -117,7 +108,7 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
         } finally {
             setLoading(false);
         }
-    }, [selectedBranchId, allowedIds, category, from, to, searchApplied, page, t]);
+    }, [selectedBranchId, allowedIds, category, from, to, searchApplied, page, pageSize, t]);
 
     useEffect(() => {
         void load();
@@ -125,9 +116,9 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
 
     useEffect(() => {
         if (total === 0) return;
-        const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        const maxPage = Math.max(1, Math.ceil(total / pageSize));
         if (page > maxPage) setPage(maxPage);
-    }, [total, page]);
+    }, [total, page, pageSize]);
 
     // Branch selector lives in layout — reload with applied filters, page 1.
     useEffect(() => {
@@ -168,7 +159,7 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
             <div className="ws-logs-filters">
                 <label className="ws-logs-filter-field">
                     <span className="ws-logs-filter-label">{t('filter.category')}</span>
-                    <select
+                    <SelectCombo size="sm"
                         className="ws-select ws-logs-select"
                         value={categoryDraft}
                         onChange={(e) => setCategoryDraft(e.target.value)}
@@ -177,7 +168,7 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
                         {CATEGORY_OPTIONS.map((c) => (
                             <option key={c.value} value={c.value}>{t(c.labelKey)}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </label>
                 <label className="ws-logs-filter-field">
                     <span className="ws-logs-filter-label">{t('filter.from')}</span>
@@ -286,49 +277,18 @@ export default function WorkshopLogs({ selectedBranchId = 'all', branches = [], 
                     </table>
                 </WsTableScroll>
 
-                {total > 0 ? (
-                    <div className="ws-report-pagination" style={{ marginTop: 12, padding: '0 16px 16px' }}>
-                        <p className="ws-report-pagination__info">
-                            {t('pagination.showing')} <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> {t('pagination.of')}{' '}
-                            <strong>{total}</strong>
-                            {loading ? <span>{t('pagination.loadingSuffix')}</span> : null}
-                            <span style={{ marginLeft: 8, color: 'var(--color-text-muted)' }}>
-                                {t('pagination.perPage', { size: PAGE_SIZE })}
-                            </span>
-                        </p>
-                        <nav className="ws-report-pagination__nav" aria-label={t('aria.pages')}>
-                            <button
-                                type="button"
-                                className="ws-report-pagination__edge"
-                                disabled={page <= 1 || loading}
-                                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            >
-                                {t('btn.previous')}
-                            </button>
-                            <div className="ws-report-pagination__pages" role="group" aria-label={t('aria.pageNumbers')}>
-                                {pageNumbers(page, totalPages).map((n) => (
-                                    <button
-                                        key={n}
-                                        type="button"
-                                        className={`ws-report-pagination__page${n === page ? ' ws-report-pagination__page--active' : ''}`}
-                                        aria-current={n === page ? 'page' : undefined}
-                                        disabled={loading}
-                                        onClick={() => setPage(n)}
-                                    >
-                                        {n}
-                                    </button>
-                                ))}
-                            </div>
-                            <button
-                                type="button"
-                                className="ws-report-pagination__edge"
-                                disabled={page >= totalPages || loading}
-                                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            >
-                                {t('btn.next')}
-                            </button>
-                        </nav>
-                    </div>
+                {!loading ? (
+                    <WsTablePagination
+                        page={Math.min(page, totalPages)}
+                        pageCount={totalPages}
+                        pageSize={pageSize}
+                        total={total}
+                        onPageChange={setPage}
+                        onPageSizeChange={(n) => {
+                            setPageSize(n);
+                            setPage(1);
+                        }}
+                    />
                 ) : null}
             </div>
         </div>

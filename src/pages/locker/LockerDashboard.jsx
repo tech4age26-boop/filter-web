@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
 import { useLockerPortal } from './useLockerPortal';
 
 export default function LockerDashboard({
@@ -226,6 +227,7 @@ export default function LockerDashboard({
                 <div className="ws-section-header">
                     <span className="ws-section-title">{t('dash.recent')}</span>
                 </div>
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -287,6 +289,7 @@ export default function LockerDashboard({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
             </div>
         </div>
     );

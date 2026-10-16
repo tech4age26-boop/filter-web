@@ -110,17 +110,18 @@ export const deleteSoftPosDevice = (id) =>
         method: 'DELETE',
     });
 
+/** `params.method`: softpos (default) | card | cash | tabby | tamara | monthly_billing */
 export const getSoftPosAccess = (params = {}) =>
     apiFetch(`/super-admin/softpos/access${qs(params)}`);
 
-export const setSoftPosGlobalAccess = (enabled) =>
+export const setSoftPosGlobalAccess = (enabled, method = 'softpos') =>
     apiFetch('/super-admin/softpos/access/global', {
         method: 'PATCH',
-        body: JSON.stringify({ enabled: !!enabled }),
+        body: JSON.stringify({ enabled: !!enabled, method }),
     });
 
-export const setSoftPosBranchAccess = (branchId, enabled) =>
+export const setSoftPosBranchAccess = (branchId, enabled, method = 'softpos') =>
     apiFetch(`/super-admin/softpos/access/branches/${encodeURIComponent(branchId)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ enabled: !!enabled }),
+        body: JSON.stringify({ enabled: !!enabled, method }),
     });

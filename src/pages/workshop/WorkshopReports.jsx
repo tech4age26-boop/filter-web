@@ -178,6 +178,9 @@ import {
     loadWorkshopAdminDatetimeRange,
     saveWorkshopAdminDatetimeRange,
 } from './workshopAdminDatetimeRange';
+import SelectCombo from '../../components/SelectCombo';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES, usePagedRows } from '../../hooks/usePagedRows';
 
 /** `YYYY-MM-DDTHH:mm` for `<input type="datetime-local" />` — Asia/Riyadh wall clock. */
 function toDatetimeLocalValue(d) {
@@ -392,13 +395,6 @@ function extractSummaryRows(res, key) {
     return [];
 }
 
-function humanizeKey(key) {
-    return String(key || '')
-        .replace(/_/g, ' ')
-        .replace(/([a-z])([A-Z])/g, '$1 $2')
-        .replace(/\b\w/g, (m) => m.toUpperCase());
-}
-
 /** Whitespace-split terms; row matches if every term appears somewhere in hay (case-insensitive). */
 function tabQueryTokens(query) {
     return String(query ?? '')
@@ -429,7 +425,6 @@ function createEmptyTabSearch() {
     };
 }
 
-const ORDERS_PAGE_SIZE = 25;
 const REPORTS_SUMMARY_PAGE_SIZE = 50;
 
 function createEmptySummaryPages() {
@@ -443,25 +438,6 @@ function createEmptySummaryPages() {
         by_branch: 1,
         by_cashier: 1,
     };
-}
-
-function createEmptySummaryTotals() {
-    return {
-        by_technician: 0,
-        by_customer: 0,
-        by_product: 0,
-        by_service: 0,
-        by_department: 0,
-        by_category: 0,
-        by_branch: 0,
-        by_cashier: 0,
-    };
-}
-
-function extractSummaryTotal(res) {
-    const raw = res?.total ?? res?.data?.total ?? res?.count ?? res?.data?.count;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : 0;
 }
 
 function KpiProofStat({ label, value }) {
@@ -556,6 +532,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [reportData, setReportData] = useState(null);
     const [recentOrders, setRecentOrders] = useState([]);
     const [ordersPage, setOrdersPage] = useState(1);
+    const [ordersPageSize, setOrdersPageSize] = useState(TABLE_PAGE_SIZES[0]);
     const [ordersTotal, setOrdersTotal] = useState(0);
     const [ordersSearchInput, setOrdersSearchInput] = useState('');
     const [ordersSearchDebounced, setOrdersSearchDebounced] = useState('');
@@ -563,7 +540,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
     const [ordersListLoading, setOrdersListLoading] = useState(false);
     const [ordersListError, setOrdersListError] = useState('');
     const [summaryPages, setSummaryPages] = useState(createEmptySummaryPages);
-    const [summaryTotals, setSummaryTotals] = useState(createEmptySummaryTotals);
     const [summaryLoading, setSummaryLoading] = useState({
         by_technician: false,
         by_customer: false,
@@ -619,7 +595,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         try {
             const rangeParams = rangeToApiIso(rangeFromLocal, rangeToLocal, t);
             const params = workshopReportsAnalyticsParams(selectedBranchId, rangeParams);
-            const limit = ORDERS_PAGE_SIZE;
+            const limit = ordersPageSize;
             const offset = (ordersPage - 1) * limit;
             const q = ordersSearchDebounced.trim();
             const res = await getWorkshopRecentOrders({
@@ -648,7 +624,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         } finally {
             setOrdersListLoading(false);
         }
-    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersSearchDebounced, ordersPaymentMethod, t]);
+    }, [selectedBranchId, rangeFromLocal, rangeToLocal, ordersPage, ordersPageSize, ordersSearchDebounced, ordersPaymentMethod, t]);
 
     const fetchRecentOrdersListRef = useRef(fetchRecentOrdersList);
     fetchRecentOrdersListRef.current = fetchRecentOrdersList;
@@ -691,18 +667,15 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                     (tabId === 'by_service' && byServiceTechnicianId);
                 if (techActive) {
                     setSummaryData((prev) => ({ ...prev, [tabId]: [] }));
-                    setSummaryTotals((prev) => ({ ...prev, [tabId]: 0 }));
                 }
             }
             try {
                 const res = await fetcher(params);
                 const rows = extractSummaryRows(res, tabId);
-                const total = extractSummaryTotal(res);
                 setSummaryData((prev) => ({ ...prev, [tabId]: rows }));
-                setSummaryTotals((prev) => ({ ...prev, [tabId]: total || rows.length }));
                 if (tabId === 'by_product') setByProductTechnicianError('');
                 if (tabId === 'by_service') setByServiceTechnicianError('');
-                return { rows, total: total || rows.length };
+                return { rows };
             } catch (err) {
                 if (tabId === 'by_product') {
                     setByProductTechnicianError(err?.message || t('err.loadProductTech'));
@@ -774,16 +747,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_branch: extractSummaryRows(byBranchRes, 'by_branch'),
                 by_cashier: extractSummaryRows(byCashierRes, 'by_cashier'),
             });
-            setSummaryTotals({
-                by_technician: extractSummaryTotal(byTechnicianRes) || extractSummaryRows(byTechnicianRes, 'by_technician').length,
-                by_customer: extractSummaryTotal(byCustomerRes) || extractSummaryRows(byCustomerRes, 'by_customer').length,
-                by_product: extractSummaryTotal(byProductRes) || extractSummaryRows(byProductRes, 'by_product').length,
-                by_service: extractSummaryTotal(byServiceRes) || extractSummaryRows(byServiceRes, 'by_service').length,
-                by_department: extractSummaryTotal(byDepartmentRes) || extractSummaryRows(byDepartmentRes, 'by_department').length,
-                by_category: extractSummaryTotal(byCategoryRes) || extractSummaryRows(byCategoryRes, 'by_category').length,
-                by_branch: extractSummaryTotal(byBranchRes) || extractSummaryRows(byBranchRes, 'by_branch').length,
-                by_cashier: extractSummaryTotal(byCashierRes) || extractSummaryRows(byCashierRes, 'by_cashier').length,
-            });
             const rawTech = unwrapWorkshopStaffList(techniciansRes, 'technician');
             const opts = rawTech
                 .map((r) => flattenWorkshopStaffRow(r, 'technician'))
@@ -808,7 +771,6 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                 by_branch: [],
                 by_cashier: [],
             });
-            setSummaryTotals(createEmptySummaryTotals());
             setRecentOrders([]);
             setOrdersTotal(0);
             setOrdersListError('');
@@ -1810,70 +1772,25 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
         );
     }, [norm, tabSearch.by_cashier]);
 
-    const ordersTotalPages = Math.max(1, Math.ceil(ordersTotal / ORDERS_PAGE_SIZE));
-    const ordersRangeFrom =
-        ordersTotal === 0 ? 0 : (ordersPage - 1) * ORDERS_PAGE_SIZE + 1;
-    const ordersRangeTo = Math.min(ordersPage * ORDERS_PAGE_SIZE, ordersTotal);
-    const renderSummaryPagination = (tabId, visibleCount) => {
-        const total = summaryTotals[tabId] ?? 0;
-        if (total <= REPORTS_SUMMARY_PAGE_SIZE) return null;
-        const page = summaryPages[tabId] ?? 1;
-        const totalPages = Math.max(1, Math.ceil(total / REPORTS_SUMMARY_PAGE_SIZE));
-        const rangeFrom = total === 0 ? 0 : (page - 1) * REPORTS_SUMMARY_PAGE_SIZE + 1;
-        const rangeTo = Math.min((page - 1) * REPORTS_SUMMARY_PAGE_SIZE + visibleCount, total);
-        return (
-            <div className="ws-report-pagination">
-                <p className="ws-report-pagination__info">
-                    {t('pagination.showing')} <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> {t('pagination.of')} <strong>{total}</strong>
-                    {summaryLoading[tabId] ? <span>{t('pagination.loadingSuffix')}</span> : null}
-                </p>
-                <nav className="ws-report-pagination__nav" aria-label={t('label.summaryPages', { name: wrT(locale, `tab.${tabId}`) === `tab.${tabId}` ? humanizeKey(tabId) : wrT(locale, `tab.${tabId}`) })}>
-                    <button
-                        type="button"
-                        className="ws-report-pagination__edge"
-                        disabled={page <= 1 || summaryLoading[tabId]}
-                        onClick={() =>
-                            setSummaryPages((prev) => ({ ...prev, [tabId]: Math.max(1, page - 1) }))
-                        }
-                    >
-                        {t('btn.previous')}
-                    </button>
-                    <div className="ws-report-pagination__pages" role="group" aria-label={t('label.pageNumbers')}>
-                        {(() => {
-                            const maxBtn = 7;
-                            let start = Math.max(1, page - Math.floor(maxBtn / 2));
-                            let end = Math.min(totalPages, start + maxBtn - 1);
-                            start = Math.max(1, end - maxBtn + 1);
-                            const nums = [];
-                            for (let n = start; n <= end; n += 1) nums.push(n);
-                            return nums.map((n) => (
-                                <button
-                                    key={`${tabId}-${n}`}
-                                    type="button"
-                                    className={`ws-report-pagination__page${n === page ? ' ws-report-pagination__page--active' : ''}`}
-                                    aria-current={n === page ? 'page' : undefined}
-                                    disabled={summaryLoading[tabId]}
-                                    onClick={() => setSummaryPages((prev) => ({ ...prev, [tabId]: n }))}
-                                >
-                                    {n}
-                                </button>
-                            ));
-                        })()}
-                    </div>
-                    <button
-                        type="button"
-                        className="ws-report-pagination__edge"
-                        disabled={page >= totalPages || summaryLoading[tabId]}
-                        onClick={() =>
-                            setSummaryPages((prev) => ({ ...prev, [tabId]: Math.min(totalPages, page + 1) }))
-                        }
-                    >
-                        {t('btn.next')}
-                    </button>
-                </nav>
-            </div>
-        );
+    const ordersTotalPages = Math.max(1, Math.ceil(ordersTotal / ordersPageSize));
+    const summaryResetKey = `${selectedBranchId}|${rangeFromLocal}|${rangeToLocal}`;
+    const dailyPaging = usePagedRows(filteredDailyRevenue, { resetKey: `${summaryResetKey}|${tabSearch.daily_sales}` });
+    const summaryPaging = {
+        by_technician: usePagedRows(filteredByTechnician, { resetKey: `${summaryResetKey}|${tabSearch.by_technician}` }),
+        by_customer: usePagedRows(filteredByCustomer, { resetKey: `${summaryResetKey}|${tabSearch.by_customer}` }),
+        by_product: usePagedRows(filteredByProduct, {
+            resetKey: `${summaryResetKey}|${tabSearch.by_product}|${byProductTechnicianId}`,
+        }),
+        by_service: usePagedRows(filteredByService, {
+            resetKey: `${summaryResetKey}|${tabSearch.by_service}|${byServiceTechnicianId}`,
+        }),
+        by_department: usePagedRows(filteredByDepartment, { resetKey: `${summaryResetKey}|${tabSearch.by_department}` }),
+        by_category: usePagedRows(filteredByCategory, { resetKey: `${summaryResetKey}|${tabSearch.by_category}` }),
+        by_branch: usePagedRows(filteredByBranch, { resetKey: `${summaryResetKey}|${tabSearch.by_branch}` }),
+        by_cashier: usePagedRows(filteredByCashier, { resetKey: `${summaryResetKey}|${tabSearch.by_cashier}` }),
     };
+    const renderSummaryPagination = (tabId) =>
+        summaryLoading[tabId] ? null : <WsTablePagination {...summaryPaging[tabId].pagerProps} />;
 
     return (
         <div className="ws-reports-page">
@@ -2051,7 +1968,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredDailyRevenue.map((d, i) => (
+                                        dailyPaging.pagedRows.map((d, i) => (
                                             <tr
                                                 key={`${d.date}-${i}`}
                                                 onClick={() => loadDetails('daily_sales', d)}
@@ -2073,6 +1990,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </table>
                             </WsTableScroll>
                         </div>
+                        {!isLoading ? <WsTablePagination {...dailyPaging.pagerProps} /> : null}
                     </div>
                 )}
 
@@ -2148,7 +2066,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredByTechnician.map((tech) => (
+                                        summaryPaging.by_technician.pagedRows.map((tech) => (
                                             <tr
                                                 key={tech.id || tech.name}
                                                 onClick={() => loadDetails('by_technician', tech)}
@@ -2183,6 +2101,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                             </table>
                             </WsTableScroll>
                         </div>
+                        {renderSummaryPagination('by_technician')}
                     </div>
                 )}
 
@@ -2223,7 +2142,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByCustomer.map((row, i) => (
+                                    summaryPaging.by_customer.pagedRows.map((row, i) => (
                                         <tr
                                             key={row.customer_id ?? row.customerId ?? i}
                                             onClick={() => loadDetails('by_customer', row)}
@@ -2255,7 +2174,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_customer', filteredByCustomer.length)}
+                        {renderSummaryPagination('by_customer')}
                     </>
                 )}
 
@@ -2339,7 +2258,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByProduct.map((row, i) => (
+                                    summaryPaging.by_product.pagedRows.map((row, i) => (
                                         <tr
                                             key={row.product_id ?? row.productId ?? i}
                                             onClick={() => {
@@ -2368,7 +2287,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_product', filteredByProduct.length)}
+                        {renderSummaryPagination('by_product')}
                     </>
                 )}
 
@@ -2454,7 +2373,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByService.map((row, i) => (
+                                    summaryPaging.by_service.pagedRows.map((row, i) => (
                                         <tr
                                             key={row.service_id ?? row.serviceId ?? i}
                                             onClick={() => {
@@ -2483,7 +2402,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_service', filteredByService.length)}
+                        {renderSummaryPagination('by_service')}
                     </>
                 )}
 
@@ -2523,7 +2442,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByDepartment.map((row, i) => (
+                                    summaryPaging.by_department.pagedRows.map((row, i) => (
                                         <tr
                                             key={row.department_id ?? row.departmentId ?? i}
                                             onClick={() => loadDetails('by_department', row)}
@@ -2543,7 +2462,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_department', filteredByDepartment.length)}
+                        {renderSummaryPagination('by_department')}
                     </>
                 )}
 
@@ -2584,7 +2503,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByCategory.map((row, i) => {
+                                    summaryPaging.by_category.pagedRows.map((row, i) => {
                                         const rowKey = String(row.category_id ?? row.categoryId ?? i);
                                         return (
                                             <tr
@@ -2614,7 +2533,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_category', filteredByCategory.length)}
+                        {renderSummaryPagination('by_category')}
                     </>
                 )}
 
@@ -2654,7 +2573,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByBranch.map((row, i) => (
+                                    summaryPaging.by_branch.pagedRows.map((row, i) => (
                                         <tr
                                             key={row.branch_id ?? row.branchId ?? i}
                                             onClick={() => loadDetails('by_branch', row)}
@@ -2674,7 +2593,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_branch', filteredByBranch.length)}
+                        {renderSummaryPagination('by_branch')}
                     </>
                 )}
 
@@ -2715,7 +2634,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredByCashier.map((row, i) => {
+                                    summaryPaging.by_cashier.pagedRows.map((row, i) => {
                                         const rowKey = String(
                                             row.cashier_id ?? row.cashierId ?? row.user_id ?? row.userId ?? i,
                                         );
@@ -2751,14 +2670,14 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {renderSummaryPagination('by_cashier', filteredByCashier.length)}
+                        {renderSummaryPagination('by_cashier')}
                     </>
                 )}
 
                 {activeTab === 'recent_orders' && (
                     <>
                         <div className="ws-report-tab-toolbar ws-report-orders-toolbar">
-                            <select
+                            <SelectCombo size="sm"
                                 value={ordersPaymentMethod}
                                 onChange={(e) => setOrdersPaymentMethod(e.target.value)}
                                 className="ws-report-tab-select"
@@ -2773,7 +2692,7 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                                 <option value="monthly_billing">{t('pay.monthlyBilling')}</option>
                                 <option value="pay_monthly">{t('pay.payMonthly')}</option>
                                 <option value="unpaid">{t('pay.unpaid')}</option>
-                            </select>
+                            </SelectCombo>
                             <input
                                 type="search"
                                 className="ws-report-tab-search"
@@ -2908,57 +2827,19 @@ export default function WorkshopReports({ selectedBranchId = 'all', branches = [
                         </table>
                         </WsTableScroll>
                         </div>
-                        {ordersTotal > 0 && (
-                            <div className="ws-report-pagination">
-                                <p className="ws-report-pagination__info">
-                                    {t('pagination.showing')} <strong>{ordersRangeFrom}</strong>–<strong>{ordersRangeTo}</strong> {t('pagination.of')}{' '}
-                                    <strong>{ordersTotal}</strong>
-                                    {ordersListLoading ? <span>{t('pagination.loadingSuffix')}</span> : null}
-                                </p>
-                                <nav className="ws-report-pagination__nav" aria-label={t('label.ordersListPages')}>
-                                    <button
-                                        type="button"
-                                        className="ws-report-pagination__edge"
-                                        disabled={ordersPage <= 1 || ordersListLoading}
-                                        onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
-                                    >
-                                        {t('btn.previous')}
-                                    </button>
-                                    <div className="ws-report-pagination__pages" role="group" aria-label={t('label.pageNumbers')}>
-                                        {(() => {
-                                            const totalP = ordersTotalPages;
-                                            const cur = ordersPage;
-                                            const maxBtn = 7;
-                                            let start = Math.max(1, cur - Math.floor(maxBtn / 2));
-                                            let end = Math.min(totalP, start + maxBtn - 1);
-                                            start = Math.max(1, end - maxBtn + 1);
-                                            const nums = [];
-                                            for (let n = start; n <= end; n += 1) nums.push(n);
-                                            return nums.map((n) => (
-                                                <button
-                                                    key={n}
-                                                    type="button"
-                                                    className={`ws-report-pagination__page${n === cur ? ' ws-report-pagination__page--active' : ''}`}
-                                                    aria-current={n === cur ? 'page' : undefined}
-                                                    disabled={ordersListLoading}
-                                                    onClick={() => setOrdersPage(n)}
-                                                >
-                                                    {n}
-                                                </button>
-                                            ));
-                                        })()}
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="ws-report-pagination__edge"
-                                        disabled={ordersPage >= ordersTotalPages || ordersListLoading}
-                                        onClick={() => setOrdersPage((p) => Math.min(ordersTotalPages, p + 1))}
-                                    >
-                                        {t('btn.next')}
-                                    </button>
-                                </nav>
-                            </div>
-                        )}
+                        {!ordersListLoading ? (
+                            <WsTablePagination
+                                page={Math.min(ordersPage, ordersTotalPages)}
+                                pageCount={ordersTotalPages}
+                                pageSize={ordersPageSize}
+                                total={ordersTotal}
+                                onPageChange={setOrdersPage}
+                                onPageSizeChange={(n) => {
+                                    setOrdersPageSize(n);
+                                    setOrdersPage(1);
+                                }}
+                            />
+                        ) : null}
                     </>
                 )}
             </div>

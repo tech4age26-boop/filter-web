@@ -7,6 +7,7 @@ import {
     listApprovalRoles,
 } from '../../../services/workshopApprovalLimitsApi';
 import { accT } from '../../../utils/accountingI18n';
+import SelectCombo from '../../../components/SelectCombo';
 import '../../../styles/admin/AccountingPage.css';
 
 export default function WorkshopApprovalLimits({ locale: localeProp } = {}) {
@@ -163,7 +164,7 @@ export default function WorkshopApprovalLimits({ locale: localeProp } = {}) {
                                     />
                                 </td>
                                 <td className="table-cell">
-                                    <select
+                                    <SelectCombo
                                         className="form-input-field"
                                         value={r.approverUserId ?? ''}
                                         onChange={(e) => updateRow(idx, { approverUserId: e.target.value || null })}
@@ -174,10 +175,10 @@ export default function WorkshopApprovalLimits({ locale: localeProp } = {}) {
                                                 {u.name || u.email} ({u.role || u.userType})
                                             </option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </td>
                                 <td className="table-cell">
-                                    <select
+                                    <SelectCombo
                                         className="form-input-field"
                                         value={r.approverRole ?? ''}
                                         onChange={(e) => updateRow(idx, { approverRole: e.target.value || null })}
@@ -186,7 +187,7 @@ export default function WorkshopApprovalLimits({ locale: localeProp } = {}) {
                                         {approverRoles.map((role) => (
                                             <option key={role} value={role}>{role}</option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </td>
                             </tr>
                         ))}

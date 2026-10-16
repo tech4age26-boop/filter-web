@@ -24,6 +24,9 @@ import {
 import { filterPortalVisibleBranches } from '../../services/workshopStaffApi';
 import { wcnT } from '../../utils/workshopCatalogNewI18n';
 import { catalogDisplayName } from '../../utils/catalogDisplayName';
+import SelectCombo from '../../components/SelectCombo';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../hooks/usePagedRows';
 
 const PAGE_SIZE = 50;
 
@@ -557,7 +560,7 @@ function CatalogBranchFilter({
     return (
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
             <Filter size={14} />
-            <select
+            <SelectCombo size="sm"
                 id={labelId}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
@@ -575,7 +578,7 @@ function CatalogBranchFilter({
                         {b.name}
                     </option>
                 ))}
-            </select>
+            </SelectCombo>
         </div>
     );
 }
@@ -835,6 +838,7 @@ export default function WorkshopCatalogNew({
     const [prodFilter, setProdFilter] = useState({ departmentId: 'all', categoryId: 'all', q: '' });
     const [prodQInput, setProdQInput] = useState('');
     const [prodPage, setProdPage] = useState(1);
+    const [prodPageSize, setProdPageSize] = useState(TABLE_PAGE_SIZES[0]);
     const [prodTotal, setProdTotal] = useState(0);
     const [prodHasNext, setProdHasNext] = useState(null);
     const [prodSelectAllBusy, setProdSelectAllBusy] = useState(false);
@@ -848,7 +852,7 @@ export default function WorkshopCatalogNew({
             categoryId: prodFilter.categoryId === 'all' ? undefined : prodFilter.categoryId,
             q: prodFilter.q || undefined,
             page: prodPage,
-            pageSize: PAGE_SIZE,
+            pageSize: prodPageSize,
             branchId: catalogBranchId,
             signal,
         };
@@ -887,9 +891,9 @@ export default function WorkshopCatalogNew({
 
                 if (mode === 'added') {
                     setProdCounts({ added: addedCount, not_added: notAddedCount });
-                    const totalPages = Math.max(1, Math.ceil(addedCount / PAGE_SIZE));
+                    const totalPages = Math.max(1, Math.ceil(addedCount / prodPageSize));
                     const page = Math.min(Math.max(1, prodPage), totalPages);
-                    const slice = adoptedRowsEnriched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                    const slice = adoptedRowsEnriched.slice((page - 1) * prodPageSize, page * prodPageSize);
                     setProdRows(slice);
                     setProdTotal(addedCount);
                     setProdHasNext(page < totalPages);
@@ -910,7 +914,7 @@ export default function WorkshopCatalogNew({
                 if (err.name !== 'AbortError') setProdError(err.message || t('err.loadProducts'));
             })
             .finally(() => setProdLoading(false));
-    }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q, prodPage, catalogBranchId, effectiveBranchScopeId, subTab.products, t]);
+    }, [prodFilter.departmentId, prodFilter.categoryId, prodFilter.q, prodPage, prodPageSize, catalogBranchId, effectiveBranchScopeId, subTab.products, t]);
 
     // ─── Services tab ───────────────────────────────────────────────────────
     const [svcRows, setSvcRows] = useState([]);
@@ -920,6 +924,7 @@ export default function WorkshopCatalogNew({
     const [svcFilter, setSvcFilter] = useState({ departmentId: 'all', categoryId: 'all', q: '' });
     const [svcQInput, setSvcQInput] = useState('');
     const [svcPage, setSvcPage] = useState(1);
+    const [svcPageSize, setSvcPageSize] = useState(TABLE_PAGE_SIZES[0]);
     const [svcTotal, setSvcTotal] = useState(0);
     const [svcHasNext, setSvcHasNext] = useState(null);
     const [svcSelectAllBusy, setSvcSelectAllBusy] = useState(false);
@@ -933,7 +938,7 @@ export default function WorkshopCatalogNew({
             categoryId: svcFilter.categoryId === 'all' ? undefined : svcFilter.categoryId,
             q: svcFilter.q || undefined,
             page: svcPage,
-            pageSize: PAGE_SIZE,
+            pageSize: svcPageSize,
             branchId: catalogBranchId,
             signal,
         };
@@ -968,9 +973,9 @@ export default function WorkshopCatalogNew({
 
                 if (mode === 'added') {
                     setSvcCounts({ added: addedCount, not_added: notAddedCount });
-                    const totalPages = Math.max(1, Math.ceil(addedCount / PAGE_SIZE));
+                    const totalPages = Math.max(1, Math.ceil(addedCount / svcPageSize));
                     const page = Math.min(Math.max(1, svcPage), totalPages);
-                    const slice = adoptedRowsEnriched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                    const slice = adoptedRowsEnriched.slice((page - 1) * svcPageSize, page * svcPageSize);
                     setSvcRows(slice);
                     setSvcTotal(addedCount);
                     setSvcHasNext(page < totalPages);
@@ -991,7 +996,7 @@ export default function WorkshopCatalogNew({
                 if (err.name !== 'AbortError') setSvcError(err.message || t('err.loadServices'));
             })
             .finally(() => setSvcLoading(false));
-    }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, catalogBranchId, effectiveBranchScopeId, subTab.services, t]);
+    }, [svcFilter.departmentId, svcFilter.categoryId, svcFilter.q, svcPage, svcPageSize, catalogBranchId, effectiveBranchScopeId, subTab.services, t]);
 
     const handleSelectAllProducts = useCallback(async () => {
         setProdSelectAllBusy(true);
@@ -1571,7 +1576,7 @@ export default function WorkshopCatalogNew({
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Filter size={14} />
-                    <select
+                    <SelectCombo size="sm"
                         value={catFilter.departmentId}
                         onChange={(e) => setCatFilter((f) => ({ ...f, departmentId: e.target.value }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
@@ -1580,9 +1585,9 @@ export default function WorkshopCatalogNew({
                         {departmentOptions.map((d) => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
-                <select
+                <SelectCombo size="sm"
                     value={catFilter.type}
                     onChange={(e) => setCatFilter((f) => ({ ...f, type: e.target.value }))}
                     style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
@@ -1590,7 +1595,7 @@ export default function WorkshopCatalogNew({
                     <option value="all">{t('filter.allTypes')}</option>
                     <option value="product">{t('type.product')}</option>
                     <option value="service">{t('type.service')}</option>
-                </select>
+                </SelectCombo>
             </div>
             {subTab.categories === 'not_added' &&
                 renderToolbar(
@@ -1639,13 +1644,14 @@ export default function WorkshopCatalogNew({
         rows, loading, error, selected, setSelected,
         filter, setFilter, qInput, setQInput,
         page, setPage, total,
+        pageSize, setPageSize,
         serverHasNext,
         kind,
         onSelectAllAllPages,
         selectAllBusy,
         canAdd = true,
     }) => {
-        const totalPagesKnown = total > 0 ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null;
+        const totalPagesKnown = total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : null;
         // Next: honor explicit hasNext; else known total pages; else if this page is full, allow probing
         // (APIs often omit hasNext / misreport total when it equals page size).
         const canGoNext =
@@ -1653,9 +1659,9 @@ export default function WorkshopCatalogNew({
                 ? false
                 : serverHasNext === true
                   ? true
-                  : totalPagesKnown != null && page < totalPagesKnown
+                    : totalPagesKnown != null && page < totalPagesKnown
                     ? true
-                    : rows.length === PAGE_SIZE;
+                    : rows.length === pageSize;
         const canGoPrev = page > 1;
         const Icon = kind === 'product' ? Package : Wrench;
         const subtitleFn = (row) => {
@@ -1731,7 +1737,7 @@ export default function WorkshopCatalogNew({
                             style={{ width: '100%', padding: '8px 12px 8px 30px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
                         />
                     </div>
-                    <select
+                    <SelectCombo size="sm"
                         value={filter.departmentId}
                         onChange={(e) => setFilter((f) => ({ ...f, departmentId: e.target.value, categoryId: 'all' }))}
                         style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--color-border)', fontSize: '0.875rem' }}
@@ -1740,7 +1746,7 @@ export default function WorkshopCatalogNew({
                         {departmentOptions.map((d) => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
                 {(kind === 'product' ? subTab.products : subTab.services) === 'not_added' &&
                     renderToolbar(
@@ -1790,22 +1796,29 @@ export default function WorkshopCatalogNew({
                             );
                         })}
                 </div>
-                {!loading && (rows.length > 0 || page > 1) && (
+                {!loading && totalPagesKnown != null ? (
+                    <WsTablePagination
+                        page={Math.min(page, totalPagesKnown)}
+                        pageCount={totalPagesKnown}
+                        pageSize={pageSize}
+                        total={total}
+                        onPageChange={setPage}
+                        onPageSizeChange={(n) => {
+                            setPageSize(n);
+                            setPage(1);
+                        }}
+                    />
+                ) : null}
+                {!loading && totalPagesKnown == null && (rows.length > 0 || page > 1) && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 16 }}>
                         <button type="button" className="mc-btn-ghost" disabled={!canGoPrev} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                             <ChevronLeft size={14} /> {t('btn.previous')}
                         </button>
                         <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
-                            {totalPagesKnown != null ? (
-                                <>{t('page.of', { page, totalPages: totalPagesKnown, total })}</>
-                            ) : (
-                                <>
-                                    {t('page.simple', { page })}
-                                    {rows.length === PAGE_SIZE ? t('page.fullPage') : ''}
-                                    {t('page.mid', { loaded: (page - 1) * PAGE_SIZE + rows.length })}
-                                    {rows.length === PAGE_SIZE ? t('page.loadedMore') : t('page.loaded')}
-                                </>
-                            )}
+                            {t('page.simple', { page })}
+                            {rows.length === pageSize ? t('page.fullPage') : ''}
+                            {t('page.mid', { loaded: (page - 1) * pageSize + rows.length })}
+                            {rows.length === pageSize ? t('page.loadedMore') : t('page.loaded')}
                         </span>
                         <button type="button" className="mc-btn-ghost" disabled={!canGoNext} onClick={() => setPage((p) => p + 1)}>
                             {t('btn.next')} <ChevronRight size={14} />
@@ -1919,6 +1932,7 @@ export default function WorkshopCatalogNew({
                     filter: prodFilter, setFilter: setProdFilter,
                     qInput: prodQInput, setQInput: setProdQInput,
                     page: prodPage, setPage: setProdPage, total: prodTotal,
+                    pageSize: prodPageSize, setPageSize: setProdPageSize,
                     serverHasNext: prodHasNext,
                     kind: 'product',
                     onSelectAllAllPages: handleSelectAllProducts,
@@ -1931,6 +1945,7 @@ export default function WorkshopCatalogNew({
                     filter: svcFilter, setFilter: setSvcFilter,
                     qInput: svcQInput, setQInput: setSvcQInput,
                     page: svcPage, setPage: setSvcPage, total: svcTotal,
+                    pageSize: svcPageSize, setPageSize: setSvcPageSize,
                     serverHasNext: svcHasNext,
                     kind: 'service',
                     onSelectAllAllPages: handleSelectAllServices,

@@ -38,6 +38,9 @@ import {
 import '../../styles/admin/AccountingPage.css';
 import { wprT } from '../../utils/workshopPurchaseReturnsI18n';
 import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
+import SelectCombo from '../../components/SelectCombo';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 
 const SUPPLIERS_PAGE_LIMIT = 50;
 
@@ -761,6 +764,9 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
         () => filteredRows.reduce((sum, row) => sum + Number(row.grandTotal || 0), 0),
         [filteredRows],
     );
+    const listPaging = usePagedRows(filteredRows, {
+        resetKey: `${listSearch.trim()}|${statusFilter}|${selectedBranchId}`,
+    });
 
     const invoiceLineTotal = useMemo(() => {
         return (invoiceDetail?.items || []).reduce((sum, item) => {
@@ -1184,7 +1190,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                     <div className="mgr-si-toolbar">
                         <div className="mgr-si-filter-bar">
                             <span className="mgr-si-filter-label">{t('filter.status')}</span>
-                            <select
+                            <SelectCombo size="sm"
                                 className="mgr-si-filter-select"
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value)}
@@ -1193,7 +1199,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 <option value="all">{t('filter.all')}</option>
                                 <option value="pending">{t('filter.pending')}</option>
                                 <option value="approved">{t('filter.approved')}</option>
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="mgr-si-search-wrap">
                             <div className="mgr-si-search-input-wrap">
@@ -1284,7 +1290,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredRows.map((row) => {
+                                            listPaging.pagedRows.map((row) => {
                                                 const badge = returnStatusBadge(row, t);
                                                 return (
                                                     <tr key={row.id} className="table-row">
@@ -1344,6 +1350,7 @@ export default function WorkshopPurchaseReturns({ selectedBranchId = 'all', bran
                                 </table>
                             )}
                                         </div>
+                        {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
                                     </div>
                 </>
             ) : null}

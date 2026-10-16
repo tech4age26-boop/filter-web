@@ -1,16 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ArrowDownLeft, ArrowUpRight, BookOpen, ChevronLeft, ChevronRight,
+    ArrowDownLeft, ArrowUpRight, BookOpen,
     FileSpreadsheet, FileText, RefreshCw, Wallet,
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
-import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { useServerPaging } from '../../hooks/usePagedRows';
 import { exportRowsToExcel, exportRowsToPdf } from '../../utils/tableExport';
 import { LOCKER_EXPENSE_CATEGORIES } from './lockerExpenseCategories';
+import LockerTablePager from './LockerTablePager';
 import { useLockerPortal } from './useLockerPortal';
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const TX_TYPES = [
     'collection',
     'bank_deposit',
@@ -85,8 +87,6 @@ function TransactionLog({
 } = {}) {
     const { t, money, dateTime, isRtl } = useLockerPortal();
     const dash = t('emdash');
-    const PrevIcon = isRtl ? ChevronRight : ChevronLeft;
-    const NextIcon = isRtl ? ChevronLeft : ChevronRight;
     const defaults = useMemo(() => defaultDateTimeRange(), []);
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
     const [filters, setFilters] = useState({
@@ -97,12 +97,6 @@ function TransactionLog({
         paidTo: 'all',
         receivedFrom: 'all',
         type: 'all',
-        // Keep search text empty so closed field shows selectedLabel and open list shows all options
-        branchText: '',
-        categoryText: '',
-        paidToText: '',
-        receivedFromText: '',
-        typeText: '',
     });
     const [applied, setApplied] = useState({
         from: defaults.from,
@@ -118,8 +112,11 @@ function TransactionLog({
     const [rows, setRows] = useState([]);
     const [summary, setSummary] = useState(null);
     const [total, setTotal] = useState(0);
-    const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(25);
+    const registerRef = useRef(null);
+    const { page, pageSize, setPage, pagerFor } = useServerPaging({
+        resetKey: JSON.stringify(applied),
+        scrollRef: registerRef,
+    });
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [error, setError] = useState('');
@@ -131,9 +128,8 @@ function TransactionLog({
 
     useEffect(() => {
         const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
-        setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
+        setFilters((f) => ({ ...f, branchId: next }));
         setApplied((a) => ({ ...a, branchId: next }));
-        setPage(1);
     }, [selectedBranchId, branchLockedId]);
 
     useEffect(() => {
@@ -151,39 +147,29 @@ function TransactionLog({
             ...(branchLockedId
                 ? []
                 : [
-                    { id: 'all', label: t('common.allBranches'), searchText: t('common.allBranches') },
-                    ...(allowHq
-                        ? [{ id: 'hq', label: t('tl.hq'), searchText: `HQ Workshop ${t('tl.hq')}` }]
-                        : []),
+                    { value: 'all', label: t('common.allBranches') },
+                    ...(allowHq ? [{ value: 'hq', label: t('tl.hq'), searchText: 'hq workshop' }] : []),
                 ]),
-            ...(branches || []).map((b) => ({
-                id: String(b.id),
-                label: b.name,
-                searchText: b.name,
-            })),
+            ...(branches || []).map((b) => ({ value: String(b.id), label: b.name })),
         ],
         [branches, branchLockedId, allowHq, t],
     );
 
     const categoryOpts = useMemo(
         () => [
-            { id: 'all', label: t('common.allCategories'), searchText: t('common.allCategories') },
-            ...LOCKER_EXPENSE_CATEGORIES.map((c) => ({
-                id: c,
-                label: c,
-                searchText: c,
-            })),
+            { value: 'all', label: t('common.allCategories') },
+            ...LOCKER_EXPENSE_CATEGORIES.map((c) => ({ value: c, label: c })),
         ],
         [t],
     );
 
     const typeOpts = useMemo(
         () => [
-            { id: 'all', label: t('tl.allTypes'), searchText: t('tl.allTypes') },
+            { value: 'all', label: t('tl.allTypes') },
             ...TX_TYPES.map((id) => ({
-                id,
+                value: id,
                 label: t(`tl.type.${id}`),
-                searchText: `${id.replace(/_/g, ' ')} ${t(`tl.type.${id}`)}`,
+                searchText: id.replace(/_/g, ' '),
             })),
         ],
         [t],
@@ -191,40 +177,36 @@ function TransactionLog({
 
     const paidToOpts = useMemo(
         () => [
-            { id: 'all', label: t('tl.allPaidTo'), searchText: t('tl.allPaidTo') },
-            ...(partyOpts.paidTo || []).map((name) => ({
-                id: name,
-                label: name,
-                searchText: name,
-            })),
+            { value: 'all', label: t('tl.allPaidTo') },
+            ...(partyOpts.paidTo || []).map((name) => ({ value: name, label: name })),
         ],
         [partyOpts.paidTo, t],
     );
 
     const receivedFromOpts = useMemo(
         () => [
-            { id: 'all', label: t('tl.allReceivedFrom'), searchText: t('tl.allReceivedFrom') },
-            ...(partyOpts.receivedFrom || []).map((name) => ({
-                id: name,
-                label: name,
-                searchText: name,
-            })),
+            { value: 'all', label: t('tl.allReceivedFrom') },
+            ...(partyOpts.receivedFrom || []).map((name) => ({ value: name, label: name })),
         ],
         [partyOpts.receivedFrom, t],
     );
 
-    const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
-
-    const load = useCallback(async (active = applied, pageNum = page, size = pageSize) => {
+    const load = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
             const res = await apiFetch(
-                `/locker/vault/transactions${qs(buildQueryParams(active, { page: pageNum, limit: size }))}`,
+                `/locker/vault/transactions${qs(buildQueryParams(applied, { page, limit: pageSize }))}`,
             );
-            setRows(Array.isArray(res?.transactions) ? res.transactions : []);
+            const list = Array.isArray(res?.transactions) ? res.transactions : [];
+            const count = Number(res?.total || 0);
+            if (!list.length && count > 0 && page > 1) {
+                setPage(Math.ceil(count / pageSize));
+                return;
+            }
+            setRows(list);
             setSummary(res?.summary || null);
-            setTotal(Number(res?.total || 0));
+            setTotal(count);
             setPartyOpts({
                 paidTo: res?.filterOptions?.paidTo || [],
                 receivedFrom: res?.filterOptions?.receivedFrom || [],
@@ -237,14 +219,13 @@ function TransactionLog({
         } finally {
             setLoading(false);
         }
-    }, [applied, page, pageSize, t]);
+    }, [applied, page, pageSize, setPage, t]);
 
     useEffect(() => {
-        void load(applied, page, pageSize);
-    }, [applied, page, pageSize, load]);
+        void load();
+    }, [load]);
 
     const applyFilters = () => {
-        setPage(1);
         setApplied({
             from: filters.from,
             to: filters.to,
@@ -267,13 +248,7 @@ function TransactionLog({
             paidTo: 'all',
             receivedFrom: 'all',
             type: 'all',
-            branchText: '',
-            categoryText: '',
-            paidToText: '',
-            receivedFromText: '',
-            typeText: '',
         });
-        setPage(1);
         setApplied({
             from: d.from,
             to: d.to,
@@ -368,9 +343,6 @@ function TransactionLog({
         }
     };
 
-    const fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
-    const toIdx = Math.min(page * pageSize, total);
-
     return (
         <div className="wlk-page">
             <div className="wlk-topbar">
@@ -398,7 +370,7 @@ function TransactionLog({
                     <button
                         type="button"
                         className="btn-secondary"
-                        onClick={() => void load(applied, page, pageSize)}
+                        onClick={() => void load()}
                         disabled={loading}
                     >
                         <RefreshCw size={16} className={loading ? 'spin' : ''} /> {t('common.refresh')}
@@ -474,99 +446,69 @@ function TransactionLog({
                             />
                         </div>
                         <div className="ws-field">
-                            <label>{t('common.branch')}</label>
-                            <SearchableEntityCombobox
+                            <label htmlFor="tl-branch">{t('common.branch')}</label>
+                            <SearchSelect
                                 id="tl-branch"
+                                size="sm"
                                 options={branchOpts}
                                 value={branchLockedId || filters.branchId || 'all'}
-                                displayText={filters.branchText || ''}
-                                onDisplayTextChange={(text) => setFilters((f) => ({ ...f, branchText: text }))}
-                                onSelect={(opt) => setFilters((f) => ({
-                                    ...f,
-                                    branchId: opt?.id || 'all',
-                                    branchText: '',
-                                }))}
+                                onChange={(v) => setFilters((f) => ({ ...f, branchId: String(v || 'all') }))}
                                 placeholder={t('common.searchBranches')}
-                                entityLabel="branch"
-                                maxInitial={40}
-                                maxFiltered={60}
+                                emptyHint={t('common.noMatches')}
                                 disabled={Boolean(branchLockedId)}
+                                title={branchLockedId ? t('common.branchLocked') : undefined}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>{t('tl.type')}</label>
-                            <SearchableEntityCombobox
+                            <label htmlFor="tl-type">{t('tl.type')}</label>
+                            <SearchSelect
                                 id="tl-type"
+                                size="sm"
                                 options={typeOpts}
                                 value={filters.type || 'all'}
-                                displayText={filters.typeText || ''}
-                                onDisplayTextChange={(text) => setFilters((f) => ({ ...f, typeText: text }))}
-                                onSelect={(opt) => setFilters((f) => ({
-                                    ...f,
-                                    type: opt?.id || 'all',
-                                    typeText: '',
-                                }))}
+                                onChange={(v) => setFilters((f) => ({ ...f, type: String(v || 'all') }))}
                                 placeholder={t('tl.searchTypes')}
-                                entityLabel="type"
-                                maxInitial={10}
-                                maxFiltered={10}
+                                emptyHint={t('common.noMatches')}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>{t('tl.expenseCategory')}</label>
-                            <SearchableEntityCombobox
+                            <label htmlFor="tl-category">{t('tl.expenseCategory')}</label>
+                            <SearchSelect
                                 id="tl-category"
+                                size="sm"
                                 options={categoryOpts}
                                 value={filters.category || 'all'}
-                                displayText={filters.categoryText || ''}
-                                onDisplayTextChange={(text) => setFilters((f) => ({ ...f, categoryText: text }))}
-                                onSelect={(opt) => setFilters((f) => ({
-                                    ...f,
-                                    category: opt?.id || 'all',
-                                    categoryText: '',
-                                }))}
+                                onChange={(v) => setFilters((f) => ({ ...f, category: String(v || 'all') }))}
                                 placeholder={t('common.searchCategories')}
-                                entityLabel="category"
-                                maxInitial={30}
-                                maxFiltered={40}
+                                emptyHint={t('common.noMatches')}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>{t('tl.paidTo')}</label>
-                            <SearchableEntityCombobox
+                            <label htmlFor="tl-paid-to">{t('tl.paidTo')}</label>
+                            <SearchSelect
                                 id="tl-paid-to"
+                                size="sm"
                                 options={paidToOpts}
                                 value={filters.paidTo || 'all'}
-                                displayText={filters.paidToText || ''}
-                                onDisplayTextChange={(text) => setFilters((f) => ({ ...f, paidToText: text }))}
-                                onSelect={(opt) => setFilters((f) => ({
-                                    ...f,
-                                    paidTo: opt?.id || 'all',
-                                    paidToText: '',
-                                }))}
+                                onChange={(v) => setFilters((f) => ({ ...f, paidTo: String(v || 'all') }))}
                                 placeholder={t('tl.searchPaidTo')}
-                                entityLabel="payee"
-                                maxInitial={40}
-                                maxFiltered={60}
+                                emptyHint={t('common.noMatches')}
+                                moreHint={t('common.moreMatches')}
+                                menuMinWidth={280}
                             />
                         </div>
                         <div className="ws-field">
-                            <label>{t('tl.receivedFrom')}</label>
-                            <SearchableEntityCombobox
+                            <label htmlFor="tl-received-from">{t('tl.receivedFrom')}</label>
+                            <SearchSelect
                                 id="tl-received-from"
+                                size="sm"
                                 options={receivedFromOpts}
                                 value={filters.receivedFrom || 'all'}
-                                displayText={filters.receivedFromText || ''}
-                                onDisplayTextChange={(text) => setFilters((f) => ({ ...f, receivedFromText: text }))}
-                                onSelect={(opt) => setFilters((f) => ({
-                                    ...f,
-                                    receivedFrom: opt?.id || 'all',
-                                    receivedFromText: '',
-                                }))}
+                                onChange={(v) => setFilters((f) => ({ ...f, receivedFrom: String(v || 'all') }))}
                                 placeholder={t('tl.searchReceivedFrom')}
-                                entityLabel="payer"
-                                maxInitial={40}
-                                maxFiltered={60}
+                                emptyHint={t('common.noMatches')}
+                                moreHint={t('common.moreMatches')}
+                                menuMinWidth={280}
                             />
                         </div>
                     </div>
@@ -576,63 +518,14 @@ function TransactionLog({
                     <div className="wlk-error" style={{ marginBottom: 12 }}>{error}</div>
                 ) : null}
 
-                <div className="wlk-section-header" style={{ flexWrap: 'wrap', gap: 12 }}>
+                <div className="wlk-section-header" ref={registerRef}>
                     <h3>
                         {t('tl.register')}
                         <span className="wlk-count">{total}</span>
                     </h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginInlineStart: 'auto', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#64748b' }}>
-                            {t('tl.perPage')}
-                            <select
-                                value={pageSize}
-                                onChange={(e) => {
-                                    setPage(1);
-                                    setPageSize(Number(e.target.value) || 25);
-                                }}
-                                style={{
-                                    padding: '6px 10px',
-                                    borderRadius: 8,
-                                    border: '1px solid #d1d5db',
-                                    background: '#fff',
-                                    fontSize: 13,
-                                }}
-                            >
-                                {PAGE_SIZE_OPTIONS.map((n) => (
-                                    <option key={n} value={n}>{n}</option>
-                                ))}
-                            </select>
-                        </label>
-                        <span style={{ fontSize: 13, color: '#64748b' }}>
-                            {total === 0
-                                ? t('tl.rangeOf', { from: 0, to: 0, total: 0 })
-                                : t('tl.rangeOf', { from: fromIdx, to: toIdx, total })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={loading || page <= 1}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            title={t('tl.prevPage')}
-                        >
-                            <PrevIcon size={16} />
-                        </button>
-                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 72, textAlign: 'center' }}>
-                            {t('tl.page', { page: Math.min(page, totalPages), pages: totalPages })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={loading || page >= totalPages}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            title={t('tl.nextPage')}
-                        >
-                            <NextIcon size={16} />
-                        </button>
-                    </div>
                 </div>
 
-                <div className="wlk-table-wrap">
+                <WsTableScroll>
                     <table className="wlk-table">
                         <thead>
                             <tr>
@@ -686,40 +579,8 @@ function TransactionLog({
                             ) : null}
                         </tbody>
                     </table>
-                </div>
-
-                {total > 0 ? (
-                    <div
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'flex-end',
-                            alignItems: 'center',
-                            gap: 10,
-                            marginTop: 12,
-                            flexWrap: 'wrap',
-                        }}
-                    >
-                        <span style={{ fontSize: 13, color: '#64748b' }}>
-                            {t('tl.showing', { from: fromIdx, to: toIdx, total })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={loading || page <= 1}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        >
-                            <PrevIcon size={16} /> {t('tl.prev')}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={loading || page >= totalPages}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        >
-                            {t('tl.next')} <NextIcon size={16} />
-                        </button>
-                    </div>
-                ) : null}
+                </WsTableScroll>
+                <LockerTablePager {...pagerFor(total)} />
             </div>
         </div>
     );

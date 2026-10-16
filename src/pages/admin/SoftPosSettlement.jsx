@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
 import {
     CreditCard,
@@ -165,7 +165,7 @@ function FeeVatNote({ amount, t }) {
     );
 }
 
-const fmtDateTime = (v) => (v ? new Date(v).toLocaleString() : '');
+const fmtDateTime = (v) => (v ? new Date(v).toLocaleString(undefined, { timeZone: 'Asia/Riyadh' }) : '');
 
 /** Dropdown data; branches / bank accounts / terminals load once a workshop is picked. */
 function useSoftPosOptions(workshopId) {
@@ -330,6 +330,26 @@ export default function SoftPosSettlement() {
                 </div>
             )}
 
+            {!statsLoading && Number(stats?.notInvoicedTransactions) > 0 && (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                        color: '#1e40af',
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        marginBottom: 12,
+                        fontSize: 13,
+                    }}
+                >
+                    <AlertTriangle size={16} />
+                    {t('tx.notInvoicedBanner', { n: stats.notInvoicedTransactions })}
+                </div>
+            )}
+
             <div
                 style={{
                     display: 'flex',
@@ -436,12 +456,14 @@ function TransactionsTab({ onError, t }) {
         branchId: '',
         terminalId: '',
         unassigned: false,
+        invoiced: '',
         status: '',
         fromDate: '',
         toDate: '',
         search: '',
     });
     const [reload, setReload] = useState(0);
+    const hasRows = useRef(false);
     const [refundOpen, setRefundOpen] = useState(null);
     const [assignOpen, setAssignOpen] = useState(null);
     const options = useSoftPosOptions(filters.workshopId);
@@ -450,9 +472,14 @@ function TransactionsTab({ onError, t }) {
     );
 
     useEffect(() => {
+        const id = window.setInterval(() => setReload((x) => x + 1), 15_000);
+        return () => window.clearInterval(id);
+    }, []);
+
+    useEffect(() => {
         let cancelled = false;
         (async () => {
-            setLoading(true);
+            if (!hasRows.current) setLoading(true);
             try {
                 const res = await listSoftPosTransactions({
                     ...filters,
@@ -461,7 +488,9 @@ function TransactionsTab({ onError, t }) {
                     limit: 100,
                 });
                 if (cancelled) return;
-                setRows(pickArr(res, 'items'));
+                const next = pickArr(res, 'items');
+                hasRows.current = next.length > 0;
+                setRows(next);
                 setTotal(Number(res?.total || 0));
                 setTotals(res?.totals || {});
             } catch (err) {
@@ -523,7 +552,7 @@ function TransactionsTab({ onError, t }) {
             <div
                 style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(6, minmax(120px, 1fr)) auto auto',
+                    gridTemplateColumns: 'repeat(7, minmax(110px, 1fr)) auto auto',
                     gap: 8,
                     alignItems: 'center',
                     marginBottom: 12,
@@ -568,6 +597,15 @@ function TransactionsTab({ onError, t }) {
                     {filterTerminals.map((term) => (
                         <option key={term.id} value={term.id}>{terminalOptionLabel(term)}</option>
                     ))}
+                </select>
+                <select
+                    value={filters.invoiced}
+                    onChange={(e) => setFilters((p) => ({ ...p, invoiced: e.target.value }))}
+                    style={inputStyle}
+                >
+                    <option value="">{t('opt.allInvoiceStates')}</option>
+                    <option value="true">{t('opt.invoicedOnly')}</option>
+                    <option value="false">{t('opt.notInvoicedOnly')}</option>
                 </select>
                 <input
                     type="date"
@@ -662,7 +700,7 @@ function TransactionsTab({ onError, t }) {
                                 return (
                                     <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                         <td style={{ padding: '8px 10px', fontSize: 12 }}>
-                                            {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : t('common.emDash')}
+                                            {r.capturedAt ? fmtDateTime(r.capturedAt) : t('common.emDash')}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                             {r.terminalCode ? (
@@ -691,7 +729,18 @@ function TransactionsTab({ onError, t }) {
                                             <div style={{ color: '#6b7280', fontSize: 11 }}>{r.branchName || t('common.emDash')}</div>
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                            {r.invoiceNo || r.reference || t('common.emDash')}
+                                            {r.invoiceNo || (
+                                                <>
+                                                    <span style={badge({ bg: '#dbeafe', color: '#1e40af' })}>
+                                                        {t('tx.notInvoiced')}
+                                                    </span>
+                                                    {r.reference && (
+                                                        <div style={{ color: '#6b7280', fontSize: 11, marginTop: 4 }}>
+                                                            {r.reference}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
                                         </td>
                                         <td style={{ padding: '8px 10px', fontSize: 12 }}>
                                             {r.cardScheme || r.cardLast4 ? (
@@ -2258,7 +2307,7 @@ function RefundsTab({ onError, t }) {
                             rows.map((r) => (
                                 <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px 10px', fontSize: 12 }}>
-                                        {r.capturedAt ? new Date(r.capturedAt).toLocaleString() : t('common.emDash')}
+                                        {r.capturedAt ? fmtDateTime(r.capturedAt) : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.reference || t('common.emDash')}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.refundOfId || t('common.emDash')}</td>
@@ -2578,30 +2627,50 @@ function SoftPosToggle({ checked, disabled, onChange, ariaLabel }) {
     );
 }
 
+const ACCESS_METHODS = ['softpos', 'card', 'cash', 'tabby', 'tamara', 'monthly_billing'];
+
+const branchMethodOn = (b) => (b.enabled ?? b.softPosEnabled) !== false;
+
 function AccessTab({ onError, t, canEdit }) {
     const [loading, setLoading] = useState(true);
     const [savingKey, setSavingKey] = useState('');
-    const [globalEnabled, setGlobalEnabled] = useState(true);
+    const [method, setMethod] = useState('softpos');
+    const [methodGlobals, setMethodGlobals] = useState({});
     const [branches, setBranches] = useState([]);
     const [workshopId, setWorkshopId] = useState('');
     const [workshops, setWorkshops] = useState([]);
 
+    const methodName = t(`access.method.${method}`);
+    const globalEnabled = methodGlobals[method] !== false;
+    const loadSeq = useRef(0);
+
     const load = useCallback(async () => {
+        const seq = ++loadSeq.current;
         setLoading(true);
         try {
             const [access, opts] = await Promise.all([
-                getSoftPosAccess(workshopId ? { workshopId } : {}),
+                getSoftPosAccess({ method, ...(workshopId ? { workshopId } : {}) }),
                 getSoftPosOptions(),
             ]);
-            setGlobalEnabled(access?.globalEnabled !== false);
+            // A newer method/workshop selection superseded this request.
+            if (seq !== loadSeq.current) return;
+            setMethodGlobals({
+                ...Object.fromEntries(
+                    (Array.isArray(access?.methods) ? access.methods : []).map((m) => [
+                        m.code,
+                        m.globalEnabled !== false,
+                    ]),
+                ),
+                [method]: access?.globalEnabled !== false,
+            });
             setBranches(Array.isArray(access?.branches) ? access.branches : []);
             setWorkshops(pickArr(opts, 'workshops'));
         } catch (err) {
-            onError?.(err?.message || t('access.loadError'));
+            if (seq === loadSeq.current) onError?.(err?.message || t('access.loadError'));
         } finally {
-            setLoading(false);
+            if (seq === loadSeq.current) setLoading(false);
         }
-    }, [workshopId, onError, t]);
+    }, [method, workshopId, onError, t]);
 
     useEffect(() => {
         load();
@@ -2611,52 +2680,29 @@ function AccessTab({ onError, t, canEdit }) {
         if (!canEdit) return;
         setSavingKey('global');
         const prev = globalEnabled;
-        setGlobalEnabled(next);
+        setMethodGlobals((g) => ({ ...g, [method]: next }));
         try {
-            await setSoftPosGlobalAccess(next);
-            setBranches((rows) =>
-                rows.map((b) => ({
-                    ...b,
-                    effectiveEnabled: next && b.softPosEnabled !== false,
-                })),
-            );
+            await setSoftPosGlobalAccess(next, method);
         } catch (err) {
-            setGlobalEnabled(prev);
+            setMethodGlobals((g) => ({ ...g, [method]: prev }));
             onError?.(err?.message || t('access.saveError'));
         } finally {
             setSavingKey('');
         }
     };
 
+    const setBranchOn = (key, on) =>
+        setBranches((rows) => rows.map((b) => (b.id === key ? { ...b, enabled: on, softPosEnabled: on } : b)));
+
     const onToggleBranch = async (branch, next) => {
         if (!canEdit) return;
         const key = branch.id;
         setSavingKey(key);
-        setBranches((rows) =>
-            rows.map((b) =>
-                b.id === key
-                    ? {
-                          ...b,
-                          softPosEnabled: next,
-                          effectiveEnabled: globalEnabled && next,
-                      }
-                    : b,
-            ),
-        );
+        setBranchOn(key, next);
         try {
-            await setSoftPosBranchAccess(key, next);
+            await setSoftPosBranchAccess(key, next, method);
         } catch (err) {
-            setBranches((rows) =>
-                rows.map((b) =>
-                    b.id === key
-                        ? {
-                              ...b,
-                              softPosEnabled: !next,
-                              effectiveEnabled: globalEnabled && !next,
-                          }
-                        : b,
-                ),
-            );
+            setBranchOn(key, !next);
             onError?.(err?.message || t('access.saveError'));
         } finally {
             setSavingKey('');
@@ -2668,6 +2714,70 @@ function AccessTab({ onError, t, canEdit }) {
             <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb' }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{t('access.title')}</div>
                 <div style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>{t('access.subtitle')}</div>
+                <div
+                    role="tablist"
+                    aria-label={t('access.methodsLabel')}
+                    style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}
+                >
+                    {ACCESS_METHODS.map((code) => {
+                        const active = code === method;
+                        const off = methodGlobals[code] === false;
+                        return (
+                            <button
+                                key={code}
+                                type="button"
+                                role="tab"
+                                aria-selected={active}
+                                disabled={(loading || Boolean(savingKey)) && !active}
+                                onClick={() => {
+                                    if (active) return;
+                                    setLoading(true);
+                                    setMethod(code);
+                                }}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    padding: '7px 14px',
+                                    borderRadius: 999,
+                                    border: `1px solid ${active ? '#d4a017' : '#e5e7eb'}`,
+                                    background: active ? '#fef3c7' : '#fff',
+                                    color: '#111827',
+                                    fontWeight: active ? 700 : 600,
+                                    fontSize: 13,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {t(`access.method.${code}`)}
+                                {off ? (
+                                    <span
+                                        style={{
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            color: '#dc2626',
+                                            background: '#fee2e2',
+                                            borderRadius: 999,
+                                            padding: '1px 7px',
+                                        }}
+                                    >
+                                        {t('access.globalOffShort')}
+                                    </span>
+                                ) : null}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            <div style={{ padding: '12px 18px', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                    {t('access.methodTitle', { method: methodName })}
+                </div>
+                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>
+                    {method === 'softpos'
+                        ? t('access.hint.softpos')
+                        : t('access.hint.method', { method: methodName })}
+                </div>
             </div>
 
             <div
@@ -2683,7 +2793,9 @@ function AccessTab({ onError, t, canEdit }) {
             >
                 <div>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{t('access.global')}</div>
-                    <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>{t('access.globalHint')}</div>
+                    <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>
+                        {t('access.globalHint', { method: methodName })}
+                    </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: globalEnabled ? '#16a34a' : '#dc2626' }}>
@@ -2712,7 +2824,11 @@ function AccessTab({ onError, t, canEdit }) {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <select
                         value={workshopId}
-                        onChange={(e) => setWorkshopId(e.target.value)}
+                        disabled={Boolean(savingKey)}
+                        onChange={(e) => {
+                            setLoading(true);
+                            setWorkshopId(e.target.value);
+                        }}
                         style={{ ...inputStyle, width: 220, padding: '6px 10px' }}
                     >
                         <option value="">{t('access.workshopFilter')}</option>
@@ -2735,7 +2851,7 @@ function AccessTab({ onError, t, canEdit }) {
             ) : (
                 <div>
                     {branches.map((b) => {
-                        const on = b.softPosEnabled !== false;
+                        const on = branchMethodOn(b);
                         const effective = globalEnabled && on;
                         return (
                             <div
@@ -2753,7 +2869,11 @@ function AccessTab({ onError, t, canEdit }) {
                                     <div style={{ fontWeight: 700, fontSize: 13, color: '#111827' }}>{b.name}</div>
                                     <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
                                         {b.workshopName || t('common.emDash')}
-                                        {!effective ? ` · ${t('access.effectiveOff')}` : ''}
+                                        {!globalEnabled
+                                            ? ` · ${t('access.effectiveOff')}`
+                                            : !on
+                                              ? ` · ${t('access.branchOff')}`
+                                              : ''}
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2770,7 +2890,7 @@ function AccessTab({ onError, t, canEdit }) {
                                         checked={on}
                                         disabled={!canEdit || savingKey === b.id || loading}
                                         onChange={(next) => onToggleBranch(b, next)}
-                                        ariaLabel={`${b.name} SoftPOS`}
+                                        ariaLabel={`${b.name} ${methodName}`}
                                     />
                                 </div>
                             </div>

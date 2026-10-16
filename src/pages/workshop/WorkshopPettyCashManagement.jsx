@@ -16,6 +16,9 @@ import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumb
 import PettyCashRecordForms from './PettyCashRecordForms';
 import { useAuth } from '../../context/AuthContext';
 import { wpcT } from '../../utils/workshopPettyCashI18n';
+import SelectCombo from '../../components/SelectCombo';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import '../../styles/admin/AccountingPage.css';
 
 const EMPTY_BRANCHES = [];
@@ -70,6 +73,8 @@ export default function WorkshopPettyCashManagement({
     );
 
     const effectiveBranch = branchFilter || undefined;
+    const walletsPaging = usePagedRows(wallets, { resetKey: branchFilter });
+    const requestsPaging = usePagedRows(requests, { resetKey: branchFilter });
 
     const loadAll = useCallback(async () => {
         setLoading(true);
@@ -293,7 +298,7 @@ export default function WorkshopPettyCashManagement({
             }}>
                 <div>
                     <label className="form-label">{t('form.branch')}</label>
-                    <select
+                    <SelectCombo
                         className="form-input-field"
                         value={branchFilter}
                         onChange={(e) => setBranchFilter(e.target.value)}
@@ -302,7 +307,7 @@ export default function WorkshopPettyCashManagement({
                         {branches.map((b) => (
                             <option key={b.id} value={b.id}>{b.name}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
                     {canIssue && (
@@ -323,23 +328,23 @@ export default function WorkshopPettyCashManagement({
                     <div className="modal-form-grid">
                         <div className="form-group">
                             <label className="form-label">{t('form.staffMember')}</label>
-                            <select className="form-input-field" value={issueUserId} onChange={(e) => onIssueUserChange(e.target.value)}>
+                            <SelectCombo className="form-input-field" value={issueUserId} onChange={(e) => onIssueUserChange(e.target.value)}>
                                 <option value="">{t('form.selectStaff')}</option>
                                 {targets.map((u) => (
                                     <option key={u.id} value={u.id}>
                                         {u.name}{u.role ? ` (${String(u.role).replace(/_/g, ' ')})` : ''}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('form.branchRequired')}</label>
-                            <select className="form-input-field" value={issueBranchId} onChange={(e) => setIssueBranchId(e.target.value)}>
+                            <SelectCombo className="form-input-field" value={issueBranchId} onChange={(e) => setIssueBranchId(e.target.value)}>
                                 <option value="">{t('form.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('form.amountSar')}</label>
@@ -347,12 +352,12 @@ export default function WorkshopPettyCashManagement({
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('form.payFrom')}</label>
-                            <select className="form-input-field" value={issuePayFrom} onChange={(e) => setIssuePayFrom(e.target.value)}>
+                            <SelectCombo className="form-input-field" value={issuePayFrom} onChange={(e) => setIssuePayFrom(e.target.value)}>
                                 <option value="">{t('form.selectAccount')}</option>
                                 {cashAccounts.map((a) => (
                                     <option key={a.id} value={a.id}>{a.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group form-group-full">
                             <label className="form-label">{t('form.note')}</label>
@@ -394,7 +399,7 @@ export default function WorkshopPettyCashManagement({
                             <tr><td colSpan={5} className="table-cell table-empty">{t('loading')}</td></tr>
                         ) : wallets.length === 0 ? (
                             <tr><td colSpan={5} className="table-cell table-empty">{t('empty.wallets')}</td></tr>
-                        ) : wallets.map((w) => (
+                        ) : walletsPaging.pagedRows.map((w) => (
                             <tr
                                 key={w.user?.id ?? w.walletId}
                                 onClick={() => openStaffRegister(w)}
@@ -415,6 +420,7 @@ export default function WorkshopPettyCashManagement({
                         ))}
                     </tbody>
                 </table>
+                {!loading ? <WsTablePagination {...walletsPaging.pagerProps} /> : null}
             </section>
 
             {registerRow ? (
@@ -488,7 +494,7 @@ export default function WorkshopPettyCashManagement({
                     <tbody>
                         {requests.length === 0 ? (
                             <tr><td colSpan={9} className="table-cell table-empty">{t('empty.noRequests')}</td></tr>
-                        ) : requests.map((r) => (
+                        ) : requestsPaging.pagedRows.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.createdAt).toLocaleDateString()}</td>
                                 <td className="table-cell">{r.requestedBy?.name ?? t('emDash')}</td>
@@ -503,7 +509,7 @@ export default function WorkshopPettyCashManagement({
                                 <td className="table-cell"><StatusBadge status={r.status} t={t} /></td>
                                 <td className="table-cell">
                                     {r.status === 'pending' && r.kind === 'fund_request' ? (
-                                        <select
+                                        <SelectCombo
                                             className="form-input-field"
                                             style={{ minWidth: 140 }}
                                             value={approvePayFromByRequest[r.id] ?? r.payFromAccountId ?? ''}
@@ -516,7 +522,7 @@ export default function WorkshopPettyCashManagement({
                                             {cashAccounts.map((a) => (
                                                 <option key={a.id} value={a.id}>{a.name}</option>
                                             ))}
-                                        </select>
+                                        </SelectCombo>
                                     ) : (
                                         r.payFromAccountName ?? t('emDash')
                                     )}
@@ -554,6 +560,7 @@ export default function WorkshopPettyCashManagement({
                         ))}
                     </tbody>
                 </table>
+                {!loading ? <WsTablePagination {...requestsPaging.pagerProps} /> : null}
             </section>
         </div>
     );

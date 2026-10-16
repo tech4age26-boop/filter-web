@@ -14,6 +14,9 @@ import {
     staffAppStatusLabel,
     useStaffAppI18n,
 } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 function StatusBadge({ status, locale }) {
     const s = String(status || '').toLowerCase();
@@ -109,14 +112,16 @@ export default function StaffAppRequests({ selectedBranchId = 'all', branches = 
         }
     };
 
+    const listPaging = usePagedRows(rows, { resetKey: String(selectedBranchId ?? '') });
+
     return (
         <div>
             <div className="staff-app-toolbar">
                 <h2 style={{ margin: 0, fontSize: '1.125rem', flex: 1 }}>{t('requests.title')}</h2>
-                <select className="staff-app-btn" value={view} onChange={(e) => setView(e.target.value)}>
+                <SelectCombo size="sm" className="staff-app-btn" value={view} onChange={(e) => setView(e.target.value)}>
                     <option value="active">{t('requests.active')}</option>
                     <option value="history">{t('requests.history')}</option>
-                </select>
+                </SelectCombo>
                 <button type="button" className="staff-app-btn staff-app-btn--primary" onClick={() => setFormOpen(true)}>
                     <Plus size={14} /> {t('requests.new')}
                 </button>
@@ -130,21 +135,21 @@ export default function StaffAppRequests({ selectedBranchId = 'all', branches = 
                     <h3 style={{ marginTop: 0 }}>{t('requests.new')}</h3>
                     <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
                         <input className="staff-app-btn" style={{ width: '100%' }} placeholder={t('requests.ph.title')} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
-                        <select className="staff-app-btn" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
+                        <SelectCombo size="sm" className="staff-app-btn" value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}>
                             {REQUEST_TYPE_KEYS.map((rt) => <option key={rt.value} value={rt.value}>{t(rt.labelKey)}</option>)}
-                        </select>
-                        <select className="staff-app-btn" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+                        </SelectCombo>
+                        <SelectCombo size="sm" className="staff-app-btn" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
                             {PRIORITY_KEYS.map((p) => <option key={p.value} value={p.value}>{t(p.labelKey)}</option>)}
-                        </select>
+                        </SelectCombo>
                         <input type="date" className="staff-app-btn" value={form.targetDate} onChange={(e) => setForm((f) => ({ ...f, targetDate: e.target.value }))} />
                         <input className="staff-app-btn" placeholder={t('requests.ph.cost')} value={form.estimatedCost} onChange={(e) => setForm((f) => ({ ...f, estimatedCost: e.target.value }))} />
                         {branchOptions.length > 0 && (
-                            <select className="staff-app-btn" value={form.branchId} onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}>
+                            <SelectCombo size="sm" className="staff-app-btn" value={form.branchId} onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}>
                                 <option value="">{t('common.branchOptional')}</option>
                                 {branchOptions.map((b) => (
                                     <option key={b.id} value={String(b.id)}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         )}
                         <textarea className="staff-app-btn" rows={3} placeholder={t('requests.ph.description')} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
                         <div style={{ display: 'flex', gap: 8 }}>
@@ -173,7 +178,7 @@ export default function StaffAppRequests({ selectedBranchId = 'all', branches = 
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((row) => (
+                            {listPaging.pagedRows.map((row) => (
                                 <tr key={row.id}>
                                     <td>{row.requestNumber || row.id}</td>
                                     <td>{row.title}</td>
@@ -193,6 +198,7 @@ export default function StaffAppRequests({ selectedBranchId = 'all', branches = 
                         </tbody>
                     </table>
                 )}
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
         </div>
     );

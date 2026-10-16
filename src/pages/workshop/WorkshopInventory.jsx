@@ -6,6 +6,8 @@ import { AnimatePresence } from 'framer-motion';
 import Modal from '../../components/Modal';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { MOCK_SUPPLIERS_CATALOG } from './constants';
 import { getMyProducts, getBranchProducts, patchBranchProduct, postBranchBulkProductPrice } from '../../services/workshopCatalogApi';
@@ -40,6 +42,7 @@ import {
     exportWorkshopInventoryPdf,
     workshopInventoryHasStock,
 } from './workshopInventoryExport';
+import SelectCombo from '../../components/SelectCombo';
 
 const timelineExportBtnStyle = {
     display: 'inline-flex',
@@ -1046,6 +1049,7 @@ export default function WorkshopInventory({
         if (logLoading) return [];
         return mergeLogEntries(localList, fetchedLogEntries || []);
     }, [logProduct, adjustmentLogs, isAllBranches, logLoading, fetchedLogEntries]);
+    const timelinePaging = usePagedRows(logMergedEntries, { resetKey: logProduct?.id ?? '' });
 
     const timelineExportDisabled = logLoading || !logMergedEntries.length;
     const timelineExportFilename = logProduct
@@ -1271,6 +1275,7 @@ export default function WorkshopInventory({
 
     const [selectedProductIds, setSelectedProductIds] = useState([]);
     const selectAllCheckboxRef = useRef(null);
+    const inventoryTableTopRef = useRef(null);
     const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
     const [bulkAdjustAmount, setBulkAdjustAmount] = useState('');
     const [bulkAdjustReason, setBulkAdjustReason] = useState('');
@@ -1910,9 +1915,15 @@ export default function WorkshopInventory({
 
     const selectedIdSet = useMemo(() => new Set(selectedProductIds), [selectedProductIds]);
 
+    const inventoryPaging = usePagedRows(filteredProducts, {
+        resetKey: `${selectedBranchId}|${departmentFilter}|${categoryFilter}|${searchQuery}`,
+        scrollRef: inventoryTableTopRef,
+    });
+    const pagedInventoryRows = inventoryPaging.pagedRows;
+
     const visibleProductIds = useMemo(
-        () => filteredProducts.map((p) => String(p.id)).filter(Boolean),
-        [filteredProducts],
+        () => pagedInventoryRows.map((p) => String(p.id)).filter(Boolean),
+        [pagedInventoryRows],
     );
 
     const allVisibleSelected =
@@ -2668,10 +2679,9 @@ export default function WorkshopInventory({
                                                         (e) => e.reference?.id || (e.source && e.source !== 'manual'),
                                                     );
                                                     return (
+                                                        <>
                                                         <WsTableScroll
                                                             bodyStyle={{
-                                                                maxHeight: 'min(420px, 55vh)',
-                                                                overflowY: 'auto',
                                                                 border: '1px solid var(--color-border-light)',
                                                                 borderRadius: 12,
                                                             }}
@@ -2693,7 +2703,7 @@ export default function WorkshopInventory({
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
-                                                                    {merged.map((e) => {
+                                                                    {timelinePaging.pagedRows.map((e) => {
                                                                         const openingRow = isOpeningQtyAdjustmentEntry(e);
                                                                         const infiniteRow = isInfiniteQtyAdjustmentEntry(e);
                                                                         return (
@@ -2766,6 +2776,8 @@ export default function WorkshopInventory({
                                                                 </tbody>
                                                             </table>
                                                         </WsTableScroll>
+                                                        <WsTablePagination {...timelinePaging.pagerProps} />
+                                                        </>
                                                     );
                                                 })()}
                                             </div>
@@ -2845,7 +2857,7 @@ export default function WorkshopInventory({
 
                                                 <div className="mc-form-group" style={{ marginBottom: '16px' }}>
                                                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>{t('adjust.reasonLabel')}</label>
-                                                    <select
+                                                    <SelectCombo size="sm"
                                                         className="mc-filter-select"
                                                         style={{ width: '100%', height: '45px' }}
                                                         value={adjustReason}
@@ -2858,7 +2870,7 @@ export default function WorkshopInventory({
                                                                 {t(opt.labelKey)}
                                                             </option>
                                                         ))}
-                                                    </select>
+                                                    </SelectCombo>
                                                 </div>
 
                                                 {!isAdjustInfiniteQty ? (
@@ -2958,7 +2970,7 @@ export default function WorkshopInventory({
                                                     <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>
                                                         {t('adjust.reasonLabel')}
                                                     </label>
-                                                    <select
+                                                    <SelectCombo size="sm"
                                                         className="mc-filter-select"
                                                         style={{ width: '100%', height: '45px' }}
                                                         value={bulkAdjustReason}
@@ -2971,7 +2983,7 @@ export default function WorkshopInventory({
                                                                 {t(opt.labelKey)}
                                                             </option>
                                                         ))}
-                                                    </select>
+                                                    </SelectCombo>
                                                 </div>
 
                                                 {!isBulkInfiniteQty ? (
@@ -3321,7 +3333,7 @@ export default function WorkshopInventory({
                                     >
                                         {t('filter.department')}
                                     </label>
-                                    <select
+                                    <SelectCombo size="sm"
                                         className="mc-filter-select"
                                         style={{ width: '100%', minHeight: 46 }}
                                         value={departmentFilter}
@@ -3334,7 +3346,7 @@ export default function WorkshopInventory({
                                                 {d.name}
                                             </option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 <div>
                                     <label
@@ -3343,7 +3355,7 @@ export default function WorkshopInventory({
                                     >
                                         {t('filter.category')}
                                     </label>
-                                    <select
+                                    <SelectCombo size="sm"
                                         className="mc-filter-select"
                                         style={{ width: '100%', minHeight: 46 }}
                                         value={categoryFilter}
@@ -3356,7 +3368,7 @@ export default function WorkshopInventory({
                                                 {c.name}
                                             </option>
                                         ))}
-                                    </select>
+                                    </SelectCombo>
                                 </div>
                                 {hasActiveListFilters ? (
                                     <div style={{ display: 'flex', alignItems: 'flex-end' }}>
@@ -3629,7 +3641,7 @@ export default function WorkshopInventory({
                             </p>
                         </div>
 
-                        <div className="mc-table-container">
+                        <div className="mc-table-container" ref={inventoryTableTopRef}>
                             <WsTableScroll>
                             <table className="mc-data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
@@ -3818,7 +3830,7 @@ export default function WorkshopInventory({
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredProducts.map((item, idx) => {
+                                        pagedInventoryRows.map((item, idx) => {
                                             const st = stockStatus(item, t);
                                             const low = isLowStockRow(item);
                                             const qtyBg =
@@ -4103,6 +4115,7 @@ export default function WorkshopInventory({
                                 </tbody>
                             </table>
                             </WsTableScroll>
+                            {!isLoading ? <WsTablePagination {...inventoryPaging.pagerProps} /> : null}
                         </div>
                     </div>
                 </div>
@@ -4120,14 +4133,14 @@ export default function WorkshopInventory({
 
                             <div className="mc-form-group" style={{ marginBottom: '16px' }}>
                                 <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '8px', display: 'block' }}>{t('request.chooseSupplier')}</label>
-                                <select className="mc-filter-select" style={{ width: '100%', height: '45px' }} value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)}>
+                                <SelectCombo className="mc-filter-select" style={{ width: '100%', height: '45px' }} value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)}>
                                     <option value="">{t('request.selectSupplier')}</option>
                                     {MOCK_SUPPLIERS_CATALOG.map((s) => (
                                         <option key={s.id} value={s.id}>
                                             {s.name}
                                         </option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                             </div>
 
                             <div className="mc-form-group" style={{ marginBottom: '24px' }}>

@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Receipt, RefreshCw, CheckCircle, AlertTriangle, Plus, Trash2, ClipboardList,
 } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
-import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { useServerPaging } from '../../hooks/usePagedRows';
+import LockerTablePager from './LockerTablePager';
 import { LOCKER_EXPENSE_CATEGORIES } from './lockerExpenseCategories';
 import { defaultHistoryDateRange } from './lockerFilterUtils';
 import { useLockerPortal } from './useLockerPortal';
@@ -21,8 +24,6 @@ function emptyLine(defaults = {}) {
         expenseDate: defaults.expenseDate || todayISO(),
         description: '',
         proofUrl: '',
-        branchText: defaults.branchText || '',
-        categoryText: defaults.categoryText || '',
     };
 }
 
@@ -75,9 +76,6 @@ export default function LockerExpenses({
         branchId: scopeBranch,
         category: 'all',
         status: 'all',
-        branchText: '',
-        categoryText: '',
-        statusText: '',
     });
     const [applied, setApplied] = useState({
         from: defaults.from,
@@ -85,6 +83,12 @@ export default function LockerExpenses({
         branchId: scopeBranch,
         category: 'all',
         status: 'all',
+    });
+    const [total, setTotal] = useState(0);
+    const logTopRef = useRef(null);
+    const { page, pageSize, setPage, pagerFor } = useServerPaging({
+        resetKey: JSON.stringify(applied),
+        scrollRef: logTopRef,
     });
 
     const [lines, setLines] = useState(() => [emptyLine()]);
@@ -94,60 +98,45 @@ export default function LockerExpenses({
     }, [canCreate, pageTab]);
 
     const branchOpts = useMemo(
-        () =>
-            (branches || []).map((b) => ({
-                id: String(b.id),
-                label: b.name,
-                searchText: b.name,
-            })),
+        () => (branches || []).map((b) => ({ value: String(b.id), label: b.name })),
         [branches],
     );
 
     const filterBranchOpts = useMemo(
         () => [
-            ...(branchLockedId
-                ? []
-                : [{ id: 'all', label: t('common.allBranches'), searchText: t('common.allBranches') }]),
+            ...(branchLockedId ? [] : [{ value: 'all', label: t('common.allBranches') }]),
             ...branchOpts,
         ],
         [branchOpts, branchLockedId, t],
     );
 
     const categoryOpts = useMemo(
-        () =>
-            (categories || []).map((c) => ({
-                id: c,
-                label: c,
-                searchText: c,
-            })),
+        () => (categories || []).map((c) => ({ value: c, label: c })),
         [categories],
     );
 
     const filterCategoryOpts = useMemo(
-        () => [
-            { id: 'all', label: t('common.allCategories'), searchText: t('common.allCategories') },
-            ...categoryOpts,
-        ],
+        () => [{ value: 'all', label: t('common.allCategories') }, ...categoryOpts],
         [categoryOpts, t],
     );
 
     const filterStatusOpts = useMemo(
         () => [
-            { id: 'all', label: t('common.allStatuses'), searchText: t('common.allStatuses') },
-            { id: 'pending', label: t('status.pendingApproval'), searchText: `Pending ${t('status.pendingApproval')}` },
-            { id: 'posted', label: t('status.posted'), searchText: `Posted approved ${t('status.posted')}` },
-            { id: 'rejected', label: t('status.rejected'), searchText: `Rejected ${t('status.rejected')}` },
+            { value: 'all', label: t('common.allStatuses') },
+            { value: 'pending', label: t('status.pendingApproval'), searchText: 'pending' },
+            { value: 'posted', label: t('status.posted'), searchText: 'posted approved' },
+            { value: 'rejected', label: t('status.rejected'), searchText: 'rejected' },
         ],
         [t],
     );
 
     useEffect(() => {
         const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
-        setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
+        setFilters((f) => ({ ...f, branchId: next }));
         setApplied((a) => ({ ...a, branchId: next }));
         setLines((prev) => prev.map((ln) => {
             if (next === 'all') return ln;
-            return { ...ln, branchId: String(next), branchText: '' };
+            return { ...ln, branchId: String(next) };
         }));
     }, [selectedBranchId, branchLockedId]);
 
@@ -176,7 +165,6 @@ export default function LockerExpenses({
                 return {
                     ...ln,
                     branchId: String(preferredId),
-                    branchText: '',
                 };
             });
         });
@@ -193,17 +181,25 @@ export default function LockerExpenses({
                     branchId: active.branchId && active.branchId !== 'all' ? active.branchId : undefined,
                     category: active.category && active.category !== 'all' ? active.category : undefined,
                     status: active.status && active.status !== 'all' ? active.status : undefined,
-                    limit: 100,
+                    page,
+                    limit: pageSize,
                 })}`,
             );
-            setExpenses(Array.isArray(res?.expenses) ? res.expenses : []);
+            const list = Array.isArray(res?.expenses) ? res.expenses : [];
+            const count = Number(res?.total) || 0;
+            if (!list.length && count > 0 && page > 1) {
+                setPage(Math.ceil(count / pageSize));
+                return;
+            }
+            setExpenses(list);
+            setTotal(count || list.length);
             setSummary(res?.summary || null);
         } catch (e) {
             setError(e?.message || t('exp.errLoad'));
         } finally {
             setLoading(false);
         }
-    }, [applied, t]);
+    }, [applied, t, page, pageSize, setPage]);
 
     useEffect(() => {
         void loadMeta();
@@ -226,9 +222,7 @@ export default function LockerExpenses({
             ...prev,
             emptyLine({
                 branchId: base.branchId,
-                branchText: '',
                 category: base.category,
-                categoryText: '',
                 expenseDate: base.expenseDate || todayISO(),
             }),
         ]);
@@ -288,9 +282,7 @@ export default function LockerExpenses({
             setLines([
                 emptyLine({
                     branchId: keep.branchId,
-                    branchText: '',
                     category: keep.category,
-                    categoryText: '',
                     expenseDate: keep.expenseDate || todayISO(),
                 }),
             ]);
@@ -349,9 +341,6 @@ export default function LockerExpenses({
             branchId: nextBranch,
             category: 'all',
             status: 'all',
-            branchText: '',
-            categoryText: '',
-            statusText: '',
         };
         setFilters(next);
         setApplied({
@@ -511,39 +500,28 @@ export default function LockerExpenses({
                                 </div>
                                 <label>
                                     <span>{t('common.branch')}</span>
-                                    <SearchableEntityCombobox
+                                    <SearchSelect
                                         id={`le-branch-${ln.key}`}
                                         options={branchOpts}
                                         value={ln.branchId}
-                                        displayText={ln.branchText || ''}
-                                        onDisplayTextChange={(text) => updateLine(ln.key, { branchText: text })}
-                                        onSelect={(opt) => updateLine(ln.key, {
-                                            branchId: opt?.id || '',
-                                            branchText: '',
-                                        })}
+                                        onChange={(v) => updateLine(ln.key, { branchId: String(v || '') })}
+                                        required
                                         placeholder={t('exp.searchBranch')}
-                                        entityLabel="branch"
-                                        maxInitial={40}
-                                        maxFiltered={60}
+                                        emptyHint={t('common.noMatches')}
                                         disabled={submitting || Boolean(branchLockedId)}
+                                        title={branchLockedId ? t('common.branchLocked') : undefined}
                                     />
                                 </label>
                                 <label>
                                     <span>{t('common.category')}</span>
-                                    <SearchableEntityCombobox
+                                    <SearchSelect
                                         id={`le-cat-${ln.key}`}
                                         options={categoryOpts}
                                         value={ln.category}
-                                        displayText={ln.categoryText || ''}
-                                        onDisplayTextChange={(text) => updateLine(ln.key, { categoryText: text })}
-                                        onSelect={(opt) => updateLine(ln.key, {
-                                            category: opt?.id || '',
-                                            categoryText: '',
-                                        })}
+                                        onChange={(v) => updateLine(ln.key, { category: String(v || '') })}
+                                        required
                                         placeholder={t('exp.searchCategory')}
-                                        entityLabel="category"
-                                        maxInitial={30}
-                                        maxFiltered={40}
+                                        emptyHint={t('common.noMatches')}
                                         disabled={submitting}
                                     />
                                 </label>
@@ -598,11 +576,11 @@ export default function LockerExpenses({
                     </div>
                 </form>
             ) : (
-                <div className="wlk-section">
+                <div className="wlk-section" ref={logTopRef}>
                     <div className="wlk-section-header">
                         <h3>
                             {t('exp.tabLog')}
-                            <span className="wlk-count">{expenses.length}</span>
+                            <span className="wlk-count">{total}</span>
                         </h3>
                     </div>
                     {error ? (
@@ -653,68 +631,49 @@ export default function LockerExpenses({
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>{t('common.branch')}</label>
-                                <SearchableEntityCombobox
+                                <label htmlFor="le-filter-branch">{t('common.branch')}</label>
+                                <SearchSelect
                                     id="le-filter-branch"
+                                    size="sm"
                                     options={filterBranchOpts}
                                     value={branchLockedId || filters.branchId || 'all'}
-                                    displayText={filters.branchText || ''}
-                                    onDisplayTextChange={(text) => setFilters((f) => ({ ...f, branchText: text }))}
-                                    onSelect={(opt) => setFilters((f) => ({
-                                        ...f,
-                                        branchId: opt?.id || 'all',
-                                        branchText: '',
-                                    }))}
+                                    onChange={(v) => setFilters((f) => ({ ...f, branchId: String(v || 'all') }))}
                                     placeholder={t('common.searchBranches')}
-                                    entityLabel="branch"
-                                    maxInitial={40}
-                                    maxFiltered={60}
+                                    emptyHint={t('common.noMatches')}
                                     disabled={loading || Boolean(branchLockedId)}
+                                    title={branchLockedId ? t('common.branchLocked') : undefined}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>{t('common.category')}</label>
-                                <SearchableEntityCombobox
+                                <label htmlFor="le-filter-category">{t('common.category')}</label>
+                                <SearchSelect
                                     id="le-filter-category"
+                                    size="sm"
                                     options={filterCategoryOpts}
                                     value={filters.category || 'all'}
-                                    displayText={filters.categoryText || ''}
-                                    onDisplayTextChange={(text) => setFilters((f) => ({ ...f, categoryText: text }))}
-                                    onSelect={(opt) => setFilters((f) => ({
-                                        ...f,
-                                        category: opt?.id || 'all',
-                                        categoryText: '',
-                                    }))}
+                                    onChange={(v) => setFilters((f) => ({ ...f, category: String(v || 'all') }))}
                                     placeholder={t('common.searchCategories')}
-                                    entityLabel="category"
-                                    maxInitial={30}
-                                    maxFiltered={40}
+                                    emptyHint={t('common.noMatches')}
                                     disabled={loading}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>{t('common.status')}</label>
-                                <SearchableEntityCombobox
+                                <label htmlFor="le-filter-status">{t('common.status')}</label>
+                                <SearchSelect
                                     id="le-filter-status"
+                                    size="sm"
                                     options={filterStatusOpts}
                                     value={filters.status || 'all'}
-                                    displayText={filters.statusText || ''}
-                                    onDisplayTextChange={(text) => setFilters((f) => ({ ...f, statusText: text }))}
-                                    onSelect={(opt) => setFilters((f) => ({
-                                        ...f,
-                                        status: opt?.id || 'all',
-                                        statusText: '',
-                                    }))}
+                                    onChange={(v) => setFilters((f) => ({ ...f, status: String(v || 'all') }))}
                                     placeholder={t('common.allStatuses')}
-                                    entityLabel="status"
-                                    maxInitial={10}
-                                    maxFiltered={10}
+                                    emptyHint={t('common.noMatches')}
                                     disabled={loading}
                                 />
                             </div>
                         </div>
                     </div>
                     <div className="wlk-section-body">
+                        <WsTableScroll>
                         <table className="wlk-table">
                             <thead>
                                 <tr>
@@ -799,6 +758,8 @@ export default function LockerExpenses({
                                 )}
                             </tbody>
                         </table>
+                        </WsTableScroll>
+                        <LockerTablePager {...pagerFor(total)} />
                     </div>
                 </div>
             )}

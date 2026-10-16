@@ -1,7 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Send, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { usePagedRows } from '../../hooks/usePagedRows';
+import LockerTablePager from './LockerTablePager';
 import { useLockerPortal } from './useLockerPortal';
 import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
@@ -21,6 +25,10 @@ export default function DepositToBank() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(null);
     const [history, setHistory] = useState([]);
+    const historyTopRef = useRef(null);
+    const { pagedRows: pagedHistory, pagerProps: historyPager } = usePagedRows(history, {
+        scrollRef: historyTopRef,
+    });
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -98,6 +106,17 @@ export default function DepositToBank() {
         () => accounts.find((a) => String(a.id) === String(form.cashBankAccountId)),
         [accounts, form.cashBankAccountId],
     );
+    const accountOptions = useMemo(
+        () =>
+            accounts.map((a) => ({
+                value: String(a.id),
+                label: a.name,
+                hint: [a.branch?.name, a.currentBalance != null ? money(a.currentBalance) : null]
+                    .filter(Boolean)
+                    .join(' · '),
+            })),
+        [accounts, money],
+    );
 
     return (
         <div className="wlk-page">
@@ -146,22 +165,16 @@ export default function DepositToBank() {
                     <div className="wlk-grid wlk-grid--form">
                         <label>
                             <span>{t('deposit.register')}</span>
-                            <select
+                            <SearchSelect
+                                options={accountOptions}
                                 value={form.cashBankAccountId}
-                                onChange={(e) =>
-                                    setForm((f) => ({ ...f, cashBankAccountId: e.target.value }))
-                                }
+                                onChange={(v) => setForm((f) => ({ ...f, cashBankAccountId: String(v) }))}
                                 required
-                            >
-                                <option value="">{t('deposit.selectRegister')}</option>
-                                {accounts.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                        {a.name}
-                                        {a.branch?.name ? ` — ${a.branch.name}` : ''}
-                                        {a.currentBalance != null ? ` (${money(a.currentBalance)})` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel={t('deposit.register')}
+                                placeholder={t('deposit.selectRegister')}
+                                emptyHint={t('common.noMatches')}
+                                menuMinWidth={320}
+                            />
                         </label>
                         <label>
                             <span>{t('common.amountSar')}</span>
@@ -213,11 +226,12 @@ export default function DepositToBank() {
                 </div>
             ) : null}
 
-            <div className="wlk-section">
+            <div className="wlk-section" ref={historyTopRef}>
                 <div className="wlk-section-header">
                     <h3>{t('deposit.recent')}<span className="wlk-count">{history.length}</span></h3>
                 </div>
                 <div className="wlk-section-body">
+                    <WsTableScroll>
                     <table className="wlk-table">
                         <thead>
                             <tr>
@@ -236,7 +250,7 @@ export default function DepositToBank() {
                                     </td>
                                 </tr>
                             ) : (
-                                history.map((d) => (
+                                pagedHistory.map((d) => (
                                     <tr key={d.id}>
                                         <td><code>{d.reference || t('emdash')}</code></td>
                                         <td>{d.registerName}</td>
@@ -248,6 +262,8 @@ export default function DepositToBank() {
                             )}
                         </tbody>
                     </table>
+                    </WsTableScroll>
+                    <LockerTablePager {...historyPager} />
                 </div>
             </div>
         </div>

@@ -16,6 +16,7 @@ import StaffChatMentionInput from './StaffChatMentionInput';
 import StaffAppVoiceRecorder from './StaffAppVoiceRecorder';
 import StaffAppGroupSettings from './StaffAppGroupSettings';
 import { CHAT_PURPOSE_KEYS, staffAppStatusLabel, useStaffAppI18n } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
 
 function asStaffAppList(res, ...keys) {
     if (!res || typeof res !== 'object') return [];
@@ -340,7 +341,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                             value={createForm.name}
                             onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
                         />
-                        <select
+                        <SelectCombo size="sm"
                             className="staff-app-btn"
                             value={createForm.purpose}
                             onChange={(e) =>
@@ -354,9 +355,9 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                             {CHAT_PURPOSE_KEYS.map((o) => (
                                 <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
                             ))}
-                        </select>
+                        </SelectCombo>
                         {createForm.purpose === 'financial' && (
-                            <select
+                            <SelectCombo size="sm"
                                 className="staff-app-btn"
                                 value={createForm.coaAccountId}
                                 onChange={(e) =>
@@ -372,9 +373,9 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                                         </option>
                                     );
                                 })}
-                            </select>
+                            </SelectCombo>
                         )}
-                        <select
+                        <SelectCombo size="sm"
                             className="staff-app-btn"
                             value={createForm.type}
                             onChange={(e) =>
@@ -387,7 +388,7 @@ export default function StaffAppChat({ selectedBranchId = 'all' }) {
                         >
                             <option value="Public">{t('chat.typePublic')}</option>
                             <option value="Private">{t('chat.typePrivate')}</option>
-                        </select>
+                        </SelectCombo>
                         {createForm.type === 'Private' && (
                             <StaffChatMemberPicker
                                 scope={scope}

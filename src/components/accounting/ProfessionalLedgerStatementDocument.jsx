@@ -18,6 +18,7 @@ import {
     formatLedgerDateCell,
 } from '../../utils/accountLedgerStatementUtils';
 import { splitLatinAndArabic, statementScopeLabel } from '../../utils/bilingualHtmlPdf';
+import SelectCombo from '../SelectCombo';
 import '../../styles/accounting/ProfessionalLedgerStatement.css';
 
 function BilingualBlock({
@@ -207,7 +208,8 @@ export default function ProfessionalLedgerStatementDocument({
                 {parties.length > 0 && !hidePartyFilter ? (
                     <div className="pls-filter-field">
                         <label htmlFor="pls-party">Party</label>
-                        <select
+                        <SelectCombo
+                            size="sm"
                             id="pls-party"
                             value={partyFilterKey}
                             onChange={(e) => onPartyFilterKeyChange?.(e.target.value)}
@@ -218,13 +220,14 @@ export default function ProfessionalLedgerStatementDocument({
                                     {p.label}
                                 </option>
                             ))}
-                        </select>
+                        </SelectCombo>
                     </div>
                 ) : null}
                 {offsetAccounts.length > 0 ? (
                     <div className="pls-filter-field">
                         <label htmlFor="pls-offset">Offset account</label>
-                        <select
+                        <SelectCombo
+                            size="sm"
                             id="pls-offset"
                             value={offsetAccountFilterId}
                             onChange={(e) => onOffsetAccountFilterIdChange?.(e.target.value)}
@@ -235,13 +238,14 @@ export default function ProfessionalLedgerStatementDocument({
                                     [{a.code}] {a.name}
                                 </option>
                             ))}
-                        </select>
+                        </SelectCombo>
                     </div>
                 ) : null}
                 {showBranchFilter && branches.length > 0 ? (
                     <div className="pls-filter-field">
                         <label htmlFor="pls-branch">Branch</label>
-                        <select
+                        <SelectCombo
+                            size="sm"
                             id="pls-branch"
                             value={branchFilter}
                             onChange={(e) => onBranchFilterChange?.(e.target.value)}
@@ -252,7 +256,7 @@ export default function ProfessionalLedgerStatementDocument({
                                     {b.label}
                                 </option>
                             ))}
-                        </select>
+                        </SelectCombo>
                     </div>
                 ) : null}
                 {showTopupsOnlyFilter ? (

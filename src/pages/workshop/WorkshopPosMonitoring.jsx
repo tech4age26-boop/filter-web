@@ -3,6 +3,8 @@ import { LogOut, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES, usePagedRows } from '../../hooks/usePagedRows';
 import { qs, workshopStaffListScopeQuery } from '../../services/workshopStaffApi';
 import ForceCashierLogoutModal from '../../components/workshop/ForceCashierLogoutModal';
 import ClosingReportDetailModal from '../../components/workshop/ClosingReportDetailModal';
@@ -15,7 +17,6 @@ import {
     clearWorkshopAdminDatetimeRange,
 } from './workshopAdminDatetimeRange';
 
-const CLOSING_PAGE_SIZE = 20;
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -71,6 +72,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
     });
     const [rangeError, setRangeError] = useState('');
     const [closingPage, setClosingPage] = useState(1);
+    const [closingPageSize, setClosingPageSize] = useState(TABLE_PAGE_SIZES[0]);
 
     const allowedBranchIdsKey = useMemo(
         () => branches.map((b) => String(b.id)).filter(Boolean).sort().join(','),
@@ -91,7 +93,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
             const params = {
                 ...workshopStaffListScopeQuery(selectedBranchId, allowedIds),
                 closingPage,
-                closingPageSize: CLOSING_PAGE_SIZE,
+                closingPageSize,
             };
             if (appliedRangeFrom && appliedRangeTo) {
                 Object.assign(
@@ -127,6 +129,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
         appliedRangeFrom,
         appliedRangeTo,
         closingPage,
+        closingPageSize,
         t,
     ]);
 
@@ -218,9 +221,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
     const closingPagination = data?.closingReportsPagination || {};
     const closingTotal = toNumber(closingPagination.total);
     const closingTotalPages = Math.max(1, toNumber(closingPagination.totalPages) || 1);
-    const closingPageSize = toNumber(closingPagination.pageSize) || CLOSING_PAGE_SIZE;
-    const rangeFrom = closingTotal === 0 ? 0 : (closingPage - 1) * closingPageSize + 1;
-    const rangeTo = Math.min(closingPage * closingPageSize, closingTotal);
+    const livePaging = usePagedRows(liveCountersScoped, { resetKey: String(selectedBranchId ?? '') });
 
     const kpiCards = [
         { id: 'live_counters', label: t('kpi.liveCounters'), value: String(liveCountersKpi), icon: 'POS', iconClass: 'ws-kpi-icon--blue' },
@@ -289,7 +290,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                         <tbody>
                             {liveCountersScoped.length === 0 ? (
                                 <tr><td colSpan={canForceLogout ? 8 : 7} style={{ textAlign: 'center', padding: 32, color: 'var(--color-text-muted)' }}>{t('empty.liveCounters')}</td></tr>
-                            ) : liveCountersScoped.map((counter) => (
+                            ) : livePaging.pagedRows.map((counter) => (
                                 <tr key={counter.posSessionId}>
                                     <td>{counter.cashierName || t('emdash')}</td>
                                     <td>{counter.branchName || t('emdash')}</td>
@@ -318,6 +319,7 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                         </tbody>
                     </table>
                 </WsTableScroll>
+                {!isLoading ? <WsTablePagination {...livePaging.pagerProps} /> : null}
             </div>
 
             <div className="ws-section" style={{ marginTop: 16 }}>
@@ -414,55 +416,19 @@ export default function WorkshopPosMonitoring({ selectedBranchId = 'all', branch
                     </table>
                 </WsTableScroll>
 
-                <div className="ws-report-pagination" style={{ padding: '0 16px 16px' }}>
-                    <p className="ws-report-pagination__info">
-                        {t('pagination.showing')} <strong>{rangeFrom}</strong>–<strong>{rangeTo}</strong> {t('pagination.of')} <strong>{closingTotal}</strong>
-                        {isLoading ? <span>{t('pagination.loadingSuffix')}</span> : null}
-                    </p>
-                    <nav className="ws-report-pagination__nav" aria-label={t('label.closingPages')}>
-                        <button
-                            type="button"
-                            className="ws-report-pagination__edge"
-                            disabled={isLoading || closingPage <= 1}
-                            onClick={() => setClosingPage((p) => Math.max(1, p - 1))}
-                        >
-                            {t('btn.previous')}
-                        </button>
-                        <div className="ws-report-pagination__pages" role="group" aria-label={t('label.pageNumbers')}>
-                            {Array.from({ length: Math.min(closingTotalPages, 7) }, (_, i) => {
-                                let n;
-                                if (closingTotalPages <= 7) {
-                                    n = i + 1;
-                                } else if (closingPage <= 4) {
-                                    n = i + 1;
-                                } else if (closingPage >= closingTotalPages - 3) {
-                                    n = closingTotalPages - 6 + i;
-                                } else {
-                                    n = closingPage - 3 + i;
-                                }
-                                return (
-                                    <button
-                                        key={n}
-                                        type="button"
-                                        className={`ws-report-pagination__page${n === closingPage ? ' ws-report-pagination__page--active' : ''}`}
-                                        disabled={isLoading}
-                                        onClick={() => setClosingPage(n)}
-                                    >
-                                        {n}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <button
-                            type="button"
-                            className="ws-report-pagination__edge"
-                            disabled={isLoading || closingPage >= closingTotalPages}
-                            onClick={() => setClosingPage((p) => Math.min(closingTotalPages, p + 1))}
-                        >
-                            {t('btn.next')}
-                        </button>
-                    </nav>
-                </div>
+                {!isLoading ? (
+                    <WsTablePagination
+                        page={Math.min(closingPage, closingTotalPages)}
+                        pageCount={closingTotalPages}
+                        pageSize={closingPageSize}
+                        total={closingTotal}
+                        onPageChange={setClosingPage}
+                        onPageSizeChange={(n) => {
+                            setClosingPageSize(n);
+                            setClosingPage(1);
+                        }}
+                    />
+                ) : null}
             </div>
 
             {canForceLogout && forceLogoutCounter && (

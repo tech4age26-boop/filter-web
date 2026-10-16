@@ -60,8 +60,8 @@ import AdminScreenShell from '../../components/admin/AdminScreenShell';
 import CashierTaxInvoiceView from '../../components/pos/modern/CashierTaxInvoiceView';
 import '../../components/pos/modern/CashierTaxInvoiceView.css';
 import { useAuth } from '../../context/AuthContext';
-import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
-import { apT, entityTypeLabel } from '../../utils/approvalsI18n';
+import ApprovalProofAttachment from '../../components/accounting/ApprovalProofAttachment';
+import { apT, apProofLabels, entityTypeLabel } from '../../utils/approvalsI18n';
 
 /**
  * Map backend entity-type string (snake_case) → permission code suffix (kebab-case).
@@ -1851,14 +1851,13 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
             <p style={{ margin: '0 0 8px', fontSize: '0.8125rem', color: '#64748b' }}>
                 Category: <strong>{category}</strong>
             </p>
-            {proofUrl ? (
-                <div style={{ marginBottom: 14 }}>
-                    <p style={{ margin: '0 0 8px', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Proof</p>
-                    <ExpenseProofThumbnail proofUrl={proofUrl} alt="Expense proof" />
-                </div>
-            ) : (
-                <p style={{ color: '#b45309', fontSize: '0.875rem' }}>No proof attached.</p>
-            )}
+            <div style={{ marginBottom: 14 }}>
+                <ApprovalProofAttachment
+                    url={proofUrl}
+                    fileName={`admin-wallet-expense-${String(item?.meta?.requestNumber ?? item?.id ?? '').replace(/[^\w-]+/g, '-')}`}
+                    labels={apProofLabels()}
+                />
+            </div>
 
             <WalletApprovalAccountFields
                 workshopId={workshopId}
@@ -1963,12 +1962,13 @@ function AdminWalletExpenseRequestDetailsModal({ id, item, onClose, onApprove, o
                         <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Description</p>
                         <p style={{ margin: '6px 0 0' }}>{row.description ?? '—'}</p>
                     </div>
-                    {row.proofUrl && (
-                        <div style={{ marginBottom: 14 }}>
-                            <p style={{ margin: '0 0 8px', fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Proof</p>
-                            <ExpenseProofThumbnail proofUrl={row.proofUrl} alt="Expense proof" />
-                        </div>
-                    )}
+                    <div style={{ marginBottom: 14 }}>
+                        <ApprovalProofAttachment
+                            url={row.proofUrl ?? item?.meta?.proofUrl}
+                            fileName={`admin-wallet-expense-${String(requestNumber).replace(/[^\w-]+/g, '-')}`}
+                            labels={apProofLabels()}
+                        />
+                    </div>
                 </div>
             )}
         </ApprovalShell>

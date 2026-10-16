@@ -14,6 +14,9 @@ import { riyadhBoundToApiIso } from '../../utils/riyadhBusinessRange';
 import { loadWorkshopAdminDatetimeRange } from './workshopAdminDatetimeRange';
 import './Workshop.css';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { useServerPaging } from '../../hooks/usePagedRows';
+import SelectCombo from '../../components/SelectCombo';
 
 function statusTone(status, t) {
     const s = String(status || '').toLowerCase();
@@ -60,6 +63,10 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
     const [dateTo, setDateTo] = useState(() => loadWorkshopAdminDatetimeRange()?.dateTo || '');
     const [invoiceNo, setInvoiceNo] = useState('');
     const [statusFilter, setStatusFilter] = useState('completed');
+    const paging = useServerPaging({
+        resetKey: `${selectedBranchId}|${statusFilter}|${dateFrom}|${dateTo}|${invoiceNo.trim()}`,
+    });
+    const { page, pageSize } = paging;
 
     const [detail, setDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -97,18 +104,19 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                 dateFrom: dateFrom ? riyadhBoundToApiIso(dateFrom, 'start') : undefined,
                 dateTo: dateTo ? riyadhBoundToApiIso(dateTo, 'end') : undefined,
                 invoiceNo: invoiceNo.trim() || undefined,
-                limit: 100,
-                offset: 0,
+                limit: pageSize,
+                offset: (page - 1) * pageSize,
             });
             setRows(Array.isArray(res?.salesReturns) ? res.salesReturns : []);
             setTotal(Number(res?.total) || 0);
         } catch (e) {
             setRows([]);
+            setTotal(0);
             setError(e.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [canView, branchParams, statusFilter, dateFrom, dateTo, invoiceNo, t]);
+    }, [canView, branchParams, statusFilter, dateFrom, dateTo, invoiceNo, page, pageSize, t]);
 
     useEffect(() => {
         load();
@@ -304,12 +312,12 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                         </div>
                         <div className="ws-sr-filter-field">
                             <label>{t('label.status')}</label>
-                            <select className="mc-filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                            <SelectCombo size="sm" className="mc-filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                                 <option value="completed">{t('opt.approved')}</option>
                                 <option value="pending">{t('opt.pending')}</option>
                                 <option value="rejected">{t('opt.rejected')}</option>
                                 <option value="">{t('opt.all')}</option>
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="ws-sr-filter-field ws-sr-filter-field--invoice">
                             <label>{t('label.invoiceNo')}</label>
@@ -410,10 +418,8 @@ export default function WorkshopSalesReturns({ selectedBranchId = 'all', branche
                     </tbody>
                 </table>
                 </WsTableScroll>
+                {!loading ? <WsTablePagination {...paging.pagerFor(total)} /> : null}
             </div>
-            {!loading && total > rows.length ? (
-                <p className="ws-sr-pagination-note">{t('showing', { shown: rows.length, total })}</p>
-            ) : null}
 
         </div>
     );

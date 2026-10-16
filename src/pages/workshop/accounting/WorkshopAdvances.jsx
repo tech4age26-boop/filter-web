@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router-dom';
 import {
     BookOpen,
-    ChevronDown,
     Clock,
     DollarSign,
     FileDown,
@@ -38,6 +37,7 @@ import { exportAdvancesExcel, exportAdvancesPdf } from './workshopAdvancesExport
 import '../../../styles/admin/AccountingPage.css';
 import './WorkshopAdvancePayPages.css';
 import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
+import SelectCombo from '../../../components/SelectCombo';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -612,15 +612,14 @@ export default function WorkshopAdvances({
                 ) : null}
                 {branches.length > 0 ? (
                     <div className="ps-select-wrapper" style={{ minWidth: 180 }}>
-                        <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+                        <SelectCombo value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
                             <option value="">{t('adv.allBranches')}</option>
                             {branches.map((b) => (
                                 <option key={String(b.id)} value={String(b.id)}>
                                     {b.name}
                                 </option>
                             ))}
-                        </select>
-                        <ChevronDown size={16} className="ps-select-icon" />
+                        </SelectCombo>
                     </div>
                 ) : null}
                 {activeTab === 'Advances' ? (

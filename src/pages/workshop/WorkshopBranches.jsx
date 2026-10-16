@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Key, Plus, MapPin, Phone, Mail, Users, Edit, RefreshCw } from 'lucide-react';
 import Modal from '../../components/Modal';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import { ShimmerCatalogGrid } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -20,6 +22,7 @@ import {
     BRANCH_PERMISSIONS,
     MOCK_ROLE_PERMISSIONS,
 } from './constants';
+import SelectCombo from '../../components/SelectCombo';
 
 function BranchFormModal({ branch, onClose, onSave, isSaving, t }) {
     // Prefer BE-canonical field names (branchCode/vatId/crNumber/contactPerson)
@@ -60,7 +63,7 @@ function BranchFormModal({ branch, onClose, onSave, isSaving, t }) {
                         <input type="text" value={form.name} onChange={e => set('name', e.target.value)} placeholder={t('form.branchNamePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/>
                     </div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.branchCode')}</label><input type="text" value={form.code} onChange={e => set('code', e.target.value)} placeholder={t('form.branchCodePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
-                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.status')}</label><select value={form.status} onChange={e => set('status', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}><option value="active">{t('status.active')}</option><option value="inactive">{t('status.inactive')}</option></select></div>
+                    <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.status')}</label><SelectCombo value={form.status} onChange={e => set('status', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}><option value="active">{t('status.active')}</option><option value="inactive">{t('status.inactive')}</option></SelectCombo></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.phone')}</label><input type="text" value={form.phone} onChange={e => set('phone', e.target.value)} placeholder={t('form.phonePh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.email')}</label><input type="email" value={form.email} onChange={e => set('email', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
                     <div><label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('form.gpsLat')}</label><input type="number" value={form.gpsLat} onChange={e => set('gpsLat', e.target.value)} placeholder={t('form.gpsLatPh')} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}/></div>
@@ -136,10 +139,10 @@ function AccessPermissionFormModal({ branches, onClose, onSave, t }) {
             <div style={{ fontSize: '0.875rem' }}>
                 <div style={{ marginBottom: 14 }}>
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('access.branch')}</label>
-                    <select value={form.branch_id} onChange={e => set('branch_id', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}>
+                    <SelectCombo value={form.branch_id} onChange={e => set('branch_id', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}>
                         <option value="">{t('access.selectBranch')}</option>
                         {selectableBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                    </SelectCombo>
                     {selectableBranches.length === 0 && (branches || []).length > 0 && (
                         <p style={{ margin: '8px 0 0', fontSize: '0.75rem', color: '#B45309' }}>
                             {t('access.noApproved')}
@@ -200,6 +203,17 @@ export default function WorkshopBranches({ selectedBranchId = 'all', locale: loc
         if (!selectedBranchId || selectedBranchId === 'all') return branches;
         return branches.filter((b) => String(b.id) === String(selectedBranchId));
     }, [branches, selectedBranchId]);
+
+    const branchAccessRows = useMemo(
+        () => rolePermissions
+            .filter((r) => r.role_name?.startsWith('branch_admin_'))
+            .filter((r) => {
+                if (!selectedBranchId || selectedBranchId === 'all') return true;
+                return String(r.role_name.replace('branch_admin_', '')) === String(selectedBranchId);
+            }),
+        [rolePermissions, selectedBranchId],
+    );
+    const accessPaging = usePagedRows(branchAccessRows, { resetKey: String(selectedBranchId ?? 'all') });
 
     /**
      * Map of `branchId → number of employees` built from a single workshop-wide
@@ -550,31 +564,19 @@ export default function WorkshopBranches({ selectedBranchId = 'all', locale: loc
 
             {activeTab === 'access' && (
                 <div className="ws-section">
-                    {rolePermissions
-                        .filter(r => r.role_name?.startsWith('branch_admin_'))
-                        .filter((r) => {
-                            if (!selectedBranchId || selectedBranchId === 'all') return true;
-                            const bid = r.role_name.replace('branch_admin_', '');
-                            return String(bid) === String(selectedBranchId);
-                        }).length === 0 ? (
+                    {branchAccessRows.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: 48, color: 'var(--color-text-muted)' }}>
                             <Key size={48} style={{ opacity: 0.3, margin: '0 auto 12px', display: 'block' }}/>
                             <p style={{ margin: '0 0 16px', fontWeight: 600 }}>{t('empty.noAccess')}</p>
                             <button className="btn-portal" style={{ background: '#D97706', color: '#fff' }} onClick={() => setShowAccessForm(true)}><Key size={15}/> {t('btn.grantBranchAccess')}</button>
                         </div>
                     ) : (
+                        <>
                         <WsTableScroll>
                         <table className="ws-table">
                             <thead><tr><th>{t('th.branch')}</th><th>{t('th.permittedSections')}</th><th>{t('th.description')}</th></tr></thead>
                             <tbody>
-                                {rolePermissions
-                                    .filter(r => r.role_name?.startsWith('branch_admin_'))
-                                    .filter((r) => {
-                                        if (!selectedBranchId || selectedBranchId === 'all') return true;
-                                        const bid = r.role_name.replace('branch_admin_', '');
-                                        return String(bid) === String(selectedBranchId);
-                                    })
-                                    .map(rp => {
+                                {accessPaging.pagedRows.map(rp => {
                                     const branchId = rp.role_name.replace('branch_admin_', '');
                                     const branch = branches.find(b => b.id === branchId);
                                     return (
@@ -586,6 +588,8 @@ export default function WorkshopBranches({ selectedBranchId = 'all', locale: loc
                             </tbody>
                         </table>
                         </WsTableScroll>
+                        <WsTablePagination {...accessPaging.pagerProps} />
+                        </>
                     )}
                 </div>
             )}

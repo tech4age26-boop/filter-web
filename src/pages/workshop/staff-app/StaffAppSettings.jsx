@@ -4,6 +4,7 @@ import { getStaffAppSettings, updateStaffAppSettings } from '../../../services/s
 import { listExpenseCategories } from '../../../services/employeeExpenseApi';
 import { useStaffAppScope } from '../../../context/StaffAppScopeContext';
 import { useStaffAppI18n } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
 
 export default function StaffAppSettings() {
     const scope = useStaffAppScope();
@@ -94,11 +95,11 @@ export default function StaffAppSettings() {
                     })}
                 </div>
                 <h3 style={{ marginTop: 24 }}>{t('settings.approverTitle')}</h3>
-                <select className="staff-app-btn" value={defaultApproverRole} onChange={(e) => setDefaultApproverRole(e.target.value)}>
+                <SelectCombo size="sm" className="staff-app-btn" value={defaultApproverRole} onChange={(e) => setDefaultApproverRole(e.target.value)}>
                     <option value="workshop_admin">{t('settings.role.workshopAdmin')}</option>
                     <option value="accounting">{t('settings.role.accounting')}</option>
                     <option value="manager">{t('settings.role.manager')}</option>
-                </select>
+                </SelectCombo>
             </div>
         </div>
     );

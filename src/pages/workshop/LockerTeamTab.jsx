@@ -1,13 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, Info, ShieldCheck, Truck } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { usePagedRows } from '../../hooks/usePagedRows';
+import LockerTablePager from '../locker/LockerTablePager';
 
 function TeamTable({ title, icon, users, emptyLabel, t, dateLocale }) {
     const Icon = icon;
     const dash = t('emdash');
+    const topRef = useRef(null);
+    const { pagedRows, pagerProps } = usePagedRows(users, { scrollRef: topRef });
     return (
-        <section className="wlk-panel">
+        <section className="wlk-panel" ref={topRef}>
             <header className="wlk-panel__head">
                 <span className="wlk-panel__icon">
                     <Icon size={16} />
@@ -40,7 +44,7 @@ function TeamTable({ title, icon, users, emptyLabel, t, dateLocale }) {
                                     </td>
                                 </tr>
                             ) : (
-                                users.map((u) => {
+                                pagedRows.map((u) => {
                                     const approval = String(u.approvalStatus || '').toLowerCase();
                                     const approvalCls =
                                         approval === 'approved'
@@ -79,6 +83,7 @@ function TeamTable({ title, icon, users, emptyLabel, t, dateLocale }) {
                         </tbody>
                     </table>
                 </WsTableScroll>
+                <LockerTablePager {...pagerProps} />
             </div>
         </section>
     );

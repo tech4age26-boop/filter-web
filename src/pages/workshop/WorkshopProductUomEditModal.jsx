@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRightLeft, Package } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import { patchBranchProduct, postBranchBulkProductUom } from '../../services/workshopCatalogApi';
+import SelectCombo from '../../components/SelectCombo';
 
 const WAREHOUSE_UNIT_PRESETS = ['Box', 'Carton', 'Dozen', 'Pack', 'Drum', 'Bag', 'liter', 'pcs'];
 const WORKSHOP_UNIT_PRESETS = ['pcs', 'Liter', 'liter', 'kg', 'ml', 'Set', 'piece'];
@@ -31,7 +32,7 @@ function UomFormFields({
             <div className="ws-uom-flow">
                 <div className="ws-uom-flow-unit">
                     <label htmlFor="ws-uom-wh">Warehouse UOM</label>
-                    <select
+                    <SelectCombo
                         id="ws-uom-wh"
                         value={warehouseUnit}
                         onChange={(e) => setWarehouseUnit(e.target.value)}
@@ -41,7 +42,7 @@ function UomFormFields({
                                 {u}
                             </option>
                         ))}
-                    </select>
+                    </SelectCombo>
                     <span className="ws-uom-flow-hint">Purchase / bulk unit</span>
                 </div>
 
@@ -60,7 +61,7 @@ function UomFormFields({
 
                 <div className="ws-uom-flow-unit">
                     <label htmlFor="ws-uom-ws">Workshop UOM</label>
-                    <select
+                    <SelectCombo
                         id="ws-uom-ws"
                         value={workshopUnit}
                         onChange={(e) => setWorkshopUnit(e.target.value)}
@@ -70,7 +71,7 @@ function UomFormFields({
                                 {u}
                             </option>
                         ))}
-                    </select>
+                    </SelectCombo>
                     <span className="ws-uom-flow-hint">Inventory &amp; sales unit</span>
                 </div>
             </div>

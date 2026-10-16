@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw, FileText, Edit } from 'lucide-react';
 import Modal from '../../components/Modal';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import {
     listLocalSuppliers,
     createLocalSupplier,
@@ -13,6 +15,7 @@ import WorkshopCoaAdjustModal from '../../components/accounting/WorkshopCoaAdjus
 import { useAuth } from '../../context/AuthContext';
 import { wnasT } from '../../utils/workshopNonAffiliatedSuppliersI18n';
 import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
+import SelectCombo from '../../components/SelectCombo';
 
 const todayIso = () => toRiyadhDateISO();
 const fmtMoney = (v) =>
@@ -75,7 +78,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                     </div>
                     <div className="ws-local-sup-modal-field">
                         <label>{t('modal.branch')}</label>
-                        <select
+                        <SelectCombo
                             className="ws-local-sup-modal-input"
                             value={form.branchId || ''}
                             onChange={(e) => set('branchId', e.target.value)}
@@ -87,7 +90,7 @@ function LocalSupplierFormModal({ supplier, branches = [], onClose, onSave, isSa
                                     {b.name}
                                 </option>
                             ))}
-                        </select>
+                        </SelectCombo>
                     </div>
                     <div className="ws-local-sup-modal-field">
                         <label>{t('modal.contactPerson')}</label>
@@ -308,6 +311,7 @@ export default function WorkshopNonAffiliatedSuppliers({
         () => rows.reduce((s, r) => s + Number(r.finalBalance || 0), 0),
         [rows],
     );
+    const listPaging = usePagedRows(rows, { resetKey: String(selectedBranchId ?? '') });
 
     return (
         <div className="ws-suppliers-page">
@@ -372,7 +376,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                                 </td>
                             </tr>
                         ) : (
-                            rows.map((r) => (
+                            listPaging.pagedRows.map((r) => (
                                 <tr key={r.id} style={{ borderTop: '1px solid #F1F5F9' }}>
                                     <td style={{ padding: 12 }}>{r.serial}</td>
                                     <td
@@ -448,6 +452,7 @@ export default function WorkshopNonAffiliatedSuppliers({
                     </tbody>
                 </table>
                 </WsTableScroll>
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
 
             {error && (

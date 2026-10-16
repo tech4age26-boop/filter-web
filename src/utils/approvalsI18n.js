@@ -88,6 +88,12 @@ const AP_I18N = {
         'detail.open': 'Open',
         'detail.download': 'Download',
         'detail.notProvided': 'Not provided',
+        'proof.title': 'Attached photo',
+        'proof.open': 'View full size',
+        'proof.loading': 'Loading photo…',
+        'proof.none': 'No photo attached.',
+        'proof.error': 'Could not load the attached photo.',
+        'proof.close': 'Close',
         'detail.openMaps': 'Open in Maps',
         'corp.approveTitle': 'Approve Corporate Registration',
         'corp.approveBody': 'Approve {title}. Adjust linked branches/stores if needed.',
@@ -199,6 +205,12 @@ const AP_I18N = {
         'detail.open': 'فتح',
         'detail.download': 'تنزيل',
         'detail.notProvided': 'غير متوفر',
+        'proof.title': 'الصورة المرفقة',
+        'proof.open': 'عرض بالحجم الكامل',
+        'proof.loading': 'جارٍ تحميل الصورة…',
+        'proof.none': 'لا توجد صورة مرفقة.',
+        'proof.error': 'تعذّر تحميل الصورة المرفقة.',
+        'proof.close': 'إغلاق',
         'detail.openMaps': 'فتح في الخرائط',
         'corp.approveTitle': 'اعتماد تسجيل الشركة',
         'corp.approveBody': 'اعتماد {title}. عدّل الفروع/المتاجر المرتبطة إن لزم.',
@@ -238,6 +250,23 @@ export function apT(locale, key, vars) {
         }
     }
     return text;
+}
+
+/** Labels for `ApprovalProofAttachment` in the current portal locale. */
+export function apProofLabels(locale) {
+    const loc =
+        locale ||
+        (typeof localStorage !== 'undefined' ? localStorage.getItem('portal-locale') : null) ||
+        'en';
+    return {
+        title: apT(loc, 'proof.title'),
+        open: apT(loc, 'proof.open'),
+        download: apT(loc, 'detail.download'),
+        loading: apT(loc, 'proof.loading'),
+        none: apT(loc, 'proof.none'),
+        error: apT(loc, 'proof.error'),
+        close: apT(loc, 'proof.close'),
+    };
 }
 
 export function entityTypeLabel(locale, value) {

@@ -7,6 +7,9 @@ import {
     listWorkshopPeriodCloses,
     restoreWorkshopPeriodClose,
 } from '../../../services/workshopAccountingApi';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 function parsePeriodCloseIdFromPath(pathname) {
     const parts = String(pathname || '').split('/').filter(Boolean);
@@ -91,6 +94,7 @@ function PeriodCloseDetail({ id }) {
         const snap = data?.snapshot;
         return Array.isArray(snap) ? snap : [];
     }, [data]);
+    const { pagedRows, pagerProps } = usePagedRows(rows, { resetKey: id });
 
     async function onRestore() {
         if (!window.confirm(RESTORE_CONFIRM)) return;
@@ -184,6 +188,7 @@ function PeriodCloseDetail({ id }) {
                     background: '#fff',
                 }}
             >
+                <WsTableScroll>
                 <table className="ws-table" style={{ margin: 0, width: '100%' }}>
                     <thead>
                         <tr>
@@ -202,7 +207,7 @@ function PeriodCloseDetail({ id }) {
                                 </td>
                             </tr>
                         ) : (
-                            rows.map((r) => (
+                            pagedRows.map((r) => (
                                 <tr key={r.id || r.code} style={r.hasChildren ? { fontWeight: 700, background: '#F8FAFC' } : undefined}>
                                     <td>{r.code}</td>
                                     <td>{r.name}{r.hasChildren ? ' (folder)' : ''}</td>
@@ -218,6 +223,8 @@ function PeriodCloseDetail({ id }) {
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                <WsTablePagination {...pagerProps} />
             </div>
         </div>
     );
@@ -230,6 +237,7 @@ export default function WorkshopPeriodClosingsPage() {
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState('');
     const [restoringId, setRestoringId] = useState('');
+    const { pagedRows, pagerProps } = usePagedRows(rows);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -291,6 +299,7 @@ export default function WorkshopPeriodClosingsPage() {
                 </div>
             ) : (
                 <div style={{ border: '1px solid #E2E8F0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                    <WsTableScroll>
                     <table className="ws-table" style={{ margin: 0, width: '100%' }}>
                         <thead>
                             <tr>
@@ -303,7 +312,7 @@ export default function WorkshopPeriodClosingsPage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((r) => (
+                            {pagedRows.map((r) => (
                                 <tr key={r.id}>
                                     <td style={{ whiteSpace: 'nowrap' }}>{r.periodEndDate}</td>
                                     <td>{r.label}</td>
@@ -348,6 +357,8 @@ export default function WorkshopPeriodClosingsPage() {
                             ))}
                         </tbody>
                     </table>
+                    </WsTableScroll>
+                    <WsTablePagination {...pagerProps} />
                 </div>
             )}
         </div>

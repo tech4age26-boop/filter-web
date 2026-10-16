@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Camera, CheckCircle, RefreshCw, Upload, X } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import SearchSelect from '../../components/SearchSelect';
 import { useLockerPortal } from './useLockerPortal';
 
 const MAX_PROOF_SIZE_BYTES = 2 * 1024 * 1024;
@@ -248,6 +249,15 @@ export default function RecordCollection({
     const [proofFile, setProofFile] = useState(null);
     const [proofPreview, setProofPreview] = useState(null);
     const fileInputRef = useRef(null);
+    const requestOptions = useMemo(
+        () =>
+            requests.map((r) => ({
+                value: String(r.id),
+                label: `${r.referenceCode} — ${money(r.expectedAmount)}`,
+                hint: `${r.branchName} · ${rowCashierName(r, dash)}`,
+            })),
+        [requests, money, dash],
+    );
     const cameraInputRef = useRef(null);
 
     const setRequestParam = useCallback(
@@ -461,18 +471,15 @@ export default function RecordCollection({
                     <div className="ws-form-grid" style={{ marginBottom: 20 }}>
                         <div className="ws-field" style={{ gridColumn: '1 / -1' }}>
                             <label>{t('record.request')}</label>
-                            <select
+                            <SearchSelect
+                                options={requestOptions}
                                 value={form.requestId}
-                                onChange={(e) => onRequestChange(e.target.value)}
-                            >
-                                <option value="">{t('record.selectRequest')}</option>
-                                {requests.map((r) => (
-                                    <option key={r.id} value={r.id}>
-                                        {r.referenceCode} — {r.branchName} — {rowCashierName(r, dash)} —{' '}
-                                        {money(r.expectedAmount)}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={(v) => onRequestChange(String(v))}
+                                ariaLabel={t('record.request')}
+                                placeholder={t('record.selectRequest')}
+                                emptyHint={t('common.noMatches')}
+                                menuMinWidth={360}
+                            />
                         </div>
                     </div>
                 ) : null}
