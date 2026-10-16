@@ -16,6 +16,9 @@ import {
     primaryBtnStyle,
 } from '../../supplier/accounting/SupplierAccountingShared';
 import { riyadhStartOfMonthDatetimeLocal, toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 const summaryCardStyle = {
     padding: 14,
@@ -96,6 +99,9 @@ export default function WorkshopVatReport() {
     }
 
     const rows = data?.rows ?? [];
+    const { pagedRows, pagerProps } = usePagedRows(rows, { resetKey: data });
+    const isFirstPage = pagerProps.page === 1;
+    const isLastPage = pagerProps.page >= pagerProps.pageCount;
     const totals = data?.totals;
     const accountLabel = data?.vatPayableAccount
         ? `[${data.vatPayableAccount.code}] ${data.vatPayableAccount.name}`
@@ -286,6 +292,7 @@ export default function WorkshopVatReport() {
                         overflow: 'hidden',
                     }}
                 >
+                    <WsTableScroll>
                     <table className="ws-table" style={{ margin: 0 }}>
                         <thead>
                             <tr>
@@ -300,6 +307,7 @@ export default function WorkshopVatReport() {
                             </tr>
                         </thead>
                         <tbody>
+                            {isFirstPage ? (
                             <tr style={{ background: '#F8FAFC', fontWeight: 700 }}>
                                 <td>—</td>
                                 <td>—</td>
@@ -312,7 +320,8 @@ export default function WorkshopVatReport() {
                                     {money(data?.openingPayable ?? 0)}
                                 </td>
                             </tr>
-                            {rows.map((r) => (
+                            ) : null}
+                            {pagedRows.map((r) => (
                                 <tr key={r.id}>
                                     <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
                                     <td>{r.reference || '—'}</td>
@@ -334,7 +343,7 @@ export default function WorkshopVatReport() {
                                     </td>
                                 </tr>
                             ))}
-                            {totals ? (
+                            {totals && isLastPage ? (
                                 <tr
                                     style={{
                                         background: '#FFF7ED',
@@ -360,6 +369,8 @@ export default function WorkshopVatReport() {
                             ) : null}
                         </tbody>
                     </table>
+                    </WsTableScroll>
+                    <WsTablePagination {...pagerProps} />
                 </div>
             )}
         </div>

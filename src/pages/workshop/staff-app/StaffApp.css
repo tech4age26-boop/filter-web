@@ -318,6 +318,11 @@
     overflow: hidden;
 }
 
+.staff-app-table-wrap > .ws-pager {
+    padding: 14px 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
 .staff-app-table-wrap--dropdown-host {
     overflow: visible;
     position: relative;

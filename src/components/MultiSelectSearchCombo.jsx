@@ -19,6 +19,7 @@ export default function MultiSelectSearchCombo({
     maxInitial = 0,
     maxFiltered = 0,
     clearLabel = 'Clear',
+    removeLabel = 'Remove',
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -59,15 +60,17 @@ export default function MultiSelectSearchCombo({
     const updateMenu = useCallback(() => {
         const wrap = wrapRef.current;
         if (!wrap) return;
+        const { direction } = window.getComputedStyle(wrap);
         const { openUp: _openUp, ...style } = computeFixedComboMenuStyle(
             wrap.getBoundingClientRect(),
             {
                 menuMinWidth,
                 viewportWidth: window.innerWidth,
                 viewportHeight: window.innerHeight,
+                rtl: direction === 'rtl',
             },
         );
-        setMenuStyle(style);
+        setMenuStyle({ ...style, direction });
     }, [menuMinWidth]);
 
     useLayoutEffect(() => {
@@ -90,7 +93,11 @@ export default function MultiSelectSearchCombo({
             setOpen(false);
         };
         document.addEventListener('mousedown', onDoc);
-        return () => document.removeEventListener('mousedown', onDoc);
+        document.addEventListener('focusin', onDoc);
+        return () => {
+            document.removeEventListener('mousedown', onDoc);
+            document.removeEventListener('focusin', onDoc);
+        };
     }, [open]);
 
     const toggle = (id) => {
@@ -190,7 +197,7 @@ export default function MultiSelectSearchCombo({
                                 type="button"
                                 className="ms-combo__chip-x"
                                 tabIndex={-1}
-                                aria-label={`Remove ${o.label}`}
+                                aria-label={`${removeLabel} ${o.label}`}
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     toggle(o.id ?? o.value);

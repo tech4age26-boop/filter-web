@@ -8,6 +8,9 @@ import {
     staffAppStatusLabel,
     useStaffAppI18n,
 } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 function StatusBadge({ status, locale }) {
     const s = String(status || '').toLowerCase();
@@ -69,6 +72,8 @@ export default function StaffAppTasks({ selectedBranchId = 'all' }) {
         }
     };
 
+    const listPaging = usePagedRows(rows, { resetKey: String(selectedBranchId ?? '') });
+
     return (
         <div>
             <div className="staff-app-toolbar">
@@ -85,9 +90,9 @@ export default function StaffAppTasks({ selectedBranchId = 'all' }) {
                 <div className="staff-app-table-wrap" style={{ padding: 16, marginBottom: 12 }}>
                     <input className="staff-app-btn" style={{ width: '100%', marginBottom: 8 }} placeholder={t('tasks.ph.title')} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
                     <textarea className="staff-app-btn" rows={2} style={{ width: '100%', marginBottom: 8 }} placeholder={t('tasks.ph.description')} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-                    <select className="staff-app-btn" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+                    <SelectCombo size="sm" className="staff-app-btn" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
                         {PRIORITY_KEYS.map((p) => <option key={p.value} value={p.value}>{t(p.labelKey)}</option>)}
-                    </select>
+                    </SelectCombo>
                     <input type="date" className="staff-app-btn" style={{ marginTop: 8 }} value={form.deadline} onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))} />
                     <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                         <button type="button" className="staff-app-btn staff-app-btn--primary" onClick={handleCreate}>{t('common.create')}</button>
@@ -110,26 +115,27 @@ export default function StaffAppTasks({ selectedBranchId = 'all' }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((row) => (
+                            {listPaging.pagedRows.map((row) => (
                                 <tr key={row.id}>
                                     <td>{row.title}</td>
                                     <td>{PRIORITY_KEYS.find((x) => x.value === row.priority) ? t(PRIORITY_KEYS.find((x) => x.value === row.priority).labelKey) : row.priority}</td>
                                     <td>{row.deadline || t('common.emdash')}</td>
                                     <td><StatusBadge status={row.status} locale={locale} /></td>
                                     <td>
-                                        <select
+                                        <SelectCombo size="sm"
                                             className="staff-app-btn"
                                             value={row.status}
                                             onChange={(e) => updateStaffTask(row.id, { status: e.target.value }, scope.scopeParams()).then(load)}
                                         >
                                             {TASK_STATUS_KEYS.map((s) => <option key={s.value} value={s.value}>{t(s.labelKey)}</option>)}
-                                        </select>
+                                        </SelectCombo>
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 )}
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
         </div>
     );

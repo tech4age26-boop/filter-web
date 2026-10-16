@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { DollarSign, RefreshCw, TrendingUp } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { useServerPaging } from '../../hooks/usePagedRows';
 import LockerFilterBar from './LockerFilterBar';
+import LockerTablePager from './LockerTablePager';
 import { buildLockerFilterQuery, defaultHistoryDateRange } from './lockerFilterUtils';
 import { useLockerPortal } from './useLockerPortal';
 
@@ -37,6 +40,12 @@ export default function CollectionsHistory({
     const [officers, setOfficers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [total, setTotal] = useState(0);
+    const tableTopRef = useRef(null);
+    const { page, pageSize, setPage, pagerFor } = useServerPaging({
+        resetKey: JSON.stringify(appliedFilters),
+        scrollRef: tableTopRef,
+    });
 
     useEffect(() => {
         const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
@@ -58,33 +67,40 @@ export default function CollectionsHistory({
         });
     }, [layoutBranches]);
 
-    const load = useCallback(async (activeFilters = appliedFilters) => {
+    const load = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
             const res = await apiFetch(
                 `/locker/financial/history${qs(
-                    buildLockerFilterQuery(activeFilters, { page: 1, limit: 100 }),
+                    buildLockerFilterQuery(appliedFilters, { page, limit: pageSize }),
                 )}`,
             );
-            const list =
+            const raw =
                 res?.items ||
                 res?.auditLogs ||
                 res?.rows ||
                 res?.data?.items ||
                 [];
-            setRows(Array.isArray(list) ? list : []);
+            const list = Array.isArray(raw) ? raw : [];
+            const count = Number(res?.total) || 0;
+            if (!list.length && count > 0 && page > 1) {
+                setPage(Math.ceil(count / pageSize));
+                return;
+            }
+            setRows(list);
+            setTotal(count || list.length);
             setSummary(res?.summary || null);
         } catch (e) {
             setError(e?.message || t('hist.loadError'));
         } finally {
             setLoading(false);
         }
-    }, [appliedFilters, t]);
+    }, [appliedFilters, page, pageSize, setPage, t]);
 
     useEffect(() => {
-        load(appliedFilters);
-    }, [appliedFilters, load]);
+        void load();
+    }, [load]);
 
     const applyFilters = () => setAppliedFilters({ ...filters });
     const resetFilters = () => {
@@ -108,7 +124,7 @@ export default function CollectionsHistory({
                 </div>
                 <button
                     className="btn-secondary"
-                    onClick={() => load(appliedFilters)}
+                    onClick={() => void load()}
                     disabled={loading}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
@@ -172,7 +188,8 @@ export default function CollectionsHistory({
                 </div>
             </div>
 
-            <div className="ws-section">
+            <div className="ws-section" ref={tableTopRef}>
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -190,8 +207,8 @@ export default function CollectionsHistory({
                     <tbody>
                         {rows.length === 0 ? (
                             <tr>
-                                <td colSpan={9} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
-                                    {t('hist.empty')}
+                                <td colSpan={8} style={{ textAlign: 'center', padding: 18, color: '#9ca3af' }}>
+                                    {loading ? t('common.loading') : t('hist.empty')}
                                 </td>
                             </tr>
                         ) : (
@@ -231,6 +248,8 @@ export default function CollectionsHistory({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                <LockerTablePager {...pagerFor(total)} />
             </div>
         </div>
     );

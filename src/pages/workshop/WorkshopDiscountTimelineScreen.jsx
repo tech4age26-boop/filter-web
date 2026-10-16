@@ -2,6 +2,8 @@ import React, { useMemo } from 'react';
 import { FileText } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import { exportDiscountTimelinePdf } from './workshopDiscountTimelineExport';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 
 function fmtDt(iso) {
     if (!iso) return '—';
@@ -61,6 +63,8 @@ export default function WorkshopDiscountTimelineScreen({
         });
         return ids.size;
     }, [rows]);
+
+    const rowsPaging = usePagedRows(rows, { resetKey: kind });
 
     const exportDisabled = !rows.length;
 
@@ -214,9 +218,9 @@ export default function WorkshopDiscountTimelineScreen({
                                 </tr>
                             </thead>
                             <tbody>
-                                {rows.map((entry, idx) => (
+                                {rowsPaging.pagedRows.map((entry, idx) => (
                                     <tr
-                                        key={`${entry.invoiceId}-${idx}`}
+                                        key={`${entry.invoiceId}-${rowsPaging.rowOffset + idx}`}
                                         style={{ borderTop: '1px solid #E5E7EB' }}
                                     >
                                         <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
@@ -255,6 +259,7 @@ export default function WorkshopDiscountTimelineScreen({
                         </table>
                     </div>
                 )}
+                <WsTablePagination {...rowsPaging.pagerProps} />
             </div>
         </WorkshopSubScreen>
     );

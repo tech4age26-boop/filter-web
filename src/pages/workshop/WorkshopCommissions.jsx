@@ -29,16 +29,17 @@ import {
     postWorkshopCommissionsPayout,
     workshopCommissionsScopeParams,
 } from '../../services/workshopCommissionsApi';
+import SelectCombo from '../../components/SelectCombo';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../hooks/usePagedRows';
 import './Workshop.css';
-
-const PAGE_SIZE = 25;
 
 /** Convert datetime-local value to epoch ms for API date-time filters (Asia/Riyadh wall). */
 function localDatetimeToEpochMs(local) {
     return riyadhDatetimeLocalToEpochMs(local);
 }
 
-function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmployeeId, page, workshopId) {
+function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmployeeId, page, pageSize, workshopId) {
     const base = workshopCommissionsScopeParams(selectedBranchId, {
         ...dateScope,
         ...(workshopId ? { workshopId } : {}),
@@ -48,7 +49,7 @@ function buildListParams(selectedBranchId, dateScope, filterStatus, filterEmploy
         ...(filterStatus !== 'all' ? { status: filterStatus } : {}),
         ...(filterEmployeeId ? { employeeId: String(filterEmployeeId) } : {}),
         page,
-        pageSize: PAGE_SIZE,
+        pageSize,
     };
 }
 
@@ -265,6 +266,8 @@ export default function WorkshopCommissions({
         () => loadWorkshopAdminDatetimeRange()?.dateTo || '',
     );
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
+    const listTopRef = useRef(null);
     const [accruedTotalInScope, setAccruedTotalInScope] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
@@ -378,6 +381,7 @@ export default function WorkshopCommissions({
                     filterStatus,
                     filterEmployeeId,
                     page,
+                    pageSize,
                     workshopId,
                 );
                 const accruedCountParams = {
@@ -443,7 +447,7 @@ export default function WorkshopCommissions({
             cancelled = true;
             ac.abort();
         };
-    }, [selectedBranchId, scopeExtra, filterStatus, filterEmployeeId, page, filterScopeKey, adminMode, workshopId, t]);
+    }, [selectedBranchId, scopeExtra, filterStatus, filterEmployeeId, page, pageSize, filterScopeKey, adminMode, workshopId, t]);
 
     useEffect(() => {
         if (!payoutModalOpen) return undefined;
@@ -515,7 +519,7 @@ export default function WorkshopCommissions({
         }
     };
 
-    const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(listTotal / pageSize));
 
     const confirmPayout = async () => {
         if (!selectedAccountId || selectedCount === 0) return;
@@ -541,6 +545,7 @@ export default function WorkshopCommissions({
                 filterStatus,
                 filterEmployeeId,
                 page,
+                pageSize,
                 workshopId,
             );
             const settled = await Promise.allSettled([
@@ -799,7 +804,7 @@ export default function WorkshopCommissions({
 
                     <div className="ws-form-group">
                         <label className="ws-form-label">{t('payout.selectAccount')}</label>
-                        <select
+                        <SelectCombo
                             className="ws-form-select"
                             value={selectedAccountId}
                             onChange={(e) => setSelectedAccountId(e.target.value)}
@@ -815,7 +820,7 @@ export default function WorkshopCommissions({
                                     </option>
                                 );
                             })}
-                        </select>
+                        </SelectCombo>
                     </div>
 
                     <div className="ws-form-group">
@@ -1118,7 +1123,7 @@ export default function WorkshopCommissions({
             <>
             <div className="ws-commissions-filters">
                 <div className="ws-filter-group">
-                    <select
+                    <SelectCombo
                         className="ws-select"
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value)}
@@ -1126,7 +1131,7 @@ export default function WorkshopCommissions({
                         <option value="all">{t('filter.allStatus')}</option>
                         <option value="accrued">{t('filter.accrued')}</option>
                         <option value="paid">{t('filter.paid')}</option>
-                    </select>
+                    </SelectCombo>
                     <SearchableEntityCombobox
                         className="ws-filter-combobox"
                         options={employeeComboboxOptions}
@@ -1199,7 +1204,7 @@ export default function WorkshopCommissions({
                 </div>
             </div>
 
-            <div className="ws-commissions-table-wrapper">
+            <div className="ws-commissions-table-wrapper" ref={listTopRef}>
                 <WsTableScroll>
                 <table className="ws-table">
                     <thead>
@@ -1319,37 +1324,20 @@ export default function WorkshopCommissions({
                 </WsTableScroll>
             </div>
 
-            {listTotal > PAGE_SIZE && (
-                <div
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'flex-end',
-                        gap: 12,
-                        marginTop: 12,
-                    }}
-                >
-                    <span className="ws-text-dim" style={{ fontSize: '0.8125rem' }}>
-                        {t('page.info', { page, totalPages, total: listTotal })}
-                    </span>
-                    <button
-                        type="button"
-                        className="ws-btn-secondary"
-                        disabled={page <= 1 || isLoading}
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                        {t('btn.previous')}
-                    </button>
-                    <button
-                        type="button"
-                        className="ws-btn-secondary"
-                        disabled={page >= totalPages || isLoading}
-                        onClick={() => setPage((p) => p + 1)}
-                    >
-                        {t('btn.next')}
-                    </button>
-                </div>
-            )}
+            <WsTablePagination
+                page={Math.min(page, totalPages)}
+                pageCount={totalPages}
+                pageSize={pageSize}
+                total={listTotal}
+                onPageChange={(p) => {
+                    setPage(p);
+                    listTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                onPageSizeChange={(n) => {
+                    setPageSize(n);
+                    setPage(1);
+                }}
+            />
 
             {commissionHistory && commissionHistory.items.length > 0 && (
                 <div className="ws-commissions-table-wrapper" style={{ marginTop: 20 }}>

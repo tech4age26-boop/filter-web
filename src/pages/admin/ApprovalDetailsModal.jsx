@@ -4,8 +4,9 @@ import {
     Loader, AlertCircle, Check, X, FileText, Download, ExternalLink, MapPin,
 } from 'lucide-react';
 import ApprovalShell from '../../components/admin/ApprovalShell';
+import ApprovalProofAttachment from '../../components/accounting/ApprovalProofAttachment';
 import { details } from '../../services/approvalsApi';
-import { apT } from '../../utils/approvalsI18n';
+import { apT, apProofLabels } from '../../utils/approvalsI18n';
 
 /* ---------------------------------------------------------------- */
 /*  Formatters                                                       */
@@ -51,6 +52,10 @@ function fmtPct(value) {
 
 function isImageUrl(url) {
     return /\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(url);
+}
+
+function isProofImage(url) {
+    return typeof url === 'string' && (url.startsWith('data:image/') || isImageUrl(url));
 }
 
 /** Module-level helpers (Field/DocumentCard/GpsField) aren't connected to router
@@ -1540,6 +1545,7 @@ function MarketingBudgetRequestBody({ data }) {
 function MarketingExpenseBody({ data }) {
     const row = data?.expense ?? data ?? {};
     const amount = Number(row.amount ?? 0);
+    const receiptUrl = row.receiptUrl ?? row.receipt_url;
 
     return (
         <>
@@ -1554,10 +1560,53 @@ function MarketingExpenseBody({ data }) {
                     <Field label="Expense date" kind="date" value={row.expenseDate ?? row.expense_date} />
                     <Field label="Submitted by" value={row.submittedByName ?? row.submittedBy ?? data?.submittedBy} />
                     <Field label="Description" value={row.description} span2 />
-                    <Field label="Receipt URL" value={row.receiptUrl ?? row.receipt_url} span2 />
+                    {isProofImage(receiptUrl) ? null : <Field label="Receipt URL" value={receiptUrl} span2 />}
                     <Field label="Notes" value={row.notes} span2 />
                     <Field label="Rejection reason" value={row.rejectionReason ?? data?.rejectionReason} span2 />
                 </KVGrid>
+            </Section>
+            {isProofImage(receiptUrl) ? (
+                <Section title={apT(currentLocale(), 'proof.title')}>
+                    <ApprovalProofAttachment
+                        url={receiptUrl}
+                        showTitle={false}
+                        fileName={`marketing-expense-${String(row.expenseNumber ?? row.expense_number ?? row.id ?? '').replace(/[^\w-]+/g, '-')}`}
+                        labels={apProofLabels(currentLocale())}
+                    />
+                </Section>
+            ) : null}
+        </>
+    );
+}
+
+function LockerExpenseBody({ data }) {
+    const row = { ...(data?.meta ?? {}), ...(data ?? {}) };
+    const amount = Number(row.amount ?? 0);
+    return (
+        <>
+            <Section title="Locker expense">
+                <KVGrid>
+                    <Field label="Status" value={row.status ?? row.expenseStatus} />
+                    <Field label="Category" value={row.category} />
+                    <Field label="Amount" value={row.amountLabel ?? `SAR ${amount.toFixed(2)}`} />
+                    <Field label="Expense date" kind="date" value={row.expenseDate} />
+                    <Field label="Workshop" value={row.workshopName} />
+                    <Field label="Branch" value={row.branchName} />
+                    <Field label="Submitted by" value={row.submittedBy} />
+                    <Field label="Reviewer" value={row.reviewer} />
+                    <Field label="Journal entry" kind="id" value={row.journalEntryNumber} />
+                    <Field label="Submitted" kind="date" value={row.createdAt} />
+                    <Field label="Description" value={row.description} span2 />
+                    <Field label="Rejection reason" value={row.rejectionReason} span2 />
+                </KVGrid>
+            </Section>
+            <Section title={apT(currentLocale(), 'proof.title')}>
+                <ApprovalProofAttachment
+                    url={row.proofUrl}
+                    showTitle={false}
+                    fileName={`locker-expense-${String(row.requestId ?? row.id ?? '').replace(/[^\w-]+/g, '-')}`}
+                    labels={apProofLabels(currentLocale())}
+                />
             </Section>
         </>
     );
@@ -1641,6 +1690,8 @@ function renderBody(entityType, data) {
             return <MarketingReferrerPayoutBody data={data} />;
         case 'marketing_campaign':
             return <MarketingCampaignBody data={data} />;
+        case 'locker_expense':
+            return <LockerExpenseBody data={data} />;
         default:                       return <RawObjectBody data={data} />;
     }
 }

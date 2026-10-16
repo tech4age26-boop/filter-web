@@ -8,6 +8,9 @@ import {
 import { getWorkshopSuppliers } from '../../../services/workshopStaffApi';
 import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import { staffAppStatusLabel, useStaffAppI18n } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 function StatusBadge({ status, locale }) {
     const s = String(status || '').toLowerCase();
@@ -94,6 +97,8 @@ export default function StaffAppPurchaseOrders({ selectedBranchId = 'all', branc
         }
     };
 
+    const listPaging = usePagedRows(rows, { resetKey: String(selectedBranchId ?? '') });
+
     return (
         <div>
             <div className="staff-app-toolbar">
@@ -110,19 +115,19 @@ export default function StaffAppPurchaseOrders({ selectedBranchId = 'all', branc
                 <div className="staff-app-table-wrap" style={{ padding: 16, marginBottom: 12 }}>
                     <h3 style={{ marginTop: 0 }}>{t('po.formTitle')}</h3>
                     <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
-                        <select className="staff-app-btn" value={form.supplierId} onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}>
+                        <SelectCombo size="sm" className="staff-app-btn" value={form.supplierId} onChange={(e) => setForm((f) => ({ ...f, supplierId: e.target.value }))}>
                             <option value="">{t('po.selectSupplier')}</option>
                             {suppliers.map((s) => (
                                 <option key={s.id} value={String(s.id)}>{s.name || s.supplierName}</option>
                             ))}
-                        </select>
+                        </SelectCombo>
                         {branches.length > 0 && (
-                            <select className="staff-app-btn" value={form.branchId} onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}>
+                            <SelectCombo size="sm" className="staff-app-btn" value={form.branchId} onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}>
                                 <option value="">{t('po.branch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={String(b.id)}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         )}
                         <input className="staff-app-btn" placeholder={t('po.ph.product')} value={form.productName} onChange={(e) => setForm((f) => ({ ...f, productName: e.target.value }))} />
                         <input className="staff-app-btn" placeholder={t('po.ph.qty')} value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))} />
@@ -151,7 +156,7 @@ export default function StaffAppPurchaseOrders({ selectedBranchId = 'all', branc
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((row) => (
+                            {listPaging.pagedRows.map((row) => (
                                 <tr key={row.id}>
                                     <td>{row.poNumber || row.orderNumber || row.id}</td>
                                     <td>{row.supplierName || row.supplier?.name || t('common.emdash')}</td>
@@ -163,6 +168,7 @@ export default function StaffAppPurchaseOrders({ selectedBranchId = 'all', branc
                         </tbody>
                     </table>
                 )}
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
         </div>
     );

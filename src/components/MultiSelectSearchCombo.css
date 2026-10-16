@@ -124,7 +124,7 @@ ul.ms-combo__menu.sf-entity-dropdown-portal .ms-combo__opt--hi:hover {
     display: flex;
     align-items: center;
     gap: 10px;
-    text-align: left;
+    text-align: start;
     border: none;
     background: transparent;
     padding: 8px 10px;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
     Search,
@@ -10,8 +10,6 @@ import {
     AlertTriangle,
     Printer,
     Trash2,
-    ChevronLeft,
-    ChevronRight,
 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import Modal from '../../../components/Modal';
@@ -21,9 +19,11 @@ import {
     getJournalEntry as getAcctJournalEntry,
 } from '../../../services/workshopAccountingApi';
 import { useHqAdminBooksScope } from '../../../hooks/useHqAdminBooksScope';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../../hooks/usePagedRows';
 import '../../../styles/admin/AccountingPage.css';
-
-const PAGE_SIZE_OPTIONS = [25, 50, 75, 100, 200];
 
 export default function WorkshopGeneralJournalPage() {
     const { isAdminHqBooks } = useHqAdminBooksScope();
@@ -44,8 +44,9 @@ export default function WorkshopGeneralJournalPage() {
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState('');
     const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(25);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
     const reloadSeq = useRef(0);
+    const tableTopRef = useRef(null);
 
     useEffect(() => {
         const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -61,12 +62,6 @@ export default function WorkshopGeneralJournalPage() {
     useEffect(() => {
         if (page > totalPages) setPage(totalPages);
     }, [page, totalPages]);
-
-    const pageMeta = useMemo(() => {
-        const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-        const to = Math.min(page * pageSize, total);
-        return { from, to };
-    }, [page, pageSize, total]);
 
     const reload = useCallback(async () => {
         const seq = ++reloadSeq.current;
@@ -302,7 +297,7 @@ export default function WorkshopGeneralJournalPage() {
                     />
                 </div>
                 <div className="jr-filter-actions">
-                    <select
+                    <SelectCombo size="sm"
                         className="jr-type-select"
                         value={typeFilter}
                         onChange={(e) => setTypeFilter(e.target.value)}
@@ -324,7 +319,7 @@ export default function WorkshopGeneralJournalPage() {
                         <option value="Sales">{t('gj.type.sales')}</option>
                         <option value="POS">{t('gj.type.pos')}</option>
                         <option value="Commission">{t('gj.type.commission')}</option>
-                    </select>
+                    </SelectCombo>
                     <button className="btn-date-range" onClick={reload}>
                         <RefreshCw size={16} /> {t('gj.refresh')}
                     </button>
@@ -335,7 +330,8 @@ export default function WorkshopGeneralJournalPage() {
                 <div style={{ padding: 10, color: '#B91C1C', fontWeight: 600 }}>{error}</div>
             )}
 
-            <section className="premium-table journal-table">
+            <section className="premium-table journal-table" ref={tableTopRef}>
+                <WsTableScroll>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
@@ -383,60 +379,19 @@ export default function WorkshopGeneralJournalPage() {
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                <WsTablePagination
+                    page={Math.min(page, totalPages)}
+                    pageCount={totalPages}
+                    pageSize={pageSize}
+                    total={total}
+                    onPageChange={(p) => {
+                        setPage(p);
+                        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    onPageSizeChange={setPageSize}
+                />
             </section>
-
-            <div
-                className="jr-pagination"
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 12,
-                    flexWrap: 'wrap',
-                    padding: '16px 8px 8px',
-                }}
-            >
-                <label
-                    className="form-label"
-                    style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: '#475569' }}
-                >
-                    {t('gj.pageSize')}
-                    <select
-                        className="jr-type-select"
-                        style={{ width: 'auto', minWidth: 72 }}
-                        value={pageSize}
-                        onChange={(e) => setPageSize(Number(e.target.value) || 25)}
-                    >
-                        {PAGE_SIZE_OPTIONS.map((n) => (
-                            <option key={n} value={n}>{n}</option>
-                        ))}
-                    </select>
-                </label>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>
-                    {t('gj.showing', { from: pageMeta.from, to: pageMeta.to, total })}
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>
-                    {t('gj.pageOf', { page, pages: totalPages })}
-                </span>
-                <button
-                    type="button"
-                    className="btn-date-range"
-                    disabled={page <= 1 || loading}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                >
-                    <ChevronLeft size={16} /> {t('gj.prev')}
-                </button>
-                <button
-                    type="button"
-                    className="btn-date-range"
-                    disabled={page >= totalPages || loading}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                >
-                    {t('gj.next')} <ChevronRight size={16} />
-                </button>
-            </div>
 
             <AnimatePresence>
                 {viewJEOpen && selectedJE && (

@@ -123,13 +123,13 @@ export const WCOM_I18N = {
 
         'rules.title': 'Commission Rules',
         'rules.subtitle':
-            'Each invoice line (VAT included) earns the SUM of every active rule that matches it — e.g. 2% + 3% = 5%. Lines without a matching rule use the employee profile % (cashiers excepted). Technicians with a 0% profile never earn commission.',
+            'Each invoice line is paid by one rule: the lowest priority number that matches it (1 beats 2). Lines with no matching rule earn 0. Turn on “Use the profile commission %” when a rule should use the person’s profile percent instead of a fixed rate.',
         'rules.howItWorks':
-            'All matching active rules add up; priority only sets their order. Technicians: job lines they worked on, shared equally. Cashiers: invoices they issue, on top of shift commission. Managers & supervisors: every invoice of their branch. Team leaders: lines of the department they lead.',
+            'Only the best-priority matching rule applies to a line. Technicians: job lines they worked on, shared equally. Cashiers: invoices they issue, on top of shift commission. Managers & supervisors: every invoice of their branch. Team leaders: lines of the department they lead. A 0% profile does not block a fixed-rate rule.',
         'rules.searchPlaceholder': 'Search by name, department, category or person',
         'rules.newRule': 'New Rule',
         'rules.loading': 'Loading rules…',
-        'rules.empty': 'No commission rules yet — commissions use each employee profile %. Create a rule to pay a different rate per department, category, product, service or oil KM.',
+        'rules.empty': 'No commission rules yet. Invoice lines earn 0 until you create a rule. A rule can use a fixed percent, or the person’s profile commission %.',
         'rules.emptySearch': 'No rules match this search.',
         'rules.count': '{count} rules',
         'rules.filter.all': 'All',
@@ -163,7 +163,7 @@ export const WCOM_I18N = {
         'rules.editFormTitle': 'Edit Commission Rule',
         'rules.viewFormTitle': 'Platform Commission Rule',
         'rules.formSubtitle':
-            'Pay commission to technicians, cashiers, managers, supervisors or team leaders per department, category, product, service or oil KM. The rate applies to every matching invoice line, VAT included, and adds up with other matching rules.',
+            'Pay one rate per matching invoice line, VAT included. Priority 1 wins over 2 and 3. Only the products and services this rule lists are paid. Unmatched lines earn 0 unless another rule covers them.',
         'rules.readOnlyBanner':
             'This platform rule is managed by Super Admin. It applies to your workshop but cannot be changed here.',
         'rules.back': 'Back to Commission Rules',
@@ -175,7 +175,7 @@ export const WCOM_I18N = {
         'rules.name': 'Rule name *',
         'rules.namePh': 'e.g. Oil change — 10000 KM oils',
         'rules.priority': 'Priority',
-        'rules.priorityHint': 'Display order only — every matching active rule is added, whatever its priority.',
+        'rules.priorityHint': '1 is applied before 2, and 2 before 3. On a line that matches more than one rule, only the best priority is paid.',
         'rules.status': 'Status',
         'rules.employeeRole': 'Role',
         'rules.techType': 'Technician type',
@@ -225,8 +225,12 @@ export const WCOM_I18N = {
         'rules.kmCount': '{count} products',
         'rules.kmNone': 'No products with a KM value in this selection.',
         'rules.rate': 'Commission % *',
+        'rules.useProfile': 'Use the profile commission %',
+        'rules.useProfileHint':
+            'Matching lines use the commission % on the employee or staff profile, not the rate above. A 0% profile pays 0 on those lines.',
+        'rules.rate.profile': 'Profile %',
         'rules.rateHint':
-            'Percentage of each matching line amount (VAT included). Technicians on a job share it equally; every other person earns it in full.',
+            'Percentage of each matching line amount (VAT included). Technicians on a job share it equally; every other person earns it in full. Left unused when the profile percent is selected.',
         'rules.notes': 'Notes',
         'rules.notesPh': 'Optional — visible to admins only',
         'rules.clear': 'Clear',
@@ -234,6 +238,7 @@ export const WCOM_I18N = {
         'rules.inactiveTag': 'Inactive',
         'rules.summary.title': 'Live summary',
         'rules.summary.sentence': '{who} earn {rate}% of {what}, VAT included.',
+        'rules.summary.sentenceProfile': '{who} earn their profile commission % of {what}, VAT included.',
         'rules.summary.who.Technician': 'All technicians',
         'rules.summary.who.workshop': 'Workshop technicians',
         'rules.summary.who.on_call': 'On-call technicians',
@@ -254,10 +259,10 @@ export const WCOM_I18N = {
         'rules.summary.example':
             'Example: a SAR 115.00 line pays SAR {solo} to a technician working alone, or SAR {pair} each when two technicians share the job.',
         'rules.summary.exampleStaff': 'Example: a SAR 115.00 line pays SAR {solo} to each person.',
-        'rules.summary.zeroNote': 'Technicians whose profile commission is 0% never earn commission.',
-        'rules.summary.zeroNoteStaff': 'A 0% profile does not block this rule. Lines with no matching rule pay the person’s profile %.',
-        'rules.summary.cashierNote': 'Extra to the cashier shift commission. Cashiers earn only from rules, never from their profile %.',
-        'rules.summary.stackNote': 'Adds up with every other active rule that matches the same line.',
+        'rules.summary.zeroNote': 'A 0% profile does not block a fixed rate. It pays 0 only on rules that use the profile commission %.',
+        'rules.summary.zeroNoteStaff': 'A 0% profile does not block a fixed rate. Lines with no matching rule earn 0.',
+        'rules.summary.cashierNote': 'Extra to the cashier shift commission. Cashiers earn only from rules, unless this rule uses the profile commission %.',
+        'rules.summary.priorityNote': 'If another active rule also matches the line, the lower priority number wins. This rule does not add on top of it.',
         'rules.saving': 'Saving…',
         'rules.updateRule': 'Update Rule',
         'rules.createRule': 'Create Rule',
@@ -391,13 +396,13 @@ export const WCOM_I18N = {
 
         'rules.title': 'قواعد العمولة',
         'rules.subtitle':
-            'كل بند في الفاتورة (شامل الضريبة) يحصل على مجموع كل القواعد النشطة المطابقة له — مثلاً 2% + 3% = 5%. البنود بدون قاعدة مطابقة تستخدم نسبة ملف الموظف (عدا الكاشير). الفني الذي نسبة عمولته 0% لا يحصل على عمولة أبداً.',
+            'كل بند في الفاتورة تُحتسب له قاعدة واحدة: أقل رقم أولوية يطابقه (1 قبل 2). البند بدون قاعدة مطابقة عمولته 0. فعّل «استخدام نسبة عمولة الملف» عندما تريد أن تستخدم القاعدة نسبة ملف الشخص بدل نسبة ثابتة.',
         'rules.howItWorks':
-            'كل القواعد النشطة المطابقة تُجمع؛ الأولوية تحدد ترتيبها فقط. الفنيون: بنود الأعمال التي نفذوها مقسومة بالتساوي. الكاشير: الفواتير التي يصدرها، إضافة إلى عمولة الوردية. المدراء والمشرفون: كل فواتير فرعهم. قادة الفرق: بنود القسم الذي يقودونه.',
+            'تُطبَّق على البند القاعدة المطابقة ذات الأولوية الأفضل فقط. الفنيون: بنود الأعمال التي نفذوها مقسومة بالتساوي. الكاشير: الفواتير التي يصدرها، إضافة إلى عمولة الوردية. المدراء والمشرفون: كل فواتير فرعهم. قادة الفرق: بنود القسم الذي يقودونه. نسبة الملف 0% لا تمنع قاعدة بنسبة ثابتة.',
         'rules.searchPlaceholder': 'ابحث بالاسم أو القسم أو الفئة أو الشخص',
         'rules.newRule': 'قاعدة جديدة',
         'rules.loading': 'جاري تحميل القواعد…',
-        'rules.empty': 'لا توجد قواعد عمولة بعد — تُحسب العمولة حالياً من نسبة ملف كل موظف. أنشئ قاعدة لتحديد نسبة مختلفة لكل قسم أو فئة أو منتج أو خدمة أو كيلومترات الزيت.',
+        'rules.empty': 'لا توجد قواعد عمولة بعد. بنود الفاتورة عمولتها 0 إلى أن تنشئ قاعدة. يمكن أن تكون القاعدة بنسبة ثابتة، أو بنسبة عمولة ملف الشخص.',
         'rules.emptySearch': 'لا توجد قواعد مطابقة لهذا البحث.',
         'rules.count': '{count} قاعدة',
         'rules.filter.all': 'الكل',
@@ -431,7 +436,7 @@ export const WCOM_I18N = {
         'rules.editFormTitle': 'تعديل قاعدة العمولة',
         'rules.viewFormTitle': 'قاعدة عمولة المنصة',
         'rules.formSubtitle':
-            'حدّد عمولة للفنيين أو الكاشير أو المدراء أو المشرفين أو قادة الفرق لكل قسم أو فئة أو منتج أو خدمة أو كيلومترات الزيت. تُطبّق النسبة على كل بند مطابق في الفاتورة شاملاً الضريبة، وتُجمع مع القواعد المطابقة الأخرى.',
+            'تُدفع نسبة واحدة لكل بند مطابق في الفاتورة شاملاً الضريبة. الأولوية 1 تسبق 2 و3. تُحتسب فقط المنتجات والخدمات المذكورة في القاعدة. البنود غير المطابقة عمولتها 0 ما لم تغطها قاعدة أخرى.',
         'rules.readOnlyBanner':
             'هذه قاعدة منصة يديرها المشرف العام. تُطبّق على ورشتك ولا يمكن تعديلها من هنا.',
         'rules.back': 'العودة إلى قواعد العمولة',
@@ -443,7 +448,7 @@ export const WCOM_I18N = {
         'rules.name': 'اسم القاعدة *',
         'rules.namePh': 'مثال: تغيير الزيت — زيوت 10000 كم',
         'rules.priority': 'الأولوية',
-        'rules.priorityHint': 'للترتيب فقط — كل قاعدة نشطة مطابقة تُجمع مهما كانت أولويتها.',
+        'rules.priorityHint': '1 تُطبَّق قبل 2، و2 قبل 3. إذا طابق البند أكثر من قاعدة، تُدفع الأولوية الأفضل فقط.',
         'rules.status': 'الحالة',
         'rules.employeeRole': 'الدور',
         'rules.techType': 'نوع الفني',
@@ -493,8 +498,12 @@ export const WCOM_I18N = {
         'rules.kmCount': '{count} منتج',
         'rules.kmNone': 'لا توجد منتجات بقيمة كيلومترات في هذا الاختيار.',
         'rules.rate': 'نسبة العمولة % *',
+        'rules.useProfile': 'استخدام نسبة عمولة الملف',
+        'rules.useProfileHint':
+            'البنود المطابقة تستخدم نسبة العمولة في ملف الموظف، وليس النسبة أعلاه. إذا كانت نسبة الملف 0% فعمولة هذه البنود 0.',
+        'rules.rate.profile': 'نسبة الملف',
         'rules.rateHint':
-            'نسبة من مبلغ كل بند مطابق (شامل الضريبة). يتقاسمها فنيو العمل بالتساوي؛ وكل شخص آخر يحصل عليها كاملة.',
+            'نسبة من مبلغ كل بند مطابق (شامل الضريبة). يتقاسمها فنيو العمل بالتساوي؛ وكل شخص آخر يحصل عليها كاملة. لا تُستخدم عند اختيار نسبة الملف.',
         'rules.notes': 'ملاحظات',
         'rules.notesPh': 'اختياري — تظهر للمسؤولين فقط',
         'rules.clear': 'مسح',
@@ -502,6 +511,7 @@ export const WCOM_I18N = {
         'rules.inactiveTag': 'غير نشط',
         'rules.summary.title': 'ملخص مباشر',
         'rules.summary.sentence': '{who} يحصلون على {rate}% من {what}، شاملاً الضريبة.',
+        'rules.summary.sentenceProfile': '{who} يحصلون على نسبة عمولة ملفهم من {what}، شاملاً الضريبة.',
         'rules.summary.who.Technician': 'كل الفنيين',
         'rules.summary.who.workshop': 'فنيو الورشة',
         'rules.summary.who.on_call': 'فنيو الطلب الخارجي',
@@ -522,10 +532,10 @@ export const WCOM_I18N = {
         'rules.summary.example':
             'مثال: بند بقيمة 115.00 ر.س يعطي {solo} ر.س للفني إذا عمل وحده، أو {pair} ر.س لكل فني إذا اشترك فنيان في العمل.',
         'rules.summary.exampleStaff': 'مثال: بند بقيمة 115.00 ر.س يعطي {solo} ر.س لكل شخص.',
-        'rules.summary.zeroNote': 'الفني الذي نسبة عمولته في ملفه 0% لا يحصل على عمولة أبداً.',
-        'rules.summary.zeroNoteStaff': 'نسبة الملف 0% لا تمنع هذه القاعدة. البنود بدون قاعدة مطابقة تُحتسب بنسبة ملف الشخص.',
-        'rules.summary.cashierNote': 'إضافة إلى عمولة وردية الكاشير. الكاشير يحصل على عمولة القواعد فقط، وليس من نسبة ملفه.',
-        'rules.summary.stackNote': 'تُجمع مع كل قاعدة نشطة أخرى تطابق البند نفسه.',
+        'rules.summary.zeroNote': 'نسبة الملف 0% لا تمنع النسبة الثابتة. هي تدفع 0 فقط على القواعد التي تستخدم نسبة عمولة الملف.',
+        'rules.summary.zeroNoteStaff': 'نسبة الملف 0% لا تمنع النسبة الثابتة. البنود بدون قاعدة مطابقة عمولتها 0.',
+        'rules.summary.cashierNote': 'إضافة إلى عمولة وردية الكاشير. الكاشير يحصل على عمولة القواعد فقط، إلا إذا كانت هذه القاعدة تستخدم نسبة عمولة الملف.',
+        'rules.summary.priorityNote': 'إذا طابقت قاعدة نشطة أخرى البند نفسه، تفوز الأولوية ذات الرقم الأقل. هذه القاعدة لا تُضاف فوقها.',
         'rules.saving': 'جاري الحفظ…',
         'rules.updateRule': 'تحديث القاعدة',
         'rules.createRule': 'إنشاء القاعدة',

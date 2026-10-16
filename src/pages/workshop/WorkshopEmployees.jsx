@@ -40,8 +40,8 @@ import { formatTransferDate, transferPlaceLabel, staffTransferKind } from '../..
 import { getMyDepartments, getBranchDepartments } from '../../services/workshopCatalogApi';
 import CompensationRevisionPanel from '../../components/compensation/CompensationRevisionPanel';
 import InactiveTag from '../../components/InactiveTag';
-
-const EMPLOYEE_PAGE_SIZES = [20, 40, 60, 80, 100];
+import SelectCombo from '../../components/SelectCombo';
+import { TABLE_PAGE_SIZES as EMPLOYEE_PAGE_SIZES } from '../../hooks/usePagedRows';
 const SEARCH_SUGGESTION_LIMIT = 8;
 
 const employeeRowKey = (emp) => emp.staffKey || `${emp._source}-${emp.id}`;
@@ -1149,7 +1149,7 @@ function WorkshopEmployees({
                                                 </label>
                                             );
                                         })()}
-                                        <select
+                                        <SelectCombo
                                             value={form.branchId}
                                             disabled={!!(editing && editing.branchId)}
                                             title={editing && editing.branchId ? t('transfer.branchLockedHint') : undefined}
@@ -1173,7 +1173,7 @@ function WorkshopEmployees({
                                                         : ''}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </SelectCombo>
                                         {editing && editing.branchId ? (
                                             <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
                                                 {t('transfer.branchLockedHint')}
@@ -1182,7 +1182,7 @@ function WorkshopEmployees({
                                     </div>
                                     <div className="ws-field">
                                         <label>{t('form.role')}</label>
-                                        <select
+                                        <SelectCombo
                                             value={form.role}
                                             disabled={!roleSelectEditable}
                                             onChange={(e) => {
@@ -1199,7 +1199,7 @@ function WorkshopEmployees({
                                                     {jobRoleLabel(t, r)}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </SelectCombo>
                                         <small style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
                                             {t(roleHintKey)}
                                         </small>
@@ -1213,7 +1213,7 @@ function WorkshopEmployees({
                                                 !isLockerPortalRole(form.role))) && (
                                         <div className="ws-field">
                                             <label>{t('form.permissionRole')}</label>
-                                            <select
+                                            <SelectCombo
                                                 value={form.permissionRoleId}
                                                 onChange={(e) => setForm((f) => ({ ...f, permissionRoleId: e.target.value }))}
                                             >
@@ -1231,7 +1231,7 @@ function WorkshopEmployees({
                                                         })}
                                                     </option>
                                                 ))}
-                                            </select>
+                                            </SelectCombo>
                                             <small style={{ color: 'var(--color-text-muted)', fontSize: '0.7rem' }}>
                                                 {t('form.permissionRoleHint')}
                                             </small>
@@ -1252,7 +1252,7 @@ function WorkshopEmployees({
                                                     {t('form.noDeptsBranch')}
                                                 </p>
                                             ) : (
-                                                <select
+                                                <SelectCombo
                                                     value={form.teamLeaderDepartmentId}
                                                     onChange={(e) => set('teamLeaderDepartmentId', e.target.value)}
                                                     style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
@@ -1266,7 +1266,7 @@ function WorkshopEmployees({
                                                             </option>
                                                         );
                                                     })}
-                                                </select>
+                                                </SelectCombo>
                                             )}
                                         </div>
                                     )}
@@ -1400,20 +1400,20 @@ function WorkshopEmployees({
                                     </div>
                                     <div className="ws-field">
                                         <label>{t('form.commissionType')}</label>
-                                        <select value={form.commission_type} onChange={(e) => set('commission_type', e.target.value)}>
+                                        <SelectCombo value={form.commission_type} onChange={(e) => set('commission_type', e.target.value)}>
                                             {COMMISSION_TYPE_OPTIONS.map((o) => (
                                                 <option key={o.value} value={o.value}>
                                                     {commissionLabel(t, o.value)}
                                                 </option>
                                             ))}
-                                        </select>
+                                        </SelectCombo>
                                     </div>
                                     <div className="ws-field">
                                         <label>{t('form.status')}</label>
-                                        <select value={form.status} onChange={(e) => set('status', e.target.value)}>
+                                        <SelectCombo value={form.status} onChange={(e) => set('status', e.target.value)}>
                                             <option value="active">{t('status.active')}</option>
                                             <option value="inactive">{t('status.inactive')}</option>
-                                        </select>
+                                        </SelectCombo>
                                     </div>
                                 </div>
                                 {editing && (
@@ -2141,7 +2141,7 @@ function WorkshopRoleScreen({ role, branches = [], t, onBack, onSaved }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.name')}</label>
-                        <select
+                        <SelectCombo
                             value={PREDEFINED_ROLE_NAMES.includes(name) ? name : (name ? '__custom__' : '')}
                             onChange={(e) => {
                                 const v = e.target.value;
@@ -2157,7 +2157,7 @@ function WorkshopRoleScreen({ role, branches = [], t, onBack, onSaved }) {
                                 <option key={n} value={n}>{roleNameLabel(t, n)}</option>
                             ))}
                             <option value="__custom__">{t('roleScreen.customName')}</option>
-                        </select>
+                        </SelectCombo>
                         {(!PREDEFINED_ROLE_NAMES.includes(name) || isEdit) && (
                             <input
                                 value={name}
@@ -2169,14 +2169,14 @@ function WorkshopRoleScreen({ role, branches = [], t, onBack, onSaved }) {
                     </div>
                     <div>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.portal')}</label>
-                        <select
+                        <SelectCombo
                             value={portal}
                             onChange={(e) => { setPortal(e.target.value); setPerms({}); }}
                             disabled={isEdit}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', opacity: isEdit ? 0.7 : 1 }}
                         >
                             {getPortalOptions(t).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                        </select>
+                        </SelectCombo>
                         {isEdit && (
                             <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{t('roleScreen.portalLocked')}</small>
                         )}
@@ -2190,14 +2190,14 @@ function WorkshopRoleScreen({ role, branches = [], t, onBack, onSaved }) {
                 {portal === 'workshop' && (
                     <div style={{ marginBottom: 14, padding: 12, background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 10 }}>
                         <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('roleScreen.branchAccess')}</label>
-                        <select
+                        <SelectCombo
                             value={branchScope}
                             onChange={(e) => setBranchScope(e.target.value)}
                             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)', marginBottom: branchScope === 'specific' ? 10 : 0 }}
                         >
                             <option value="all">{t('roleScreen.branchAll')}</option>
                             <option value="specific">{t('roleScreen.branchSpecific')}</option>
-                        </select>
+                        </SelectCombo>
 
                         {branchScope === 'specific' && (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -2468,7 +2468,7 @@ function StaffTransferScreen({ employee, t, locale, onBack, onDone }) {
 
                         <div style={{ marginBottom: 12 }}>
                             <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('transfer.workshop')} *</label>
-                            <select
+                            <SelectCombo
                                 value={toWorkshopId}
                                 onChange={(e) => { setToWorkshopId(e.target.value); setToBranchId(''); }}
                                 style={fieldStyle}
@@ -2480,12 +2480,12 @@ function StaffTransferScreen({ employee, t, locale, onBack, onDone }) {
                                         {w.name}{w.is_current ? t('transfer.currentWorkshopSuffix') : ''}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
 
                         <div style={{ marginBottom: 12 }}>
                             <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('transfer.branch')} *</label>
-                            <select
+                            <SelectCombo
                                 value={toBranchId}
                                 onChange={(e) => setToBranchId(e.target.value)}
                                 style={fieldStyle}
@@ -2497,7 +2497,7 @@ function StaffTransferScreen({ employee, t, locale, onBack, onDone }) {
                                 {branchOptions.map((b) => (
                                     <option key={b.id} value={String(b.id)}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                             {toWorkshopId && branchOptions.length === 0 && (
                                 <small style={{ color: '#92400e', fontSize: '0.75rem' }}>{t('transfer.noBranches')}</small>
                             )}
@@ -2619,13 +2619,13 @@ function PortalAccessScreen({ employee, roles, t, onBack, onSaved }) {
 
                 <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('portalAccess.portal')}</label>
-                    <select
+                    <SelectCombo
                         value={portal}
                         onChange={(e) => { setPortal(e.target.value); setRoleId(''); }}
                         style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
                     >
                         {getPortalOptions(t).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
+                    </SelectCombo>
                     <small style={{ color: '#64748b', fontSize: '0.75rem' }}>
                         {t('portalAccess.portalHint')}
                     </small>
@@ -2633,7 +2633,7 @@ function PortalAccessScreen({ employee, roles, t, onBack, onSaved }) {
 
                 <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>{t('portalAccess.role')}</label>
-                    <select
+                    <SelectCombo
                         value={roleId}
                         onChange={(e) => setRoleId(e.target.value)}
                         style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--color-border)' }}
@@ -2644,7 +2644,7 @@ function PortalAccessScreen({ employee, roles, t, onBack, onSaved }) {
                                 {t('portalAccess.roleOption', { name: r.name, count: r.permissionCount })}
                             </option>
                         ))}
-                    </select>
+                    </SelectCombo>
                     {availableRoles.length === 0 && (
                         <small style={{ color: '#92400e', fontSize: '0.75rem' }}>
                             {t('portalAccess.noRolesForPortal', { portal: portalIdLabel(t, portal) })}

@@ -1,18 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, CheckCircle, X, Eye, RefreshCw, FileText, Check, Loader } from 'lucide-react';
+import { Clock, CheckCircle, X, Eye, RefreshCw, FileText, Check, Loader, Paperclip } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import { ShimmerTableBodyRows, ShimmerTextBlock } from '../../components/supplier/Shimmer';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
 import WorkshopPurchaseReturnDetailView from '../../components/workshop/WorkshopPurchaseReturnDetailView';
 import Modal from '../../components/Modal';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
+import ApprovalProofAttachment from '../../components/accounting/ApprovalProofAttachment';
 import { apiFetch } from '../../services/api';
 import { buildReceivedQtyByInvoiceItemIdPayload } from '../../utils/receivedQtyPayload';
 import { qs, branchScopeParams, getWorkshopSalesReturns, approveWorkshopSalesReturn, rejectWorkshopSalesReturn, listWorkshopCashBankAccounts, listAffiliatedPurchaseReturns, getAffiliatedPurchaseReturn, approveAffiliatedPurchaseReturn } from '../../services/workshopStaffApi';
 import { approveExpenseRequest, rejectExpenseRequest } from '../../services/employeeExpenseApi';
 import { useAuth } from '../../context/AuthContext';
 import { waT } from '../../utils/workshopApprovalsI18n';
+import SelectCombo from '../../components/SelectCombo';
 
 function loadWorkshopRequesterWallet({ userId, currencyCode }) {
     return apiFetch(
@@ -204,6 +208,27 @@ function isAdminWalletExpenseRow(row) {
 
 function isLockerExpenseRow(row) {
     return row?._source === 'locker_expense' || row?.kind === 'locker_expense';
+}
+
+/** Expense-request rows (petty cash / no-cash / top-up) carry only `hasProof`; the photo is fetched on demand. */
+function isPettyCashQueueRow(row) {
+    return (
+        !isSupplierSalesInvoiceRow(row) &&
+        !isAffiliatedPurchaseReturnRow(row) &&
+        !isSalesReturnRow(row) &&
+        !isAdminWalletFundRow(row) &&
+        !isAdminWalletExpenseRow(row) &&
+        !isLockerExpenseRow(row)
+    );
+}
+
+function rowHasProof(row) {
+    return Boolean(row?.hasProof || (typeof row?.proofUrl === 'string' && row.proofUrl.trim()));
+}
+
+/** Rows where a proof photo is expected, so the details screen says so even when none was attached. */
+function rowExpectsProof(row) {
+    return isExpenseRequest(row) || isAdminWalletExpenseRow(row) || isLockerExpenseRow(row);
 }
 
 function approvalTypeKey(row) {
@@ -447,6 +472,7 @@ export default function WorkshopApprovals({
     const [viewInvoiceLoading, setViewInvoiceLoading] = useState(false);
     const [viewPurchaseReturnDetail, setViewPurchaseReturnDetail] = useState(null);
     const [viewPurchaseReturnLoading, setViewPurchaseReturnLoading] = useState(false);
+    const [viewProof, setViewProof] = useState({ url: '', loading: false, error: '' });
     /** Imperative handle for the printable invoice template (Download PDF). */
     const printableInvoiceRef = useRef(null);
     const [currency, setCurrency] = useState('SAR');
@@ -720,6 +746,47 @@ export default function WorkshopApprovals({
         };
     }, [viewDialog]);
 
+    useEffect(() => {
+        if (!viewDialog) {
+            setViewProof({ url: '', loading: false, error: '' });
+            return undefined;
+        }
+        const inline = typeof viewDialog.proofUrl === 'string' ? viewDialog.proofUrl.trim() : '';
+        if (inline || !isPettyCashQueueRow(viewDialog) || !viewDialog.hasProof) {
+            setViewProof({ url: inline, loading: false, error: '' });
+            return undefined;
+        }
+        let cancelled = false;
+        setViewProof({ url: '', loading: true, error: '' });
+        apiFetch(
+            `/workshop-staff/petty-cash/requests/${encodeURIComponent(String(viewDialog.id))}/proof${qs(
+                workshopId ? { workshopId: String(workshopId) } : {},
+            )}`,
+        )
+            .then((res) => {
+                if (!cancelled) setViewProof({ url: res?.proofUrl || '', loading: false, error: '' });
+            })
+            .catch((e) => {
+                if (!cancelled) setViewProof({ url: '', loading: false, error: e?.message || t('proof.error') });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [viewDialog, workshopId, t]);
+
+    const proofLabels = useMemo(
+        () => ({
+            title: t('proof.title'),
+            open: t('proof.open'),
+            download: t('proof.download'),
+            loading: t('proof.loading'),
+            none: t('proof.none'),
+            error: t('proof.error'),
+            close: t('proof.close'),
+        }),
+        [t],
+    );
+
     const closeRejectDialog = useCallback(() => {
         setRejectDialog(null);
         setRejectReason('');
@@ -753,6 +820,9 @@ export default function WorkshopApprovals({
             return true;
         });
     }, [approvals, requestTypeFilter, canViewType]);
+    const approvalsPaging = usePagedRows(filtered, {
+        resetKey: `${requestTypeFilter}|${queueFilter}|${selectedBranchId}`,
+    });
     const typeColors = {
         expense: 'ws-badge--yellow',
         no_cash: 'ws-badge--yellow',
@@ -1586,6 +1656,17 @@ export default function WorkshopApprovals({
                                         <span style={{ textAlign: 'right', maxWidth: 220 }}>{viewDialog.rejectionReason}</span>
                                     </div>
                                 )}
+                                {rowHasProof(viewDialog) || rowExpectsProof(viewDialog) ? (
+                                    <div style={{ marginTop: 8, paddingTop: 12, borderTop: '1px solid var(--color-border)' }}>
+                                        <ApprovalProofAttachment
+                                            url={viewProof.url}
+                                            loading={viewProof.loading}
+                                            error={viewProof.error}
+                                            fileName={`approval-${String(viewDialog.requestNumber || viewDialog.lockerExpenseId || viewDialog.adminWalletRequestId || viewDialog.id).replace(/[^\w-]+/g, '-')}`}
+                                            labels={proofLabels}
+                                        />
+                                    </div>
+                                ) : null}
                             </div>
                         )}
                 </div>
@@ -1631,7 +1712,7 @@ export default function WorkshopApprovals({
             )}
             <div className="ws-section" style={{ marginBottom: 16 }}>
                 <div style={{ padding: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <select
+                    <SelectCombo size="sm"
                         value={queueFilter}
                         onChange={(e) => setQueueFilter(e.target.value)}
                         style={{
@@ -1646,8 +1727,8 @@ export default function WorkshopApprovals({
                         <option value="pending">{t('filter.pending')}</option>
                         <option value="approved">{t('filter.approved')}</option>
                         <option value="rejected">{t('filter.rejected')}</option>
-                    </select>
-                    <select
+                    </SelectCombo>
+                    <SelectCombo size="sm"
                         value={requestTypeFilter}
                         onChange={(e) => setRequestTypeFilter(e.target.value)}
                         style={{
@@ -1676,7 +1757,7 @@ export default function WorkshopApprovals({
                         {(hasPermission('workshop.approvals.sales-return.view') || hasPermission('workshop.approvals.view')) && (
                             <option value="sales_returns">{t('filter.salesReturns')}</option>
                         )}
-                    </select>
+                    </SelectCombo>
                     <button className="btn-portal" onClick={loadApprovals} disabled={isLoading}>
                         <RefreshCw size={14} /> {isLoading ? t('btn.refreshing') : t('btn.refresh')}
                     </button>
@@ -1718,7 +1799,7 @@ export default function WorkshopApprovals({
                                 </td>
                             </tr>
                         ) : (
-                            filtered.map((a) => {
+                            approvalsPaging.pagedRows.map((a) => {
                                 const isSupplier = isSupplierSalesInvoiceRow(a);
                                 const isPurchaseReturn = isAffiliatedPurchaseReturnRow(a);
                                 const isSalesReturn = isSalesReturnRow(a);
@@ -1754,6 +1835,21 @@ export default function WorkshopApprovals({
                                             <span className={`ws-badge ${typeColors[kindKey] || 'ws-badge--gray'}`}>
                                                 {formatRequestKindLabel(a, t)}
                                             </span>
+                                            {rowHasProof(a) ? (
+                                                <div
+                                                    title={t('proof.badge')}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 4,
+                                                        fontSize: '0.72rem',
+                                                        color: 'var(--color-text-muted)',
+                                                        marginTop: 4,
+                                                    }}
+                                                >
+                                                    <Paperclip size={12} /> {t('proof.badge')}
+                                                </div>
+                                            ) : null}
                                             {isSupplier && a.invoiceNo ? (
                                                 <div
                                                     style={{
@@ -1899,6 +1995,7 @@ export default function WorkshopApprovals({
                     </tbody>
                 </table>
                 </WsTableScroll>
+                {!isLoading ? <WsTablePagination {...approvalsPaging.pagerProps} /> : null}
             </div>
 
             {fundApproveModal ? (

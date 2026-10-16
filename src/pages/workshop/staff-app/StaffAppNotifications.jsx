@@ -3,6 +3,8 @@ import { RefreshCw } from 'lucide-react';
 import { listStaffAppNotifications } from '../../../services/staffAppApi';
 import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import { useStaffAppI18n } from '../../../utils/staffAppI18n';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 export default function StaffAppNotifications({ selectedBranchId = 'all' }) {
     const scope = useStaffAppScope();
@@ -26,6 +28,8 @@ export default function StaffAppNotifications({ selectedBranchId = 'all' }) {
     }, [scope, t]);
 
     useEffect(() => { load(); }, [load]);
+
+    const listPaging = usePagedRows(rows, { resetKey: String(selectedBranchId ?? '') });
 
     return (
         <div>
@@ -51,7 +55,7 @@ export default function StaffAppNotifications({ selectedBranchId = 'all' }) {
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.map((row) => (
+                            {listPaging.pagedRows.map((row) => (
                                 <tr key={row.id}>
                                     <td>{row.createdAt?.slice?.(0, 16)?.replace('T', ' ') || t('common.emdash')}</td>
                                     <td>{row.userName || row.userId || t('common.emdash')}</td>
@@ -63,6 +67,7 @@ export default function StaffAppNotifications({ selectedBranchId = 'all' }) {
                         </tbody>
                     </table>
                 )}
+                {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
             </div>
         </div>
     );

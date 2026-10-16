@@ -5,6 +5,8 @@ import {
     addExpenseMessage,
 } from '../../services/employeeExpenseApi';
 import { wpcT } from '../../utils/workshopPettyCashI18n';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 
 export const formatSar = (n) => {
     const x = Number(n);
@@ -36,7 +38,9 @@ export function WalletTransactionsTable({
 }) {
     const t = tProp || ((key, vars) => wpcT(locale, key, vars));
     const empty = emptyMessage ?? t('empty.transactions');
+    const txPaging = usePagedRows(transactions);
     return (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
                 <tr className="table-header-row">
@@ -53,7 +57,7 @@ export function WalletTransactionsTable({
                     <tr><td colSpan={6} className="table-cell table-empty">{t('loading.register')}</td></tr>
                 ) : transactions.length === 0 ? (
                     <tr><td colSpan={6} className="table-cell table-empty">{empty}</td></tr>
-                ) : transactions.map((row) => (
+                ) : txPaging.pagedRows.map((row) => (
                     <tr key={row.id}>
                         <td className="table-cell">{new Date(row.entryDate).toLocaleDateString()}</td>
                         <td className="table-cell">{row.type === 'credit' ? t('tx.in') : t('tx.out')}</td>
@@ -70,6 +74,8 @@ export function WalletTransactionsTable({
                 ))}
             </tbody>
         </table>
+        {!loading ? <WsTablePagination {...txPaging.pagerProps} /> : null}
+        </>
     );
 }
 

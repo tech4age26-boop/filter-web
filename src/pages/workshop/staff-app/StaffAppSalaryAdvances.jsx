@@ -3,6 +3,8 @@ import { RefreshCw, Plus, Bell, Wallet, TrendingDown } from 'lucide-react';
 import { listSalaryAdvances, createSalaryAdvance, updateSalaryAdvance } from '../../../services/staffAppApi';
 import { useStaffAppScope, staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import { staffAppStatusLabel, useStaffAppI18n } from '../../../utils/staffAppI18n';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 
 function StatusBadge({ status, locale }) {
     const s = String(status || '').toLowerCase();
@@ -86,6 +88,8 @@ export default function StaffAppSalaryAdvances() {
             setError(e?.message || t('salary.errAction'));
         }
     };
+
+    const listPaging = usePagedRows(rows);
 
     return (
         <div>
@@ -186,7 +190,7 @@ export default function StaffAppSalaryAdvances() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {rows.map((row) => (
+                                    {listPaging.pagedRows.map((row) => (
                                         <tr key={row.id}>
                                             <td>{row.employeeName || t('common.emdash')}</td>
                                             <td>{fmt(row.requestedAmount, locale)}</td>
@@ -214,6 +218,7 @@ export default function StaffAppSalaryAdvances() {
                                 </tbody>
                             </table>
                         )}
+                        {!loading ? <WsTablePagination {...listPaging.pagerProps} /> : null}
                     </div>
 
                     {!loading && activeLoans.length > 0 && (

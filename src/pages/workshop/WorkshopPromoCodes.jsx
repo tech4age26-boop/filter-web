@@ -5,6 +5,8 @@ import { qs, branchScopeParams, unwrapWorkshopBranchListResponse } from '../../s
 import { getBranchProducts, getBranchServices } from '../../services/workshopCatalogApi';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import PromoCodeFormFields from '../../components/promo/PromoCodeFormFields';
 import {
     buildPromoPayload,
@@ -265,6 +267,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
     };
 
     const activeCount = promoCodes.filter((p) => p.isActive).length;
+    const promoPaging = usePagedRows(promoCodes, { resetKey: String(selectedBranchId ?? '') });
 
     const needsCatalogForSave =
         form.productScope === 'selected'
@@ -405,7 +408,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                                     </td>
                                 </tr>
                             ) : (
-                                promoCodes.map((promo) => {
+                                promoPaging.pagedRows.map((promo) => {
                                     const scope = scopeSummary(t, promo, branches);
                                     return (
                                         <tr key={promo.id}>
@@ -457,6 +460,7 @@ export default function WorkshopPromoCodes({ selectedBranchId = 'all', branches 
                         </tbody>
                     </table>
                 </WsTableScroll>
+                {!isLoading ? <WsTablePagination {...promoPaging.pagerProps} /> : null}
             </div>
 
         </div>

@@ -6,6 +6,8 @@ import {
     createWorkshopSupplier,
 } from '../../services/workshopStaffApi';
 import { wsupT } from '../../utils/workshopSuppliersI18n';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 
@@ -103,6 +105,8 @@ export default function WorkshopAddSupplierScreen({
         }, 280);
         return () => clearTimeout(timer);
     }, [view, registeredSearchInput, loadRegisteredSuppliers]);
+
+    const registeredPaging = usePagedRows(registeredSuppliers, { resetKey: registeredSearchInput.trim() });
 
     const toggleRegisteredSupplier = (supplierId) => {
         const sid = String(supplierId);
@@ -439,7 +443,7 @@ export default function WorkshopAddSupplierScreen({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {registeredSuppliers.map((s) => {
+                                    {registeredPaging.pagedRows.map((s) => {
                                         const selected = selectedRegisteredIds.includes(String(s.id));
                                         return (
                                             <tr
@@ -483,6 +487,7 @@ export default function WorkshopAddSupplierScreen({
                                     })}
                                 </tbody>
                             </table>
+                            <WsTablePagination {...registeredPaging.pagerProps} />
                         </div>
                     )}
                 </div>

@@ -4,6 +4,8 @@ import {
 } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import Modal from '../../components/Modal';
 import { ShimmerTableBodyRows } from '../../components/supplier/Shimmer';
 import { apiFetch } from '../../services/api';
@@ -15,6 +17,7 @@ import {
 } from '../../services/workshopStaffApi';
 import { wcorpT } from '../../utils/workshopCorporateI18n';
 import { compactTaxId, corporateVatError, taxIdChanged, taxIdText } from '../../utils/saudiTaxId';
+import SelectCombo from '../../components/SelectCombo';
 
 const toNumber = (value) => {
     const parsed = Number(value);
@@ -30,6 +33,8 @@ const statusBadgeClass = (status) => {
 };
 
 const STATUS_VALUES = ['active', 'pending', 'rejected'];
+/** Server caps `limit` at 100 per request. */
+const CORPORATE_FETCH_BATCH = 100;
 
 function statusLabel(t, status) {
     const normalized = String(status || '').toLowerCase();
@@ -232,17 +237,19 @@ function EditCorporateAccountModal({ row, branches, onClose, onSaved, t, locale 
                     />
                 </FieldRow>
                 <FieldRow icon={ToggleLeft} label={t('edit.status')}>
-                    <select
+                    <SelectCombo
+                        className="ss-combo--bare"
+                        size="sm"
+                        aria-label={t('edit.status')}
                         value={form.status}
                         onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                        style={{ width: '100%', border: 'none', background: 'transparent', fontSize: '0.875rem', cursor: 'pointer' }}
                     >
                         {STATUS_VALUES.map((value) => (
                             <option key={value} value={value}>
                                 {t(`status.${value}`)}
                             </option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </FieldRow>
 
                 <div style={{ marginTop: 8, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -768,6 +775,9 @@ export default function WorkshopCorporateManagement({
             return ids.some((id) => String(id) === bid);
         });
     }, [customers, selectedBranchId]);
+    const customersPaging = usePagedRows(visibleCustomers, {
+        resetKey: `${selectedBranchId}|${searchDebounced}`,
+    });
 
     const loadBranches = useCallback(async () => {
         try {
@@ -784,12 +794,19 @@ export default function WorkshopCorporateManagement({
         setIsLoading(true);
         setError('');
         try {
-            const params = { ...workshopCorporateCustomersParams(selectedBranchId), limit: 100 };
+            const params = { ...workshopCorporateCustomersParams(selectedBranchId), limit: CORPORATE_FETCH_BATCH };
             if (searchDebounced) params.search = searchDebounced;
-            const response = await getWorkshopCorporateCustomers(params);
-            const { list, total: totalCount } = parseCorporateCustomersResponse(response);
-            if (response?.success === false && list.length === 0) {
-                throw new Error(response.message || t('err.load'));
+            const list = [];
+            let totalCount = 0;
+            for (let offset = 0; ; offset += CORPORATE_FETCH_BATCH) {
+                const response = await getWorkshopCorporateCustomers({ ...params, offset });
+                const parsed = parseCorporateCustomersResponse(response);
+                if (response?.success === false && parsed.list.length === 0) {
+                    throw new Error(response.message || t('err.load'));
+                }
+                list.push(...parsed.list);
+                totalCount = parsed.total;
+                if (parsed.list.length < CORPORATE_FETCH_BATCH || list.length >= totalCount) break;
             }
             setCustomers(list);
             setTotal(totalCount > 0 ? totalCount : list.length);
@@ -896,7 +913,7 @@ export default function WorkshopCorporateManagement({
                                     </td>
                                 </tr>
                             ) : (
-                                visibleCustomers.map((row) => {
+                                customersPaging.pagedRows.map((row) => {
                                     const isPending = String(row.status || '').toLowerCase() === 'pending';
                                     return (
                                     <tr key={row.id ?? row.corporate_account_id ?? row.companyName}>
@@ -963,6 +980,7 @@ export default function WorkshopCorporateManagement({
                         </tbody>
                     </table>
                 </WsTableScroll>
+                {!isLoading ? <WsTablePagination {...customersPaging.pagerProps} /> : null}
             </div>
 
             {editing && (

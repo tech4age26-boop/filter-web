@@ -13,6 +13,9 @@ import {
     WS_WAREHOUSE_UNIT_PRESETS,
     WS_WORKSHOP_UNIT_PRESETS,
 } from './workshopUomUtils';
+import SelectCombo from '../../components/SelectCombo';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 
 const emptyProfileForm = () => ({
     name: '',
@@ -38,7 +41,7 @@ function ProfileFormFields({ form, setForm, rulePreview }) {
             <div className="ws-uom-flow">
                 <div className="ws-uom-flow-unit">
                     <label htmlFor="ws-prof-wh">Warehouse / packing unit</label>
-                    <select
+                    <SelectCombo
                         id="ws-prof-wh"
                         value={form.warehouseUnit}
                         onChange={(e) => setForm((f) => ({ ...f, warehouseUnit: e.target.value }))}
@@ -46,7 +49,7 @@ function ProfileFormFields({ form, setForm, rulePreview }) {
                         {[...new Set([...WS_WAREHOUSE_UNIT_PRESETS, form.warehouseUnit])].map((u) => (
                             <option key={u} value={u}>{u}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
                 <div className="ws-uom-flow-bridge" aria-hidden>
                     <span>1 =</span>
@@ -61,7 +64,7 @@ function ProfileFormFields({ form, setForm, rulePreview }) {
                 </div>
                 <div className="ws-uom-flow-unit">
                     <label htmlFor="ws-prof-ws">Stock / workshop unit</label>
-                    <select
+                    <SelectCombo
                         id="ws-prof-ws"
                         value={form.workshopUnit}
                         onChange={(e) => setForm((f) => ({ ...f, workshopUnit: e.target.value }))}
@@ -69,7 +72,7 @@ function ProfileFormFields({ form, setForm, rulePreview }) {
                         {[...new Set([...WS_WORKSHOP_UNIT_PRESETS, form.workshopUnit])].map((u) => (
                             <option key={u} value={u}>{u}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
             </div>
             <p className="ws-uom-preview">
@@ -128,6 +131,9 @@ export default function WorkshopUomProfilesTab({
         () => profiles.filter((p) => p.isActive !== false),
         [profiles],
     );
+
+    const profilesPaging = usePagedRows(profiles);
+    const linkPaging = usePagedRows(products, { resetKey: branchId ?? '' });
 
     const profileRulePreview = useMemo(
         () =>
@@ -262,7 +268,7 @@ export default function WorkshopUomProfilesTab({
                                 </td>
                             </tr>
                         ) : (
-                            profiles.map((p) => (
+                            profilesPaging.pagedRows.map((p) => (
                                 <tr key={p.id}>
                                     <td><strong>{p.name}</strong></td>
                                     <td>{p.ruleLabel}</td>
@@ -281,13 +287,14 @@ export default function WorkshopUomProfilesTab({
                     </tbody>
                 </table>
             </div>
+            {!loading ? <WsTablePagination {...profilesPaging.pagerProps} /> : null}
 
             {!isAllBranches && products.length > 0 ? (
                 <div className="ws-uom-link-section">
                     <h4>Link profile to product</h4>
                     <p className="ws-uom-link-hint">Pick a product from this branch to assign its default packing profile.</p>
                     <div className="ws-uom-link-list">
-                        {products.slice(0, 20).map((p) => (
+                        {linkPaging.pagedRows.map((p) => (
                             <div key={p.id} className="ws-uom-link-row">
                                 <div>
                                     <strong>{p.name}</strong>
@@ -303,6 +310,7 @@ export default function WorkshopUomProfilesTab({
                             </div>
                         ))}
                     </div>
+                    <WsTablePagination {...linkPaging.pagerProps} />
                 </div>
             ) : null}
 
@@ -340,7 +348,7 @@ export default function WorkshopUomProfilesTab({
                         </div>
                         <div className="ws-uom-form-field">
                             <label htmlFor="ws-link-profile">UOM profile</label>
-                            <select
+                            <SelectCombo
                                 id="ws-link-profile"
                                 value={linkProfileId}
                                 onChange={(e) => setLinkProfileId(e.target.value)}
@@ -351,7 +359,7 @@ export default function WorkshopUomProfilesTab({
                                         {p.name} — {p.ruleLabel}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="ws-uom-modal-footer">
                             <button type="button" className="mc-btn-ghost mc-btn-large" disabled={busy} onClick={() => setLinkProduct(null)}>

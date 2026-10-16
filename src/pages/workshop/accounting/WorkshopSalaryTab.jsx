@@ -28,6 +28,7 @@ import WsTablePagination from '../../../components/workshop/WsTablePagination';
 import usePagedSearch, { WS_PAGE_SIZES } from '../../../components/workshop/usePagedSearch';
 import { staffMeta, staffName, staffSearchText } from './staffPickerOptions';
 import { toRiyadhDateISO } from '../../../utils/riyadhBusinessRange';
+import SelectCombo from '../../../components/SelectCombo';
 
 const fmt = (n) => {
     const x = Number(n);
@@ -719,12 +720,12 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                 </div>
                 <div>
                     <label className="form-label">Pay from (cash / bank) *</label>
-                    <select className="form-input-field" value={payFromAccountId} onChange={(e) => setPayFromAccountId(e.target.value)}>
+                    <SelectCombo className="form-input-field" value={payFromAccountId} onChange={(e) => setPayFromAccountId(e.target.value)}>
                         <option value="">Select account…</option>
                         {accounts.map((a) => (
                             <option key={a.id} value={a.id}>{a.name}{a.coaCode ? ` · ${a.coaCode}` : ''}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                     <button type="button" className="btn-portal-outline" disabled={loadingLookups} onClick={loadLookups}>
@@ -949,7 +950,7 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         {branches.length > 0 ? (
                             <div>
                                 <label className="form-label">Branch</label>
-                                <select
+                                <SelectCombo
                                     className="form-input-field"
                                     value={recentBranchId}
                                     onChange={(e) => setRecentBranchId(e.target.value)}
@@ -960,7 +961,7 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                                             {b.name}
                                         </option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                             </div>
                         ) : null}
                         <div>
@@ -1183,12 +1184,12 @@ export default function WorkshopSalaryTab({ branchFilter = '', branches = [] }) 
                         </div>
                         <div>
                             <label className="form-label">Pay from (cash / bank) *</label>
-                            <select className="form-input-field" value={editForm.payFromAccountId} onChange={(e) => setEditForm((f) => ({ ...f, payFromAccountId: e.target.value }))}>
+                            <SelectCombo className="form-input-field" value={editForm.payFromAccountId} onChange={(e) => setEditForm((f) => ({ ...f, payFromAccountId: e.target.value }))}>
                                 <option value="">Select account…</option>
                                 {editPayFromOptions.map((a) => (
                                     <option key={a.id} value={String(a.id)}>{a.name}{a.coaCode ? ` · ${a.coaCode}` : ''}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div>
                             <label className="form-label">Basic salary (SAR)</label>

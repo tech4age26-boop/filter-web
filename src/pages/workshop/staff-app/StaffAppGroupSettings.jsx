@@ -10,6 +10,7 @@ import { listCoaAccounts } from '../../../services/workshopAccountingApi';
 import { staffAppQueryParams } from '../../../context/StaffAppScopeContext';
 import StaffChatMemberPicker from './StaffChatMemberPicker';
 import { CHAT_PURPOSE_KEYS, useStaffAppI18n } from '../../../utils/staffAppI18n';
+import SelectCombo from '../../../components/SelectCombo';
 
 /** @deprecated Prefer CHAT_PURPOSE_KEYS + staffAppT; kept for callers expecting {value,label}. */
 export const CHAT_PURPOSE_OPTIONS = CHAT_PURPOSE_KEYS.map((o) => ({
@@ -184,7 +185,7 @@ export default function StaffAppGroupSettings({
 
                     <div className="staff-chat-group-settings__row">
                         <label htmlFor="chat-purpose">{t('group.purpose')}</label>
-                        <select
+                        <SelectCombo size="sm"
                             id="chat-purpose"
                             className="staff-app-btn"
                             value={channel.purpose || 'general'}
@@ -202,13 +203,13 @@ export default function StaffAppGroupSettings({
                                     {t(o.labelKey)}
                                 </option>
                             ))}
-                        </select>
+                        </SelectCombo>
                     </div>
 
                     {channel.purpose === 'financial' && (
                         <div className="staff-chat-group-settings__row">
                             <label htmlFor="chat-coa">{t('group.coa')}</label>
-                            <select
+                            <SelectCombo size="sm"
                                 id="chat-coa"
                                 className="staff-app-btn"
                                 value={channel.coaAccountId || ''}
@@ -230,7 +231,7 @@ export default function StaffAppGroupSettings({
                                         </option>
                                     );
                                 })}
-                            </select>
+                            </SelectCombo>
                         </div>
                     )}
 

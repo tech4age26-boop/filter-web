@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
+import { TABLE_PAGE_SIZES } from '../../hooks/usePagedRows';
 
-export const WS_PAGE_SIZES = [25, 50, 75, 100];
+export const WS_PAGE_SIZES = TABLE_PAGE_SIZES;
 
 /**
  * Client-side search + pagination over the full row list.

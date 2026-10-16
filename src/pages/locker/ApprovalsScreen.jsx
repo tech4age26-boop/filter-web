@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
+import { usePagedRows } from '../../hooks/usePagedRows';
+import LockerTablePager from './LockerTablePager';
 import { useLockerPortal } from './useLockerPortal';
 
 export default function ApprovalsScreen({
@@ -13,6 +15,11 @@ export default function ApprovalsScreen({
     const [loading, setLoading] = useState(false);
     const [busyId, setBusyId] = useState(null);
     const [error, setError] = useState('');
+    const listTopRef = useRef(null);
+    const { pagedRows, pagerProps } = usePagedRows(approvals, {
+        resetKey: `${selectedBranchId}|${branchLockedId ?? ''}`,
+        scrollRef: listTopRef,
+    });
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -73,12 +80,13 @@ export default function ApprovalsScreen({
 
             {error ? <div className="wlk-error" style={{ marginBottom: 12 }}>{error}</div> : null}
 
+            <div ref={listTopRef} />
             {approvals.length === 0 ? (
                 <div className="ws-section" style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>
                     {t('approvals.empty')}
                 </div>
             ) : (
-                approvals.map((a) => (
+                pagedRows.map((a) => (
                     <div key={a.id} className="ws-approval-card">
                         <div className="ws-approval-top">
                             <div>
@@ -122,6 +130,7 @@ export default function ApprovalsScreen({
                     </div>
                 ))
             )}
+            <LockerTablePager {...pagerProps} />
         </div>
     );
 }

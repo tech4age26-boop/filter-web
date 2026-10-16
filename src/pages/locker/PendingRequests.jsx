@@ -1,8 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DollarSign, RefreshCw, X } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { useServerPaging } from '../../hooks/usePagedRows';
 import LockerFilterBar from './LockerFilterBar';
+import LockerTablePager from './LockerTablePager';
 import { buildLockerFilterQuery } from './lockerFilterUtils';
 import { useLockerPortal } from './useLockerPortal';
 
@@ -57,6 +61,12 @@ export default function PendingRequests({
     const [selectedOfficerId, setSelectedOfficerId] = useState('');
     const [forwardSubmitting, setForwardSubmitting] = useState(false);
     const [forwardError, setForwardError] = useState('');
+    const [total, setTotal] = useState(0);
+    const tableTopRef = useRef(null);
+    const { page, pageSize, setPage, pagerFor } = useServerPaging({
+        resetKey: JSON.stringify(appliedFilters),
+        scrollRef: tableTopRef,
+    });
 
     useEffect(() => {
         const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
@@ -85,18 +95,26 @@ export default function PendingRequests({
                     buildLockerFilterQuery(activeFilters, {
                         view: 'supervisor',
                         status: 'open',
-                        limit: 100,
+                        page,
+                        limit: pageSize,
                     }),
                 )}`,
             );
-            setRows(res?.items || res?.rows || res?.data || []);
+            const items = res?.items || res?.rows || res?.data || [];
+            const count = Number(res?.total ?? items.length);
+            if (!items.length && count > 0 && page > 1) {
+                setPage(Math.ceil(count / pageSize));
+                return;
+            }
+            setRows(items);
+            setTotal(count);
             setSummary(res?.summary || null);
         } catch (e) {
             setError(e?.message || t('pending.loadError'));
         } finally {
             setLoading(false);
         }
-    }, [appliedFilters, t]);
+    }, [appliedFilters, page, pageSize, setPage, t]);
 
     useEffect(() => {
         load(appliedFilters);
@@ -178,6 +196,14 @@ export default function PendingRequests({
     };
 
     const showActions = canAssign || canRecord;
+    const officerOptions = useMemo(
+        () =>
+            officers.map((o) => ({
+                value: String(o.id),
+                label: o.displayCode ? `${o.name} (${o.displayCode})` : o.name,
+            })),
+        [officers],
+    );
 
     return (
         <div>
@@ -216,7 +242,7 @@ export default function PendingRequests({
                         <p className="ws-kpi-label">{t('pending.totalExpected')}</p>
                         <p className="ws-kpi-value">{moneyWhole(summary?.totalExpected)}</p>
                         <p className="ws-kpi-sub">
-                            {t('pending.inRange', { count: summary?.requestCount ?? rows.length })}
+                            {t('pending.inRange', { count: summary?.requestCount ?? total })}
                         </p>
                     </div>
                     <div className="ws-kpi-icon ws-kpi-icon--yellow">
@@ -225,7 +251,8 @@ export default function PendingRequests({
                 </div>
             </div>
 
-            <div className="ws-section">
+            <div className="ws-section" ref={tableTopRef}>
+                <WsTableScroll>
                 <table className="ws-table">
                     <thead>
                         <tr>
@@ -309,6 +336,8 @@ export default function PendingRequests({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                <LockerTablePager {...pagerFor(total)} />
             </div>
 
             {forwardModal ? (
@@ -363,21 +392,17 @@ export default function PendingRequests({
 
                         <div className="ws-field" style={{ marginTop: 16 }}>
                             <label>{t('pending.collector')}</label>
-                            <select
+                            <SearchSelect
+                                options={officerOptions}
                                 value={selectedOfficerId}
-                                onChange={(e) => setSelectedOfficerId(e.target.value)}
+                                onChange={(v) => setSelectedOfficerId(String(v))}
                                 disabled={officersLoading || forwardSubmitting}
-                            >
-                                <option value="">
-                                    {officersLoading ? t('pending.loadingCollectors') : t('pending.selectCollector')}
-                                </option>
-                                {officers.map((o) => (
-                                    <option key={o.id} value={o.id}>
-                                        {o.name}
-                                        {o.displayCode ? ` (${o.displayCode})` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel={t('pending.collector')}
+                                placeholder={
+                                    officersLoading ? t('pending.loadingCollectors') : t('pending.selectCollector')
+                                }
+                                emptyHint={t('common.noMatches')}
+                            />
                         </div>
 
                         <div

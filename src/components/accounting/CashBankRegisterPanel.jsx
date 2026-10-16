@@ -16,6 +16,9 @@ import {
 } from '../../utils/cashBankRegisterExport';
 import { accT } from '../../utils/accountingI18n';
 import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
+import WsTableScroll from '../workshop/WsTableScroll';
+import WsTablePagination from '../workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 
 function startOfMonthISO() {
     const d = new Date();
@@ -122,6 +125,9 @@ export default function CashBankRegisterPanel({
         if (ledgerFilter === 'payments') return lines.filter((l) => l.direction === 'out');
         return lines;
     }, [data?.lines, ledgerFilter]);
+    const { pagedRows: pageLines, pagerProps } = usePagedRows(filteredLines, { resetKey: `${ledgerFilter}|${coaAccountId}` });
+    const isFirstPage = pagerProps.page === 1;
+    const isLastPage = pagerProps.page >= pagerProps.pageCount;
 
     const title = t(REGISTER_TITLE_KEYS[registerType] || 'register.register');
 
@@ -307,6 +313,7 @@ export default function CashBankRegisterPanel({
             </div>
 
             <section className="premium-table cash-bank-table">
+                <WsTableScroll>
                 <table className="ws-table" style={{ width: '100%' }}>
                     <thead>
                         <tr>
@@ -326,10 +333,12 @@ export default function CashBankRegisterPanel({
                             <tr><td colSpan={9} className="table-cell table-empty">{t('register.loading')}</td></tr>
                         ) : (
                             <>
+                                {isFirstPage ? (
                                 <tr className="cash-bank-register-opening-row">
                                     <td colSpan={8}><strong>{t('register.openingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.openingBalance)}</td>
                                 </tr>
+                                ) : null}
                                 {filteredLines.length === 0 ? (
                                     <tr>
                                         <td colSpan={9} className="table-cell table-empty">
@@ -337,7 +346,7 @@ export default function CashBankRegisterPanel({
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredLines.map((row) => (
+                                    pageLines.map((row) => (
                                         <tr key={row.id}>
                                             <td style={{ whiteSpace: 'pre-line', lineHeight: 1.35 }}>
                                                 {row.requestedAt
@@ -368,14 +377,18 @@ export default function CashBankRegisterPanel({
                                         </tr>
                                     ))
                                 )}
+                                {isLastPage ? (
                                 <tr className="cash-bank-register-closing-row">
                                     <td colSpan={8}><strong>{t('register.closingRow')}</strong></td>
                                     <td style={{ textAlign: 'right', fontWeight: 700 }}>SAR {fmt(summary.closingBalance)}</td>
                                 </tr>
+                                ) : null}
                             </>
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                {!loading ? <WsTablePagination {...pagerProps} /> : null}
             </section>
         </div>
     );

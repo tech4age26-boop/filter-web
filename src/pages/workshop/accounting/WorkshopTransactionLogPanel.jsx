@@ -33,15 +33,15 @@ import {
 import SupplierAccountingCombobox from '../../supplier/accounting/SupplierAccountingCombobox';
 import {
     ALL_COMBO,
-    DEFAULT_MONEY_PAGE_SIZE,
     MONEY_LOG_CSS,
-    MONEY_PAGE_SIZES,
     cashAccountLabel,
     fmtDateYmd,
     moneySar,
     sliceLogPage,
     summarizeMoneyKpis,
 } from './workshopTransactionUi';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../../hooks/usePagedRows';
 
 function statusLabel(status) {
     return String(status || 'posted').replace(/_/g, ' ').toUpperCase();
@@ -71,7 +71,7 @@ export default function WorkshopTransactionLogPanel({
     const [comboId, setComboId] = useState('');
     const [applied, setApplied] = useState({ dateFrom: '', dateTo: '', search: '', comboId: '' });
     const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(DEFAULT_MONEY_PAGE_SIZE);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
     const [exporting, setExporting] = useState('');
     const [openId, setOpenId] = useState('');
     const [busyId, setBusyId] = useState('');
@@ -590,31 +590,18 @@ export default function WorkshopTransactionLogPanel({
                 </div>
             )}
 
-            {paged.total > 0 ? (
-                <div className="ws-tx-pager">
-                    <span>{t('tx.log.pager.range', { from: paged.from, to: paged.to, total: paged.total })}</span>
-                    <label>
-                        {t('tx.log.pager.rows')}
-                        <select
-                            value={pageSize}
-                            onChange={(e) => {
-                                setPageSize(Number(e.target.value) || DEFAULT_MONEY_PAGE_SIZE);
-                                setPage(1);
-                            }}
-                        >
-                            {MONEY_PAGE_SIZES.map((n) => (
-                                <option key={n} value={n}>{n}</option>
-                            ))}
-                        </select>
-                    </label>
-                    <span>{t('tx.log.pager.page', { page: paged.page, pages: paged.pages })}</span>
-                    <button type="button" className="btn-portal-outline" disabled={paged.page <= 1} onClick={() => setPage(paged.page - 1)}>
-                        {t('tx.log.prev')}
-                    </button>
-                    <button type="button" className="btn-portal-outline" disabled={paged.page >= paged.pages} onClick={() => setPage(paged.page + 1)}>
-                        {t('tx.log.next')}
-                    </button>
-                </div>
+            {!loading ? (
+                <WsTablePagination
+                    page={paged.page}
+                    pageCount={paged.pages}
+                    pageSize={pageSize}
+                    total={paged.total}
+                    onPageChange={setPage}
+                    onPageSizeChange={(n) => {
+                        setPageSize(n);
+                        setPage(1);
+                    }}
+                />
             ) : null}
             <style>{MONEY_LOG_CSS}</style>
         </div>

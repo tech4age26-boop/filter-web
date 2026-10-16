@@ -14,7 +14,6 @@ import {
     RefreshCw,
     Search,
     Trash2,
-    Building2,
     Scale,
     TrendingUp,
 } from 'lucide-react';
@@ -78,6 +77,7 @@ import {
     saveWorkshopAdminDatetimeRange,
 } from '../../pages/workshop/workshopAdminDatetimeRange';
 import { accT } from '../../utils/accountingI18n';
+import SelectCombo from '../SelectCombo';
 
 const parseArr = (res) => {
     if (Array.isArray(res)) return res;
@@ -894,37 +894,21 @@ export default function WorkshopCOAView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, appliedDateFrom, appliedDateTo, appliedBranch]);
 
-    const branchSelectStyle = {
-        appearance: 'none',
-        border: `1px solid ${palette.border}`,
-        borderRadius: 8,
-        padding: '8px 34px 8px 36px',
-        fontSize: 14,
-        background: '#fff',
-        color: palette.textPrimary,
-    };
-
     const renderBranchPicker = (value, onChange) => (
-        <div style={{ position: 'relative' }}>
-            <Building2
-                size={16}
-                color={palette.textSecondary}
-                style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)' }}
-            />
-            <select value={value} onChange={(e) => onChange(e.target.value)} style={branchSelectStyle}>
-                <option value="">{t('scope.allBranches')}</option>
-                {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                        {b.name}
-                    </option>
-                ))}
-            </select>
-            <ChevronDown
-                size={16}
-                color={palette.textSecondary}
-                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}
-            />
-        </div>
+        <SelectCombo
+            size="sm"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label={t('scope.allBranches')}
+            style={{ minWidth: 200 }}
+        >
+            <option value="">{t('scope.allBranches')}</option>
+            {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                    {b.name}
+                </option>
+            ))}
+        </SelectCombo>
     );
 
     const renderReportContent = () => {

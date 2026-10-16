@@ -10,6 +10,7 @@ import {
 import { getWorkshopOptions } from '../../services/superAdminApi';
 import ExpenseProofPicker from '../../components/accounting/ExpenseProofPicker';
 import { wpcT } from '../../utils/workshopPettyCashI18n';
+import SelectCombo from '../../components/SelectCombo';
 
 function resolveInitialWorkshopId({ workshopIdProp, user, workshop }) {
     return String(workshopIdProp || user?.workshopId || workshop?.id || '');
@@ -222,7 +223,7 @@ export default function PettyCashRecordForms({
     const workshopField = isPlatformAdmin && workshops.length > 0 ? (
         <div className="form-group form-group-full">
             <label className="form-label">{t('form.workshopRequired')}</label>
-            <select
+            <SelectCombo
                 className="form-input-field"
                 value={selectedWorkshopId}
                 onChange={(e) => handleWorkshopChange(e.target.value)}
@@ -231,7 +232,7 @@ export default function PettyCashRecordForms({
                 {workshops.map((w) => (
                     <option key={w.id} value={w.id}>{w.name || w.label || `#${w.id}`}</option>
                 ))}
-            </select>
+            </SelectCombo>
         </div>
     ) : (
         <div className="form-group form-group-full">
@@ -264,12 +265,12 @@ export default function PettyCashRecordForms({
                         {workshopField}
                         <div className="form-group">
                             <label className="form-label">{t('form.branchRequired')}</label>
-                            <select className="form-input-field" value={fundBranch} onChange={(e) => setFundBranch(e.target.value)}>
+                            <SelectCombo className="form-input-field" value={fundBranch} onChange={(e) => setFundBranch(e.target.value)}>
                                 <option value="">{t('form.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('form.amountSar')}</label>
@@ -297,21 +298,21 @@ export default function PettyCashRecordForms({
                         {workshopField}
                         <div className="form-group">
                             <label className="form-label">{t('form.branchRequired')}</label>
-                            <select className="form-input-field" value={expBranch} onChange={(e) => setExpBranch(e.target.value)}>
+                            <SelectCombo className="form-input-field" value={expBranch} onChange={(e) => setExpBranch(e.target.value)}>
                                 <option value="">{t('form.selectBranch')}</option>
                                 {branches.map((b) => (
                                     <option key={b.id} value={b.id}>{b.name}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('form.expenseCategory')}</label>
-                            <select className="form-input-field" value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>
+                            <SelectCombo className="form-input-field" value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>
                                 <option value="">{t('form.selectCategory')}</option>
                                 {categories.map((c) => (
                                     <option key={c.id} value={c.id}>{t('form.categoryOption', { code: c.code, name: c.name })}</option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('form.amountSar')}</label>

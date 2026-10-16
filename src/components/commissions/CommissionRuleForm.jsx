@@ -35,6 +35,7 @@ const EMPTY_FORM = {
     serviceIds: [],
     kmValues: [],
     value: '',
+    useProfilePercent: false,
     notes: '',
 };
 
@@ -55,7 +56,8 @@ function formFromRule(rule) {
         productIds: ids(rule.productIds),
         serviceIds: ids(rule.serviceIds),
         kmValues: (rule.kmValues || []).map(Number),
-        value: rule.value != null ? String(rule.value) : '',
+        value: rule.useProfilePercent ? '' : rule.value != null ? String(rule.value) : '',
+        useProfilePercent: Boolean(rule.useProfilePercent),
         notes: rule.notes || '',
     };
 }
@@ -359,8 +361,11 @@ export default function CommissionRuleForm({
         }));
     };
 
+    const useProfile = Boolean(form.useProfilePercent);
     const rateNum = Number(form.value);
-    const rateValid = form.value !== '' && Number.isFinite(rateNum) && rateNum >= 0 && rateNum <= 100;
+    const rateValid =
+        useProfile ||
+        (form.value !== '' && Number.isFinite(rateNum) && rateNum >= 0 && rateNum <= 100);
 
     const summaryFacts = useMemo(() => {
         const facts = [];
@@ -420,7 +425,8 @@ export default function CommissionRuleForm({
         const payload = {
             name: form.name.trim(),
             employeeRole: form.employeeRole,
-            value: Math.round(rateNum * 10000) / 10000,
+            value: useProfile ? 0 : Math.round(rateNum * 10000) / 10000,
+            useProfilePercent: useProfile,
             priority,
             status: form.status,
             appliesTo: form.appliesTo,
@@ -749,6 +755,18 @@ export default function CommissionRuleForm({
 
                     <section className="wcr-section">
                         <div className="wcr-section__title">{t('rules.section.rate')}</div>
+                        <label className="wcr-check">
+                            <input
+                                type="checkbox"
+                                checked={useProfile}
+                                disabled={readOnly}
+                                onChange={(e) => set('useProfilePercent', e.target.checked)}
+                            />
+                            <span>
+                                <span className="wcr-label">{t('rules.useProfile')}</span>
+                                <span className="wcr-hint">{t('rules.useProfileHint')}</span>
+                            </span>
+                        </label>
                         <div className="wcr-grid wcr-grid--3">
                             <label className="wcr-field">
                                 <span className="wcr-label">{t('rules.rate')}</span>
@@ -760,9 +778,9 @@ export default function CommissionRuleForm({
                                         min={0}
                                         max={100}
                                         step={0.01}
-                                        value={form.value}
-                                        disabled={readOnly}
-                                        placeholder="0.00"
+                                        value={useProfile ? '' : form.value}
+                                        disabled={readOnly || useProfile}
+                                        placeholder={useProfile ? t('rules.rate.profile') : '0.00'}
                                         onChange={(e) => set('value', e.target.value)}
                                     />
                                     <Percent size={15} aria-hidden className="wcr-rate__icon" />
@@ -797,16 +815,21 @@ export default function CommissionRuleForm({
                         <span>{t('rules.summary.title')}</span>
                     </div>
                     <div className="wcr-summary__rate">
-                        <bdi>{rateValid ? `${rateNum}%` : '—'}</bdi>
+                        <bdi>{useProfile ? t('rules.rate.profile') : rateValid ? `${rateNum}%` : '—'}</bdi>
                         <span className={`ws-badge ws-badge--${form.status === 'active' ? 'green' : 'gray'}`}>{t(`rules.status.${form.status}`)}</span>
                     </div>
                     {form.name.trim() ? <div className="wcr-summary__name">{form.name.trim()}</div> : null}
                     <p className="wcr-summary__sentence">
-                        {t('rules.summary.sentence', {
-                            who: t(`rules.summary.who.${form.employeeRole}`),
-                            rate: rateValid ? rateNum : '—',
-                            what: t(`rules.summary.what.${form.appliesTo}`),
-                        })}
+                        {useProfile
+                            ? t('rules.summary.sentenceProfile', {
+                                who: t(`rules.summary.who.${form.employeeRole}`),
+                                what: t(`rules.summary.what.${form.appliesTo}`),
+                            })
+                            : t('rules.summary.sentence', {
+                                who: t(`rules.summary.who.${form.employeeRole}`),
+                                rate: rateValid ? rateNum : '—',
+                                what: t(`rules.summary.what.${form.appliesTo}`),
+                            })}
                     </p>
                     {summaryFacts.length ? (
                         <dl className="wcr-summary__facts">
@@ -820,7 +843,7 @@ export default function CommissionRuleForm({
                     ) : (
                         <p className="wcr-summary__muted">{t('rules.summary.anything')}</p>
                     )}
-                    {rateValid ? (
+                    {rateValid && !useProfile ? (
                         <p className="wcr-summary__example">
                             {isTechnician
                                 ? t('rules.summary.example', { solo: money2(solo), pair: money2(solo / 2) })
@@ -829,7 +852,7 @@ export default function CommissionRuleForm({
                     ) : null}
                     <p className="wcr-summary__note">
                         <Layers size={14} aria-hidden />
-                        <span>{t('rules.summary.stackNote')}</span>
+                        <span>{t('rules.summary.priorityNote')}</span>
                     </p>
                     <p className="wcr-summary__note">
                         <Info size={14} aria-hidden />

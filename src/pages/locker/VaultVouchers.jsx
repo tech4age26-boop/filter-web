@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Wallet, RefreshCw, CheckCircle, AlertTriangle, Plus, Trash2, ClipboardList,
     ArrowUpRight, ArrowDownLeft, HandCoins, BadgeDollarSign, ChevronDown, ChevronRight,
@@ -12,7 +12,10 @@ import {
     parseWorkshopStaffSelectValue,
     workshopStaffRoleLabel,
 } from '../../services/workshopStaffApi';
-import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { useServerPaging } from '../../hooks/usePagedRows';
+import LockerTablePager from './LockerTablePager';
 import { useLockerPortal } from './useLockerPortal';
 import { toRiyadhDateISO } from '../../utils/riyadhBusinessRange';
 
@@ -36,9 +39,7 @@ function emptyPartyRow(payeeType = 'Supplier') {
         payeeType,
         payeeId: '',
         payeeName: '',
-        payeeText: '',
         accountId: '',
-        accountText: '',
         accountAuto: false,
         amount: '',
         reference: '',
@@ -50,7 +51,6 @@ function emptySalaryRow() {
     return {
         key: newKey(),
         employeeKey: '',
-        employeeText: '',
         employeeRecordId: '',
         recordType: '',
         userId: '',
@@ -110,8 +110,14 @@ export default function VaultVouchers({
     const [expanded, setExpanded] = useState(() => new Set());
 
     const scopeBranch = branchLockedId || (selectedBranchId !== 'all' ? String(selectedBranchId) : '');
-    const [header, setHeader] = useState({ branchId: scopeBranch, branchText: '', date: todayISO(), notes: '' });
-    const [filters, setFilters] = useState({ status: 'all', kind: 'all', statusText: '', kindText: '' });
+    const [header, setHeader] = useState({ branchId: scopeBranch, date: todayISO(), notes: '' });
+    const [filters, setFilters] = useState({ status: 'all', kind: 'all' });
+    const [total, setTotal] = useState(0);
+    const listTopRef = useRef(null);
+    const { page, pageSize, setPage, pagerFor } = useServerPaging({
+        resetKey: `${filters.status}|${filters.kind}|${scopeBranch}`,
+        scrollRef: listTopRef,
+    });
 
     const [accounts, setAccounts] = useState([]);
     const [payees, setPayees] = useState({});
@@ -119,7 +125,7 @@ export default function VaultVouchers({
     const [employeesLoading, setEmployeesLoading] = useState(false);
 
     const [partyRows, setPartyRows] = useState(() => [emptyPartyRow()]);
-    const [advance, setAdvance] = useState({ employeeKey: '', employeeText: '', amount: '', reason: '' });
+    const [advance, setAdvance] = useState({ employeeKey: '', amount: '', reason: '' });
     const [period, setPeriod] = useState(thisMonth());
     const [salaryRows, setSalaryRows] = useState(() => [emptySalaryRow()]);
 
@@ -128,7 +134,7 @@ export default function VaultVouchers({
     }, [canCreate, pageTab]);
 
     useEffect(() => {
-        setHeader((h) => ({ ...h, branchId: scopeBranch, branchText: '' }));
+        setHeader((h) => ({ ...h, branchId: scopeBranch }));
     }, [scopeBranch]);
 
     // ------------------------------------------------------------------ loading
@@ -140,9 +146,17 @@ export default function VaultVouchers({
                 status: filters.status !== 'all' ? filters.status : undefined,
                 kind: filters.kind !== 'all' ? filters.kind : undefined,
                 branchId: scopeBranch || undefined,
-                limit: 100,
+                page,
+                limit: pageSize,
             })}`);
-            setVouchers(Array.isArray(res?.vouchers) ? res.vouchers : []);
+            const list = Array.isArray(res?.vouchers) ? res.vouchers : [];
+            const count = Number(res?.total) || 0;
+            if (!list.length && count > 0 && page > 1) {
+                setPage(Math.ceil(count / pageSize));
+                return;
+            }
+            setVouchers(list);
+            setTotal(count || list.length);
             setSummary(res?.summary || null);
             setServerFlags({ canCreate: Boolean(res?.canCreate), canDecide: Boolean(res?.canDecide) });
         } catch (e) {
@@ -150,7 +164,7 @@ export default function VaultVouchers({
         } finally {
             setLoading(false);
         }
-    }, [filters.status, filters.kind, scopeBranch, t]);
+    }, [filters.status, filters.kind, scopeBranch, page, pageSize, setPage, t]);
 
     useEffect(() => {
         void loadList();
@@ -209,53 +223,57 @@ export default function VaultVouchers({
     // ------------------------------------------------------------------ options
 
     const branchOpts = useMemo(() => {
-        const list = (branches || []).map((b) => ({ id: String(b.id), label: b.name, searchText: b.name }));
-        return branchLockedId ? list : [{ id: '', label: t('vv.workshopWide'), searchText: t('vv.workshopWide') }, ...list];
+        const list = (branches || []).map((b) => ({ value: String(b.id), label: b.name }));
+        return branchLockedId ? list : [{ value: '', label: t('vv.workshopWide') }, ...list];
     }, [branches, branchLockedId, t]);
 
     const accountOpts = useMemo(
         () => accounts.map((a) => ({
-            id: String(a.id),
+            value: String(a.id),
             label: a.label || `${a.code} — ${a.name}`,
-            subtitle: [a.type, a.subType].filter(Boolean).join(' · '),
-            searchText: `${a.code} ${a.name} ${a.type || ''}`,
+            hint: [a.type, a.subType].filter(Boolean).join(' · '),
+            searchText: `${a.code} ${a.name}`,
         })),
         [accounts],
     );
 
     const payeeOpts = useCallback(
         (type) => (payees[String(type).toLowerCase()] || []).map((p) => ({
-            id: String(p.id),
+            value: String(p.id),
             label: p.name,
-            subtitle: [p.sublabel, p.branchName, p.defaultAccountLabel].filter(Boolean).join(' · '),
-            searchText: `${p.name} ${p.sublabel || ''}`,
+            hint: [p.sublabel, p.branchName, p.defaultAccountLabel].filter(Boolean).join(' · '),
             raw: p,
         })),
         [payees],
     );
 
+    const payeeTypeOpts = useMemo(
+        () => PAYEE_TYPES.map((p) => ({ value: p, label: t(`vv.payee.${p}`), searchText: p })),
+        [t],
+    );
+
     const staffOpts = useMemo(
         () => (employees || [])
             .map((e) => ({
-                id: workshopStaffSelectValue(e),
+                value: workshopStaffSelectValue(e),
                 label: e.name || `#${e.id}`,
-                subtitle: [workshopStaffRoleLabel(e), e.branchName || e.branch?.name].filter(Boolean).join(' · '),
-                searchText: `${e.name || ''} ${e.mobile || ''} ${workshopStaffRoleLabel(e)}`,
+                hint: [workshopStaffRoleLabel(e), e.branchName || e.branch?.name].filter(Boolean).join(' · '),
+                searchText: e.mobile || '',
                 raw: e,
             }))
             .sort((a, b) => a.label.localeCompare(b.label)),
         [employees],
     );
-    const staffByKey = useMemo(() => Object.fromEntries(staffOpts.map((o) => [o.id, o.raw])), [staffOpts]);
+    const staffByKey = useMemo(() => Object.fromEntries(staffOpts.map((o) => [o.value, o.raw])), [staffOpts]);
     const advanceStaffOpts = useMemo(() => staffOpts.filter((o) => o.raw?.userId), [staffOpts]);
 
     const statusOpts = useMemo(() => [
-        { id: 'all', label: t('common.allStatuses'), searchText: t('common.allStatuses') },
-        ...STATUSES.map((s) => ({ id: s, label: t(`vv.status.${s}`), searchText: `${s} ${t(`vv.status.${s}`)}` })),
+        { value: 'all', label: t('common.allStatuses') },
+        ...STATUSES.map((s) => ({ value: s, label: t(`vv.status.${s}`), searchText: s })),
     ], [t]);
     const kindOpts = useMemo(() => [
-        { id: 'all', label: t('vv.allKinds'), searchText: t('vv.allKinds') },
-        ...KINDS.map((k) => ({ id: k, label: t(`vv.kind.${k}`), searchText: `${k} ${t(`vv.kind.${k}`)}` })),
+        { value: 'all', label: t('vv.allKinds') },
+        ...KINDS.map((k) => ({ value: k, label: t(`vv.kind.${k}`), searchText: k })),
     ], [t]);
 
     // ------------------------------------------------------------------ forms
@@ -269,11 +287,10 @@ export default function VaultVouchers({
 
     const selectPayee = (row, opt) => {
         const p = opt?.raw;
-        const patch = { payeeId: opt?.id || '', payeeName: p?.name || '', payeeText: '' };
+        const patch = { payeeId: opt?.value || '', payeeName: p?.name || '' };
         if (p?.defaultAccountId && (!row.accountId || row.accountAuto)
             && accounts.some((a) => String(a.id) === String(p.defaultAccountId))) {
             patch.accountId = String(p.defaultAccountId);
-            patch.accountText = '';
             patch.accountAuto = true;
         }
         updateParty(row.key, patch);
@@ -307,12 +324,12 @@ export default function VaultVouchers({
     };
 
     const selectSalaryEmployee = (row, opt) => {
-        const parsed = parseWorkshopStaffSelectValue(opt?.id);
-        const emp = staffByKey[opt?.id];
+        const parsed = parseWorkshopStaffSelectValue(opt?.value);
+        const emp = staffByKey[opt?.value];
         updateSalary(row.key, {
             ...emptySalaryRow(),
             key: row.key,
-            employeeKey: opt?.id || '',
+            employeeKey: opt?.value || '',
             employeeRecordId: parsed.id,
             recordType: parsed.recordType,
             userId: emp?.userId ? String(emp.userId) : '',
@@ -331,7 +348,7 @@ export default function VaultVouchers({
 
     const resetForms = () => {
         setPartyRows([emptyPartyRow()]);
-        setAdvance({ employeeKey: '', employeeText: '', amount: '', reason: '' });
+        setAdvance({ employeeKey: '', amount: '', reason: '' });
         setSalaryRows([emptySalaryRow()]);
         setHeader((h) => ({ ...h, notes: '' }));
     };
@@ -489,18 +506,15 @@ export default function VaultVouchers({
         <div className="wlk-grid wlk-grid--form" style={{ marginBottom: 12 }}>
             <label>
                 <span>{t('common.branch')}</span>
-                <SearchableEntityCombobox
+                <SearchSelect
                     id="vv-branch"
                     options={branchOpts}
                     value={header.branchId}
-                    displayText={header.branchText}
-                    onDisplayTextChange={(text) => setHeader((h) => ({ ...h, branchText: text }))}
-                    onSelect={(opt) => setHeader((h) => ({ ...h, branchId: opt?.id || '', branchText: '' }))}
+                    onChange={(v) => setHeader((h) => ({ ...h, branchId: String(v ?? '') }))}
                     placeholder={t('exp.searchBranch')}
-                    entityLabel="branch"
-                    maxInitial={40}
-                    maxFiltered={60}
+                    emptyHint={t('common.noMatches')}
                     disabled={submitting || Boolean(branchLockedId)}
+                    title={branchLockedId ? t('common.branchLocked') : undefined}
                 />
             </label>
             <label>
@@ -542,12 +556,15 @@ export default function VaultVouchers({
                         </div>
                         <label>
                             <span>{pageTab === 'payment' ? t('vv.payTo') : t('vv.receiveFrom')}</span>
-                            <select
+                            <SearchSelect
+                                id={`vv-ptype-${r.key}`}
+                                options={payeeTypeOpts}
                                 value={r.payeeType}
-                                onChange={(e) => updateParty(r.key, { payeeType: e.target.value, payeeId: '', payeeName: '', payeeText: '' })}
-                            >
-                                {PAYEE_TYPES.map((p) => <option key={p} value={p}>{t(`vv.payee.${p}`)}</option>)}
-                            </select>
+                                onChange={(v) => updateParty(r.key, { payeeType: v, payeeId: '', payeeName: '' })}
+                                placeholder={t('common.typeToSearch')}
+                                emptyHint={t('common.noMatches')}
+                                disabled={submitting}
+                            />
                         </label>
                         {r.payeeType === 'Other' ? (
                             <label>
@@ -557,35 +574,33 @@ export default function VaultVouchers({
                         ) : (
                             <label>
                                 <span>{t(`vv.payee.${r.payeeType}`)}</span>
-                                <SearchableEntityCombobox
+                                <SearchSelect
                                     id={`vv-payee-${r.key}`}
                                     options={payeeOpts(r.payeeType)}
                                     value={r.payeeId}
-                                    displayText={r.payeeText}
-                                    onDisplayTextChange={(text) => updateParty(r.key, { payeeText: text })}
-                                    onSelect={(opt) => selectPayee(r, opt)}
+                                    onChange={(_v, opt) => selectPayee(r, opt)}
+                                    required
                                     placeholder={t('vv.searchPayee')}
-                                    entityLabel="payee"
-                                    loading={payees[r.payeeType.toLowerCase()] === null}
-                                    maxInitial={50}
-                                    maxFiltered={80}
+                                    emptyHint={t('common.noMatches')}
+                                    loading={payees[r.payeeType.toLowerCase()] == null}
+                                    loadingHint={t('common.loading')}
+                                    moreHint={t('common.moreMatches')}
+                                    menuMinWidth={320}
                                     disabled={submitting}
                                 />
                             </label>
                         )}
                         <label>
                             <span>{t('vv.account')}</span>
-                            <SearchableEntityCombobox
+                            <SearchSelect
                                 id={`vv-acct-${r.key}`}
                                 options={accountOpts}
                                 value={r.accountId}
-                                displayText={r.accountText}
-                                onDisplayTextChange={(text) => updateParty(r.key, { accountText: text })}
-                                onSelect={(opt) => updateParty(r.key, { accountId: opt?.id || '', accountText: '', accountAuto: false })}
+                                onChange={(v) => updateParty(r.key, { accountId: String(v || ''), accountAuto: false })}
+                                required
                                 placeholder={t('vv.searchAccount')}
-                                entityLabel="account"
-                                maxInitial={60}
-                                maxFiltered={80}
+                                emptyHint={t('common.noMatches')}
+                                moreHint={t('common.moreMatches')}
                                 menuMinWidth={360}
                                 disabled={submitting}
                             />
@@ -612,18 +627,18 @@ export default function VaultVouchers({
         <div className="wlk-grid wlk-grid--form" style={rowCard}>
             <label>
                 <span>{t('vv.employee')}</span>
-                <SearchableEntityCombobox
+                <SearchSelect
                     id="vv-adv-employee"
                     options={advanceStaffOpts}
                     value={advance.employeeKey}
-                    displayText={advance.employeeText}
-                    onDisplayTextChange={(text) => setAdvance((a) => ({ ...a, employeeText: text }))}
-                    onSelect={(opt) => setAdvance((a) => ({ ...a, employeeKey: opt?.id || '', employeeText: '' }))}
+                    onChange={(v) => setAdvance((a) => ({ ...a, employeeKey: String(v || '') }))}
+                    required
                     placeholder={t('vv.searchEmployee')}
-                    entityLabel="employee"
+                    emptyHint={t('common.noMatches')}
                     loading={employeesLoading}
-                    maxInitial={60}
-                    maxFiltered={80}
+                    loadingHint={t('common.loading')}
+                    moreHint={t('common.moreMatches')}
+                    menuMinWidth={300}
                     disabled={submitting}
                 />
             </label>
@@ -675,18 +690,17 @@ export default function VaultVouchers({
                             </div>
                             <label>
                                 <span>{t('vv.employee')}</span>
-                                <SearchableEntityCombobox
+                                <SearchSelect
                                     id={`vv-sal-${r.key}`}
-                                    options={staffOpts.filter((o) => !taken.has(o.id))}
+                                    options={staffOpts.filter((o) => !taken.has(o.value))}
                                     value={r.employeeKey}
-                                    displayText={r.employeeText}
-                                    onDisplayTextChange={(text) => updateSalary(r.key, { employeeText: text })}
-                                    onSelect={(opt) => selectSalaryEmployee(r, opt)}
+                                    onChange={(_v, opt) => selectSalaryEmployee(r, opt)}
                                     placeholder={t('vv.searchEmployee')}
-                                    entityLabel="employee"
+                                    emptyHint={t('common.noMatches')}
                                     loading={employeesLoading}
-                                    maxInitial={60}
-                                    maxFiltered={80}
+                                    loadingHint={t('common.loading')}
+                                    moreHint={t('common.moreMatches')}
+                                    menuMinWidth={300}
                                     disabled={submitting}
                                 />
                             </label>
@@ -855,47 +869,46 @@ export default function VaultVouchers({
                     </div>
                 </form>
             ) : (
-                <div className="wlk-section">
+                <div className="wlk-section" ref={listTopRef}>
                     <div className="wlk-section-header">
                         <h3>
                             {t('vv.tab.requests')}
-                            <span className="wlk-count">{vouchers.length}</span>
+                            <span className="wlk-count">{total}</span>
                         </h3>
                     </div>
                     {messages}
                     <div className="wlk-filter-bar" style={{ margin: '0 0 12px' }}>
                         <div className="wlk-filter-grid">
                             <div className="ws-field">
-                                <label>{t('common.status')}</label>
-                                <SearchableEntityCombobox
+                                <label htmlFor="vv-filter-status">{t('common.status')}</label>
+                                <SearchSelect
                                     id="vv-filter-status"
+                                    size="sm"
                                     options={statusOpts}
                                     value={filters.status}
-                                    displayText={filters.statusText}
-                                    onDisplayTextChange={(text) => setFilters((f) => ({ ...f, statusText: text }))}
-                                    onSelect={(opt) => setFilters((f) => ({ ...f, status: opt?.id || 'all', statusText: '' }))}
+                                    onChange={(v) => setFilters((f) => ({ ...f, status: String(v || 'all') }))}
                                     placeholder={t('common.allStatuses')}
-                                    entityLabel="status"
+                                    emptyHint={t('common.noMatches')}
                                     disabled={loading}
                                 />
                             </div>
                             <div className="ws-field">
-                                <label>{t('vv.kind')}</label>
-                                <SearchableEntityCombobox
+                                <label htmlFor="vv-filter-kind">{t('vv.kind')}</label>
+                                <SearchSelect
                                     id="vv-filter-kind"
+                                    size="sm"
                                     options={kindOpts}
                                     value={filters.kind}
-                                    displayText={filters.kindText}
-                                    onDisplayTextChange={(text) => setFilters((f) => ({ ...f, kindText: text }))}
-                                    onSelect={(opt) => setFilters((f) => ({ ...f, kind: opt?.id || 'all', kindText: '' }))}
+                                    onChange={(v) => setFilters((f) => ({ ...f, kind: String(v || 'all') }))}
                                     placeholder={t('vv.allKinds')}
-                                    entityLabel="type"
+                                    emptyHint={t('common.noMatches')}
                                     disabled={loading}
                                 />
                             </div>
                         </div>
                     </div>
                     <div className="wlk-section-body">
+                        <WsTableScroll>
                         <table className="wlk-table">
                             <thead>
                                 <tr>
@@ -990,6 +1003,8 @@ export default function VaultVouchers({
                                 })}
                             </tbody>
                         </table>
+                        </WsTableScroll>
+                        <LockerTablePager {...pagerFor(total)} />
                     </div>
                 </div>
             )}

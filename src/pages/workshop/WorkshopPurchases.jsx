@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, BarChart3, AlertTriangle, Calendar, Zap, Trash2 } from 'lucide-react';
 import WorkshopSubScreen from '../../components/workshop/WorkshopSubScreen';
 import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import MultiSelectSearchCombo from '../../components/MultiSelectSearchCombo';
 import { useAuth } from '../../context/AuthContext';
 import { wpT } from '../../utils/workshopPurchasesI18n';
 import { waT } from '../../utils/workshopApprovalsI18n';
@@ -85,9 +87,19 @@ import {
 import WorkshopUomSelect from './WorkshopUomSelect';
 import { listWorkshopUomProfiles } from '../../services/workshopCatalogApi';
 import { branchProductToUomCaps, lineInventoryCapsForInvoice } from './workshopUomUtils';
+import SelectCombo from '../../components/SelectCombo';
+import { TABLE_PAGE_SIZES as PURCHASES_PAGE_SIZES } from '../../hooks/usePagedRows';
 
 const SUPPLIERS_PAGE_LIMIT = 500;
 const PRODUCT_SEARCH_RESULT_LIMIT = 30;
+
+/** Product filter key for a price-report row: catalog id when present, otherwise `name:<product name>`. */
+function priceReportProductKey(row) {
+    const pid = row.product_id ?? row.productId ?? row.branchCatalogProductId ?? row.branch_catalog_product_id;
+    if (pid != null && String(pid).trim() !== '') return String(pid);
+    const pname = String(row.product_name ?? row.productName ?? row.itemName ?? row.item_name ?? '').trim();
+    return pname ? `name:${pname}` : '';
+}
 
 /**
  * GET /workshop-staff/branches/:id/products returns nested `categories` / `uncategorizedProducts`.
@@ -768,8 +780,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setActiveTab(visiblePurchasesTabs[0].id);
         }
     }, [visiblePurchasesTabs, activeTab]);
-    const [filterSupplier, setFilterSupplier] = useState('all');
-    const [filterProduct, setFilterProduct] = useState('all');
+    const [filterVendors, setFilterVendors] = useState([]);
+    const [filterProducts, setFilterProducts] = useState([]);
+    const [filterDateFrom, setFilterDateFrom] = useState('');
+    const [filterDateTo, setFilterDateTo] = useState('');
+    const [invoicesPage, setInvoicesPage] = useState(1);
+    const [invoicesPageSize, setInvoicesPageSize] = useState(PURCHASES_PAGE_SIZES[0]);
+    const [reportPage, setReportPage] = useState(1);
+    const [reportPageSize, setReportPageSize] = useState(PURCHASES_PAGE_SIZES[0]);
+    const invoicesTableTopRef = useRef(null);
+    const reportTableTopRef = useRef(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [showDesc, setShowDesc] = useState(true);
     const [showDiscount, setShowDiscount] = useState(false);
@@ -1678,58 +1698,105 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const seen = new Set();
         const opts = [];
         for (const r of priceHistory) {
-            const pid =
-                r.product_id ??
-                r.productId ??
-                r.branchCatalogProductId ??
-                r.branch_catalog_product_id;
+            const key = priceReportProductKey(r);
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
             const pname = String(r.product_name ?? r.productName ?? r.itemName ?? r.item_name ?? '').trim();
-            if (pid != null && String(pid).trim() !== '') {
-                const key = String(pid);
-                if (seen.has(key)) continue;
-                seen.add(key);
-                opts.push({ value: key, label: pname || t('productFallback', { id: key }) });
-            } else if (pname) {
-                const key = `name:${pname}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                opts.push({ value: key, label: pname });
+            opts.push({ value: key, label: pname || t('productFallback', { id: key }) });
+        }
+        const labelCounts = new Map();
+        for (const o of opts) labelCounts.set(o.label, (labelCounts.get(o.label) || 0) + 1);
+        for (const o of opts) {
+            if (labelCounts.get(o.label) > 1 && !o.value.startsWith('name:')) {
+                o.hint = t('filter.productId', { id: o.value });
             }
         }
         opts.sort((a, b) => a.label.localeCompare(b.label));
         return opts;
-    }, [priceHistory]);
+    }, [priceHistory, t]);
+
+    const vendorComboOptions = useMemo(
+        () => priceReportVendorOptions.map((v) => ({ value: v, label: v })),
+        [priceReportVendorOptions],
+    );
 
     const filteredHistory = useMemo(() => {
+        const vendorSet = new Set(filterVendors);
+        const productSet = new Set(filterProducts);
         return priceHistory.filter((r) => {
-            const matchSupplier = filterSupplier === 'all' || r.vendor_name === filterSupplier;
-            const rowPid = String(
-                r.product_id ?? r.productId ?? r.branchCatalogProductId ?? r.branch_catalog_product_id ?? '',
-            );
-            const rowName = String(r.product_name ?? r.productName ?? '').trim();
-            let matchProduct = filterProduct === 'all';
-            if (!matchProduct && filterProduct.startsWith('name:')) {
-                matchProduct = rowName === filterProduct.slice(5);
-            } else if (!matchProduct) {
-                matchProduct = rowPid === filterProduct;
+            if (vendorSet.size > 0 && !vendorSet.has(String(r.vendor_name ?? '').trim())) return false;
+            if (productSet.size > 0 && !productSet.has(priceReportProductKey(r))) return false;
+            if (filterDateFrom || filterDateTo) {
+                const d = String(r.invoice_date ?? '').slice(0, 10);
+                if (!d) return false;
+                if (filterDateFrom && d < filterDateFrom) return false;
+                if (filterDateTo && d > filterDateTo) return false;
             }
-            return matchSupplier && matchProduct;
+            return true;
         });
-    }, [priceHistory, filterSupplier, filterProduct]);
+    }, [priceHistory, filterVendors, filterProducts, filterDateFrom, filterDateTo]);
 
     useEffect(() => {
-        if (filterProduct === 'all') return;
-        if (!invoicedProductOptions.some((o) => o.value === filterProduct)) {
-            setFilterProduct('all');
-        }
-    }, [invoicedProductOptions, filterProduct]);
+        const valid = new Set(invoicedProductOptions.map((o) => o.value));
+        setFilterProducts((prev) => (prev.every((k) => valid.has(k)) ? prev : prev.filter((k) => valid.has(k))));
+    }, [invoicedProductOptions]);
 
     useEffect(() => {
-        if (filterSupplier === 'all') return;
-        if (!priceReportVendorOptions.includes(filterSupplier)) {
-            setFilterSupplier('all');
-        }
-    }, [priceReportVendorOptions, filterSupplier]);
+        const valid = new Set(priceReportVendorOptions);
+        setFilterVendors((prev) => (prev.every((v) => valid.has(v)) ? prev : prev.filter((v) => valid.has(v))));
+    }, [priceReportVendorOptions]);
+
+    const priceReportFiltersActive =
+        filterVendors.length > 0 || filterProducts.length > 0 || Boolean(filterDateFrom) || Boolean(filterDateTo);
+
+    const resetPriceReportFilters = () => {
+        setFilterVendors([]);
+        setFilterProducts([]);
+        setFilterDateFrom('');
+        setFilterDateTo('');
+        setReportPage(1);
+    };
+
+    const invoicesPageCount = Math.max(1, Math.ceil(invoices.length / invoicesPageSize));
+    const invoicesCurrentPage = Math.min(invoicesPage, invoicesPageCount);
+    const pagedInvoices = useMemo(
+        () => invoices.slice((invoicesCurrentPage - 1) * invoicesPageSize, invoicesCurrentPage * invoicesPageSize),
+        [invoices, invoicesCurrentPage, invoicesPageSize],
+    );
+
+    const reportPageCount = Math.max(1, Math.ceil(filteredHistory.length / reportPageSize));
+    const reportCurrentPage = Math.min(reportPage, reportPageCount);
+    const reportRowOffset = (reportCurrentPage - 1) * reportPageSize;
+    const pagedHistory = useMemo(
+        () => filteredHistory.slice(reportRowOffset, reportRowOffset + reportPageSize),
+        [filteredHistory, reportRowOffset, reportPageSize],
+    );
+
+    useEffect(() => {
+        setInvoicesPage(1);
+        setReportPage(1);
+    }, [selectedBranchId]);
+
+    const goToInvoicesPage = useCallback((p) => {
+        setInvoicesPage(p);
+        invoicesTableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
+
+    const goToReportPage = useCallback((p) => {
+        setReportPage(p);
+        reportTableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
+
+    const pagerLabels = useMemo(
+        () => ({
+            prev: t('pager.prev'),
+            next: t('pager.next'),
+            rowsPerPage: t('pager.rowsPerPage'),
+            showing: (from, to, total) => t('pager.showing', { from, to, total }),
+            page: (n) => t('pager.page', { page: n }),
+        }),
+        [t],
+    );
     const invoiceSupplierOptions = useMemo(() => {
         const names = linkedSuppliers.map((s) => s.name).filter(Boolean);
         return [...new Set(names)].sort((a, b) => a.localeCompare(b));
@@ -2591,7 +2658,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         {branchesForUi.length > 0 && (
                             <div className="pi-field pi-full-width" style={{ marginBottom: 16 }}>
                                 <label>{t('form.branchLabel')}</label>
-                                <select
+                                <SelectCombo
                                     value={invoiceBranchId}
                                     onChange={(e) => handleInvoiceBranchChange(e.target.value)}
                                     style={{
@@ -2608,7 +2675,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             {b.name}
                                         </option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                                 <p className="pi-sub-label" style={{ marginTop: 6 }}>
                                     {t('form.branchHint')}
                                 </p>
@@ -2660,11 +2727,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             <div className="pi-field">
                                 <label>{t('form.dueDate')}</label>
                                 <div className={`pi-due-grid ${dueDateType === 'EOM' ? 'pi-due-eom' : ''}`}>
-                                    <select value={dueDateType} onChange={(e) => setDueDateType(e.target.value)}>
+                                    <SelectCombo value={dueDateType} onChange={(e) => setDueDateType(e.target.value)}>
                                         <option value="Net">{t('form.dueNet')}</option>
                                         <option value="Custom">{t('form.dueCustom')}</option>
                                         <option value="EOM">{t('form.dueEom')}</option>
-                                    </select>
+                                    </SelectCombo>
                                     {dueDateType === 'Net' && (
                                         <div className="pi-days-input">
                                             <input type="number" value={netDays} onChange={(e) => setNetDays(e.target.value)} />
@@ -2697,7 +2764,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         </div>
                         <div className="pi-field pi-full-width">
                             <label>{t('form.supplier')}</label>
-                            <select
+                            <SelectCombo
                                 value={selectedVendor}
                                 onChange={(e) => setSelectedVendor(e.target.value)}
                                 disabled={linkedSuppliersLoading || invoiceSupplierOptions.length === 0}
@@ -2722,7 +2789,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             {v}
                                         </option>
                                     ))}
-                            </select>
+                            </SelectCombo>
                             {linkedSuppliersUsingRegisteredFallback && (
                                 <p className="pi-sub-label" style={{ color: '#B45309', marginTop: 6 }}>
                                     {t('form.supplierFallback')}
@@ -3035,7 +3102,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         })()}
                                                     </td>
                                                     <td>
-                                                        <select
+                                                        <SelectCombo
                                                             className="pi-row-input ws-pi-select"
                                                             value={line.account}
                                                             onChange={(e) => updateLineItem(line.id, 'account', e.target.value)}
@@ -3045,7 +3112,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                     {opt.code} - {t(`account.${opt.code}`)}
                                                                 </option>
                                                             ))}
-                                                        </select>
+                                                        </SelectCombo>
                                                     </td>
                                                     {showDesc ? (
                                                         <td>
@@ -3069,7 +3136,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                 }
                                                             />
                                                         ) : uomOpts.length > 1 ? (
-                                                            <select
+                                                            <SelectCombo
                                                                 className="pi-row-input ws-pi-select"
                                                                 value={line.uom ?? uomOpts[0]}
                                                                 onChange={(e) =>
@@ -3081,7 +3148,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                         {opt}
                                                                     </option>
                                                                 ))}
-                                                            </select>
+                                                            </SelectCombo>
                                                         ) : (
                                                             <span className="ws-pi-td-muted">{line.uom}</span>
                                                         )}
@@ -3133,14 +3200,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                                     onKeyDown={(e) => handleMathKeyDown(e, line.id, 'discount')}
                                                                     onBlur={(e) => handleMathBlur(e, line.id, 'discount')}
                                                                 />
-                                                                <select
+                                                                <SelectCombo
                                                                     className="pi-row-input ws-pi-discount-kind"
                                                                     value={line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent'}
                                                                     onChange={(e) => updateLineItem(line.id, 'discountMode', e.target.value)}
                                                                 >
                                                                     <option value="percent">%</option>
                                                                     <option value="fixed_sar">{t('line.sarCurrency')}</option>
-                                                                </select>
+                                                                </SelectCombo>
                                                             </div>
                                                         </td>
                                                     ) : null}
@@ -3313,13 +3380,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             value={invoiceDiscountValue}
                                             onChange={(e) => setInvoiceDiscountValue(e.target.value)}
                                         />
-                                        <select
+                                        <SelectCombo
                                             value={invoiceDiscountMode}
                                             onChange={(e) => setInvoiceDiscountMode(e.target.value)}
                                         >
                                             <option value="fixed_sar">{t('form.discountFixed')}</option>
                                             <option value="percent">{t('form.discountPercent')}</option>
-                                        </select>
+                                        </SelectCombo>
                                     </div>
                                 </div>
                                 <div className="pi-field-inline">
@@ -4099,7 +4166,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 </button>
             </div>
             {activeTab === 'invoices' && (
-                <div className="ws-section">
+                <div className="ws-section" ref={invoicesTableTopRef}>
                     {invoicesError && (
                         <div
                             style={{
@@ -4138,7 +4205,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                 {invoicesLoading && invoices.length === 0 ? (
                                     <ShimmerTableBodyRows rows={8} columns={13} />
                                 ) : null}
-                                {invoices.map((inv) => (
+                                {pagedInvoices.map((inv) => (
                                     <tr key={`${inv.invoiceKind === 'local' ? 'L' : 'A'}:${inv.id}`}>
                                         <td>
                                             <strong style={{ color: '#EA580C' }}>{inv.invoice_number || inv.id}</strong>
@@ -4231,45 +4298,114 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </tbody>
                         </table>
                     </WsTableScroll>
+                    {invoices.length > 0 && (
+                        <WsTablePagination
+                            page={invoicesCurrentPage}
+                            pageCount={invoicesPageCount}
+                            pageSize={invoicesPageSize}
+                            pageSizes={PURCHASES_PAGE_SIZES}
+                            total={invoices.length}
+                            onPageChange={goToInvoicesPage}
+                            onPageSizeChange={(n) => {
+                                setInvoicesPageSize(n);
+                                setInvoicesPage(1);
+                            }}
+                            labels={pagerLabels}
+                        />
+                    )}
                 </div>
             )}
             {activeTab === 'price_report' && (
-                <div className="ws-section">
-                    <div style={{ padding: 16, display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-                        <div>
+                <div className="ws-section" ref={reportTableTopRef}>
+                    <div style={{ padding: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 16 }}>
+                        <div style={{ flex: '1 1 280px', maxWidth: 420 }}>
                             <label style={{ fontSize: '0.6875rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
                                 {t('filter.byVendor')}
                             </label>
-                            <select
-                                value={filterSupplier}
-                                onChange={(e) => setFilterSupplier(e.target.value)}
-                                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', minWidth: 160 }}
-                            >
-                                <option value="all">{t('filter.allVendors')}</option>
-                                {priceReportVendorOptions.map((v) => (
-                                    <option key={v} value={v}>
-                                        {v}
-                                    </option>
-                                ))}
-                            </select>
+                            <MultiSelectSearchCombo
+                                options={vendorComboOptions}
+                                value={filterVendors}
+                                onChange={(next) => {
+                                    setFilterVendors(next);
+                                    setReportPage(1);
+                                }}
+                                placeholder={t('filter.vendorsPh')}
+                                emptyHint={t('filter.noVendors')}
+                                clearLabel={t('filter.clear')}
+                                removeLabel={t('filter.remove')}
+                                menuMinWidth={320}
+                            />
                         </div>
-                        <div>
+                        <div style={{ flex: '1 1 280px', maxWidth: 420 }}>
                             <label style={{ fontSize: '0.6875rem', fontWeight: 700, display: 'block', marginBottom: 4 }}>
                                 {t('filter.byProduct')}
                             </label>
-                            <select
-                                value={filterProduct}
-                                onChange={(e) => setFilterProduct(e.target.value)}
-                                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--color-border)', minWidth: 160 }}
-                            >
-                                <option value="all">{t('filter.allProducts')}</option>
-                                {invoicedProductOptions.map((p) => (
-                                    <option key={p.value} value={p.value}>
-                                        {p.label}
-                                    </option>
-                                ))}
-                            </select>
+                            <MultiSelectSearchCombo
+                                options={invoicedProductOptions}
+                                value={filterProducts}
+                                onChange={(next) => {
+                                    setFilterProducts(next);
+                                    setReportPage(1);
+                                }}
+                                placeholder={t('filter.productsPh')}
+                                emptyHint={t('filter.noProducts')}
+                                clearLabel={t('filter.clear')}
+                                removeLabel={t('filter.remove')}
+                                menuMinWidth={360}
+                            />
                         </div>
+                        <div>
+                            <label
+                                htmlFor="pi-report-date-from"
+                                style={{ fontSize: '0.6875rem', fontWeight: 700, display: 'block', marginBottom: 4 }}
+                            >
+                                {t('filter.dateFrom')}
+                            </label>
+                            <input
+                                id="pi-report-date-from"
+                                type="date"
+                                value={filterDateFrom}
+                                max={filterDateTo || undefined}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    setFilterDateFrom(v);
+                                    if (v && filterDateTo && filterDateTo < v) setFilterDateTo(v);
+                                    setReportPage(1);
+                                }}
+                                style={{ height: 44, padding: '0 10px', borderRadius: 10, border: '1px solid #e2e8f0', boxSizing: 'border-box' }}
+                            />
+                        </div>
+                        <div>
+                            <label
+                                htmlFor="pi-report-date-to"
+                                style={{ fontSize: '0.6875rem', fontWeight: 700, display: 'block', marginBottom: 4 }}
+                            >
+                                {t('filter.dateTo')}
+                            </label>
+                            <input
+                                id="pi-report-date-to"
+                                type="date"
+                                value={filterDateTo}
+                                min={filterDateFrom || undefined}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    setFilterDateTo(v);
+                                    if (v && filterDateFrom && filterDateFrom > v) setFilterDateFrom(v);
+                                    setReportPage(1);
+                                }}
+                                style={{ height: 44, padding: '0 10px', borderRadius: 10, border: '1px solid #e2e8f0', boxSizing: 'border-box' }}
+                            />
+                        </div>
+                        {priceReportFiltersActive && (
+                            <button
+                                type="button"
+                                className="btn-portal"
+                                onClick={resetPriceReportFilters}
+                                style={{ height: 44, background: '#fff', color: 'var(--color-text-body)', border: '1px solid var(--color-border)' }}
+                            >
+                                {t('filter.reset')}
+                            </button>
+                        )}
                     </div>
                     <WsTableScroll>
                     <table className="ws-table">
@@ -4288,8 +4424,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredHistory.map((r, idx) => (
-                                <tr key={idx}>
+                            {pagedHistory.map((r, idx) => (
+                                <tr key={`${r.invoice_id}:${reportRowOffset + idx}`}>
                                     <td>
                                         <strong>{r.product_name}</strong>
                                     </td>
@@ -4310,7 +4446,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             ))}
                             {filteredHistory.length === 0 && (
                                 <tr>
-                                    <td colSpan={10} style={{ textAlign: 'center', padding: 40 }}>
+                                    <td colSpan={8} style={{ textAlign: 'center', padding: 40 }}>
                                         {t('empty.priceHistory')}
                                     </td>
                                 </tr>
@@ -4318,6 +4454,21 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         </tbody>
                     </table>
                     </WsTableScroll>
+                    {filteredHistory.length > 0 && (
+                        <WsTablePagination
+                            page={reportCurrentPage}
+                            pageCount={reportPageCount}
+                            pageSize={reportPageSize}
+                            pageSizes={PURCHASES_PAGE_SIZES}
+                            total={filteredHistory.length}
+                            onPageChange={goToReportPage}
+                            onPageSizeChange={(n) => {
+                                setReportPageSize(n);
+                                setReportPage(1);
+                            }}
+                            labels={pagerLabels}
+                        />
+                    )}
                 </div>
             )}
 

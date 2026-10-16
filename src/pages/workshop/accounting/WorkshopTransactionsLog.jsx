@@ -1,14 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import {
     Filter,
     RefreshCw,
     ArrowDownCircle,
     ArrowUpCircle,
-    ChevronLeft,
-    ChevronRight,
     Download,
 } from 'lucide-react';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { TABLE_PAGE_SIZES } from '../../../hooks/usePagedRows';
 import {
     listCashBankTransactionsLog,
     listLogFilterUsers,
@@ -28,10 +29,10 @@ import { formatPlateLettersFirst } from '../../../utils/formatPlate';
 import { accT } from '../../../utils/accountingI18n';
 import { riyadhBoundToApiIso } from '../../../utils/riyadhBusinessRange';
 import { loadWorkshopAdminDatetimeRange } from '../workshopAdminDatetimeRange';
+import SelectCombo from '../../../components/SelectCombo';
 import '../../../styles/admin/AccountingPage.css';
 
 const LEGACY_METHOD_VALUES = ['all', 'cash', 'bank', 'petty_cash'];
-const PAGE_SIZE = 50;
 const EXPORT_LIMIT = 10000;
 
 const fmt = (n) => {
@@ -258,6 +259,8 @@ export default function WorkshopTransactionsLog({
         };
     });
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(TABLE_PAGE_SIZES[0]);
+    const tableTopRef = useRef(null);
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [totalAmount, setTotalAmount] = useState(0);
@@ -272,7 +275,7 @@ export default function WorkshopTransactionsLog({
     const [detailPdfBusy, setDetailPdfBusy] = useState(false);
 
     const resolvedEmpty = emptyHint ?? t('txlog.emptyDefault');
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE) || 1);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
 
     const methodComboOptions = useMemo(() => {
         if (!isReceipts) {
@@ -350,8 +353,8 @@ export default function WorkshopTransactionsLog({
         try {
             const res = await listCashBankTransactionsLog(
                 buildListParams(applied, {
-                    limit: PAGE_SIZE,
-                    offset: (page - 1) * PAGE_SIZE,
+                    limit: pageSize,
+                    offset: (page - 1) * pageSize,
                 }),
             );
             setRows(res?.items ?? []);
@@ -368,7 +371,7 @@ export default function WorkshopTransactionsLog({
         } finally {
             setLoading(false);
         }
-    }, [applied, page, buildListParams, t]);
+    }, [applied, page, pageSize, buildListParams, t]);
 
     useEffect(() => {
         const nextBranch = sidebarBranchToFilter(selectedBranchId);
@@ -573,11 +576,11 @@ export default function WorkshopTransactionsLog({
                             menuMinWidth={220}
                         />
                     ) : (
-                    <select className="form-input-field" value={method} onChange={(e) => setMethod(e.target.value)}>
+                    <SelectCombo className="form-input-field" value={method} onChange={(e) => setMethod(e.target.value)}>
                             {LEGACY_METHOD_VALUES.map((value) => (
                                 <option key={value} value={value}>{methodLabel(value)}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                     )}
                 </div>
                 <div>
@@ -689,7 +692,7 @@ export default function WorkshopTransactionsLog({
                 </div>
             </div>
 
-            <section className="premium-table cash-bank-table">
+            <section className="premium-table cash-bank-table" ref={tableTopRef}>
                 <header style={{ padding: '12px 16px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                     <strong>
                         {loading
@@ -714,6 +717,7 @@ export default function WorkshopTransactionsLog({
                     </button>
                     </div>
                 </header>
+                <WsTableScroll>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
@@ -783,42 +787,21 @@ export default function WorkshopTransactionsLog({
                         })}
                     </tbody>
                 </table>
-                <footer style={{
-                    padding: '12px 16px',
-                    borderTop: '1px solid #E2E8F0',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                    flexWrap: 'wrap',
-                }}>
-                    <span style={{ color: '#64748B', fontSize: 13 }}>
-                        {t('txlog.pageSizeHint', { n: PAGE_SIZE })}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={loading || page <= 1}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        >
-                            <ChevronLeft size={14} style={{ marginRight: 4 }} />
-                            {t('txlog.prev')}
-                        </button>
-                        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 90, textAlign: 'center' }}>
-                            {t('txlog.pageOf', { page, pages: totalPages })}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn-portal-outline"
-                            disabled={loading || page >= totalPages}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        >
-                            {t('txlog.next')}
-                            <ChevronRight size={14} style={{ marginLeft: 4 }} />
-                        </button>
-                    </div>
-                </footer>
+                </WsTableScroll>
+                <WsTablePagination
+                    page={Math.min(page, totalPages)}
+                    pageCount={totalPages}
+                    pageSize={pageSize}
+                    total={total}
+                    onPageChange={(p) => {
+                        setPage(p);
+                        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    onPageSizeChange={(n) => {
+                        setPageSize(n);
+                        setPage(1);
+                    }}
+                />
             </section>
 
             <InvoiceDetailsModal

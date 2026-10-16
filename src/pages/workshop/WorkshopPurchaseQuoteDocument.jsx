@@ -18,6 +18,8 @@ import { saccT } from '../../utils/supplierAccountingI18n';
 import { wsDashT } from '../../utils/workshopDashboardI18n';
 import InlineFormScreen from '../../components/InlineFormScreen';
 import WorkshopPurchaseInvoiceView from '../../components/supplier/WorkshopPurchaseInvoiceView';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import '../../styles/admin/AccountingPage.css';
 import {
     AcctCard,
@@ -603,6 +605,8 @@ export default function WorkshopPurchaseQuoteDocument({
         setPrintAfterOpen(false);
     }
 
+    const quotesPaging = usePagedRows(quotes, { resetKey: String(selectedBranchId ?? '') });
+
     if (viewQuoteId) {
         return (
             <div className="module-container">
@@ -689,7 +693,7 @@ export default function WorkshopPurchaseQuoteDocument({
                                 </tr>
                             </thead>
                             <tbody>
-                                {quotes.map((q) => {
+                                {quotesPaging.pagedRows.map((q) => {
                                     const canEdit = !isOrders && ['draft', 'sent'].includes(q.status);
                                     const canSend =
                                         !isOrders && (q.status === 'draft' || q.status === 'sent');
@@ -805,6 +809,7 @@ export default function WorkshopPurchaseQuoteDocument({
                         </table>
                     </div>
                 )}
+                {!loading ? <WsTablePagination {...quotesPaging.pagerProps} /> : null}
             </AcctCard>
 
             {!isOrders ? (

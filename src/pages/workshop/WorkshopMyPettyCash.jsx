@@ -10,6 +10,8 @@ import PettyCashRecordForms from './PettyCashRecordForms';
 import { StatusBadge, MessageThread, formatSar, WalletTransactionsTable } from './WorkshopMyPettyCash.shared';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import { wpcT } from '../../utils/workshopPettyCashI18n';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../hooks/usePagedRows';
 import '../../styles/admin/AccountingPage.css';
 
 const EMPTY_BRANCHES = [];
@@ -34,6 +36,7 @@ function WorkshopMyPettyCashStaff({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [openThread, setOpenThread] = useState(null);
+    const requestsPaging = usePagedRows(requests);
 
     const loadAll = useCallback(async () => {
         if (!scopeQuery.workshopId) {
@@ -148,7 +151,7 @@ function WorkshopMyPettyCashStaff({
                             <tr><td colSpan={9} className="table-cell table-empty">{t('loading')}</td></tr>
                         ) : requests.length === 0 ? (
                             <tr><td colSpan={9} className="table-cell table-empty">{t('empty.requests')}</td></tr>
-                        ) : requests.map((r) => (
+                        ) : requestsPaging.pagedRows.map((r) => (
                             <tr key={r.id}>
                                 <td className="table-cell">{new Date(r.createdAt).toLocaleDateString()}</td>
                                 <td className="table-cell">{r.kind === 'fund_request' ? t('kind.fundTopUp') : r.kind === 'no_cash' ? t('kind.nonCash') : t('kind.expense')}</td>
@@ -173,6 +176,7 @@ function WorkshopMyPettyCashStaff({
                         ))}
                     </tbody>
                 </table>
+                {!loading ? <WsTablePagination {...requestsPaging.pagerProps} /> : null}
             </section>
 
             <section className="premium-table cash-bank-table" style={{ marginTop: 16 }}>

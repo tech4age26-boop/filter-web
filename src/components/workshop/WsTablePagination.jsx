@@ -1,5 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useDocumentLang } from '../../hooks/useDocumentLang';
+import { TABLE_PAGE_SIZES } from '../../hooks/usePagedRows';
+import { pagerLabels } from '../../utils/tableUiI18n';
+import './WsTablePagination.css';
 
 /** Page numbers to show: first, last, and a window around the current page, with gaps as null. */
 function pageWindow(page, pageCount) {
@@ -16,29 +20,26 @@ function pageWindow(page, pageCount) {
     return out;
 }
 
-const DEFAULT_LABELS = {
-    prev: 'Previous page',
-    next: 'Next page',
-    rowsPerPage: 'Rows per page',
-    showing: (from, to, total) => `Showing ${from}–${to} of ${total}`,
-    page: (n) => `Page ${n}`,
-};
-
 /**
- * Centered footer for client-side paged tables: numbered pages plus a rows-per-page picker.
- * `labels`: { prev, next, rowsPerPage, showing(from, to, total), page(n) }.
+ * Centered footer for paged tables: numbered pages plus a rows-per-page picker.
+ * `labels`: { prev, next, rowsPerPage, showing(from, to, total), page(n) }; defaults follow
+ * the portal language.
  */
 export default function WsTablePagination({
     page,
     pageCount,
     pageSize,
-    pageSizes,
+    pageSizes = TABLE_PAGE_SIZES,
     total,
     onPageChange,
     onPageSizeChange,
-    labels = DEFAULT_LABELS,
+    labels: labelsProp,
 }) {
-    const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+    const lang = useDocumentLang();
+    const defaultLabels = useMemo(() => pagerLabels(lang), [lang]);
+    const labels = labelsProp || defaultLabels;
+    if (!total) return null;
+    const from = (page - 1) * pageSize + 1;
     const to = Math.min(page * pageSize, total);
 
     return (

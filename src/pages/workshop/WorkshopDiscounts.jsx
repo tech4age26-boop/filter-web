@@ -9,6 +9,10 @@ import { useAuth } from '../../context/AuthContext';
 import { wdscT } from '../../utils/workshopDiscountsI18n';
 import { riyadhBoundToApiIso } from '../../utils/riyadhBusinessRange';
 import { loadWorkshopAdminDatetimeRange } from './workshopAdminDatetimeRange';
+import SelectCombo from '../../components/SelectCombo';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../components/workshop/WsTablePagination';
+import { useServerPaging } from '../../hooks/usePagedRows';
 import './Workshop.css';
 
 function fmtDt(iso, locale) {
@@ -57,6 +61,10 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
     const [dateTo, setDateTo] = useState(() => loadWorkshopAdminDatetimeRange()?.dateTo || '');
     const [departmentId, setDepartmentId] = useState('all');
     const [departments, setDepartments] = useState([]);
+    const paging = useServerPaging({
+        resetKey: `${selectedBranchId}|${departmentId}|${dateFrom}|${dateTo}`,
+    });
+    const { page, pageSize } = paging;
 
     const [timelineOpen, setTimelineOpen] = useState(null);
     const [detail, setDetail] = useState(null);
@@ -106,8 +114,8 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                 departmentId: departmentId === 'all' ? undefined : departmentId,
                 dateFrom: dateFrom ? riyadhBoundToApiIso(dateFrom, 'start') : undefined,
                 dateTo: dateTo ? riyadhBoundToApiIso(dateTo, 'end') : undefined,
-                limit: 200,
-                offset: 0,
+                limit: pageSize,
+                offset: (page - 1) * pageSize,
             });
             setRows(Array.isArray(res?.invoices) ? res.invoices : []);
             setTotal(Number(res?.total) || 0);
@@ -126,11 +134,12 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
             });
         } catch (e) {
             setRows([]);
+            setTotal(0);
             setError(e.message || t('err.load'));
         } finally {
             setLoading(false);
         }
-    }, [canView, branchParams, departmentId, dateFrom, dateTo, t]);
+    }, [canView, branchParams, departmentId, dateFrom, dateTo, page, pageSize, t]);
 
     useEffect(() => {
         load();
@@ -433,7 +442,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                             <label style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-text-muted)', display: 'block', marginBottom: 6 }}>
                                 {t('filter.department')}
                             </label>
-                            <select
+                            <SelectCombo size="sm"
                                 className="mc-filter-select"
                                 value={departmentId}
                                 onChange={(e) => setDepartmentId(e.target.value)}
@@ -445,7 +454,7 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                                         {d.name}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div style={{ gridColumn: 'span 2', minWidth: 120, display: 'flex' }}>
                             <button
@@ -467,7 +476,8 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
 
             {error ? <p style={{ color: '#B91C1C', marginBottom: 16 }}>{error}</p> : null}
 
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--color-border-light)', overflow: 'hidden' }}>
+            <div className="ws-sr-table-wrap">
+                <WsTableScroll>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                     <thead>
                         <tr style={{ background: '#F9FAFB', textAlign: 'left' }}>
@@ -543,13 +553,9 @@ export default function WorkshopDiscounts({ selectedBranchId = 'all', branches =
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                {!loading ? <WsTablePagination {...paging.pagerFor(total)} /> : null}
             </div>
-
-            {!loading && total > rows.length ? (
-                <p style={{ marginTop: 12, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                    {t('footer.showing', { shown: rows.length, total })}
-                </p>
-            ) : null}
         </div>
     );
 }

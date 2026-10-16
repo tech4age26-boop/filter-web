@@ -1,9 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Coins, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../services/api';
 import { qs } from '../../services/workshopStaffApi';
-import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
+import SearchSelect from '../../components/SearchSelect';
+import WsTableScroll from '../../components/workshop/WsTableScroll';
+import { useServerPaging } from '../../hooks/usePagedRows';
 import { defaultHistoryDateRange } from './lockerFilterUtils';
+import LockerTablePager from './LockerTablePager';
 import { useLockerPortal } from './useLockerPortal';
 
 /**
@@ -25,8 +28,6 @@ export default function PettyCashIssueLog({
         to: defaults.to,
         branchId: scopeBranch,
         cashierId: 'all',
-        branchText: '',
-        cashierText: allCashiersLabel,
     });
     const [applied, setApplied] = useState({
         from: defaults.from,
@@ -40,10 +41,16 @@ export default function PettyCashIssueLog({
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [total, setTotal] = useState(0);
+    const tableTopRef = useRef(null);
+    const { page, pageSize, setPage, pagerFor } = useServerPaging({
+        resetKey: JSON.stringify(applied),
+        scrollRef: tableTopRef,
+    });
 
     useEffect(() => {
         const next = branchLockedId || (selectedBranchId !== 'all' ? selectedBranchId : 'all');
-        setFilters((f) => ({ ...f, branchId: next, branchText: '' }));
+        setFilters((f) => ({ ...f, branchId: next }));
         setApplied((a) => ({ ...a, branchId: next }));
     }, [selectedBranchId, branchLockedId]);
 
@@ -61,25 +68,22 @@ export default function PettyCashIssueLog({
 
     const branchOpts = useMemo(
         () => [
-            ...(branchLockedId
-                ? []
-                : [{ id: 'all', label: t('common.allBranches'), searchText: t('common.allBranches') }]),
-            ...(branches || []).map((b) => ({
-                id: String(b.id),
-                label: b.name,
-                searchText: b.name,
-            })),
+            ...(branchLockedId ? [] : [{ value: 'all', label: t('common.allBranches') }]),
+            ...(branches || []).map((b) => ({ value: String(b.id), label: b.name })),
         ],
         [branches, branchLockedId, t],
     );
 
     const cashierOpts = useMemo(
         () => [
-            { id: 'all', label: allCashiersLabel, searchText: allCashiersLabel },
+            { value: 'all', label: allCashiersLabel },
             ...(cashiers || []).map((c) => {
                 const id = String(c.userId || c.id);
-                const label = `${c.name || c.email || t('common.cashierFallback', { id })}${c.branchName ? ` — ${c.branchName}` : ''}`;
-                return { id, label, searchText: label };
+                return {
+                    value: id,
+                    label: c.name || c.email || t('common.cashierFallback', { id }),
+                    hint: c.branchName || undefined,
+                };
             }),
         ],
         [cashiers, allCashiersLabel, t],
@@ -95,19 +99,28 @@ export default function PettyCashIssueLog({
                     to: active.to || undefined,
                     branchId: active.branchId && active.branchId !== 'all' ? active.branchId : undefined,
                     cashierId: active.cashierId && active.cashierId !== 'all' ? active.cashierId : undefined,
-                    limit: 100,
+                    page,
+                    limit: pageSize,
                 })}`,
             );
-            setIssues(Array.isArray(res?.issues) ? res.issues : []);
+            const items = Array.isArray(res?.issues) ? res.issues : [];
+            const count = Number(res?.total ?? items.length);
+            if (!items.length && count > 0 && page > 1) {
+                setPage(Math.ceil(count / pageSize));
+                return;
+            }
+            setIssues(items);
+            setTotal(count);
             setSummary(res?.summary || null);
         } catch (e) {
             setError(e?.message || t('pcl.loadError'));
             setIssues([]);
+            setTotal(0);
             setSummary(null);
         } finally {
             setLoading(false);
         }
-    }, [applied, t]);
+    }, [applied, page, pageSize, setPage, t]);
 
     useEffect(() => {
         void load(applied);
@@ -130,8 +143,6 @@ export default function PettyCashIssueLog({
             to: d.to,
             branchId: nextBranch,
             cashierId: 'all',
-            branchText: '',
-            cashierText: allCashiersLabel,
         };
         setFilters(next);
         setApplied({
@@ -218,56 +229,45 @@ export default function PettyCashIssueLog({
                         />
                     </div>
                     <div className="ws-field">
-                        <label>{t('common.branch')}</label>
-                        <SearchableEntityCombobox
+                        <label htmlFor="pci-filter-branch">{t('common.branch')}</label>
+                        <SearchSelect
                             id="pci-filter-branch"
+                            size="sm"
                             options={branchOpts}
                             value={branchLockedId || filters.branchId || 'all'}
-                            displayText={filters.branchText || ''}
-                            onDisplayTextChange={(text) => setFilters((f) => ({ ...f, branchText: text }))}
-                            onSelect={(opt) => setFilters((f) => ({
-                                ...f,
-                                branchId: opt?.id || 'all',
-                                branchText: opt?.label || '',
-                            }))}
+                            onChange={(v) => setFilters((f) => ({ ...f, branchId: String(v || 'all') }))}
                             placeholder={t('common.searchBranches')}
-                            entityLabel="branch"
-                            maxInitial={40}
-                            maxFiltered={60}
+                            emptyHint={t('common.noMatches')}
                             disabled={loading || Boolean(branchLockedId)}
+                            title={branchLockedId ? t('common.branchLocked') : undefined}
                         />
                     </div>
                     <div className="ws-field">
-                        <label>{t('common.cashier')}</label>
-                        <SearchableEntityCombobox
+                        <label htmlFor="pci-filter-cashier">{t('common.cashier')}</label>
+                        <SearchSelect
                             id="pci-filter-cashier"
+                            size="sm"
                             options={cashierOpts}
                             value={filters.cashierId || 'all'}
-                            displayText={filters.cashierText || ''}
-                            onDisplayTextChange={(text) => setFilters((f) => ({ ...f, cashierText: text }))}
-                            onSelect={(opt) => setFilters((f) => ({
-                                ...f,
-                                cashierId: opt?.id || 'all',
-                                cashierText: opt?.label || '',
-                            }))}
+                            onChange={(v) => setFilters((f) => ({ ...f, cashierId: String(v || 'all') }))}
                             placeholder={t('common.searchCashiers')}
-                            entityLabel="cashier"
-                            maxInitial={40}
-                            maxFiltered={60}
+                            emptyHint={t('common.noMatches')}
                             disabled={loading}
+                            menuMinWidth={300}
                         />
                     </div>
                 </div>
             </div>
 
-            <div className="wlk-section">
+            <div className="wlk-section" ref={tableTopRef}>
                 <div className="wlk-section-header">
                     <h3>
                         {t('pcl.issued')}
-                        <span className="wlk-count">{issues.length}</span>
+                        <span className="wlk-count">{total}</span>
                     </h3>
                 </div>
                 <div className="wlk-section-body">
+                    <WsTableScroll>
                     <table className="wlk-table">
                         <thead>
                             <tr>
@@ -300,6 +300,8 @@ export default function PettyCashIssueLog({
                             )}
                         </tbody>
                     </table>
+                    </WsTableScroll>
+                    <LockerTablePager {...pagerFor(total)} />
                 </div>
             </div>
         </div>

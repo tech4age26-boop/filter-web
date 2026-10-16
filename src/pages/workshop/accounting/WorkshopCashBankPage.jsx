@@ -25,6 +25,10 @@ import {
     formatSarAmount,
     todayIsoDate,
 } from './workshopAccountingShared';
+import SelectCombo from '../../../components/SelectCombo';
+import WsTableScroll from '../../../components/workshop/WsTableScroll';
+import WsTablePagination from '../../../components/workshop/WsTablePagination';
+import { usePagedRows } from '../../../hooks/usePagedRows';
 import '../../../styles/admin/AccountingPage.css';
 
 function layoutBranchId(selectedBranchId) {
@@ -198,6 +202,7 @@ export default function WorkshopCashBankPage({
         const want = accountTab === 'bank' ? 'BANK' : 'PETTY_CASH';
         return accounts.filter((a) => a.apiType === want);
     }, [accounts, accountTab]);
+    const accountsPaging = usePagedRows(visibleAccounts, { resetKey: `${accountTab}|${selectedBranchId}` });
 
     const stats = useMemo(() => {
         const isOperatingCash = (a) => a.apiType === 'CASH' && a.kind !== 'SYSTEM_CASHIER_TILL';
@@ -681,7 +686,7 @@ export default function WorkshopCashBankPage({
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">{t('cb.defaults.cash')}</label>
-                                        <select
+                                        <SelectCombo
                                             className="form-input-field"
                                             value={dCash}
                                             onChange={(e) => setBranchDefaults((cur) => ({
@@ -693,11 +698,11 @@ export default function WorkshopCashBankPage({
                                             {accounts.filter((a) => a.apiType === 'CASH' && a.kind === 'OPERATING' && (!a.branchId || String(a.branchId) === bid)).map((a) => (
                                                 <option key={a.id} value={a.id}>{a.name}</option>
                                             ))}
-                                        </select>
+                                        </SelectCombo>
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">{t('cb.defaults.bank')}</label>
-                                        <select
+                                        <SelectCombo
                                             className="form-input-field"
                                             value={dBank}
                                             onChange={(e) => setBranchDefaults((cur) => ({
@@ -709,7 +714,7 @@ export default function WorkshopCashBankPage({
                                             {accounts.filter((a) => a.apiType === 'BANK' && a.kind === 'OPERATING' && (!a.branchId || String(a.branchId) === bid)).map((a) => (
                                                 <option key={a.id} value={a.id}>{a.name}</option>
                                             ))}
-                                        </select>
+                                        </SelectCombo>
                                     </div>
                                     <div className="form-group">
                                         <button
@@ -793,6 +798,7 @@ export default function WorkshopCashBankPage({
             ) : null}
 
             <section className="premium-table cash-bank-table">
+                <WsTableScroll>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                         <tr className="table-header-row">
@@ -818,7 +824,7 @@ export default function WorkshopCashBankPage({
                                 <td colSpan={isAdminHqBooks ? 8 : 10} className="table-cell table-empty">{t('cb.empty')}</td>
                             </tr>
                         ) : (
-                            visibleAccounts.map((a) => (
+                            accountsPaging.pagedRows.map((a) => (
                                 <tr
                                     key={a.id}
                                     className={a.coaAccountId ? 'cash-bank-row--clickable' : undefined}
@@ -910,6 +916,8 @@ export default function WorkshopCashBankPage({
                         )}
                     </tbody>
                 </table>
+                </WsTableScroll>
+                <WsTablePagination {...accountsPaging.pagerProps} />
             </section>
             </>
             )}
@@ -943,7 +951,7 @@ export default function WorkshopCashBankPage({
                             </div>
                             <div className="form-group">
                                 <label className="form-label">{t('cb.field.type')}</label>
-                                <select
+                                <SelectCombo
                                     className="form-input-field"
                                     value={newAccountType}
                                     onChange={(e) => setNewAccountType(e.target.value)}
@@ -951,11 +959,11 @@ export default function WorkshopCashBankPage({
                                     <option value="Cash">{t('cb.tab.cash')}</option>
                                     <option value="Bank">{t('cb.tab.bank')}</option>
                                     <option value="Petty Cash">{t('cb.tab.petty')}</option>
-                                </select>
+                                </SelectCombo>
                             </div>
                             <div className="form-group">
                                 <label className="form-label">{t('cb.field.branch')}</label>
-                                <select
+                                <SelectCombo
                                     className="form-input-field"
                                     value={newAccountBranchId}
                                     onChange={(e) => setNewAccountBranchId(e.target.value)}
@@ -966,7 +974,7 @@ export default function WorkshopCashBankPage({
                                             {b.name}
                                         </option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                                 {branches.length === 0 ? (
                                     <p className="form-help-text" style={{ color: '#B45309' }}>
                                         No branches loaded yet. Ensure your workshop has branches in Branches, then refresh
@@ -976,7 +984,7 @@ export default function WorkshopCashBankPage({
                             </div>
                             <div className="form-group form-group-full">
                                 <label className="form-label">{t('cb.field.softpos')}</label>
-                                <select
+                                <SelectCombo
                                     className="form-input-field"
                                     value={newPosTerminalId}
                                     onChange={(e) => setNewPosTerminalId(e.target.value)}
@@ -991,7 +999,7 @@ export default function WorkshopCashBankPage({
                                                 : ''}
                                         </option>
                                     ))}
-                                </select>
+                                </SelectCombo>
                                 <p className="form-help-text">
                                     If you pick a terminal, this register becomes that terminal&apos;s settlement/bank account. Terminal must belong to the branch selected above. Leave as shared for a general workshop register.
                                 </p>
@@ -1022,14 +1030,14 @@ export default function WorkshopCashBankPage({
                             </div>
                             <div className="form-group form-group-full">
                                 <label className="form-label">{t('cb.field.status')}</label>
-                                <select
+                                <SelectCombo
                                     className="form-input-field"
                                     value={newAccountStatus}
                                     onChange={(e) => setNewAccountStatus(e.target.value)}
                                 >
                                     <option value="active">{t('cb.status.active')}</option>
                                     <option value="inactive">{t('cb.status.inactive')}</option>
-                                </select>
+                                </SelectCombo>
                             </div>
                         </div>
                     </Modal>
@@ -1055,13 +1063,13 @@ export default function WorkshopCashBankPage({
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('cb.field.typeEdit')}</label>
-                            <select className="form-input-field" value={editingAccount.type} onChange={(e) => setEditingAccount((p) => ({ ...p, type: e.target.value }))}>
+                            <SelectCombo className="form-input-field" value={editingAccount.type} onChange={(e) => setEditingAccount((p) => ({ ...p, type: e.target.value }))}>
                                 <option value="Cash">{t('cb.tab.cash')}</option><option value="Bank">{t('cb.tab.bank')}</option><option value="Petty Cash">{t('cb.tab.petty')}</option>
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('cb.field.branch')}</label>
-                            <select
+                            <SelectCombo
                                 className="form-input-field"
                                 value={editingAccount.branchId != null ? String(editingAccount.branchId) : ''}
                                 onChange={(e) => {
@@ -1087,11 +1095,11 @@ export default function WorkshopCashBankPage({
                                         {b.name}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                         </div>
                         <div className="form-group form-group-full">
                             <label className="form-label">{t('cb.field.softposEdit')}</label>
-                            <select
+                            <SelectCombo
                                 className="form-input-field"
                                 value={editingAccount.posTerminalId != null ? String(editingAccount.posTerminalId) : ''}
                                 onChange={(e) => setEditingAccount((p) => ({ ...p, posTerminalId: e.target.value }))}
@@ -1106,7 +1114,7 @@ export default function WorkshopCashBankPage({
                                             : ''}
                                     </option>
                                 ))}
-                            </select>
+                            </SelectCombo>
                             <p className="form-help-text">
                                 Same branch as this register. Change only when you want to attach or detach a terminal; saving without changing this keeps the current link.
                             </p>
@@ -1122,9 +1130,9 @@ export default function WorkshopCashBankPage({
                         </div>
                         <div className="form-group">
                             <label className="form-label">{t('cb.field.status')}</label>
-                            <select className="form-input-field" value={editingAccount.status} onChange={(e) => setEditingAccount((p) => ({ ...p, status: e.target.value }))}>
+                            <SelectCombo className="form-input-field" value={editingAccount.status} onChange={(e) => setEditingAccount((p) => ({ ...p, status: e.target.value }))}>
                                 <option value="active">{t('cb.status.active')}</option><option value="inactive">{t('cb.status.inactive')}</option>
-                            </select>
+                            </SelectCombo>
                         </div>
                     </Modal>
                 )}

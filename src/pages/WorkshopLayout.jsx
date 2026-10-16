@@ -13,6 +13,7 @@ import { parseWorkshopCoaAccountFormFromPath } from './workshop/workshopCoaAccou
 import { lazyWithRetry } from '../utils/lazyWithRetry';
 import PlatformChatNavBadge from '../components/platform-chat/PlatformChatNavBadge';
 import PlatformChatFab from '../components/platform-chat/PlatformChatFab';
+import SelectCombo from '../components/SelectCombo';
 import { isPlatformChatNavId } from '../utils/platformChatForUser';
 import '../styles/admin/PlatformChat.css';
 import { apiFetch } from '../services/api';
@@ -849,23 +850,21 @@ export default function WorkshopLayout() {
                 </div>
                 {activeTab !== 'catalog-new' && !isWalletTab && activeBranches.length > 0 && (
                 <div className="ws-branch-selector">
-                    <select
-                        className="ws-branch-select"
+                    <SelectCombo
+                        className="ss-combo--dark"
+                        size="sm"
+                        aria-label={lt('layout.allBranches')}
                         value={selectedBranch}
                         onChange={e => setSelectedBranch(e.target.value)}
                         disabled={!!userBranchLock}
                         title={userBranchLock ? lt('layout.branchScoped') : undefined}
-                        style={{
-                            opacity: userBranchLock ? 0.85 : 1,
-                            cursor: userBranchLock ? 'not-allowed' : 'pointer',
-                        }}
                     >
                         {/* Hide "All Branches" when the user is locked to a single branch. */}
                         {!userBranchLock && !inventoryBranchOnly ? <option value="all">{lt('layout.allBranches')}</option> : null}
                         {activeBranches.map((branch) => (
                             <option key={branch.id} value={branch.id}>{branch.name}</option>
                         ))}
-                    </select>
+                    </SelectCombo>
                 </div>
                 )}
                 <nav className="ws-nav">
