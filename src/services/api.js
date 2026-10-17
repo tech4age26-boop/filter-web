@@ -1,13 +1,17 @@
 import { notifyUserActivity } from '../utils/sessionIdle';
 
-// Local `.env.development` sets VITE_API_BASE_URL=http://localhost:3000 so new
-// Nest routes (e.g. COA adjust) work before they are deployed to Railway.
-//staging url (production default when VITE_API_BASE_URL is unset)
-export const BASE_URL = 'https://filterbackend-production.up.railway.app';
-// development url — use local Nest while building AI Camera Phase 1
-// export const BASE_URL = 'http://localhost:3000';
+// Local `.env.development` sets VITE_API_BASE_URL=http://localhost:3000 so the
+// admin UI and Flutter POS (AppConfig.local → 127.0.0.1:3000) share one backend.
+// Production builds leave the env unset and fall back to Railway.
+export const BASE_URL =
+  (typeof import.meta !== 'undefined' &&
+    String(import.meta.env?.VITE_API_BASE_URL || '').trim()) ||
+  'https://filterbackend-production.up.railway.app';
 
 const API_LOADING_EVENT = 'filter-api-loading';
+
+/** Fired on 403 so AuthContext can refresh session permissions. */
+export const PERMISSION_DENIED_EVENT = 'filter-permission-denied';
 
 /** Device UTC offset in minutes (e.g. 300 Pakistan, 240 UAE) for cashier order timestamps. */
 export function clientUtcOffsetMinutes() {
@@ -244,6 +248,12 @@ export async function apiFetch(path, options = {}) {
         if (shouldRedirectToLogin()) {
           window.location.replace(getLoginRedirectPath());
         }
+      } else if (response.status === 403 && typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent(PERMISSION_DENIED_EVENT, {
+            detail: { path, method, response: responseBody },
+          }),
+        );
       }
 
       const detail = {

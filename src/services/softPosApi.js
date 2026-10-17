@@ -110,7 +110,7 @@ export const deleteSoftPosDevice = (id) =>
         method: 'DELETE',
     });
 
-/** `params.method`: softpos (default) | card | cash | tabby | tamara | monthly_billing */
+/** `params.method`: softpos (default) | card | cash | bank_transfer | tabby | tamara | monthly_billing */
 export const getSoftPosAccess = (params = {}) =>
     apiFetch(`/super-admin/softpos/access${qs(params)}`);
 
