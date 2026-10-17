@@ -2,18 +2,12 @@ import { notifyUserActivity } from '../utils/sessionIdle';
 
 // Local `.env.development` sets VITE_API_BASE_URL=http://localhost:3000 so new
 // Nest routes (e.g. COA adjust) work before they are deployed to Railway.
-// Only `npm run dev` reads it: a production build always calls Railway, so never
-// hard-code localhost here — a deployed build would call each visitor's own PC.
-const STAGING_BASE_URL = 'https://filterbackend-production.up.railway.app';
-const DEV_BASE_URL =
-  import.meta.env?.DEV && import.meta.env?.VITE_API_BASE_URL
-    ? String(import.meta.env.VITE_API_BASE_URL).trim().replace(/\/+$/, '')
-    : '';
-export const BASE_URL = DEV_BASE_URL || STAGING_BASE_URL;
+//staging url (production default when VITE_API_BASE_URL is unset)
+export const BASE_URL = 'https://filterbackend-production.up.railway.app';
+// development url — use local Nest while building AI Camera Phase 1
+// export const BASE_URL = 'http://localhost:3000';
 
 const API_LOADING_EVENT = 'filter-api-loading';
-/** Fired when the API rejects a call for a missing permission (session permissions may be stale). */
-export const PERMISSION_DENIED_EVENT = 'filter-permission-denied';
 
 /** Device UTC offset in minutes (e.g. 300 Pakistan, 240 UAE) for cashier order timestamps. */
 export function clientUtcOffsetMinutes() {
@@ -126,9 +120,7 @@ function isInvalidSession401(errorBody) {
   ).toLowerCase();
 
   // Workshop scope / missing workshop context — session is still valid for platform admin.
-  // "Only <role> can …" is an authorization refusal, not an expired session.
   if (
-    msg.startsWith("only ") ||
     msg.includes("associated with a workshop") ||
     msg.includes("bound to a workshop") ||
     msg.includes("not linked to a workshop") ||
@@ -252,16 +244,6 @@ export async function apiFetch(path, options = {}) {
         if (shouldRedirectToLogin()) {
           window.location.replace(getLoginRedirectPath());
         }
-      } else if (
-        response.status === 403 &&
-        token &&
-        /missing permission/i.test(
-          getErrorMessage(responseBody, 403, "Forbidden", method, path) || ""
-        )
-      ) {
-        window.dispatchEvent(
-          new CustomEvent(PERMISSION_DENIED_EVENT, { detail: { path } })
-        );
       }
 
       const detail = {
@@ -280,7 +262,7 @@ export async function apiFetch(path, options = {}) {
 
       console.error("[apiFetch] Request failed", detail);
 
-      const requestError = new Error(
+      throw new Error(
         getErrorMessage(
           responseBody,
           response.status,
@@ -289,8 +271,6 @@ export async function apiFetch(path, options = {}) {
           path
         )
       );
-      requestError.status = response.status;
-      throw requestError;
     }
 
     if (token) {
