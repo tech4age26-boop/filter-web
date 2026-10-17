@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Home, Package, FileText, Store, DollarSign, Tag, Users,
-    RotateCcw, Clock, List, ShoppingBag, LogOut, Play, Loader2, MessageCircle,
+    RotateCcw, Clock, List, ShoppingBag, LogOut, Play, Loader2, MessageCircle, Smartphone,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../services/api';
@@ -13,6 +13,7 @@ import AddNewOrder from '../components/pos/AddNewOrder';
 import DepartmentSelect from '../components/pos/DepartmentSelect';
 import OrderBuilder from '../components/pos/OrderBuilder';
 import CorporateBookings from '../components/pos/CorporateBookings';
+import RiderOrders, { RiderOrdersNavBadge } from '../components/pos/RiderOrders';
 import OrdersScreen from '../components/pos/OrdersScreen';
 import ProductsScreen from '../components/pos/ProductsScreen';
 import SalesReturnScreen from '../components/pos/SalesReturnScreen';
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
     { id: 'chat',          label: 'Chat',          Icon: MessageCircle },
     { id: 'products',      label: 'Products',      Icon: Package },
     { id: 'orders',        label: 'Orders',        Icon: FileText },
+    { id: 'rider_orders',  label: 'Rider Orders',  Icon: Smartphone },
     { id: 'takeaway',      label: 'Takeaway',      Icon: ShoppingBag },
     { id: 'sales_return',  label: 'Sales Return',  Icon: RotateCcw },
     { id: 'returns_list',  label: 'Returns List',  Icon: List },
@@ -303,6 +305,7 @@ function POSContent() {
             case 'chat':          return null;
             case 'products':      return <ProductsScreen />;
             case 'orders':        return <OrdersScreen />;
+            case 'rider_orders':  return <RiderOrders onOpenOrders={() => setScreen('orders')} />;
             case 'takeaway':      return <TakeawayScreen />;
             case 'sales_return':  return <SalesReturnScreen onBack={() => setScreen('home')} />;
             case 'returns_list':  return <ReturnsListScreen />;
@@ -358,6 +361,7 @@ function POSContent() {
                                     {label}
                                 </span>
                                 {isPlatformChatNavId(id) && <PlatformChatNavBadge />}
+                                {id === 'rider_orders' && <RiderOrdersNavBadge />}
                             </button>
                         );
                     })}
