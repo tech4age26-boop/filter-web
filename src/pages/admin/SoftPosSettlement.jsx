@@ -2627,7 +2627,15 @@ function SoftPosToggle({ checked, disabled, onChange, ariaLabel }) {
     );
 }
 
-const ACCESS_METHODS = ['softpos', 'card', 'cash', 'tabby', 'tamara', 'monthly_billing'];
+const ACCESS_METHODS = [
+    'softpos',
+    'card',
+    'cash',
+    'bank_transfer',
+    'tabby',
+    'tamara',
+    'monthly_billing',
+];
 
 const branchMethodOn = (b) => (b.enabled ?? b.softPosEnabled) !== false;
 
@@ -2700,7 +2708,15 @@ function AccessTab({ onError, t, canEdit }) {
         setSavingKey(key);
         setBranchOn(key, next);
         try {
-            await setSoftPosBranchAccess(key, next, method);
+            const res = await setSoftPosBranchAccess(key, next, method);
+            // Prefer server boolean so a no-op/old API cannot leave a fake Disabled state.
+            const saved =
+                typeof res?.enabled === 'boolean'
+                    ? res.enabled
+                    : typeof res?.softPosEnabled === 'boolean'
+                      ? res.softPosEnabled
+                      : next;
+            setBranchOn(key, saved);
         } catch (err) {
             setBranchOn(key, !next);
             onError?.(err?.message || t('access.saveError'));
