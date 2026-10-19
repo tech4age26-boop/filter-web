@@ -51,6 +51,20 @@ export const updateCamera = (id, data) =>
 export const deleteCamera = (id) =>
   apiFetch(`/ai-camera/${id}`, { method: 'DELETE' });
 
+/** Ask the Pi agent to start rpi_capture for this camera. */
+export const startCameraCapture = (id) =>
+  apiFetch(`/ai-camera/cameras/${id}/capture/start`, { method: 'POST' });
+
+/** Ask the Pi agent to stop rpi_capture for this camera. */
+export const stopCameraCapture = (id) =>
+  apiFetch(`/ai-camera/cameras/${id}/capture/stop`, { method: 'POST' });
+
+export const startBranchCapture = (branchId) =>
+  apiFetch(`/ai-camera/branches/${branchId}/capture/start`, { method: 'POST' });
+
+export const stopBranchCapture = (branchId) =>
+  apiFetch(`/ai-camera/branches/${branchId}/capture/stop`, { method: 'POST' });
+
 // ─── AI Orders ────────────────────────────────────────────────
 export const listAiOrders = async (params = {}) => {
   const qs = new URLSearchParams();
