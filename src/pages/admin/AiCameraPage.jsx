@@ -4,6 +4,7 @@ import {
   Camera, Plus, Search, Edit2, Trash2,
   Video, Radio, Car, ChevronRight, RefreshCw, Building, Layers, Loader2,
   BarChart3, AlertTriangle, Clock, Pencil, Check, X, Download, FileText, Sheet,
+  Play, Square,
 } from 'lucide-react';
 import ApprovalPageShell from '../../components/admin/ApprovalPageShell';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
@@ -18,6 +19,8 @@ import {
   correctPlateNumber,
   getMatchSuggestions,
   deleteAiOrder,
+  startCameraCapture,
+  stopCameraCapture,
 } from '../../services/aiCameraApi';
 import {
   getWorkshopOptions,
@@ -50,6 +53,15 @@ const JOB_MATCH_COLORS = {
   MATCHED: { bg: '#D4EDDA', color: '#155724', label: 'Matched' },
   PARTIALLY_MATCHED: { bg: '#FFF3CD', color: '#856404', label: 'Partial' },
   UNMATCHED: { bg: '#F8D7DA', color: '#721C24', label: 'Unmatched' },
+};
+
+const CAPTURE_STATUS = {
+  IDLE: { bg: '#F3F4F6', color: '#6B7280', label: 'Idle' },
+  STARTING: { bg: '#DBEAFE', color: '#1D4ED8', label: 'Starting…' },
+  RUNNING: { bg: '#DCFCE7', color: '#166534', label: 'Capturing' },
+  STOPPING: { bg: '#FEF3C7', color: '#92400E', label: 'Stopping…' },
+  ERROR: { bg: '#FEE2E2', color: '#B91C1C', label: 'Error' },
+  OFFLINE: { bg: '#FFEDD5', color: '#C2410C', label: 'Pi offline' },
 };
 
 const TABS = [
@@ -1334,6 +1346,17 @@ function AiCameraListScreen() {
     if (tab === 'reports') loadReport();
   }, [tab, loadCameras, loadOrders, loadUnmatchedPos, loadStaffVehicles, loadReport]);
 
+  // Refresh capture status while viewing cameras (Pi agent heartbeats)
+  useEffect(() => {
+    if (tab !== 'cameras') return undefined;
+    const t = window.setInterval(() => {
+      listCameras()
+        .then((res) => setCameras(Array.isArray(res) ? res : []))
+        .catch(() => {});
+    }, 8000);
+    return () => window.clearInterval(t);
+  }, [tab]);
+
   useEffect(() => {
     if (tab !== 'staff-vehicles' && tab !== 'reports') return;
     let cancelled = false;
@@ -1384,6 +1407,8 @@ function AiCameraListScreen() {
     return () => { cancelled = true; };
   }, [tab]);
 
+  const [captureBusyId, setCaptureBusyId] = useState('');
+
   const handleDeleteCamera = async (camId) => {
     if (!window.confirm('Delete this camera?')) return;
     try {
@@ -1391,6 +1416,26 @@ function AiCameraListScreen() {
       loadCameras();
     } catch (e) {
       setError(e.message || 'Delete failed');
+    }
+  };
+
+  const handleToggleCapture = async (cam) => {
+    const id = String(cam.id);
+    const wantStart = String(cam.captureDesired || 'IDLE').toUpperCase() !== 'RUNNING';
+    if (wantStart && (!cam.streamUrl || !cam.deviceId)) {
+      setError('Set RTSP stream URL and Device ID on the camera before starting capture.');
+      return;
+    }
+    setCaptureBusyId(id);
+    setError('');
+    try {
+      if (wantStart) await startCameraCapture(id);
+      else await stopCameraCapture(id);
+      await loadCameras();
+    } catch (e) {
+      setError(e.message || (wantStart ? 'Failed to start capture' : 'Failed to stop capture'));
+    } finally {
+      setCaptureBusyId('');
     }
   };
 
@@ -1623,8 +1668,52 @@ function AiCameraListScreen() {
                     Device: {cam.deviceId}
                   </div>
                 ) : null}
+                {(() => {
+                  const st = CAPTURE_STATUS[cam.captureStatus] || CAPTURE_STATUS.IDLE;
+                  const desiredOn = String(cam.captureDesired || 'IDLE').toUpperCase() === 'RUNNING';
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                      <span style={{
+                        background: st.bg, color: st.color, padding: '2px 8px', borderRadius: 6,
+                        fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
+                      }}>
+                        {st.label}
+                      </span>
+                      {desiredOn ? (
+                        <span style={{ fontSize: 10, color: '#6B7280' }}>Web: Start requested</span>
+                      ) : null}
+                      {cam.captureError ? (
+                        <span style={{ fontSize: 11, color: '#B91C1C' }} title={cam.captureError}>
+                          {cam.captureError.slice(0, 60)}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
 
-                <div style={{ display: 'flex', gap: 6, marginTop: 14, borderTop: '1px solid #F0F0F0', paddingTop: 12 }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 14, borderTop: '1px solid #F0F0F0', paddingTop: 12, flexWrap: 'wrap' }}>
+                  {(() => {
+                    const desiredOn = String(cam.captureDesired || 'IDLE').toUpperCase() === 'RUNNING';
+                    const busy = captureBusyId === String(cam.id);
+                    return (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => handleToggleCapture(cam)}
+                        title={desiredOn ? 'Stop Pi capture for this camera' : 'Start Pi capture for this camera'}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
+                          border: 'none', borderRadius: 6, cursor: busy ? 'wait' : 'pointer',
+                          fontSize: 12, fontWeight: 700,
+                          background: desiredOn ? '#FEE2E2' : '#DCFCE7',
+                          color: desiredOn ? '#B91C1C' : '#166534',
+                        }}
+                      >
+                        {busy ? <Loader2 size={12} className="spin" /> : desiredOn ? <Square size={12} /> : <Play size={12} />}
+                        {desiredOn ? 'Stop capture' : 'Start capture'}
+                      </button>
+                    );
+                  })()}
                   <button
                     type="button"
                     onClick={() => navigate(`${LIST_PATH}/${cam.id}/edit`)}
@@ -1923,20 +2012,37 @@ function AiCameraListScreen() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(unmatchedPos.data || []).map((so) => (
-                      <tr key={String(so.id)} style={{ borderBottom: '1px solid #F5F5F5' }}>
-                        <Td mono>{so.orderNo || so.id}</Td>
+                    {(unmatchedPos.data || []).map((so) => {
+                      const orderId = so.orderNo || so.salesOrderId || so.id;
+                      const plate =
+                        so.vehiclePlate ||
+                        so.vehicle?.plate ||
+                        so.vehicle?.plateNo ||
+                        so.vehicle?.plateNumber ||
+                        '';
+                      const customer =
+                        so.customerName ||
+                        so.customer?.name ||
+                        '';
+                      const invoiceNo =
+                        so.invoice?.invoiceNo ||
+                        so.invoiceNo ||
+                        '';
+                      return (
+                      <tr key={String(orderId)} style={{ borderBottom: '1px solid #F5F5F5' }}>
+                        <Td mono>{orderId || '-'}</Td>
                         <Td>
                           <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14, background: '#FFF3CD', padding: '1px 6px', borderRadius: 4 }}>
-                            {so.vehiclePlate || '-'}
+                            {plate ? displayAiPlate(plate) : '-'}
                           </span>
                         </Td>
-                        <Td>{so.customer?.name || so.customerName || '-'}</Td>
+                        <Td>{customer.trim() || '-'}</Td>
                         <Td>{so.branch?.name || '-'}</Td>
-                        <Td mono>{so.invoice?.invoiceNo || '-'}</Td>
+                        <Td mono>{invoiceNo || '-'}</Td>
                         <Td>{so.createdAt ? new Date(so.createdAt).toLocaleString() : '-'}</Td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
