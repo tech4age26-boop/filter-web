@@ -4,7 +4,7 @@ import {
   Camera, Plus, Search, Edit2, Trash2,
   Video, Radio, Car, ChevronRight, RefreshCw, Building, Layers, Loader2,
   BarChart3, AlertTriangle, Clock, Pencil, Check, X, Download, FileText, Sheet,
-  Play, Square,
+  Play, Square, Terminal, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import ApprovalPageShell from '../../components/admin/ApprovalPageShell';
 import SearchableEntityCombobox from '../../components/SearchableEntityCombobox';
@@ -21,6 +21,7 @@ import {
   deleteAiOrder,
   startCameraCapture,
   stopCameraCapture,
+  getCameraCaptureLogs,
 } from '../../services/aiCameraApi';
 import {
   getWorkshopOptions,
@@ -1408,6 +1409,42 @@ function AiCameraListScreen() {
   }, [tab]);
 
   const [captureBusyId, setCaptureBusyId] = useState('');
+  const [logsOpenId, setLogsOpenId] = useState('');
+  const [cameraLogs, setCameraLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  const loadCameraLogs = useCallback(async (camId) => {
+    if (!camId) return;
+    setLogsLoading(true);
+    try {
+      const res = await getCameraCaptureLogs(String(camId), 100);
+      setCameraLogs(Array.isArray(res) ? res : []);
+    } catch {
+      setCameraLogs([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  const handleToggleLogs = (cam) => {
+    const id = String(cam.id);
+    if (logsOpenId === id) {
+      setLogsOpenId('');
+      setCameraLogs([]);
+      return;
+    }
+    setLogsOpenId(id);
+    loadCameraLogs(id);
+  };
+
+  // Poll open camera logs while capturing
+  useEffect(() => {
+    if (tab !== 'cameras' || !logsOpenId) return undefined;
+    const t = window.setInterval(() => {
+      loadCameraLogs(logsOpenId);
+    }, 4000);
+    return () => window.clearInterval(t);
+  }, [tab, logsOpenId, loadCameraLogs]);
 
   const handleDeleteCamera = async (camId) => {
     if (!window.confirm('Delete this camera?')) return;
@@ -1716,6 +1753,24 @@ function AiCameraListScreen() {
                   })()}
                   <button
                     type="button"
+                    onClick={() => handleToggleLogs(cam)}
+                    title="Show capture / detection logs from the Pi"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px',
+                      border: '1px solid #E5E7EB', borderRadius: 6,
+                      background: logsOpenId === String(cam.id) ? '#EEF2FF' : '#fff',
+                      color: logsOpenId === String(cam.id) ? '#3730A3' : '#374151',
+                      cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    <Terminal size={12} />
+                    Logs
+                    {logsOpenId === String(cam.id)
+                      ? <ChevronUp size={12} />
+                      : <ChevronDown size={12} />}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => navigate(`${LIST_PATH}/${cam.id}/edit`)}
                     style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 12px', border: '1px solid #E5E7EB', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
@@ -1729,6 +1784,66 @@ function AiCameraListScreen() {
                     <Trash2 size={12} /> Delete
                   </button>
                 </div>
+
+                {logsOpenId === String(cam.id) ? (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      background: '#0B1220',
+                      color: '#E5E7EB',
+                      borderRadius: 8,
+                      padding: '10px 12px',
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                      fontSize: 11,
+                      lineHeight: 1.45,
+                      maxHeight: 240,
+                      overflowY: 'auto',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, color: '#9CA3AF' }}>
+                      <span>Capture log (live)</span>
+                      <button
+                        type="button"
+                        onClick={() => loadCameraLogs(String(cam.id))}
+                        style={{
+                          background: 'transparent', border: 'none', color: '#A5B4FC',
+                          cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                          display: 'flex', alignItems: 'center', gap: 4,
+                        }}
+                      >
+                        {logsLoading ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+                        Refresh
+                      </button>
+                    </div>
+                    {logsLoading && !cameraLogs.length ? (
+                      <div style={{ color: '#6B7280' }}>Loading…</div>
+                    ) : !cameraLogs.length ? (
+                      <div style={{ color: '#6B7280' }}>
+                        No log lines yet. Start capture and wait for the Pi agent to upload detections.
+                      </div>
+                    ) : (
+                      cameraLogs.map((line) => {
+                        const lvl = String(line.level || 'INFO').toUpperCase();
+                        const color =
+                          lvl === 'ERROR' ? '#FCA5A5'
+                            : lvl === 'WARN' ? '#FCD34D'
+                              : '#86EFAC';
+                        const ts = line.createdAt
+                          ? new Date(line.createdAt).toLocaleTimeString()
+                          : '';
+                        return (
+                          <div key={line.id} style={{ marginBottom: 4, wordBreak: 'break-word' }}>
+                            <span style={{ color: '#6B7280' }}>{ts}</span>
+                            {' '}
+                            <span style={{ color, fontWeight: 700 }}>{lvl}</span>
+                            {' '}
+                            <span>{line.message}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
