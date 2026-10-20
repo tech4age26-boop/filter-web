@@ -1,30 +1,34 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Loader2, Save, Smartphone } from 'lucide-react';
+import { Loader2, Save } from 'lucide-react';
 import {
     getMobileAppVersions,
     updateMobileAppVersion,
 } from '../../services/superAdminApi';
 import '../../styles/admin/MobileAppMenuPage.css';
 
-const APP_LABELS = {
-    softpos: 'Filter SoftPOS',
-    filter_hub: 'Filter Hub',
-};
-
-const CHANNELS = [
-    { id: 'sandbox', title: 'Sandbox', hint: 'Railway / test builds' },
-    { id: 'production', title: 'Production', hint: 'Live customer builds' },
+const APPS = [
+    { id: 'softpos', title: 'Filter SoftPOS', placeholder: '77.0.0' },
+    { id: 'filter_hub', title: 'Filter Hub', placeholder: '1.0.1' },
 ];
 
 function emptyDraft(row) {
     return {
-        latestVersion: row.latestVersion || '',
-        minVersion: row.minVersion || '',
-        storeUrl: row.storeUrl || '',
-        messageEn: row.messageEn || '',
-        messageAr: row.messageAr || '',
-        forceUpdate: row.forceUpdate === true,
+        appVersion: row?.appVersion || '',
+        playStoreVersion: row?.playStoreVersion || '',
+        enabled: row?.enabled !== false,
     };
+}
+
+function VersionShimmer() {
+    return (
+        <div className="mobile-app-menu-card" style={{ marginTop: 20 }} role="status" aria-busy="true" aria-label="Loading versions">
+            <span className="mobile-app-menu-shimmer-line mobile-app-menu-shimmer-line--title" />
+            <span className="mobile-app-menu-shimmer-line mobile-app-menu-shimmer-line--subtitle" style={{ marginTop: 10 }} />
+            <span className="mobile-app-menu-shimmer-line" style={{ height: 42, marginTop: 16 }} />
+            <span className="mobile-app-menu-shimmer-line" style={{ height: 42, marginTop: 12 }} />
+            <span className="mobile-app-menu-shimmer-line mobile-app-menu-shimmer-line--button" style={{ marginTop: 16 }} />
+        </div>
+    );
 }
 
 export default function MobileAppVersionsPage() {
@@ -34,6 +38,7 @@ export default function MobileAppVersionsPage() {
     const [savingKey, setSavingKey] = useState('');
     const [error, setError] = useState('');
     const [savedKey, setSavedKey] = useState('');
+    const [activeApp, setActiveApp] = useState('softpos');
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -43,7 +48,7 @@ export default function MobileAppVersionsPage() {
             const list = Array.isArray(res?.data) ? res.data : [];
             const next = {};
             for (const row of list) {
-                next[`${row.appKey}:${row.channel}`] = emptyDraft(row);
+                next[row.appKey] = emptyDraft(row);
             }
             setRows(list);
             setDrafts(next);
@@ -58,33 +63,28 @@ export default function MobileAppVersionsPage() {
         load();
     }, [load]);
 
-    const patchDraft = (key, field, value) => {
+    const patchDraft = (appKey, field, value) => {
         setDrafts((prev) => ({
             ...prev,
-            [key]: { ...prev[key], [field]: value },
+            [appKey]: { ...emptyDraft(), ...prev[appKey], [field]: value },
         }));
         setSavedKey('');
     };
 
-    const save = async (row) => {
-        const key = `${row.appKey}:${row.channel}`;
-        const draft = drafts[key];
-        if (!draft) return;
-        setSavingKey(key);
+    const save = async (appKey) => {
+        const draft = drafts[appKey] || emptyDraft();
+        setSavingKey(appKey);
         setError('');
         setSavedKey('');
         try {
             await updateMobileAppVersion({
-                appKey: row.appKey,
-                channel: row.channel,
-                latestVersion: draft.latestVersion.trim(),
-                minVersion: draft.minVersion.trim(),
-                storeUrl: draft.storeUrl.trim(),
-                messageEn: draft.messageEn.trim(),
-                messageAr: draft.messageAr.trim(),
-                forceUpdate: draft.forceUpdate,
+                appKey,
+                channel: 'production',
+                appVersion: draft.appVersion.trim(),
+                playStoreVersion: draft.playStoreVersion.trim(),
+                enabled: draft.enabled !== false,
             });
-            setSavedKey(key);
+            setSavedKey(appKey);
             await load();
         } catch (err) {
             setError(err?.message || 'Could not save this version');
@@ -99,112 +99,103 @@ export default function MobileAppVersionsPage() {
                 <div>
                     <h1>Mobile app versions</h1>
                     <p>
-                        Sandbox and production are separate. SoftPOS checks its own
-                        channel when the app opens. Raise the minimum version, or turn
-                        on force update, to block older builds.
+                        Filter SoftPOS production only. Sandbox and local are not checked.
+                        Filter Hub version control is coming soon.
                     </p>
                 </div>
             </header>
 
             {error ? <div className="mobile-app-menu-error" style={{ marginTop: 16 }}>{error}</div> : null}
 
+            <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+                {APPS.map((app) => {
+                    const selected = activeApp === app.id;
+                    return (
+                        <button
+                            key={app.id}
+                            type="button"
+                            onClick={() => setActiveApp(app.id)}
+                            style={{
+                                border: 'none',
+                                borderRadius: 999,
+                                padding: '8px 16px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                background: selected ? '#23262D' : '#fff',
+                                color: selected ? '#FCC247' : '#23262D',
+                            }}
+                        >
+                            {app.title}
+                        </button>
+                    );
+                })}
+            </div>
+
             {loading ? (
-                <div className="mobile-app-menu-card" style={{ marginTop: 20 }}>
-                    <Loader2 className="animate-spin" size={22} />
-                </div>
+                <VersionShimmer />
             ) : (
-                CHANNELS.map((channel) => (
-                    <section key={channel.id} style={{ marginTop: 22 }}>
-                        <h2 style={{ margin: '0 0 4px', fontSize: '1.15rem', fontWeight: 800 }}>
-                            {channel.title}
-                        </h2>
-                        <p style={{ margin: '0 0 12px', color: '#6b7280', fontSize: '0.9rem' }}>
-                            {channel.hint}
-                        </p>
-                        <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-                            {rows
-                                .filter((row) => row.channel === channel.id)
-                                .map((row) => {
-                                    const key = `${row.appKey}:${row.channel}`;
-                                    const draft = drafts[key] || emptyDraft(row);
-                                    const busy = savingKey === key;
-                                    return (
-                                        <form
-                                            key={key}
-                                            className="mobile-app-menu-card"
-                                            onSubmit={(event) => {
-                                                event.preventDefault();
-                                                save(row);
-                                            }}
-                                            style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                                <Smartphone size={18} />
-                                                <strong>{APP_LABELS[row.appKey] || row.appKey}</strong>
-                                            </div>
-                                            <label className="mobile-app-menu-field">
-                                                <span>Latest version</span>
-                                                <input
-                                                    value={draft.latestVersion}
-                                                    onChange={(e) => patchDraft(key, 'latestVersion', e.target.value)}
-                                                    placeholder="77.0.0"
-                                                />
-                                            </label>
-                                            <label className="mobile-app-menu-field">
-                                                <span>Minimum version</span>
-                                                <input
-                                                    value={draft.minVersion}
-                                                    onChange={(e) => patchDraft(key, 'minVersion', e.target.value)}
-                                                    placeholder="1.0.0"
-                                                />
-                                            </label>
-                                            <label className="mobile-app-menu-field">
-                                                <span>Download link</span>
-                                                <input
-                                                    value={draft.storeUrl}
-                                                    onChange={(e) => patchDraft(key, 'storeUrl', e.target.value)}
-                                                    placeholder="https://"
-                                                />
-                                            </label>
-                                            <label className="mobile-app-menu-field">
-                                                <span>Message (English)</span>
-                                                <input
-                                                    value={draft.messageEn}
-                                                    onChange={(e) => patchDraft(key, 'messageEn', e.target.value)}
-                                                />
-                                            </label>
-                                            <label className="mobile-app-menu-field">
-                                                <span>Message (Arabic)</span>
-                                                <input
-                                                    value={draft.messageAr}
-                                                    onChange={(e) => patchDraft(key, 'messageAr', e.target.value)}
-                                                    dir="rtl"
-                                                />
-                                            </label>
-                                            <label className="mobile-app-menu-switch-wrap" style={{ margin: '10px 0 14px' }}>
-                                                <button
-                                                    type="button"
-                                                    role="switch"
-                                                    aria-checked={draft.forceUpdate}
-                                                    className={`mobile-app-menu-switch${draft.forceUpdate ? ' is-on' : ''}`}
-                                                    onClick={() => patchDraft(key, 'forceUpdate', !draft.forceUpdate)}
-                                                >
-                                                    <span className="mobile-app-menu-switch-thumb" />
-                                                </button>
-                                                <span className="mobile-app-menu-switch-label">
-                                                    {draft.forceUpdate ? 'Force update on' : 'Force update off'}
-                                                </span>
-                                            </label>
-                                            <button type="submit" className="mobile-app-menu-save-btn" disabled={busy}>
-                                                {busy ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                                                {savedKey === key ? 'Saved' : 'Save'}
-                                            </button>
-                                        </form>
-                                    );
-                                })}
-                        </div>
-                    </section>
-                ))
+                APPS.filter((app) => app.id === activeApp).map((app) => {
+                    if (app.id === 'filter_hub') {
+                        return (
+                            <div key={app.id} className="mobile-app-menu-card" style={{ maxWidth: 520 }}>
+                                <strong>Filter Hub</strong>
+                                <p style={{ margin: '10px 0 0', color: '#6b7280' }}>Coming soon</p>
+                            </div>
+                        );
+                    }
+                    const row = rows.find((item) => item.appKey === app.id);
+                    const draft = drafts[app.id] || emptyDraft(row);
+                    const busy = savingKey === app.id;
+                    return (
+                        <form
+                            key={app.id}
+                            className="mobile-app-menu-card"
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                save(app.id);
+                            }}
+                            style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 520 }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                <strong>{app.title}</strong>
+                                <label className="mobile-app-menu-switch-wrap">
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={draft.enabled}
+                                        className={`mobile-app-menu-switch${draft.enabled ? ' is-on' : ''}`}
+                                        onClick={() => patchDraft(app.id, 'enabled', !draft.enabled)}
+                                    >
+                                        <span className="mobile-app-menu-switch-thumb" />
+                                    </button>
+                                    <span className="mobile-app-menu-switch-label">
+                                        {draft.enabled ? 'On' : 'Off'}
+                                    </span>
+                                </label>
+                            </div>
+                            <label className="mobile-app-menu-field">
+                                <span>App version</span>
+                                <input
+                                    value={draft.appVersion}
+                                    onChange={(e) => patchDraft(app.id, 'appVersion', e.target.value)}
+                                    placeholder={app.placeholder}
+                                />
+                            </label>
+                            <label className="mobile-app-menu-field">
+                                <span>Play Store version</span>
+                                <input
+                                    value={draft.playStoreVersion}
+                                    onChange={(e) => patchDraft(app.id, 'playStoreVersion', e.target.value)}
+                                    placeholder={app.placeholder}
+                                />
+                            </label>
+                            <button type="submit" className="mobile-app-menu-save-btn" disabled={busy}>
+                                {busy ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                                {savedKey === app.id ? 'Saved' : 'Save'}
+                            </button>
+                        </form>
+                    );
+                })
             )}
         </div>
     );
