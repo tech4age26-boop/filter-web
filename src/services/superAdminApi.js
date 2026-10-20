@@ -914,6 +914,15 @@ export const updateLegalPage = (slug, body) =>
         body: JSON.stringify(body),
     });
 
+export const getMobileAppVersions = () =>
+    apiFetch('/super-admin/mobile-app-versions');
+
+export const updateMobileAppVersion = (body) =>
+    apiFetch('/super-admin/mobile-app-versions', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+    });
+
 export const getMobileAppMenu = () =>
     apiFetch('/super-admin/mobile-app-menu');
 

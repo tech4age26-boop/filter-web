@@ -15,6 +15,7 @@ export const ADMIN_TOP_VIEW_PERMISSION = {
     'tax-codes': 'tax-codes.view',
     'legal-pages': 'legal-pages.view',
     'mobile-app-menu': 'mobile-app-menu.view',
+    'mobile-app-versions': 'mobile-app-menu.view',
     marketing: 'marketing.view',
     permissions: 'permissions.view',
     'admin-wallets': 'admin-wallets.view',
