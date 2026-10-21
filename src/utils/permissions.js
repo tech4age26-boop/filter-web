@@ -106,6 +106,7 @@ const ADMIN_SIDEBAR_ORDER = [
     { path: '/admin/tax-codes',        permission: 'tax-codes.view' },
     { path: '/admin/legal-pages',      permission: 'legal-pages.view' },
     { path: '/admin/mobile-app-menu',  permission: 'mobile-app-menu.view' },
+    { path: '/admin/mobile-app-versions', permission: 'mobile-app-menu.view' },
     { path: '/admin/marketing',        permission: 'marketing.view' },
     { path: '/admin/permissions',      permission: 'permissions.view' },
     { path: '/admin/admin-wallets',    permission: 'admin-wallets.view' },

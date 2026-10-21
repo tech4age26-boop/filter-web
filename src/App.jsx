@@ -14,6 +14,7 @@ import TierManagementPage from './pages/admin/TierManagementPage';
 import TaxCodePage from './pages/admin/TaxCodePage';
 import LegalPagesPage from './pages/admin/LegalPagesPage';
 import MobileAppMenuPage from './pages/admin/MobileAppMenuPage';
+import MobileAppVersionsPage from './pages/admin/MobileAppVersionsPage';
 // Lazy-loaded admin pages (heavy, not needed on initial load)
 const InventoryPage = lazyWithRetry(() => import('./pages/admin/InventoryPage'));
 const CustomersPage = lazyWithRetry(() => import('./pages/admin/CustomersPage'));
@@ -269,6 +270,7 @@ function App() {
               <Route path="tax-codes" element={<TaxCodePage />} />
               <Route path="legal-pages" element={<LegalPagesPage />} />
               <Route path="mobile-app-menu" element={<MobileAppMenuPage />} />
+              <Route path="mobile-app-versions" element={<MobileAppVersionsPage />} />
               <Route path="permissions" element={<PermissionsPage />} />
               <Route path="permissions/roles/new" element={<PermissionsPage />} />
               <Route path="permissions/roles/:roleId/edit" element={<PermissionsPage />} />
