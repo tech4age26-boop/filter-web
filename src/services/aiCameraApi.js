@@ -65,6 +65,17 @@ export const startBranchCapture = (branchId) =>
 export const stopBranchCapture = (branchId) =>
   apiFetch(`/ai-camera/branches/${branchId}/capture/stop`, { method: 'POST' });
 
+/** Recent Pi / Nest capture log lines for one camera. */
+export const getCameraCaptureLogs = async (id, limit = 100) => {
+  const qs = new URLSearchParams();
+  if (limit) qs.set('limit', String(limit));
+  const q = qs.toString();
+  const res = await apiFetch(
+    `/ai-camera/cameras/${id}/capture/logs${q ? `?${q}` : ''}`,
+  );
+  return unwrap(res);
+};
+
 // ─── AI Orders ────────────────────────────────────────────────
 export const listAiOrders = async (params = {}) => {
   const qs = new URLSearchParams();
