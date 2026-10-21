@@ -115,6 +115,13 @@ function CameraFormScreen({ mode }) {
     streamUrl: '',
     deviceId: '',
     isActive: true,
+    dzLevel: '',
+    dzCenterX: '',
+    dzCenterY: '',
+    cropX: '',
+    cropY: '',
+    cropW: '',
+    cropH: '',
   });
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
@@ -258,6 +265,13 @@ function CameraFormScreen({ mode }) {
           streamUrl: cam.streamUrl || '',
           deviceId: cam.deviceId || '',
           isActive: cam.isActive ?? true,
+          dzLevel: cam.digitalZoom?.level ?? '',
+          dzCenterX: cam.digitalZoom?.centerX ?? '',
+          dzCenterY: cam.digitalZoom?.centerY ?? '',
+          cropX: cam.cropRegion?.x ?? '',
+          cropY: cam.cropRegion?.y ?? '',
+          cropW: cam.cropRegion?.w ?? '',
+          cropH: cam.cropRegion?.h ?? '',
         });
       } catch (e) {
         if (!cancelled) setError(e.message || 'Failed to load camera');
@@ -304,6 +318,13 @@ function CameraFormScreen({ mode }) {
       return;
     }
 
+    const digitalZoom = form.dzLevel
+      ? { level: Number(form.dzLevel), centerX: Number(form.dzCenterX) || 50, centerY: Number(form.dzCenterY) || 50 }
+      : null;
+    const cropRegion = form.cropW
+      ? { x: Number(form.cropX) || 0, y: Number(form.cropY) || 0, w: Number(form.cropW) || 100, h: Number(form.cropH) || 100 }
+      : null;
+
     const payload = {
       workshopId: form.workshopId,
       branchId: form.branchId,
@@ -313,6 +334,8 @@ function CameraFormScreen({ mode }) {
       streamUrl: form.streamUrl || undefined,
       deviceId: form.deviceId || undefined,
       isActive: form.isActive,
+      digitalZoom,
+      cropRegion,
     };
 
     setSaving(true);
@@ -325,6 +348,8 @@ function CameraFormScreen({ mode }) {
           streamUrl: payload.streamUrl,
           deviceId: payload.deviceId,
           isActive: payload.isActive,
+          digitalZoom: payload.digitalZoom,
+          cropRegion: payload.cropRegion,
         });
       } else {
         await createCamera(payload);
@@ -455,6 +480,100 @@ function CameraFormScreen({ mode }) {
             value={form.streamUrl}
             onChange={(e) => setForm((f) => ({ ...f, streamUrl: e.target.value }))}
           />
+        </div>
+
+        {/* ── Zoom / Crop Settings ── */}
+        <div style={{ borderTop: '1px solid #E5E7EB', marginTop: 8, paddingTop: 14 }}>
+          <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
+            Digital Zoom (ISAPI)
+          </label>
+          <p style={{ margin: '2px 0 8px', fontSize: 11, color: '#6C757D' }}>
+            Camera zooms server-side at full quality. Works on Hikvision cameras that support ISAPI digital PTZ.
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 100 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Zoom Level (1-6)</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="6" step="1"
+                placeholder="e.g. 2"
+                value={form.dzLevel}
+                onChange={(e) => setForm((f) => ({ ...f, dzLevel: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 100 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Center X %</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="100"
+                placeholder="50"
+                value={form.dzCenterX}
+                onChange={(e) => setForm((f) => ({ ...f, dzCenterX: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 100 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Center Y %</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="100"
+                placeholder="50"
+                value={form.dzCenterY}
+                onChange={(e) => setForm((f) => ({ ...f, dzCenterY: e.target.value }))}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ borderTop: '1px solid #E5E7EB', marginTop: 8, paddingTop: 14 }}>
+          <label className="form-label" style={{ fontWeight: 700, fontSize: 13 }}>
+            Software Crop (Fallback)
+          </label>
+          <p style={{ margin: '2px 0 8px', fontSize: 11, color: '#6C757D' }}>
+            Crops the RTSP frame on the Pi before detection. Used automatically if ISAPI zoom is not supported.
+            All values are percentages (0-100) of the full frame.
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 80 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>X %</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="100"
+                placeholder="0"
+                value={form.cropX}
+                onChange={(e) => setForm((f) => ({ ...f, cropX: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 80 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Y %</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="100"
+                placeholder="0"
+                value={form.cropY}
+                onChange={(e) => setForm((f) => ({ ...f, cropY: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 80 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Width %</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="100"
+                placeholder="100"
+                value={form.cropW}
+                onChange={(e) => setForm((f) => ({ ...f, cropW: e.target.value }))}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 80 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Height %</label>
+              <input
+                className="form-input-field"
+                type="number" min="0" max="100"
+                placeholder="100"
+                value={form.cropH}
+                onChange={(e) => setForm((f) => ({ ...f, cropH: e.target.value }))}
+              />
+            </div>
+          </div>
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
