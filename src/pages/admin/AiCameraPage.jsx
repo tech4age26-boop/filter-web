@@ -23,6 +23,7 @@ import {
   stopCameraCapture,
   getCameraCaptureLogs,
 } from '../../services/aiCameraApi';
+import { BASE_URL } from '../../services/api';
 import {
   getWorkshopOptions,
   getBranches,
@@ -830,9 +831,23 @@ function OrderDetailScreen() {
 
   return (
     <ApprovalPageShell title="AI Order Detail" onBack={() => navigate(`${LIST_PATH}?tab=orders`)}>
-      <div style={{ background: '#F8F9FA', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, textTransform: 'uppercase' }}>Capture No</div>
-        <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'monospace' }}>{order.captureNo}</div>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ background: '#F8F9FA', borderRadius: 12, padding: 16, flex: 1, minWidth: 160 }}>
+          <div style={{ fontSize: 11, color: '#6C757D', fontWeight: 700, textTransform: 'uppercase' }}>Capture No</div>
+          <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'monospace' }}>{order.captureNo}</div>
+        </div>
+        {order.snapshotUrl && (
+          <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #E5E7EB', maxWidth: 320 }}>
+            <img
+              src={order.snapshotUrl.startsWith('/') ? `${BASE_URL}${order.snapshotUrl}` : order.snapshotUrl}
+              alt={`Snapshot for ${order.captureNo}`}
+              style={{ display: 'block', width: '100%', maxHeight: 200, objectFit: 'cover' }}
+            />
+            <div style={{ background: '#F8F9FA', padding: '4px 10px', fontSize: 10, color: '#6C757D', textAlign: 'center', fontWeight: 600 }}>
+              Detection Snapshot
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24, maxWidth: 640 }}>
@@ -2071,6 +2086,7 @@ function AiCameraListScreen() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '2px solid #F0F0F0' }}>
+                      <Th>SNAPSHOT</Th>
                       <Th>CAPTURE NO</Th>
                       <Th>PLATE</Th>
                       <Th>STATUS</Th>
@@ -2098,6 +2114,26 @@ function AiCameraListScreen() {
                           }}
                           onClick={() => navigate(`${LIST_PATH}/orders/${order.id}`)}
                         >
+                          <Td>
+                            {order.snapshotUrl ? (
+                              <img
+                                src={order.snapshotUrl.startsWith('/') ? `${BASE_URL}${order.snapshotUrl}` : order.snapshotUrl}
+                                alt="snapshot"
+                                style={{
+                                  width: 56, height: 40, objectFit: 'cover',
+                                  borderRadius: 6, border: '1px solid #E5E7EB',
+                                }}
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div style={{
+                                width: 56, height: 40, background: '#F3F4F6',
+                                borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                <Camera size={16} color="#9CA3AF" />
+                              </div>
+                            )}
+                          </Td>
                           <Td mono>{order.captureNo}</Td>
                           <Td>
                             <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14 }}>
