@@ -1,0 +1,19 @@
+---
+description: FILTER project rules
+alwaysApply: true
+---
+# FILTER project rules for Cursor Agent
+- Repos: filter_backend (NestJS + Prisma + Postgres) and filter-web (React 19 + Vite).
+- One git branch per fix: fix/<prompt-id>-<short-name> (example: fix/1.1-close-register). One PR per prompt.
+- Small focused change. No unrelated refactors, renames or formatting sweeps.
+- Keep API contracts backward-compatible unless the prompt says otherwise.
+- Database changes only through Prisma migrations (npx prisma migrate dev --name ...). Never hand-run SQL on any shared database.
+- Money: Prisma.Decimal / decimal.js only. No float math, no Number() on amounts, round only at storage/display.
+- Time: business timezone Asia/Riyadh. Operational day = 07:00 to 06:59 Riyadh where the prompt says so. Use common/utils/business-date.util.ts.
+- i18n: every UI string via i18n in Arabic, English, Urdu, Hindi (priority in that order). RTL for Arabic and Urdu.
+- Secrets: never print, log, paste or commit secrets or .env values. Refer to variables by NAME only.
+- Security: every authenticated route must check tenant (workshopId/branchId from req.user, never from the request body).
+- Run and test on staging (Railway) first. Never deploy from main until environment alignment (prompt 11.4) is done.
+- Never touch the production database or production servers (Vultr). Never run destructive commands (migrate reset, db push --force-reset, git push --force) without written approval from Asif.
+- Add or update tests with every change. Run the verify commands before finishing.
+- STOP and show the diff before committing. Do not commit, push or open a PR until a human approves the diff.
