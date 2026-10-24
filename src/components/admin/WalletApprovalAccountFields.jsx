@@ -107,6 +107,7 @@ export default function WalletApprovalAccountFields({
     expenseRequestId = '',
     currencyCode = 'SAR',
     onChange,
+    skipRequesterWallet = false,
     loadCashAccounts,
     loadBudgetAccounts = defaultLoadBudgets,
     loadRequesterWalletBalance = defaultLoadRequesterWallet,
@@ -148,7 +149,7 @@ export default function WalletApprovalAccountFields({
     const displayRequesterName = requesterName || resolvedRequesterName || t('acct.requester');
 
     useEffect(() => {
-        if (!isExpense) {
+        if (!isExpense || skipRequesterWallet) {
             setRequesterWalletBalance(null);
             setResolvedRequesterUserId('');
             setResolvedRequesterName('');
@@ -190,6 +191,7 @@ export default function WalletApprovalAccountFields({
         return () => { cancelled = true; };
     }, [
         isExpense,
+        skipRequesterWallet,
         requesterUserId,
         expenseRequestId,
         currencyCode,
@@ -282,9 +284,9 @@ export default function WalletApprovalAccountFields({
     );
 
     let blockReason = '';
-    if (walletError) {
+    if (!skipRequesterWallet && walletError) {
         blockReason = walletError;
-    } else if (isExpense && walletLoading) {
+    } else if (!skipRequesterWallet && isExpense && walletLoading) {
         blockReason = t('acct.blockLoadingWallet');
     } else if (!loading && !loadError) {
         if (needsPayFromAccount && cashAccounts.length === 0) {
@@ -312,7 +314,10 @@ export default function WalletApprovalAccountFields({
         blockReason = loadError;
     }
 
-    const blocked = loading || walletLoading || Boolean(loadError) || Boolean(blockReason);
+    const blocked = loading
+        || (!skipRequesterWallet && walletLoading)
+        || Boolean(loadError)
+        || Boolean(blockReason);
 
     const paymentSource = isExpense ? 'wallet' : 'cash_register';
 
@@ -350,7 +355,7 @@ export default function WalletApprovalAccountFields({
 
     return (
         <div className="wallet-approval-account-fields">
-            {isExpense && (requesterUserId || expenseRequestId) ? (
+            {isExpense && !skipRequesterWallet && (requesterUserId || expenseRequestId) ? (
                 <div
                     style={{
                         marginBottom: 14,

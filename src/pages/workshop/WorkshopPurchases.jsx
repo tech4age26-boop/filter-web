@@ -53,6 +53,7 @@ import InvoiceRefField from '../../components/invoices/InvoiceRefField';
 import InactiveTag from '../../components/InactiveTag';
 import { inactiveLastWhenSearching, isInactiveRecord } from '../../utils/inactiveRecords';
 import { getNextWorkshopPurchaseInvoiceReference } from '../../services/invoiceReferenceApi';
+import { getAccounts } from '../../services/accountsApi';
 import { PI_ACCOUNT_OPTIONS } from './constants';
 import {
     PURCHASE_INVOICE_VAT_RATE as VAT_RATE,
@@ -72,7 +73,12 @@ import {
 } from '../../utils/invoiceLineLabel';
 import {
     applyLineTotals,
+    applyPurchaseLineEdit,
     computeLineFinancials,
+    formatSolvedAmount,
+    lineHasTypedTotal,
+    lineUsesEnteredTotal,
+    parseInvoiceNumber,
 } from '../../utils/invoiceLineFinancials';
 import {
     defaultUomForWarehouseProduct,
@@ -415,18 +421,25 @@ function normalizeBranchProductOption(row) {
     };
 }
 
-function createEmptyLine() {
+function accountChoiceLabel(account) {
+    return `${account.code} - ${account.name}`;
+}
+
+function createEmptyLine(account = '1410 - Inventory Asset') {
     return {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         productId: '',
         item: '',
-        account: '1410 - Inventory Asset',
+        account,
         description: '',
         uom: 'piece',
         uomProfileId: null,
         uomMode: 'warehouse',
         qty: 1,
         price: 0,
+        enteredTotal: '',
+        amountSource: '',
+        totalSolveFor: '',
         discount: 0,
         discountMode: 'percent',
         taxCode: TAX_LABEL,
@@ -720,6 +733,9 @@ function pickViewInvoiceUi(raw, items = []) {
                 ui.prices_include_vat ??
                 false,
         ),
+        showQty: (ui.show_qty_column ?? ui.showQtyColumn ?? ui.show_qty ?? true) !== false,
+        showUnitPrice:
+            (ui.show_unit_price_column ?? ui.showUnitPriceColumn ?? ui.show_unit_price ?? true) !== false,
     };
 }
 
@@ -793,6 +809,13 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const [modalOpen, setModalOpen] = useState(false);
     const [showDesc, setShowDesc] = useState(true);
     const [showDiscount, setShowDiscount] = useState(false);
+    const [showQty, setShowQty] = useState(true);
+    const [showUnitPrice, setShowUnitPrice] = useState(true);
+    const [coaAccounts, setCoaAccounts] = useState([]);
+    const purchaseAccountsRef = useRef({
+        inventory: '1410 - Inventory Asset',
+        cogs: '5100 - Cost of Goods Sold',
+    });
     const [discountIsPercent, setDiscountIsPercent] = useState(false);
     const todayIso = useMemo(() => {
         const d = new Date();
@@ -1091,6 +1114,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setSubmitInvoiceError('');
         setFreightSar('0');
         setAmountsTaxInclusive(false);
+        setShowQty(true);
+        setShowUnitPrice(true);
         setInvoiceBranchId('');
         setProductSearchByLineId({});
         setActiveProductSearchLineId(null);
@@ -1258,7 +1283,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const id = String(branchId ?? '');
         if (!id || id === invoiceBranchId) return;
         setInvoiceBranchId(id);
-        setLineItems([createEmptyLine()]);
+        setLineItems([createEmptyLine(purchaseAccountsRef.current.inventory)]);
         setProductSearchByLineId({});
         setActiveProductSearchLineId(null);
         setProductDropdownPosition(null);
@@ -1284,7 +1309,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
                 productId: String(item.id ?? ''),
                 item: item.name,
-                account: '1410 - Inventory Asset',
+                account: purchaseAccountsRef.current.inventory,
                 description: '',
                 uom: item.unit || 'piece',
                 qty: 1,
@@ -1321,13 +1346,23 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         [],
     );
 
+    const lineForMoney = (line) => {
+        const searchText = productSearchByLineId[line.id] ?? line.item ?? '';
+        if (lineHasTypedTotal(line) || lineUsesEnteredTotal(line, { hideQty: !showQty, searchText })) {
+            return { ...line, directTotal: true };
+        }
+        return line;
+    };
+
     const recalcStoredLineTotals = (line) => {
         const workingLine = applyDiscountForCalc ? line : { ...line, discount: 0 };
-        return applyLineTotals(
-            { ...workingLine, taxCode: line.taxCode || TAX_LABEL },
+        const calculated = applyLineTotals(
+            { ...lineForMoney(workingLine), taxCode: line.taxCode || TAX_LABEL, directTotal: lineForMoney(workingLine).directTotal },
             amountsTaxInclusive,
             lineFinancialsOpts,
         );
+        const { directTotal: _drop, ...stored } = calculated;
+        return stored;
     };
 
     const getProductSearchText = (line) => productSearchByLineId[line.id] ?? line.item ?? '';
@@ -1397,7 +1432,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setLineItems((prev) =>
             prev.map((line) => {
                 if (line.id !== id) return line;
-                let updatedLine = { ...line, [field]: value };
+                let updatedLine = field === 'qty' || field === 'price' || field === 'enteredTotal'
+                    ? applyPurchaseLineEdit(line, field, value)
+                    : { ...line, [field]: value };
                 if (field === 'uom' && value && typeof value === 'object') {
                     updatedLine = {
                         ...updatedLine,
@@ -1417,10 +1454,14 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     const newIsWh = isWarehouseUomLine(updatedLine, caps);
                     if (caps && cf > 0 && oldIsWh !== newIsWh) {
                         const p = parseFloat(String(line.price).replace(',', '.')) || 0;
-                        updatedLine = {
-                            ...updatedLine,
-                            price: roundMoney2(oldIsWh ? p / cf : p * cf),
-                        };
+                        const price = roundMoney2(oldIsWh ? p / cf : p * cf);
+                        updatedLine = { ...updatedLine, price };
+                        if (updatedLine.amountSource === 'total' && updatedLine.totalSolveFor === 'qty') {
+                            const total = parseInvoiceNumber(updatedLine.enteredTotal);
+                            if (total > 0 && price > 0) {
+                                updatedLine.qty = formatSolvedAmount(total / price);
+                            }
+                        }
                     }
                 }
                 return recalcStoredLineTotals(updatedLine);
@@ -1446,7 +1487,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         item: '',
                         price: 0,
                         uom: 'piece',
-                        account: '1410 - Inventory Asset',
+                        account: purchaseAccountsRef.current.inventory,
                     };
                     return recalcStoredLineTotals(cleared);
                 }),
@@ -1499,8 +1540,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     supplierProductId: caps?.id ?? opt.supplierProductId ?? null,
                     account:
                         opt.type === 'Stock'
-                            ? '1410 - Inventory Asset'
-                            : '5100 - Cost of Goods Sold',
+                            ? purchaseAccountsRef.current.inventory
+                            : purchaseAccountsRef.current.cogs,
                     price: roundMoney2(prefillPrice),
                     taxCode: line.taxCode || TAX_LABEL,
                 };
@@ -1523,7 +1564,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     item: '',
                     price: 0,
                     uom: 'piece',
-                    account: '1410 - Inventory Asset',
+                    account: purchaseAccountsRef.current.inventory,
                 });
             }),
         );
@@ -1537,7 +1578,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     const invoiceTotals = useMemo(
         () =>
             computePurchaseInvoiceTotals({
-                lineItems,
+                lineItems: lineItems.map((line) => lineForMoney(line)),
                 applyLineDiscount: applyDiscountForCalc,
                 lineDiscountIsPercent: discountIsPercent,
                 invoiceDiscountMode,
@@ -1549,6 +1590,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             }),
         [
             lineItems,
+            productSearchByLineId,
+            showQty,
             applyDiscountForCalc,
             discountIsPercent,
             invoiceDiscountMode,
@@ -1592,7 +1635,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
     };
 
     const addEmptyLine = () => {
-        setLineItems((prev) => [...prev, createEmptyLine()]);
+        setLineItems((prev) => [...prev, createEmptyLine(purchaseAccountsRef.current.inventory)]);
     };
 
     const removeLine = (lineId) => {
@@ -1605,7 +1648,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setProductDropdownPosition((prev) => (activeProductSearchLineId === lineId ? null : prev));
         setLineItems((prev) => {
             if (prev.length <= 1) {
-                return [createEmptyLine()];
+                return [createEmptyLine(purchaseAccountsRef.current.inventory)];
             }
             return prev.filter((l) => l.id !== lineId);
         });
@@ -1616,7 +1659,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         if (e.key !== 'Tab' || e.shiftKey) return;
         if (lineIndex !== lineItems.length - 1) return;
         e.preventDefault();
-        const nl = createEmptyLine();
+        const nl = createEmptyLine(purchaseAccountsRef.current.inventory);
         setLineItems((prev) => [...prev, nl]);
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -1964,12 +2007,79 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         amountsTaxInclusive,
     ]);
 
+    useEffect(() => {
+        if (!modalOpen) return undefined;
+        let cancel = false;
+        getAccounts({})
+            .then((rows) => {
+                if (cancel) return;
+                const list = (Array.isArray(rows) ? rows : [])
+                    .filter((row) => row && String(row.code ?? '').trim() && String(row.name ?? '').trim())
+                    .filter((row) => row.status == null || row.status === 'active')
+                    .map((row) => ({
+                        code: String(row.code).trim(),
+                        name: String(row.name).trim(),
+                        isHeading: Boolean(row.isHeading || row.hasChildren),
+                    }))
+                    .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+                if (list.length === 0) return;
+                const leaves = list.filter((row) => !row.isHeading);
+                const inventory =
+                    leaves.find((row) => row.code === '1200' || row.code === '1410' || /inventory/i.test(row.name)) ||
+                    leaves[0];
+                const cogs =
+                    leaves.find((row) => row.code === '5100' || /cost of goods/i.test(row.name)) ||
+                    inventory;
+                if (inventory) purchaseAccountsRef.current.inventory = accountChoiceLabel(inventory);
+                if (cogs) purchaseAccountsRef.current.cogs = accountChoiceLabel(cogs);
+                setCoaAccounts(list);
+                const codes = new Set(list.map((row) => row.code));
+                setLineItems((prev) => {
+                    let changed = false;
+                    const next = prev.map((line) => {
+                        const current = String(line.account ?? '');
+                        const code = current.split(' - ')[0]?.trim();
+                        if (code && codes.has(code)) return line;
+                        if (current === '1410 - Inventory Asset' || current === '5100 - Cost of Goods Sold' || !current) {
+                            changed = true;
+                            const replacement =
+                                current === '5100 - Cost of Goods Sold'
+                                    ? purchaseAccountsRef.current.cogs
+                                    : purchaseAccountsRef.current.inventory;
+                            return { ...line, account: replacement };
+                        }
+                        return line;
+                    });
+                    return changed ? next : prev;
+                });
+            })
+            .catch(() => {
+                if (!cancel) setCoaAccounts([]);
+            });
+        return () => {
+            cancel = true;
+        };
+    }, [modalOpen]);
+
+    const lineReadyForSubmit = useCallback(
+        (line) => {
+            const searchText = productSearchByLineId[line.id] ?? '';
+            if (line.amountSource === 'total' || lineUsesEnteredTotal(line, { hideQty: !showQty, searchText })) {
+                const n = parseInvoiceNumber(line.enteredTotal);
+                if (!(n > 0) || String(line.account ?? '').trim() === '') return false;
+                if (String(line.productId ?? '').trim()) {
+                    return parseInvoiceNumber(line.qty) > 0;
+                }
+                return true;
+            }
+            return isInvoiceLineSubmitReady(line, searchText);
+        },
+        [productSearchByLineId, showQty],
+    );
+
     const hasValidSubmitLine = useMemo(
-        () =>
-            lineItems.some((l) =>
-                isInvoiceLineSubmitReady(l, productSearchByLineId[l.id]),
-            ),
-        [lineItems, productSearchByLineId],
+        () => lineItems.some((l) => lineReadyForSubmit(l)),
+        [lineItems, lineReadyForSubmit],
     );
 
     useEffect(() => {
@@ -2053,6 +2163,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoiceDiscountMode(discMode.includes('percent') ? 'percent' : 'fixed_sar');
             setShowDesc(Boolean(snapshot.show_desc ?? snapshot.showDesc ?? true));
             setShowDiscount(Boolean(snapshot.show_discount ?? snapshot.showDiscount ?? false));
+            setShowQty((snapshot.show_qty ?? snapshot.showQty ?? true) !== false);
+            setShowUnitPrice((snapshot.show_unit_price ?? snapshot.showUnitPrice ?? true) !== false);
             setDiscountIsPercent(Boolean(snapshot.discount_is_percent ?? snapshot.discountIsPercent ?? false));
             setAmountsTaxInclusive(Boolean(snapshot.amounts_tax_inclusive ?? snapshot.amountsTaxInclusive ?? false));
             setFreightSar(String(snapshot.freight_sar ?? snapshot.freightSar ?? '0'));
@@ -2085,6 +2197,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     uom: line.uom ?? 'piece',
                     qty: line.qty ?? line.quantity ?? 1,
                     price: line.price ?? 0,
+                    enteredTotal: line.entered_total ?? line.enteredTotal ?? '',
+                    amountSource: line.amount_source ?? line.amountSource ?? (String(line.entered_total ?? line.enteredTotal ?? '').trim() ? 'total' : ''),
+                    totalSolveFor: line.total_solve_for ?? line.totalSolveFor ?? '',
                     discount: line.discount ?? 0,
                     discountMode: line.discountMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
                     taxCode: line.tax_code ?? line.taxCode ?? TAX_LABEL,
@@ -2096,7 +2211,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     supplierProductId: line.supplierProductId ?? null,
                 };
             });
-            setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine()]);
+            setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine(purchaseAccountsRef.current.inventory)]);
             setProductSearchByLineId(nextSearch);
             setActiveProductSearchLineId(null);
             setProductDropdownPosition(null);
@@ -2178,6 +2293,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         setInvoiceDiscountValue(String(invDiscount.value ?? invoice?.discountAmount ?? '0'));
         setShowDesc(Boolean(ui.showLineDescriptionColumn ?? ui.show_line_description_column ?? true));
         setShowDiscount(Boolean(ui.showLineDiscountColumn ?? ui.show_line_discount_column ?? false));
+        setShowQty((ui.show_qty_column ?? ui.showQtyColumn ?? ui.show_qty ?? true) !== false);
+        setShowUnitPrice((ui.show_unit_price_column ?? ui.showUnitPriceColumn ?? ui.show_unit_price ?? true) !== false);
         setDiscountIsPercent(nextDiscountIsPercent);
         setAmountsTaxInclusive(loadedAmountsTaxInclusive);
         setFreightSar(String(payload.freightIn ?? payload.freight_in ?? invoice?.freightIn ?? '0'));
@@ -2236,6 +2353,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 uom: line.uom ?? 'piece',
                 qty,
                 price,
+                enteredTotal: line.entered_total ?? line.enteredTotal ?? '',
+                amountSource: line.amount_source ?? line.amountSource ?? (String(line.entered_total ?? line.enteredTotal ?? '').trim() ? 'total' : ''),
+                totalSolveFor: line.total_solve_for ?? line.totalSolveFor ?? '',
                 discount: line.discount ?? line.line_discount_raw ?? 0,
                 discountMode: lineDiscMode === 'fixed_sar' ? 'fixed_sar' : 'percent',
                 taxCode: line.tax_code ?? line.taxCode ?? TAX_LABEL,
@@ -2243,7 +2363,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 totalFinal: String(line.totalFinal ?? line.line_total_incl_vat ?? line.total ?? '0.00'),
             });
         });
-        setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine()]);
+        setLineItems(nextLines.length > 0 ? nextLines : [createEmptyLine(purchaseAccountsRef.current.inventory)]);
         setProductSearchByLineId(nextSearch);
         setActiveProductSearchLineId(null);
         setProductDropdownPosition(null);
@@ -2290,15 +2410,19 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
         const isLocalSupplier = isNonAffiliatedPickerSupplier(selectedSupplierRow);
         const selectedLineItems = isDraftSave
             ? lineItems
-            : lineItems.filter((line) =>
-                  isInvoiceLineSubmitReady(line, productSearchByLineId[line.id]),
-              );
+            : lineItems.filter((line) => lineReadyForSubmit(line));
         if (!isDraftSave && selectedLineItems.length === 0) {
             setSubmitInvoiceError(t('err.needLines'));
             return;
         }
         if (!isDraftSave) {
             const invalidQtyIndex = selectedLineItems.findIndex((line) => {
+                if (
+                    line.amountSource === 'total'
+                    || lineUsesEnteredTotal(line, { hideQty: !showQty, searchText: productSearchByLineId[line.id] ?? '' })
+                ) {
+                    if (String(line.qty ?? '').trim() === '') return false;
+                }
                 const qty = parseFloat(String(line.qty ?? '').replace(',', '.'));
                 return !Number.isFinite(qty) || qty <= 0;
             });
@@ -2325,8 +2449,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                 }
             }
         }
+        const pricedLineItems = selectedLineItems.map((line) => lineForMoney(line));
         const totals = computePurchaseInvoiceTotals({
-            lineItems: selectedLineItems,
+            lineItems: pricedLineItems,
             applyLineDiscount: applyDiscountForCalc,
             lineDiscountIsPercent: discountIsPercent,
             invoiceDiscountMode,
@@ -2342,6 +2467,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             amountsTaxInclusive,
             forDraft: isDraftSave,
             productSearchByLineId,
+            hideQty: !showQty,
         });
         const dueComputed = calculateDueDate();
         const formSnapshot = buildPurchaseInvoiceFormSnapshot({
@@ -2359,6 +2485,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             invoiceDiscountMode,
             showDesc,
             showDiscount,
+            showQty,
+            showUnitPrice,
             discountIsPercent,
             amountsTaxInclusive,
             freightSar,
@@ -2385,6 +2513,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             ui: {
                 show_line_description_column: showDesc,
                 show_line_discount_column: showDiscount,
+                show_qty_column: showQty,
+                show_unit_price_column: showUnitPrice,
                 line_discount_is_percent: discountIsPercent,
                 amounts_tax_inclusive: amountsTaxInclusive,
                 prices_include_vat: amountsTaxInclusive,
@@ -2463,10 +2593,11 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                             unitPrice: Number(ln.unit_price_ex_vat ?? 0),
                             discount: Number(ln.line_discount_amount ?? ln.line_discount_raw ?? 0),
                             discountType: discountIsPercent ? 'percent' : 'fixed',
-                            taxCode: 'VAT15',
+                            taxCode: ln.tax_code || 'VAT15',
                             taxAmount: Number(ln.tax_amount ?? 0),
                             lineTotal: Number(ln.taxable_ex_vat ?? ln.gross_ex_vat ?? 0),
                             total: Number(ln.line_total_incl_vat ?? 0),
+                            accountCode: ln.account_code || undefined,
                         };
                     })
                     .filter(Boolean);
@@ -2493,6 +2624,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                     ui: {
                         showLineDescriptionColumn: showDesc,
                         showLineDiscountColumn: showDiscount,
+                        show_qty_column: showQty,
+                        show_unit_price_column: showUnitPrice,
                         lineDiscountIsPercent: discountIsPercent,
                         amountsTaxInclusive,
                         amounts_tax_inclusive: amountsTaxInclusive,
@@ -2557,6 +2690,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
             setInvoiceDiscountMode('fixed_sar');
             setFreightSar('0');
             setAmountsTaxInclusive(false);
+            setShowQty(true);
+            setShowUnitPrice(true);
             setInvoiceBranchId('');
             setProductSearchByLineId({});
             setActiveProductSearchLineId(null);
@@ -2821,8 +2956,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         <col style={{ width: showDesc ? '14%' : '18%' }} />
                                         {showDesc ? <col style={{ width: '12%' }} /> : null}
                                         <col style={{ width: 96 }} />
-                                        <col style={{ width: 72 }} />
-                                        <col style={{ width: 96 }} />
+                                        {showQty ? <col style={{ width: 72 }} /> : null}
+                                        {showUnitPrice ? <col style={{ width: 96 }} /> : null}
                                         {showDiscount ? <col className="ws-pi-col-discount" style={{ width: 168 }} /> : null}
                                         <col style={{ width: showDiscount ? '8%' : '10%' }} />
                                         <col style={{ width: 84 }} />
@@ -2840,12 +2975,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <th scope="col">{t('th.account')}</th>
                                             {showDesc ? <th scope="col">{t('th.description')}</th> : null}
                                             <th scope="col">{t('th.uom')}</th>
-                                            <th scope="col" className="ws-pi-th-num">
-                                                {t('th.qty')}
-                                            </th>
-                                            <th scope="col" className="ws-pi-th-num">
-                                                {amountsTaxInclusive ? t('th.unitPriceIncl') : t('th.unitPriceEx')}
-                                            </th>
+                                            {showQty ? (
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    {t('th.qty')}
+                                                </th>
+                                            ) : null}
+                                            {showUnitPrice ? (
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    {amountsTaxInclusive ? t('th.unitPriceIncl') : t('th.unitPriceEx')}
+                                                </th>
+                                            ) : null}
                                             {showDiscount ? (
                                                 <th scope="col" className="ws-pi-th-num">
                                                     {t('th.discount')}
@@ -2874,15 +3013,25 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     <tbody>
                                         {lineItems.map((line, idx) => {
                                             const piLineColumnCount =
-                                                12 + (showDesc ? 1 : 0) + (showDiscount ? 1 : 0);
+                                                12 +
+                                                (showDesc ? 1 : 0) +
+                                                (showDiscount ? 1 : 0) -
+                                                (showQty ? 0 : 1) -
+                                                (showUnitPrice ? 0 : 1);
+                                            const searchText = getProductSearchText(line);
+                                            const directTotal = lineHasTypedTotal(line) || lineUsesEnteredTotal(line, {
+                                                hideQty: !showQty,
+                                                searchText,
+                                            });
                                             const workingLine = applyDiscountForCalc
                                                 ? line
                                                 : { ...line, discount: 0 };
                                             const amounts = computeLineFinancials(
-                                                workingLine,
+                                                directTotal ? { ...workingLine, directTotal: true } : workingLine,
                                                 amountsTaxInclusive,
                                                 lineFinancialsOpts,
                                             );
+                                            const typedTotalValue = line.amountSource === 'total' ? (line.enteredTotal ?? '') : '';
                                             const uomCaps = lineInventoryCapsForInvoice(
                                                 findUomCapsForLine(
                                                     line,
@@ -3107,11 +3256,33 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             value={line.account}
                                                             onChange={(e) => updateLineItem(line.id, 'account', e.target.value)}
                                                         >
-                                                            {PI_ACCOUNT_OPTIONS.map((opt) => (
-                                                                <option key={opt.code} value={`${opt.code} - ${opt.name}`}>
-                                                                    {opt.code} - {t(`account.${opt.code}`)}
-                                                                </option>
-                                                            ))}
+                                                            {(() => {
+                                                                const choices = coaAccounts.length
+                                                                    ? coaAccounts
+                                                                    : PI_ACCOUNT_OPTIONS.map((opt) => ({
+                                                                          code: opt.code,
+                                                                          name: opt.name,
+                                                                          isHeading: false,
+                                                                      }));
+                                                                const known = new Set(
+                                                                    choices.map((opt) => `${opt.code} - ${opt.name}`),
+                                                                );
+                                                                const extra =
+                                                                    line.account && !known.has(line.account)
+                                                                        ? [{ code: '', name: line.account, isHeading: false, extra: true }]
+                                                                        : [];
+                                                                return [...extra, ...choices].map((opt) => (
+                                                                    <option
+                                                                        key={opt.extra ? `extra-${opt.name}` : opt.code}
+                                                                        value={opt.extra ? opt.name : `${opt.code} - ${opt.name}`}
+                                                                        disabled={opt.isHeading}
+                                                                    >
+                                                                        {opt.extra
+                                                                            ? opt.name
+                                                                            : `${opt.code} - ${opt.name}${opt.isHeading ? ' (group)' : ''}`}
+                                                                    </option>
+                                                                ));
+                                                            })()}
                                                         </SelectCombo>
                                                     </td>
                                                     {showDesc ? (
@@ -3153,6 +3324,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             <span className="ws-pi-td-muted">{line.uom}</span>
                                                         )}
                                                     </td>
+                                                    {showQty ? (
                                                     <td className="ws-pi-td-num ws-pi-td-qty">
                                                         <input
                                                             type="text"
@@ -3163,6 +3335,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             onBlur={(e) => handleMathBlur(e, line.id, 'qty')}
                                                         />
                                                     </td>
+                                                    ) : null}
+                                                    {showUnitPrice ? (
                                                     <td
                                                         className="ws-pi-td-num ws-pi-price-cell"
                                                         title={
@@ -3185,6 +3359,7 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             onBlur={(e) => handleMathBlur(e, line.id, 'price')}
                                                         />
                                                     </td>
+                                                    ) : null}
                                                     {showDiscount ? (
                                                         <td className="ws-pi-td-num ws-pi-td-discount">
                                                             <div className="ws-pi-discount-cell">
@@ -3211,7 +3386,23 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             </div>
                                                         </td>
                                                     ) : null}
-                                                    <td className="ws-pi-td-num">{money(amounts.lineExStr)}</td>
+                                                    <td className="ws-pi-td-num">
+                                                        {!amountsTaxInclusive ? (
+                                                            <input
+                                                                type="text"
+                                                                className="pi-row-input-num pi-math-input"
+                                                                placeholder="0.00"
+                                                                title={t('tip.totalEntry')}
+                                                                value={line.amountSource === 'total' ? typedTotalValue : amounts.lineExStr}
+                                                                onFocus={(e) => e.target.select()}
+                                                                onChange={(e) => updateLineItem(line.id, 'enteredTotal', e.target.value)}
+                                                                onKeyDown={(e) => handleMathKeyDown(e, line.id, 'enteredTotal')}
+                                                                onBlur={(e) => handleMathBlur(e, line.id, 'enteredTotal')}
+                                                            />
+                                                        ) : (
+                                                            money(amounts.lineExStr)
+                                                        )}
+                                                    </td>
                                                     <td className="ws-pi-td-tax">
                                                         <select
                                                             className="pi-row-input ws-pi-select"
@@ -3227,7 +3418,23 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                         </select>
                                                     </td>
                                                     <td className="ws-pi-td-num">{money(amounts.taxAmtStr)}</td>
-                                                    <td className="ws-pi-td-num ws-pi-td-strong">{money(amounts.grandInclStr)}</td>
+                                                    <td className="ws-pi-td-num ws-pi-td-strong">
+                                                        {amountsTaxInclusive ? (
+                                                            <input
+                                                                type="text"
+                                                                className="pi-row-input-num pi-math-input"
+                                                                placeholder="0.00"
+                                                                title={t('tip.totalEntry')}
+                                                                value={line.amountSource === 'total' ? typedTotalValue : amounts.grandInclStr}
+                                                                onFocus={(e) => e.target.select()}
+                                                                onChange={(e) => updateLineItem(line.id, 'enteredTotal', e.target.value)}
+                                                                onKeyDown={(e) => handleMathKeyDown(e, line.id, 'enteredTotal')}
+                                                                onBlur={(e) => handleMathBlur(e, line.id, 'enteredTotal')}
+                                                            />
+                                                        ) : (
+                                                            money(amounts.grandInclStr)
+                                                        )}
+                                                    </td>
                                                     <td className="ws-pi-td-num">
                                                         {(() => {
                                                             if (!line.productId) {
@@ -3359,6 +3566,22 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                     onChange={(e) => setShowDiscount(e.target.checked)}
                                 />
                                 <span>{t('form.colDiscount')}</span>
+                            </label>
+                            <label className="pi-checkbox" title={t('form.colQtyHint')}>
+                                <input
+                                    type="checkbox"
+                                    checked={showQty}
+                                    onChange={(e) => setShowQty(e.target.checked)}
+                                />
+                                <span>{t('form.colQty')}</span>
+                            </label>
+                            <label className="pi-checkbox">
+                                <input
+                                    type="checkbox"
+                                    checked={showUnitPrice}
+                                    onChange={(e) => setShowUnitPrice(e.target.checked)}
+                                />
+                                <span>{t('form.colUnitPrice')}</span>
                             </label>
                             <label className="pi-checkbox">
                                 <input
@@ -3896,8 +4119,8 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                         <col style={{ width: viewUi.showDesc ? '16%' : '22%' }} />
                                         {viewUi.showDesc ? <col style={{ width: '14%' }} /> : null}
                                         <col style={{ width: 72 }} />
-                                        <col style={{ width: 72 }} />
-                                        <col style={{ width: 96 }} />
+                                        {viewUi.showQty ? <col style={{ width: 72 }} /> : null}
+                                        {viewUi.showUnitPrice ? <col style={{ width: 96 }} /> : null}
                                         {viewUi.showDiscount ? <col style={{ width: 88 }} /> : null}
                                         <col style={{ width: viewUi.showDiscount ? '9%' : '11%' }} />
                                         <col style={{ width: 88 }} />
@@ -3913,12 +4136,16 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                             <th scope="col">{t('th.account')}</th>
                                             {viewUi.showDesc ? <th scope="col">{t('th.description')}</th> : null}
                                             <th scope="col">{t('th.uom')}</th>
-                                            <th scope="col" className="ws-pi-th-num">
-                                                Qty
-                                            </th>
-                                            <th scope="col" className="ws-pi-th-num">
-                                                {t('th.unitPriceEx')}
-                                            </th>
+                                            {viewUi.showQty ? (
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    Qty
+                                                </th>
+                                            ) : null}
+                                            {viewUi.showUnitPrice ? (
+                                                <th scope="col" className="ws-pi-th-num">
+                                                    {t('th.unitPriceEx')}
+                                                </th>
+                                            ) : null}
                                             {viewUi.showDiscount ? (
                                                 <th scope="col" className="ws-pi-th-num">
                                                     {t('th.discount')}{viewUi.discountIsPercent ? ' %' : ` (${t('line.sarCurrency')})`}
@@ -3943,7 +4170,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                     colSpan={
                                                         10 +
                                                         (viewUi.showDesc ? 1 : 0) +
-                                                        (viewUi.showDiscount ? 1 : 0)
+                                                        (viewUi.showDiscount ? 1 : 0) -
+                                                        (viewUi.showQty ? 0 : 1) -
+                                                        (viewUi.showUnitPrice ? 0 : 1)
                                                     }
                                                     style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-muted)' }}
                                                 >
@@ -3968,8 +4197,10 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                                                             </td>
                                                         ) : null}
                                                         <td className="ws-pi-td-muted">{row.uom}</td>
-                                                        <td className="ws-pi-td-num">{row.qty}</td>
-                                                        <td className="ws-pi-td-num">SAR {row.unitEx.toFixed(2)}</td>
+                                                        {viewUi.showQty ? <td className="ws-pi-td-num">{row.qty}</td> : null}
+                                                        {viewUi.showUnitPrice ? (
+                                                            <td className="ws-pi-td-num">SAR {row.unitEx.toFixed(2)}</td>
+                                                        ) : null}
                                                         {viewUi.showDiscount ? (
                                                             <td className="ws-pi-td-num">SAR {row.lineDisc.toFixed(2)}</td>
                                                         ) : null}
@@ -4158,7 +4389,9 @@ export default function WorkshopPurchases({ tabState, clearTabState, selectedBra
                         setEditingDraftId(null);
                         clearDraftEditSession();
                         setAmountsTaxInclusive(false);
-                        setLineItems((prev) => (prev.length > 0 ? prev : [createEmptyLine()]));
+                        setShowQty(true);
+                        setShowUnitPrice(true);
+                        setLineItems((prev) => (prev.length > 0 ? prev : [createEmptyLine(purchaseAccountsRef.current.inventory)]));
                         setModalOpen(true);
                     }}
                 >

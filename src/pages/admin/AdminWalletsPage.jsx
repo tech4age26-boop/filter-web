@@ -23,6 +23,7 @@ import { awT } from '../../utils/adminWalletsI18n';
 import ExpenseProofThumbnail from '../../components/accounting/ExpenseProofThumbnail';
 import BudgetWalletSection from '../../components/admin/BudgetWalletSection';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
+import LockerPayFromFields from '../../components/admin/LockerPayFromFields';
 import '../../styles/admin/AdminWalletsPage.css';
 
 function formatSar(value) {
@@ -413,6 +414,7 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
     const [sourceUserId, setSourceUserId] = useState(request?.sourceUserId ?? '');
     const [sourceUserBalance, setSourceUserBalance] = useState(null);
     const [acct, setAcct] = useState({ blocked: true, loading: true });
+    const [locker, setLocker] = useState({ blocked: true, blockReason: '' });
 
     const requesterUserId = request?.userId ?? '';
     const recipientName = requesterName || request?.requestedByName || t('approve.requester');
@@ -471,8 +473,20 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                     : '')
         : '';
 
-    const displayError = error || walletBlockReason || (fundSourceType === 'wallet' ? '' : acct.blockReason) || '';
-    const confirmBlocked = busy || (fundSourceType === 'wallet' ? walletBlocked : acct.blocked);
+    const displayError = error || walletBlockReason || (
+        fundSourceType === 'wallet'
+            ? ''
+            : fundSourceType === 'locker'
+                ? locker.blockReason
+                : acct.blockReason
+    ) || '';
+    const confirmBlocked = busy || (
+        fundSourceType === 'wallet'
+            ? walletBlocked
+            : fundSourceType === 'locker'
+                ? locker.blocked
+                : acct.blocked
+    );
 
     return (
         <AdminModalAsScreen
@@ -494,10 +508,18 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                             sourceUserId: fundSourceType === 'wallet'
                                 ? (lockedWalletPeer ? request?.sourceUserId : sourceUserId)
                                 : undefined,
-                            sourceAccountId: fundSourceType === 'wallet' ? undefined : acct.sourceAccountId,
-                            sourceAccountName: fundSourceType === 'wallet' ? undefined : acct.sourceAccountName,
-                            budgetAccountId: fundSourceType === 'wallet' ? undefined : acct.budgetAccountId,
-                            budgetAccountName: fundSourceType === 'wallet' ? undefined : acct.budgetAccountName,
+                            sourceAccountId: fundSourceType === 'wallet'
+                                ? undefined
+                                : fundSourceType === 'locker'
+                                    ? locker.sourceAccountId
+                                    : acct.sourceAccountId,
+                            sourceAccountName: fundSourceType === 'wallet'
+                                ? undefined
+                                : fundSourceType === 'locker'
+                                    ? locker.sourceAccountName
+                                    : acct.sourceAccountName,
+                            budgetAccountId: fundSourceType === 'external' ? acct.budgetAccountId : undefined,
+                            budgetAccountName: fundSourceType === 'external' ? acct.budgetAccountName : undefined,
                         })}
                     >
                         {busy ? <Loader2 size={14} className="spin" /> : <Check size={16} />}
@@ -517,7 +539,9 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                 {' '}
                 {fundSourceType === 'wallet'
                     ? t('approve.leadWallet')
-                    : t('approve.leadExternal')}
+                    : fundSourceType === 'locker'
+                        ? t('approve.leadLocker')
+                        : t('approve.leadExternal')}
             </p>
 
             {!lockedWalletPeer ? (
@@ -539,6 +563,14 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                             onClick={() => setFundSourceType('wallet')}
                         >
                             {t('approve.deductWallet')}
+                        </button>
+                        <button
+                            type="button"
+                            className={fundSourceType === 'locker' ? 'admin-wallets-modal-btn-primary' : 'admin-wallets-modal-btn-cancel'}
+                            disabled={busy}
+                            onClick={() => setFundSourceType('locker')}
+                        >
+                            {t('approve.lockerWallet')}
                         </button>
                     </div>
                 </div>
@@ -593,6 +625,12 @@ function ApproveFundModal({ request, requesterName, busy, onCancel, onConfirm, e
                         </p>
                     ) : null}
                 </div>
+            ) : fundSourceType === 'locker' ? (
+                <LockerPayFromFields
+                    amount={request?.amount}
+                    busy={busy}
+                    onChange={setLocker}
+                />
             ) : (
                 <WalletApprovalAccountFields
                     workshopId={request?.workshopId != null ? String(request.workshopId) : ''}

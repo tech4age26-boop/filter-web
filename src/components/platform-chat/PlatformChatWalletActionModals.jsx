@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, Check, X } from 'lucide-react';
 import AdminModalAsScreen from '../admin/AdminModalAsScreen';
 import WalletApprovalAccountFields from '../admin/WalletApprovalAccountFields';
+import LockerPayFromFields from '../admin/LockerPayFromFields';
 import { getRequesterWalletBalance, listAdminWallets } from '../../services/adminWalletApi';
 import { formatSar } from './PlatformChatWalletMessage';
 import { pcT } from '../../utils/platformChatI18n';
@@ -36,6 +37,8 @@ export default function PlatformChatWalletActionModals({
     const [rejectReason, setRejectReason] = useState('');
     const [approveError, setApproveError] = useState('');
     const [fundSourceType, setFundSourceType] = useState('external');
+    const [expensePayFrom, setExpensePayFrom] = useState('wallet');
+    const [locker, setLocker] = useState({ blocked: true, blockReason: '' });
     const [walletUsers, setWalletUsers] = useState([]);
     const [walletUsersLoading, setWalletUsersLoading] = useState(false);
     const [sourceUserId, setSourceUserId] = useState('');
@@ -57,6 +60,7 @@ export default function PlatformChatWalletActionModals({
         setApproveRemarks('');
         setApproveError('');
         setFundSourceType(lockedWalletPeer ? 'wallet' : 'external');
+        setExpensePayFrom('wallet');
         setSourceUserId(payload.sourceUserId ?? '');
         setSourceUserBalance(null);
     }, [approveTarget, lockedWalletPeer, payload.sourceUserId]);
@@ -130,9 +134,11 @@ export default function PlatformChatWalletActionModals({
     const confirmApprove = async () => {
         if (!approveTarget?.message?.id) return;
         if (approveIsExpense) {
-            if (acct.blocked) return;
+            if (acct.blocked || (expensePayFrom === 'locker' && locker.blocked)) return;
         } else if (fundSourceType === 'wallet') {
             if (walletBlocked) return;
+        } else if (fundSourceType === 'locker') {
+            if (locker.blocked) return;
         } else if (acct.blocked) {
             return;
         }
@@ -145,15 +151,20 @@ export default function PlatformChatWalletActionModals({
             if (approveIsExpense) {
                 body.budgetAccountId = acct.budgetAccountId;
                 body.budgetAccountName = acct.budgetAccountName;
-                if (acct.paymentSource !== 'wallet' && acct.sourceAccountId) {
-                    body.sourceAccountId = acct.sourceAccountId;
-                    body.sourceAccountName = acct.sourceAccountName;
+                if (expensePayFrom === 'locker') {
+                    body.payFrom = 'locker';
+                    body.sourceAccountId = locker.sourceAccountId;
+                    body.sourceAccountName = locker.sourceAccountName;
                 }
             } else if (fundSourceType === 'wallet') {
                 body.fundSourceType = 'wallet';
                 body.sourceUserId = lockedWalletPeer
                     ? payload.sourceUserId
                     : sourceUserId;
+            } else if (fundSourceType === 'locker') {
+                body.fundSourceType = 'locker';
+                body.sourceAccountId = locker.sourceAccountId;
+                body.sourceAccountName = locker.sourceAccountName;
             } else {
                 body.fundSourceType = 'external';
                 body.sourceAccountId = acct.sourceAccountId;
@@ -190,15 +201,23 @@ export default function PlatformChatWalletActionModals({
         }
     };
 
-    const approveDisplayError = approveError || walletBlockReason || (
-        !approveIsExpense && fundSourceType === 'wallet' ? '' : acct.blockReason
+    const lockerReason = (
+        (approveIsExpense && expensePayFrom === 'locker')
+        || (!approveIsExpense && fundSourceType === 'locker')
+    ) ? locker.blockReason : '';
+    const approveDisplayError = approveError || walletBlockReason || lockerReason || (
+        !approveIsExpense && (fundSourceType === 'wallet' || fundSourceType === 'locker')
+            ? ''
+            : acct.blockReason
     ) || '';
     const approveConfirmBlocked = busy || (
         approveIsExpense
-            ? acct.blocked
+            ? (acct.blocked || (expensePayFrom === 'locker' && locker.blocked))
             : fundSourceType === 'wallet'
                 ? walletBlocked
-                : acct.blocked
+                : fundSourceType === 'locker'
+                    ? locker.blocked
+                    : acct.blocked
     );
     const proofUrl = approveTarget?.payload?.proofUrl ?? '';
 
@@ -256,6 +275,14 @@ export default function PlatformChatWalletActionModals({
                                     onClick={() => setFundSourceType('wallet')}
                                 >
                                     {t('modal.deductWallet')}
+                                </button>
+                                <button
+                                    type="button"
+                                    className={fundSourceType === 'locker' ? 'pc-wallet-modal-primary' : 'pc-wallet-modal-cancel'}
+                                    disabled={busy}
+                                    onClick={() => setFundSourceType('locker')}
+                                >
+                                    {t('modal.lockerWallet')}
                                 </button>
                             </div>
                         </div>
@@ -324,6 +351,38 @@ export default function PlatformChatWalletActionModals({
                         </div>
                     ) : null}
 
+                    {approveIsExpense ? (
+                        <div style={{ marginBottom: 12 }}>
+                            <span className="pc-wallet-field-label">{t('modal.payFrom')}</span>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                                <button
+                                    type="button"
+                                    className={expensePayFrom === 'wallet' ? 'pc-wallet-modal-primary' : 'pc-wallet-modal-cancel'}
+                                    disabled={busy}
+                                    onClick={() => setExpensePayFrom('wallet')}
+                                >
+                                    {t('modal.requesterWallet')}
+                                </button>
+                                <button
+                                    type="button"
+                                    className={expensePayFrom === 'locker' ? 'pc-wallet-modal-primary' : 'pc-wallet-modal-cancel'}
+                                    disabled={busy}
+                                    onClick={() => setExpensePayFrom('locker')}
+                                >
+                                    {t('modal.lockerWallet')}
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    {((approveIsExpense && expensePayFrom === 'locker') || (!approveIsExpense && fundSourceType === 'locker')) ? (
+                        <LockerPayFromFields
+                            amount={payload.amount}
+                            busy={busy}
+                            onChange={setLocker}
+                        />
+                    ) : null}
+
                     {approveIsExpense && proofUrl ? (
                         <div style={{ marginBottom: 12 }}>
                             <span className="pc-wallet-field-label">{t('modal.expenseProof')}</span>
@@ -344,6 +403,7 @@ export default function PlatformChatWalletActionModals({
                             amount={payload.amount}
                             mode={approveIsExpense ? 'expense' : 'fund'}
                             showBudget={approveIsExpense}
+                            skipRequesterWallet={approveIsExpense && expensePayFrom === 'locker'}
                             busy={busy}
                             requesterUserId={
                                 approveIsExpense
