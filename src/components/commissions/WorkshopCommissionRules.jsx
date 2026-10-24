@@ -23,6 +23,7 @@ function pushNamedChips(chips, names, cls) {
 
 function ScopeChips({ rule, t }) {
     const chips = [];
+    pushNamedChips(chips, (rule.branches || []).map((b) => b.name), 'dept');
     pushNamedChips(chips, (rule.departments || []).map((d) => d.name), 'dept');
     pushNamedChips(chips, (rule.categories || []).map((c) => c.name), 'cat');
     for (const km of rule.kmValues || []) {

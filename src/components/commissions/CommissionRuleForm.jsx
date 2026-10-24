@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Info, Layers, Lock, Percent, Sparkles } from 'lucide-react';
 import WorkshopSubScreen from '../workshop/WorkshopSubScreen';
 import MultiSelectSearchCombo from '../MultiSelectSearchCombo';
+import { apiFetch } from '../../services/api';
 import {
     createWorkshopCommissionRule,
     getCommissionRuleCategories,
@@ -29,6 +30,7 @@ const EMPTY_FORM = {
     employeeRole: 'Technician',
     people: [],
     appliesTo: 'all',
+    branchIds: [],
     departmentIds: [],
     categoryIds: [],
     productIds: [],
@@ -51,6 +53,7 @@ function formFromRule(rule) {
         employeeRole,
         people: ids(rule[commissionPeopleKey(employeeRole)]),
         appliesTo: APPLIES_TO.includes(rule.appliesTo) ? rule.appliesTo : 'all',
+        branchIds: ids(rule.branchIds),
         departmentIds: ids(rule.departmentIds),
         categoryIds: ids(rule.categoryIds),
         productIds: ids(rule.productIds),
@@ -84,6 +87,7 @@ export default function CommissionRuleForm({
 }) {
     const isEdit = Boolean(rule?.id);
     const [form, setForm] = useState(() => formFromRule(rule));
+    const [branches, setBranches] = useState([]);
     const [departments, setDepartments] = useState([]);
     const [categories, setCategories] = useState([]);
     const [products, setProducts] = useState([]);
@@ -116,11 +120,18 @@ export default function CommissionRuleForm({
         (async () => {
             setLoadingCatalog(true);
             try {
-                const [d, c] = await Promise.all([
+                const [d, c, b] = await Promise.all([
                     getCommissionRuleDepartments(scopeParams),
                     getCommissionRuleCategories(scopeParams),
+                    apiFetch('/workshop-staff/branches'),
                 ]);
                 if (cancelled) return;
+                const branchList = Array.isArray(b?.branches)
+                    ? b.branches
+                    : Array.isArray(b)
+                        ? b
+                        : [];
+                setBranches(branchList.filter((row) => row?.id != null && row?.name));
                 setDepartments(Array.isArray(d?.departments) ? d.departments : []);
                 setCategories(Array.isArray(c?.categories) ? c.categories : []);
             } catch (err) {
@@ -373,6 +384,11 @@ export default function CommissionRuleForm({
             options.filter((o) => selected.includes(o.id)).map((o) => o.label);
         const peopleNames = labelsOf(peopleOptions, form.people);
         if (peopleNames.length) facts.push({ k: t('rules.summary.people'), v: joinNames(peopleNames) });
+        const branchNames = branches
+            .filter((row) => form.branchIds.includes(String(row.id)))
+            .map((row) => row.name)
+            .filter(Boolean);
+        if (branchNames.length) facts.push({ k: t('rules.branch'), v: joinNames(branchNames) });
         const deptNames = labelsOf(departmentOptions, form.departmentIds);
         if (deptNames.length) facts.push({ k: t('rules.summary.department'), v: joinNames(deptNames) });
         const catNames = labelsOf(categoryOptions, form.categoryIds);
@@ -390,6 +406,8 @@ export default function CommissionRuleForm({
         return facts;
     }, [
         peopleOptions,
+        branches,
+        form.branchIds,
         departmentOptions,
         categoryOptions,
         productOptions,
@@ -430,6 +448,7 @@ export default function CommissionRuleForm({
             priority,
             status: form.status,
             appliesTo: form.appliesTo,
+            branchIds: form.branchIds,
             departmentIds: form.departmentIds,
             categoryIds: form.categoryIds,
             productIds: form.appliesTo === 'services' ? [] : form.productIds,
@@ -637,6 +656,26 @@ export default function CommissionRuleForm({
                                     </button>
                                 ))}
                             </div>
+                        </div>
+                        <div className="wcr-field">
+                            <span className="wcr-label">
+                                {t('rules.branch')}
+                                {form.branchIds.length ? <em className="wcr-count">{form.branchIds.length}</em> : null}
+                            </span>
+                            <MultiSelectSearchCombo
+                                options={branches.map((row) => ({
+                                    id: String(row.id),
+                                    label: row.name,
+                                }))}
+                                value={form.branchIds}
+                                disabled={readOnly}
+                                onChange={(next) => !readOnly && set('branchIds', next.map(String))}
+                                placeholder={loadingCatalog ? t('rules.loadingOptions') : t('rules.branchPh')}
+                                emptyHint={loadingCatalog ? t('rules.loadingOptions') : t('rules.branchesEmpty')}
+                                clearLabel={t('rules.clear')}
+                                menuMinWidth={320}
+                            />
+                            <span className="wcr-hint">{t('rules.branchHint')}</span>
                         </div>
                         <div className="wcr-grid wcr-grid--2">
                             <div className="wcr-field">
