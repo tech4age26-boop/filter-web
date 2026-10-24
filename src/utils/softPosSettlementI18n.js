@@ -66,6 +66,8 @@ const SP_I18N = {
 
         'status.captured': 'captured',
         'status.settled': 'settled',
+        'status.unsettled': 'unsettled',
+        'status.partial': 'partial',
         'status.refund': 'refund',
         'status.refunded': 'refunded',
         'status.partial_refund': 'partial_refund',
@@ -117,6 +119,8 @@ const SP_I18N = {
         'term.branchId': 'Branch ID *',
         'term.merchantCode': 'MID — Merchant ID (from bank) *',
         'term.terminalCode': 'TID — Terminal ID (from bank) *',
+        'term.overwriteTx':
+            'Do you want to overwrite the previous transactions with the new terminal number?',
         'term.label': 'Label',
         'term.bankCashBankAccountId': 'Bank CashBankAccount ID',
         'term.status': 'Status',
@@ -210,6 +214,8 @@ const SP_I18N = {
         'opt.allWorkshops': 'All workshops',
         'opt.allBranches': 'All branches',
         'opt.allTerminals': 'All terminals',
+        'opt.allDevices': 'All devices',
+        'batch.pickWorkshop': 'Select a workshop',
         'opt.selectWorkshop': 'Select workshop',
         'opt.selectBranch': 'Select branch',
         'opt.selectTerminal': 'Select terminal',
@@ -231,6 +237,10 @@ const SP_I18N = {
         'th.mode': 'Mode',
         'th.nearpayId': 'NearPay ID',
         'th.devices': 'Devices',
+        'th.terminalLock': 'Terminal Lock',
+        'term.lockHint': 'Locked: another device cannot connect. Unlocked: several devices can use this terminal.',
+        'term.locked': 'Terminal locked',
+        'term.unlocked': 'Terminal unlocked',
         'th.lastSeen': 'Last seen',
         'assign.title': 'Assign terminal — {ref}',
         'assign.hint':
@@ -251,7 +261,7 @@ const SP_I18N = {
         'devStatus.active': 'Paired',
         'devStatus.revoked': 'Revoked',
         'dev.intro':
-            'Each Android phone that taps cards is a device. Create a device for a terminal, then enter its pairing code once in the POS app. One phone per terminal.',
+            'Each Android phone that taps cards is a device. Create a device for a terminal, then enter its pairing code once in the POS app. A locked terminal accepts one phone. Turn Terminal Lock off to connect more than one phone to that terminal.',
         'dev.new': 'New Device',
         'dev.empty': 'No devices yet.',
         'dev.newCode': 'New pairing code',
@@ -351,6 +361,8 @@ const SP_I18N = {
 
         'status.captured': 'محصّل',
         'status.settled': 'مُسوّى',
+        'status.unsettled': 'غير مُسوّى',
+        'status.partial': 'جزئي',
         'status.refund': 'استرداد',
         'status.refunded': 'مُسترد',
         'status.partial_refund': 'استرداد جزئي',
@@ -402,6 +414,8 @@ const SP_I18N = {
         'term.branchId': 'معرّف الفرع *',
         'term.merchantCode': 'MID — رقم التاجر (من البنك) *',
         'term.terminalCode': 'TID — رقم الجهاز (من البنك) *',
+        'term.overwriteTx':
+            'هل تريد استبدال رقم الجهاز في المعاملات السابقة بالرقم الجديد؟',
         'term.label': 'التسمية',
         'term.bankCashBankAccountId': 'معرّف حساب النقد/البنك',
         'term.status': 'الحالة',
@@ -495,6 +509,8 @@ const SP_I18N = {
         'opt.allWorkshops': 'كل الورش',
         'opt.allBranches': 'كل الفروع',
         'opt.allTerminals': 'كل الأجهزة',
+        'opt.allDevices': 'كل الهواتف',
+        'batch.pickWorkshop': 'اختر الورشة',
         'opt.selectWorkshop': 'اختر الورشة',
         'opt.selectBranch': 'اختر الفرع',
         'opt.selectTerminal': 'اختر الجهاز',
@@ -516,6 +532,10 @@ const SP_I18N = {
         'th.mode': 'نوع التسوية',
         'th.nearpayId': 'معرّف NearPay',
         'th.devices': 'الهواتف',
+        'th.terminalLock': 'قفل الجهاز',
+        'term.lockHint': 'عند القفل لا يمكن ربط هاتف آخر. عند فتح القفل يمكن ربط عدة هواتف بهذا الجهاز.',
+        'term.locked': 'الجهاز مقفل',
+        'term.unlocked': 'الجهاز غير مقفل',
         'th.lastSeen': 'آخر ظهور',
         'assign.title': 'تعيين جهاز — {ref}',
         'assign.hint':
@@ -536,7 +556,7 @@ const SP_I18N = {
         'devStatus.active': 'مقترن',
         'devStatus.revoked': 'ملغى',
         'dev.intro':
-            'كل هاتف أندرويد يستقبل البطاقات هو جهاز مقترن. أنشئ هاتفاً لجهاز الدفع، ثم أدخل رمز الاقتران مرة واحدة في تطبيق نقاط البيع. هاتف واحد لكل جهاز دفع.',
+            'كل هاتف أندرويد يستقبل البطاقات هو جهاز مقترن. أنشئ هاتفاً لجهاز الدفع، ثم أدخل رمز الاقتران مرة واحدة في تطبيق نقاط البيع. الجهاز المقفل يقبل هاتفاً واحداً. أوقف قفل الجهاز لربط أكثر من هاتف به.',
         'dev.new': 'هاتف جديد',
         'dev.empty': 'لا توجد هواتف بعد.',
         'dev.newCode': 'رمز اقتران جديد',

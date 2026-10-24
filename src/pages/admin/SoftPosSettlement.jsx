@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOutletContext, useSearchParams } from 'react-router-dom';
+import SearchSelect from '../../components/SearchSelect';
 import {
     CreditCard,
     RefreshCw,
@@ -176,6 +177,7 @@ function useSoftPosOptions(workshopId) {
         branches: [],
         bankAccounts: [],
         terminals: [],
+        deviceLabels: [],
     });
     useEffect(() => {
         let cancelled = false;
@@ -188,6 +190,7 @@ function useSoftPosOptions(workshopId) {
                     branches: res?.branches || [],
                     bankAccounts: res?.bankAccounts || [],
                     terminals: res?.terminals || [],
+                    deviceLabels: res?.deviceLabels || [],
                 });
             })
             .catch(() => {
@@ -205,6 +208,7 @@ function useSoftPosOptions(workshopId) {
         branches: loading ? [] : state.branches,
         bankAccounts: loading ? [] : state.bankAccounts,
         terminals: loading ? [] : state.terminals,
+        deviceLabels: loading ? [] : state.deviceLabels || [],
         loading,
     };
 }
@@ -967,6 +971,22 @@ function TerminalsTab({ onError, t }) {
     const [search, setSearch] = useState('');
     const [reload, setReload] = useState(0);
     const [editing, setEditing] = useState(null);
+    const [lockingId, setLockingId] = useState('');
+
+    const toggleTerminalLock = async (term) => {
+        const nextLocked = term.deviceLocked === false;
+        setLockingId(term.id);
+        try {
+            await updateSoftPosTerminal(term.id, { deviceLocked: nextLocked });
+            setRows((prev) =>
+                prev.map((row) => (row.id === term.id ? { ...row, deviceLocked: nextLocked } : row)),
+            );
+        } catch (err) {
+            onError(err?.message || t('err.saveFailed'));
+        } finally {
+            setLockingId('');
+        }
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -1003,6 +1023,7 @@ function TerminalsTab({ onError, t }) {
         'th.mode',
         'th.nearpayId',
         'th.devices',
+        'th.terminalLock',
         'th.bankAc',
         'th.bankPct',
         'th.platformPct',
@@ -1114,6 +1135,40 @@ function TerminalsTab({ onError, t }) {
                                         )}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{term.activeDevices ?? 0}</td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                        <button
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={term.deviceLocked !== false}
+                                            aria-label={t('th.terminalLock')}
+                                            title={t('term.lockHint')}
+                                            disabled={lockingId === term.id}
+                                            onClick={() => toggleTerminalLock(term)}
+                                            style={{
+                                                width: 42,
+                                                height: 24,
+                                                borderRadius: 999,
+                                                border: 'none',
+                                                padding: 0,
+                                                background: term.deviceLocked !== false ? '#111827' : '#d1d5db',
+                                                position: 'relative',
+                                                cursor: lockingId === term.id ? 'wait' : 'pointer',
+                                            }}
+                                        >
+                                            <span
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: 3,
+                                                    left: term.deviceLocked !== false ? 21 : 3,
+                                                    width: 18,
+                                                    height: 18,
+                                                    borderRadius: 999,
+                                                    background: '#fff',
+                                                    transition: 'left 0.15s ease',
+                                                }}
+                                            />
+                                        </button>
+                                    </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                         {term.bankCashBankAccountName || t('common.emDash')}
                                     </td>
@@ -1205,6 +1260,11 @@ function TerminalModal({ initial = {}, onClose, onDone, t }) {
                     form.platformFeePercent === '' ? null : Number(form.platformFeePercent),
             };
             if (initial.id) {
+                const nextCode = String(form.terminalCode || '').trim();
+                const previousCode = String(initial.terminalCode || '').trim();
+                if (nextCode && nextCode !== previousCode) {
+                    payload.overwriteTransactions = window.confirm(t('term.overwriteTx'));
+                }
                 await updateSoftPosTerminal(initial.id, payload);
             } else {
                 await createSoftPosTerminal(payload);
@@ -1785,18 +1845,58 @@ function PairingCodeScreen({ pairing, onClose, t }) {
 }
 
 // ===== Batches =====
+function batchKey(b) {
+    return `${b.date}|${b.workshopId}|${b.branchId}|${b.terminalId || ''}|${b.deviceId || ''}|${b.settlementMode}`;
+}
+
 function BatchesTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [filters, setFilters] = useState({ workshopId: '', branchId: '', fromDate: '', toDate: '' });
+    const [devices, setDevices] = useState([]);
+    const [statusFilter, setStatusFilter] = useState('');
+    const [filters, setFilters] = useState({
+        workshopId: '',
+        branchId: '',
+        deviceId: '',
+        deviceLabel: '',
+        deviceKey: '',
+        fromDate: '',
+        toDate: '',
+    });
     const [reload, setReload] = useState(0);
+    const options = useSoftPosOptions(filters.workshopId);
+
+    useEffect(() => {
+        let cancelled = false;
+        listSoftPosDevices({
+            ...(filters.workshopId ? { workshopId: filters.workshopId } : {}),
+            ...(filters.branchId ? { branchId: filters.branchId } : {}),
+        })
+            .then((res) => {
+                if (!cancelled) setDevices(pickArr(res));
+            })
+            .catch(() => {
+                if (!cancelled) setDevices([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [filters.workshopId, filters.branchId]);
 
     useEffect(() => {
         let cancelled = false;
         (async () => {
             setLoading(true);
             try {
-                const res = await listSoftPosBatches(filters);
+                const res = await listSoftPosBatches({
+                    workshopId: filters.workshopId,
+                    branchId: filters.branchId,
+                    deviceId: filters.deviceId,
+                    deviceLabel: filters.deviceLabel,
+                    fromDate: filters.fromDate,
+                    toDate: filters.toDate,
+                    settlement: statusFilter,
+                });
                 if (!cancelled) setRows(pickArr(res));
             } catch (err) {
                 if (!cancelled) onError(err?.message || t('err.loadBatches'));
@@ -1807,11 +1907,26 @@ function BatchesTab({ onError, t }) {
         return () => {
             cancelled = true;
         };
-    }, [reload]);
+    }, [reload, statusFilter]);
+
+    const workshopOptions = options.workshops.map((w) => ({ value: w.id, label: w.name, searchText: w.name }));
+    const branchOptions = options.branches.map((b) => ({ value: b.id, label: b.name, searchText: b.name }));
+    const deviceOptions = [
+        ...devices.map((d) => ({
+            value: `id:${d.id}`,
+            label: d.label || d.id,
+            hint: [d.deviceModel, d.branchName].filter(Boolean).join(' · '),
+            searchText: `${d.label || ''} ${d.deviceModel || ''} ${d.terminalCode || ''} ${d.branchName || ''}`,
+        })),
+        ...(options.deviceLabels || [])
+            .filter((label) => !devices.some((d) => d.label === label))
+            .map((label) => ({ value: `label:${label}`, label, searchText: label })),
+    ];
 
     const headers = [
         'th.date',
         'th.terminal',
+        'th.device',
         'th.workshop',
         'th.branch',
         'th.count',
@@ -1819,35 +1934,106 @@ function BatchesTab({ onError, t }) {
         'th.bankFee',
         'th.platform',
         'th.net',
+        'th.status',
     ];
 
     return (
         <div style={card}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                <input
-                    placeholder={t('tx.ph.workshopId')}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <SearchSelect
+                    options={workshopOptions}
                     value={filters.workshopId}
-                    onChange={(e) => setFilters((p) => ({ ...p, workshopId: e.target.value }))}
-                    style={inputStyle}
+                    onChange={(workshopId) =>
+                        setFilters((p) => ({
+                            ...p,
+                            workshopId: workshopId || '',
+                            branchId: '',
+                            deviceId: '',
+                            deviceLabel: '',
+                            deviceKey: '',
+                        }))
+                    }
+                    placeholder={t('opt.allWorkshops')}
+                    ariaLabel={t('th.workshop')}
+                    clearable
+                    size="sm"
+                    style={{ width: 220 }}
+                    loading={options.loading && !options.workshops.length}
                 />
-                <input
-                    placeholder={t('tx.ph.branchId')}
+                <SearchSelect
+                    options={branchOptions}
                     value={filters.branchId}
-                    onChange={(e) => setFilters((p) => ({ ...p, branchId: e.target.value }))}
-                    style={inputStyle}
+                    onChange={(branchId) =>
+                        setFilters((p) => ({
+                            ...p,
+                            branchId: branchId || '',
+                            deviceId: '',
+                            deviceLabel: '',
+                            deviceKey: '',
+                        }))
+                    }
+                    placeholder={filters.workshopId ? t('opt.allBranches') : t('batch.pickWorkshop')}
+                    ariaLabel={t('th.branch')}
+                    clearable
+                    disabled={!filters.workshopId}
+                    size="sm"
+                    style={{ width: 220 }}
+                    loading={!!filters.workshopId && options.loading}
+                />
+                <SearchSelect
+                    options={deviceOptions}
+                    value={filters.deviceKey}
+                    onChange={(deviceKey) => {
+                        const raw = deviceKey || '';
+                        if (raw.startsWith('label:')) {
+                            setFilters((p) => ({ ...p, deviceKey: raw, deviceId: '', deviceLabel: raw.slice(6) }));
+                        } else if (raw.startsWith('id:')) {
+                            setFilters((p) => ({ ...p, deviceKey: raw, deviceId: raw.slice(3), deviceLabel: '' }));
+                        } else {
+                            setFilters((p) => ({ ...p, deviceKey: '', deviceId: '', deviceLabel: '' }));
+                        }
+                    }}
+                    placeholder={t('opt.allDevices')}
+                    ariaLabel={t('th.device')}
+                    clearable
+                    size="sm"
+                    style={{ width: 220 }}
                 />
                 <input
                     type="date"
                     value={filters.fromDate}
                     onChange={(e) => setFilters((p) => ({ ...p, fromDate: e.target.value }))}
-                    style={inputStyle}
+                    style={{ ...inputStyle, width: 150 }}
                 />
                 <input
                     type="date"
                     value={filters.toDate}
                     onChange={(e) => setFilters((p) => ({ ...p, toDate: e.target.value }))}
-                    style={inputStyle}
+                    style={{ ...inputStyle, width: 150 }}
                 />
+                {[
+                    { id: '', label: t('common.all') },
+                    { id: 'settled', label: t('status.settled') },
+                    { id: 'unsettled', label: t('status.unsettled') },
+                ].map((chip) => (
+                    <button
+                        key={chip.id || 'all'}
+                        type="button"
+                        onClick={() => setStatusFilter(chip.id)}
+                        style={{
+                            border: '1px solid',
+                            borderColor: statusFilter === chip.id ? '#D4A017' : '#e5e7eb',
+                            background: statusFilter === chip.id ? '#D4A017' : '#fff',
+                            color: '#111827',
+                            borderRadius: 999,
+                            padding: '6px 12px',
+                            fontSize: 13,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        {chip.label}
+                    </button>
+                ))}
                 <button type="button" style={btnPrimary} onClick={() => setReload((x) => x + 1)}>
                     {t('common.apply')}
                 </button>
@@ -1877,19 +2063,19 @@ function BatchesTab({ onError, t }) {
                     <tbody>
                         {loading ? (
                             <tr>
-                                <td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
                                     {t('common.loading')}
                                 </td>
                             </tr>
                         ) : rows.length === 0 ? (
                             <tr>
-                                <td colSpan={9} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+                                <td colSpan={headers.length} style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
                                     {t('batch.empty')}
                                 </td>
                             </tr>
                         ) : (
-                            rows.map((b, idx) => (
-                                <tr key={`${b.terminalId}-${b.date}-${idx}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            rows.map((b) => (
+                                <tr key={batchKey(b)} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.date}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
                                         <div>{b.terminalCode || t('tx.unassigned')}</div>
@@ -1899,6 +2085,7 @@ function BatchesTab({ onError, t }) {
                                             </div>
                                         )}
                                     </td>
+                                    <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.deviceLabel || t('common.emDash')}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.workshopName}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.branchName}</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{b.count}</td>
@@ -1909,6 +2096,21 @@ function BatchesTab({ onError, t }) {
                                         <FeeVatNote amount={b.platformFeeVat} t={t} />
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13, fontWeight: 600 }}>{SAR(b.netToMerchant)}</td>
+                                    <td
+                                        style={{
+                                            padding: '8px 10px',
+                                            fontSize: 13,
+                                            fontWeight: 600,
+                                            color:
+                                                b.status === 'settled'
+                                                    ? '#16a34a'
+                                                    : b.status === 'partial'
+                                                      ? '#d97706'
+                                                      : '#6b7280',
+                                        }}
+                                    >
+                                        {statusLabel(t, b.status)}
+                                    </td>
                                 </tr>
                             ))
                         )}
@@ -1920,6 +2122,13 @@ function BatchesTab({ onError, t }) {
 }
 
 // ===== Rules =====
+function formatRuleDate(value) {
+    const ymd = String(value).slice(0, 10);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+    if (!match) return ymd;
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12)).toLocaleDateString();
+}
+
 function RulesTab({ onError, t }) {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2061,10 +2270,10 @@ function RulesTab({ onError, t }) {
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.bankFeePercent}%</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>{r.platformFeePercent}%</td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {r.effectiveFrom ? new Date(r.effectiveFrom).toLocaleDateString() : t('common.emDash')}
+                                        {r.effectiveFrom ? formatRuleDate(r.effectiveFrom) : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px', fontSize: 13 }}>
-                                        {r.effectiveTo ? new Date(r.effectiveTo).toLocaleDateString() : t('common.emDash')}
+                                        {r.effectiveTo ? formatRuleDate(r.effectiveTo) : t('common.emDash')}
                                     </td>
                                     <td style={{ padding: '8px 10px' }}>
                                         <span
@@ -2332,6 +2541,8 @@ function RefundsTab({ onError, t }) {
 
 // ===== HQ Settlement (net HQ-owes vs workshop-owes → payout voucher) =====
 function HqSettlementTab({ onError, t }) {
+    const options = useSoftPosOptions('');
+    const workshopOptions = options.workshops.map((w) => ({ value: w.id, label: w.name, searchText: w.name }));
     const firstOfMonth = new Date();
     firstOfMonth.setDate(1);
     const [form, setForm] = useState({
@@ -2415,11 +2626,16 @@ function HqSettlementTab({ onError, t }) {
                     {t('hq.subtitle')}
                 </p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input
-                        placeholder={t('tx.ph.workshopId')}
+                    <SearchSelect
+                        options={workshopOptions}
                         value={form.workshopId}
-                        onChange={(e) => setForm((p) => ({ ...p, workshopId: e.target.value }))}
-                        style={{ ...inputStyle, width: 160 }}
+                        onChange={(workshopId) => setForm((p) => ({ ...p, workshopId: workshopId || '' }))}
+                        placeholder={t('batch.pickWorkshop')}
+                        ariaLabel={t('th.workshop')}
+                        clearable
+                        size="sm"
+                        style={{ width: 260 }}
+                        loading={options.loading && !options.workshops.length}
                     />
                     <input
                         type="date"

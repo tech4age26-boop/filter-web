@@ -62,6 +62,10 @@ const WP_I18N = {
         'form.freight': 'Freight (SAR)',
         'form.colDesc': 'Column — Description',
         'form.colDiscount': 'Column — Discount',
+        'form.colQty': 'Remove/Add Qty',
+        'form.colUnitPrice': 'Remove/Add Unit Price',
+        'form.colQtyHint': 'Hide Qty to type one amount on a line that has no product.',
+        'tip.totalEntry': 'Type the line total. Then type Qty or Unit Price and the other fills in. Clearing this total goes back to Qty × Unit Price.',
         'form.taxInclusive': 'Amounts are tax inclusive',
         'form.updateLastPrice':
             'Update last purchase price for all products on save (master catalog)',
@@ -293,6 +297,10 @@ const WP_I18N = {
         'form.freight': 'الشحن (ر.س)',
         'form.colDesc': 'عمود — الوصف',
         'form.colDiscount': 'عمود — الخصم',
+        'form.colQty': 'إزالة/إضافة الكمية',
+        'form.colUnitPrice': 'إزالة/إضافة سعر الوحدة',
+        'form.colQtyHint': 'أخفِ الكمية لكتابة مبلغ واحد في بند بلا منتج.',
+        'tip.totalEntry': 'اكتب إجمالي البند. ثم اكتب الكمية أو سعر الوحدة ليُحسب الآخر. مسح الإجمالي يعيد الحساب إلى الكمية × سعر الوحدة.',
         'form.taxInclusive': 'المبالغ شاملة الضريبة',
         'form.updateLastPrice':
             'تحديث آخر سعر شراء لجميع المنتجات عند الحفظ (الكتالوج الرئيسي)',

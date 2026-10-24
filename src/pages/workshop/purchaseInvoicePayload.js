@@ -9,6 +9,7 @@ import {
     reconstructInvoiceUnitPriceInput,
     roundMoney2 as money2,
     DEFAULT_INVOICE_TAXES,
+    lineUsesEnteredTotal,
 } from '../../utils/invoiceLineFinancials';
 import {
     isInvoiceLineSubmitReady,
@@ -63,8 +64,14 @@ export function computeLineAmounts(
         workingLine = { ...workingLine, discountMode: 'percent' };
     }
     const f = computeLineFinancials(workingLine, amountsTaxInclusive, lineFinancialsOpts(vatRate, opts));
-    const qty = parseFloat(String(line.qty).replace(',', '.')) || 0;
-    const unitPriceExVat = qty > 0 ? money2(f.lineEx / qty) : 0;
+    const qtyParsed = parseFloat(String(line.qty).replace(',', '.'));
+    const qty = line.directTotal
+        ? (qtyParsed > 0 ? qtyParsed : 1)
+        : (qtyParsed || 0);
+    const unitRaw = qty > 0 ? f.lineEx / qty : 0;
+    const unitPriceExVat = line.directTotal
+        ? Math.round((unitRaw + Number.EPSILON) * 1e6) / 1e6
+        : (qty > 0 ? money2(unitRaw) : 0);
     return {
         grossExcl: money2(f.lineEx + f.discountAmount),
         taxableExcl: f.lineEx,
@@ -116,7 +123,10 @@ export function buildEnrichedLineItems(
     return lineItems.map((line, idx) => {
         const a = computeLineAmounts(line, applyLineDiscount, lineDiscountIsPercent, vatRate, lineOpts);
         const { code, name } = parseAccountDisplay(line.account);
-        const qty = parseFloat(line.qty) || 0;
+        const direct = line.directTotal === true;
+        const qtyParsed = parseFloat(line.qty);
+        const qty = direct ? (qtyParsed > 0 ? qtyParsed : 1) : (qtyParsed || 0);
+        const itemName = String(line.item ?? '').trim() || (direct ? (name || code || 'Amount') : '');
         const unitPriceExVat = money2(a.unitPriceExVat ?? 0);
         const unitPurchasePriceInclVat =
             qty > 0 ? money2(a.totalIncl / qty) : money2(unitPriceExVat * (1 + a.vatRate));
@@ -131,7 +141,8 @@ export function buildEnrichedLineItems(
             line_no: idx + 1,
             client_line_id: line.id,
             branch_catalog_product_id: line.productId ? String(line.productId) : null,
-            item_name: line.item ?? '',
+            item_name: itemName,
+            direct_total: direct,
             account_display: line.account ?? '',
             account_code: code,
             account_name: name,
@@ -281,6 +292,9 @@ export function serializePurchaseInvoiceFormLines(lines) {
         uom: line.uom ?? 'piece',
         qty: line.qty ?? 1,
         price: line.price ?? 0,
+        entered_total: line.enteredTotal ?? '',
+        amount_source: line.amountSource ?? '',
+        total_solve_for: line.totalSolveFor ?? '',
         discount: line.discount ?? 0,
         discountMode: line.discountMode ?? 'percent',
         taxCode: line.taxCode ?? PURCHASE_INVOICE_TAX_LABEL,
@@ -314,6 +328,8 @@ export function buildPurchaseInvoiceFormSnapshot(state) {
         invoice_discount_mode: state.invoiceDiscountMode ?? 'fixed_sar',
         show_desc: Boolean(state.showDesc),
         show_discount: Boolean(state.showDiscount),
+        show_qty: state.showQty !== false,
+        show_unit_price: state.showUnitPrice !== false,
         discount_is_percent: Boolean(state.discountIsPercent),
         amounts_tax_inclusive: Boolean(state.amountsTaxInclusive),
         freight_sar: state.freightSar ?? '0',
@@ -332,22 +348,33 @@ export function buildPurchaseInvoiceLinesForSave(
         amountsTaxInclusive,
         forDraft = false,
         productSearchByLineId = {},
+        hideQty = false,
     },
 ) {
     const mapped = (lineItems ?? []).map((line) => {
-        const searchText = String(productSearchByLineId[line.id] ?? line.item ?? '').trim();
-        const itemLabel =
-            resolveInvoiceLineProductName(line, { searchText }) ||
-            parseAccountDisplay(line.account).name ||
-            parseAccountDisplay(line.account).code ||
-            '';
+        const searchText = String(productSearchByLineId[line.id] ?? '').trim();
+        const lump = lineUsesEnteredTotal(line, { hideQty, searchText });
+        const typedTotal = line.amountSource === 'total'
+            && Number.isFinite(parseFloat(String(line.enteredTotal ?? '').replace(',', '.')))
+            && parseFloat(String(line.enteredTotal ?? '').replace(',', '.')) > 0;
+        const direct = typedTotal || lump;
+        const itemLabel = lump && !String(line.item ?? '').trim() && !String(line.productId ?? '').trim()
+            ? (parseAccountDisplay(line.account).name ||
+                parseAccountDisplay(line.account).code ||
+                'Amount')
+            : (resolveInvoiceLineProductName(line, { searchText }) ||
+                parseAccountDisplay(line.account).name ||
+                parseAccountDisplay(line.account).code ||
+                '');
         const qtyRaw = parseFloat(String(line.qty ?? '').replace(',', '.'));
-        const qty =
-            forDraft && (!Number.isFinite(qtyRaw) || qtyRaw <= 0)
-                ? 1
-                : line.qty ?? 1;
+        const qty = direct && !(qtyRaw > 0)
+            ? 1
+            : forDraft && (!Number.isFinite(qtyRaw) || qtyRaw <= 0)
+              ? 1
+              : line.qty ?? 1;
         return {
             ...line,
+            directTotal: direct,
             item: itemLabel || line.item || '',
             qty,
         };
@@ -356,9 +383,13 @@ export function buildPurchaseInvoiceLinesForSave(
     let rows = mapped;
 
     if (!forDraft) {
-        rows = mapped.filter((l) =>
-            isInvoiceLineSubmitReady(l, productSearchByLineId[l.id]),
-        );
+        rows = mapped.filter((l) => {
+            if (l.directTotal) {
+                const n = parseFloat(String(l.enteredTotal ?? '').replace(',', '.'));
+                return Number.isFinite(n) && n > 0 && String(l.account ?? '').trim() !== '';
+            }
+            return isInvoiceLineSubmitReady(l, productSearchByLineId[l.id]);
+        });
     }
 
     if (forDraft && rows.length === 0) {

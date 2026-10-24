@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import '../../styles/admin/ApprovalsPage.css';
 import WalletApprovalAccountFields from '../../components/admin/WalletApprovalAccountFields';
+import LockerPayFromFields from '../../components/admin/LockerPayFromFields';
 import { getRequesterWalletBalance, listAdminWallets } from '../../services/adminWalletApi';
 import {
     list as listApprovals,
@@ -850,6 +851,7 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
     const [sourceUserId, setSourceUserId] = useState(item?.meta?.sourceUserId ?? '');
     const [sourceUserBalance, setSourceUserBalance] = useState(null);
     const [acct, setAcct] = useState({ blocked: true, loading: true });
+    const [locker, setLocker] = useState({ blocked: true, blockReason: '' });
     const workshopId = item?.meta?.workshopId ?? '';
     const branchId = item?.meta?.branchId ?? '';
     const requesterUserId = item?.meta?.adminUserId ?? '';
@@ -917,8 +919,20 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                     : '')
         : '';
 
-    const displayError = error || walletBlockReason || acct.blockReason;
-    const confirmBlocked = busy || (fundSourceType === 'wallet' ? walletBlocked : acct.blocked);
+    const displayError = error || walletBlockReason || (
+        fundSourceType === 'wallet'
+            ? ''
+            : fundSourceType === 'locker'
+                ? locker.blockReason
+                : acct.blockReason
+    );
+    const confirmBlocked = busy || (
+        fundSourceType === 'wallet'
+            ? walletBlocked
+            : fundSourceType === 'locker'
+                ? locker.blocked
+                : acct.blocked
+    );
 
     return (
         <ApprovalShell asPage={asPage}
@@ -941,10 +955,18 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                             sourceUserId: fundSourceType === 'wallet'
                                 ? (lockedWalletPeer ? item?.meta?.sourceUserId : sourceUserId)
                                 : undefined,
-                            sourceAccountId: fundSourceType === 'wallet' ? undefined : acct.sourceAccountId,
-                            sourceAccountName: fundSourceType === 'wallet' ? undefined : acct.sourceAccountName,
-                            budgetAccountId: fundSourceType === 'wallet' ? undefined : acct.budgetAccountId,
-                            budgetAccountName: fundSourceType === 'wallet' ? undefined : acct.budgetAccountName,
+                            sourceAccountId: fundSourceType === 'wallet'
+                                ? undefined
+                                : fundSourceType === 'locker'
+                                    ? locker.sourceAccountId
+                                    : acct.sourceAccountId,
+                            sourceAccountName: fundSourceType === 'wallet'
+                                ? undefined
+                                : fundSourceType === 'locker'
+                                    ? locker.sourceAccountName
+                                    : acct.sourceAccountName,
+                            budgetAccountId: fundSourceType === 'external' ? acct.budgetAccountId : undefined,
+                            budgetAccountName: fundSourceType === 'external' ? acct.budgetAccountName : undefined,
                         })}
                     >
                         {busy ? <Loader size={14} className="spin" /> : <Check size={16} />}
@@ -992,7 +1014,9 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                 Amount <strong>{amountLabel}</strong>
                 {fundSourceType === 'wallet'
                     ? ' will be transferred from the selected admin wallet.'
-                    : ' will be deducted from the selected payment account.'}
+                    : fundSourceType === 'locker'
+                        ? ' will be paid from the selected workshop Locker Wallet.'
+                        : ' will be deducted from the selected payment account.'}
                 {item?.meta?.workshopName ? (
                     <> Workshop: <strong>{item.meta.workshopName}</strong>
                     {item.meta.branchName ? <> · Branch: <strong>{item.meta.branchName}</strong></> : null}
@@ -1019,6 +1043,14 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                             onClick={() => setFundSourceType('wallet')}
                         >
                             Deduct from another wallet
+                        </button>
+                        <button
+                            type="button"
+                            className={fundSourceType === 'locker' ? 'btn-approve' : 'btn-view-details'}
+                            disabled={busy}
+                            onClick={() => setFundSourceType('locker')}
+                        >
+                            Locker Wallet
                         </button>
                     </div>
                 </div>
@@ -1073,6 +1105,12 @@ function AdminWalletFundApproveModal({ item, busy, onCancel, onConfirm, error, a
                         </p>
                     ) : null}
                 </div>
+            ) : fundSourceType === 'locker' ? (
+                <LockerPayFromFields
+                    amount={item?.meta?.amount}
+                    busy={busy}
+                    onChange={setLocker}
+                />
             ) : (
                 <WalletApprovalAccountFields
                     workshopId={workshopId}
@@ -1793,14 +1831,17 @@ function AdminWalletFundRequestDetailsModal({ id, item, onClose, onApprove, onRe
 
 function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error, asPage = false, t = (k, v) => apT('en', k, v) }) {
     const [remarks, setRemarks] = useState('');
+    const [payFrom, setPayFrom] = useState('wallet');
     const [acct, setAcct] = useState({ blocked: true, loading: true });
+    const [locker, setLocker] = useState({ blocked: true, blockReason: '' });
     const proofUrl = item?.meta?.proofUrl ?? '';
     const category = item?.meta?.expenseCategory ?? '—';
     const workshopId = item?.meta?.workshopId ?? '';
     const branchId = item?.meta?.branchId ?? '';
     const amountLabel = item?.meta?.amountLabel
         ?? (item?.meta?.amount != null ? `SAR ${item.meta.amount}` : '—');
-    const displayError = error || acct.blockReason;
+    const displayError = error || (payFrom === 'locker' ? locker.blockReason : '') || acct.blockReason;
+    const confirmBlocked = busy || acct.blocked || (payFrom === 'locker' && locker.blocked);
 
     return (
         <ApprovalShell asPage={asPage}
@@ -1816,13 +1857,14 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
                     <button
                         type="button"
                         className="btn-approve"
-                        disabled={busy || acct.blocked}
+                        disabled={confirmBlocked}
                         onClick={() => onConfirm({
                             remarks: remarks.trim() || undefined,
-                            ...(acct.paymentSource !== 'wallet' && acct.sourceAccountId
+                            ...(payFrom === 'locker'
                                 ? {
-                                    sourceAccountId: acct.sourceAccountId,
-                                    sourceAccountName: acct.sourceAccountName,
+                                    payFrom: 'locker',
+                                    sourceAccountId: locker.sourceAccountId,
+                                    sourceAccountName: locker.sourceAccountName,
                                 }
                                 : {}),
                             budgetAccountId: acct.budgetAccountId,
@@ -1859,12 +1901,41 @@ function AdminWalletExpenseApproveModal({ item, busy, onCancel, onConfirm, error
                 />
             </div>
 
+            <div style={{ marginBottom: 14 }}>
+                <label className="approval-modal-label">Pay from</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                        type="button"
+                        className={payFrom === 'wallet' ? 'btn-approve' : 'btn-view-details'}
+                        disabled={busy}
+                        onClick={() => setPayFrom('wallet')}
+                    >
+                        Requester wallet
+                    </button>
+                    <button
+                        type="button"
+                        className={payFrom === 'locker' ? 'btn-approve' : 'btn-view-details'}
+                        disabled={busy}
+                        onClick={() => setPayFrom('locker')}
+                    >
+                        Locker Wallet
+                    </button>
+                </div>
+            </div>
+            {payFrom === 'locker' ? (
+                <LockerPayFromFields
+                    amount={item?.meta?.amount}
+                    busy={busy}
+                    onChange={setLocker}
+                />
+            ) : null}
             <WalletApprovalAccountFields
                 workshopId={workshopId}
                 branchId={branchId}
                 amount={item?.meta?.amount}
                 mode="expense"
                 busy={busy}
+                skipRequesterWallet={payFrom === 'locker'}
                 requesterUserId={item?.meta?.adminUserId ?? ''}
                 requesterName={item?.meta?.adminUserName ?? item?.submittedBy ?? ''}
                 currencyCode={item?.meta?.currencyCode ?? 'SAR'}

@@ -71,6 +71,12 @@ export const refundSoftPosTransaction = (id, body) =>
 export const listSoftPosBatches = (params = {}) =>
     apiFetch(`/super-admin/softpos/batches${qs(params)}`);
 
+export const setSoftPosBatchSettlement = (body) =>
+    apiFetch('/super-admin/softpos/batches/settlement', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+    });
+
 export const getSoftPosOptions = (params = {}) =>
     apiFetch(`/super-admin/softpos/options${qs(params)}`);
 

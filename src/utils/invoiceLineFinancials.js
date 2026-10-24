@@ -21,12 +21,106 @@ export function vatRateForTaxCode(taxCode, taxes = DEFAULT_INVOICE_TAXES, fallba
 }
 
 /**
+ * A blank line (no product and no typed name) is entered as one amount
+ * when Qty is empty, or when the Qty column is hidden.
+ */
+export function parseInvoiceNumber(value) {
+    const n = parseFloat(String(value ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : NaN;
+}
+
+/** Up to 6 decimals, trailing zeros removed, so 750 / 3 stays 250 and 100 / 3 stays 33.333333. */
+export function formatSolvedAmount(n) {
+    if (!Number.isFinite(n)) return '';
+    const rounded = Math.round((n + Number.EPSILON) * 1e6) / 1e6;
+    return String(rounded);
+}
+
+/** The user typed a line total, so VAT follows that amount rather than Qty × Unit Price. */
+export function lineHasTypedTotal(line) {
+    if (line?.amountSource !== 'total') return false;
+    return Number.isFinite(parseInvoiceNumber(line.enteredTotal));
+}
+
+/**
+ * After a total is typed, the next Qty or Unit Price edit fills the other field.
+ * Editing the total again keeps it and recalculates the field that was filled last.
+ * A zero or blank divisor is left as typed.
+ */
+export function applyPurchaseLineEdit(line, field, value) {
+    const next = { ...line, [field]: value };
+    if (field !== 'qty' && field !== 'price' && field !== 'enteredTotal') return next;
+
+    if (field === 'enteredTotal') {
+        const text = String(value ?? '');
+        if (text.trim() === '') {
+            return { ...next, amountSource: '', enteredTotal: '', totalSolveFor: '' };
+        }
+        next.amountSource = 'total';
+        next.enteredTotal = text;
+        const total = parseInvoiceNumber(text);
+        if (!(total > 0)) return next;
+        if (!next.totalSolveFor) {
+            const price = parseInvoiceNumber(next.price);
+            const qty = parseInvoiceNumber(next.qty);
+            const qtyBlank = String(next.qty ?? '').trim() === '';
+            const priceBlank = String(next.price ?? '').trim() === '';
+            if (price > 0 && qtyBlank) next.totalSolveFor = 'qty';
+            else if (qty > 0 && priceBlank) next.totalSolveFor = 'price';
+        }
+        if (next.totalSolveFor === 'qty') {
+            const price = parseInvoiceNumber(next.price);
+            if (price > 0) next.qty = formatSolvedAmount(total / price);
+        } else if (next.totalSolveFor === 'price') {
+            const qty = parseInvoiceNumber(next.qty);
+            if (qty > 0) next.price = formatSolvedAmount(total / qty);
+        }
+        return next;
+    }
+
+    if (next.amountSource !== 'total') return next;
+    const total = parseInvoiceNumber(next.enteredTotal);
+    const typed = parseInvoiceNumber(value);
+    if (!(total > 0) || !(typed > 0)) return next;
+    if (field === 'price') {
+        next.totalSolveFor = 'qty';
+        next.qty = formatSolvedAmount(total / typed);
+    } else {
+        next.totalSolveFor = 'price';
+        next.price = formatSolvedAmount(total / typed);
+    }
+    return next;
+}
+
+export function lineUsesEnteredTotal(line, { hideQty = false, searchText = '' } = {}) {
+    const hasProduct = String(line?.productId ?? '').trim() !== '';
+    const name = String(searchText || line?.item || '').trim();
+    if (hasProduct || name) return false;
+    if (hideQty) return true;
+    return String(line?.qty ?? '').trim() === '';
+}
+
+/**
  * Derive ex-VAT line amount, VAT, and VAT-inclusive grand total from user inputs.
  * @param {object} line
- * @param {boolean} amountsTaxInclusive — unit price is VAT-inclusive when true
+ * @param {boolean} amountsTaxInclusive — unit price (or the typed total) is VAT-inclusive when true
  * @param {{ taxes?: typeof DEFAULT_INVOICE_TAXES, defaultRate?: number, noVat?: boolean }} [options]
  */
+
 export function computeLineFinancials(line, amountsTaxInclusive, options = {}) {
+    if (line?.directTotal) {
+        const entered = parseFloat(String(line.enteredTotal ?? '').replace(',', '.'));
+        return computeLineFinancials(
+            {
+                ...line,
+                directTotal: false,
+                qty: 1,
+                price: Number.isFinite(entered) ? entered : 0,
+            },
+            amountsTaxInclusive,
+            options,
+        );
+    }
     const taxes = options.taxes ?? DEFAULT_INVOICE_TAXES;
     const defaultRate = options.defaultRate ?? 0.15;
     const noVat = options.noVat === true;
@@ -178,14 +272,24 @@ export function computeInvoiceRollupTotals({
         linesVatBeforeInvDisc += f.taxAmt;
         linesGrandSum += f.grandIncl;
         lineDiscountSum += f.discountAmount;
-        const qty = parseFloat(String(workingLine.qty).replace(',', '.')) || 0;
-        const unitInput = parseFloat(String(workingLine.price).replace(',', '.')) || 0;
         const rate = lineOpts.noVat ? 0 : vatRateForTaxCode(workingLine.taxCode, taxes, defaultVatRate, false);
-        const grossEx = amountsTaxInclusive
-            ? rate > 0
-                ? roundMoney2((qty * unitInput) / (1 + rate))
-                : roundMoney2(qty * unitInput)
-            : roundMoney2(qty * unitInput);
+        let grossEx;
+        if (workingLine.directTotal) {
+            const entered = parseFloat(String(workingLine.enteredTotal ?? '').replace(',', '.')) || 0;
+            grossEx = amountsTaxInclusive
+                ? rate > 0
+                    ? roundMoney2(entered / (1 + rate))
+                    : roundMoney2(entered)
+                : roundMoney2(entered);
+        } else {
+            const qty = parseFloat(String(workingLine.qty).replace(',', '.')) || 0;
+            const unitInput = parseFloat(String(workingLine.price).replace(',', '.')) || 0;
+            grossEx = amountsTaxInclusive
+                ? rate > 0
+                    ? roundMoney2((qty * unitInput) / (1 + rate))
+                    : roundMoney2(qty * unitInput)
+                : roundMoney2(qty * unitInput);
+        }
         lineGrossEx += grossEx;
     }
 
